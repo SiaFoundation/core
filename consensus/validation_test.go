@@ -29,6 +29,9 @@ func signAllInputs(txn *types.Transaction, vc ValidationContext, priv ed25519.Pr
 	for i := range txn.SiacoinInputs {
 		txn.SiacoinInputs[i].Signature = types.SignTransaction(priv, sigHash)
 	}
+	for i := range txn.SiafundInputs {
+		txn.SiafundInputs[i].Signature = types.SignTransaction(priv, sigHash)
+	}
 }
 
 func TestEphemeralOutputs(t *testing.T) {

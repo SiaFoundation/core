@@ -495,6 +495,24 @@ func writeCheckpoint(w io.Writer, c consensus.Checkpoint) error {
 			writeCurrency(out.Value)
 			writeHash(out.Address)
 		}
+		writeInt(len(txn.SiafundInputs))
+		for j := range txn.SiafundInputs {
+			in := &txn.SiafundInputs[j]
+			writeOutputID(in.Parent.ID)
+			writeUint64(in.Parent.ID.Index)
+			writeCurrency(in.Parent.Value)
+			writeHash(in.Parent.Address)
+			writeInt(len(in.Parent.MerkleProof))
+			writeUint64(in.Parent.LeafIndex)
+			writeHash(in.PublicKey)
+			write(in.Signature[:])
+		}
+		writeInt(len(txn.SiafundOutputs))
+		for j := range txn.SiafundOutputs {
+			out := &txn.SiafundOutputs[j]
+			writeCurrency(out.Value)
+			writeHash(out.Address)
+		}
 		writeCurrency(txn.MinerFee)
 	}
 
@@ -593,6 +611,24 @@ func readCheckpoint(r io.Reader, c *consensus.Checkpoint) error {
 		txn.SiacoinOutputs = make([]types.Beneficiary, readUint64())
 		for j := range txn.SiacoinOutputs {
 			out := &txn.SiacoinOutputs[j]
+			out.Value = readCurrency()
+			out.Address = readHash()
+		}
+		txn.SiafundInputs = make([]types.SiafundInput, readUint64())
+		for j := range txn.SiafundInputs {
+			in := &txn.SiafundInputs[j]
+			in.Parent.ID = readOutputID()
+			in.Parent.ID.Index = readUint64()
+			in.Parent.Value = readCurrency()
+			in.Parent.Address = readHash()
+			in.Parent.MerkleProof = make([]types.Hash256, readUint64())
+			in.Parent.LeafIndex = readUint64()
+			in.PublicKey = readHash()
+			read(in.Signature[:])
+		}
+		txn.SiafundOutputs = make([]types.Beneficiary, readUint64())
+		for j := range txn.SiafundOutputs {
+			out := &txn.SiafundOutputs[j]
 			out.Value = readCurrency()
 			out.Address = readHash()
 		}

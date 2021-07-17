@@ -88,6 +88,23 @@ func siacoinOutputStateObject(o types.SiacoinOutput, flags uint64) stateObject {
 	}
 }
 
+func siafundOutputStateObject(o types.SiafundOutput, flags uint64) stateObject {
+	h := hasherPool.Get().(*types.Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+
+	h.WriteOutputID(o.ID)
+	h.WriteCurrency(o.Value)
+	h.WriteHash(o.Address)
+
+	return stateObject{
+		objHash:   h.Sum(),
+		leafIndex: o.LeafIndex,
+		flags:     flags,
+		proof:     o.MerkleProof,
+	}
+}
+
 func splitObjects(os []stateObject, mid uint64) (left, right []stateObject) {
 	split := sort.Search(len(os), func(i int) bool { return os[i].leafIndex >= mid })
 	return os[:split], os[split:]
@@ -103,6 +120,9 @@ func objectsByTree(txns []types.Transaction) [64][]stateObject {
 			if in.Parent.LeafIndex != types.EphemeralLeafIndex {
 				addObject(siacoinOutputStateObject(in.Parent, 0))
 			}
+		}
+		for _, in := range txn.SiafundInputs {
+			addObject(siafundOutputStateObject(in.Parent, 0))
 		}
 	}
 	for _, objects := range trees {
@@ -167,6 +187,12 @@ func (sa *StateAccumulator) containsObject(so stateObject) bool {
 // the accumulator.
 func (sa *StateAccumulator) ContainsUnspentSiacoinOutput(o types.SiacoinOutput) bool {
 	return sa.containsObject(siacoinOutputStateObject(o, 0))
+}
+
+// ContainsUnspentSiafundOutput returns true if o is a valid unspent output in
+// the accumulator.
+func (sa *StateAccumulator) ContainsUnspentSiafundOutput(o types.SiafundOutput) bool {
+	return sa.containsObject(siafundOutputStateObject(o, 0))
 }
 
 // addNewObjects adds the supplied objects to the accumulator, filling in their

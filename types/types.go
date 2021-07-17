@@ -73,6 +73,17 @@ type SiacoinOutput struct {
 	LeafIndex   uint64
 }
 
+// A SiafundOutput is a volume of siafunds that is created and spent as an
+// atomic unit.
+type SiafundOutput struct {
+	ID          OutputID
+	Value       Currency
+	Address     Address
+	ClaimStart  Currency // value of SiafundPool when output was created
+	MerkleProof []Hash256
+	LeafIndex   uint64
+}
+
 // An InputSignature signs a transaction input.
 type InputSignature [64]byte
 
@@ -90,6 +101,15 @@ type SiacoinInput struct {
 	Signature InputSignature
 }
 
+// A SiafundInput spends its parent Output by revealing its public key and signing the
+// transaction.
+type SiafundInput struct {
+	Parent       SiafundOutput
+	PublicKey    PublicKey
+	ClaimAddress Address
+	Signature    InputSignature
+}
+
 // A Beneficiary is the recipient of some of the value spent in a transaction.
 type Beneficiary struct {
 	Value   Currency
@@ -101,6 +121,8 @@ type Beneficiary struct {
 type Transaction struct {
 	SiacoinInputs  []SiacoinInput
 	SiacoinOutputs []Beneficiary
+	SiafundInputs  []SiafundInput
+	SiafundOutputs []Beneficiary
 	MinerFee       Currency
 }
 
@@ -118,6 +140,13 @@ func (txn *Transaction) ID() TransactionID {
 		h.WriteCurrency(txn.SiacoinOutputs[i].Value)
 		h.WriteHash(txn.SiacoinOutputs[i].Address)
 	}
+	for i := range txn.SiafundInputs {
+		h.WriteOutputID(txn.SiafundInputs[i].Parent.ID)
+	}
+	for i := range txn.SiafundOutputs {
+		h.WriteCurrency(txn.SiafundOutputs[i].Value)
+		h.WriteHash(txn.SiafundOutputs[i].Address)
+	}
 	h.WriteCurrency(txn.MinerFee)
 	return TransactionID(h.Sum())
 }
@@ -130,6 +159,11 @@ func (txn *Transaction) DeepCopy() Transaction {
 		c.SiacoinInputs[i].Parent.MerkleProof = append([]Hash256(nil), c.SiacoinInputs[i].Parent.MerkleProof...)
 	}
 	c.SiacoinOutputs = append([]Beneficiary(nil), c.SiacoinOutputs...)
+	c.SiafundInputs = append([]SiafundInput(nil), c.SiafundInputs...)
+	for i := range c.SiafundInputs {
+		c.SiafundInputs[i].Parent.MerkleProof = append([]Hash256(nil), c.SiafundInputs[i].Parent.MerkleProof...)
+	}
+	c.SiafundOutputs = append([]Beneficiary(nil), c.SiafundOutputs...)
 	return c
 }
 

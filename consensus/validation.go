@@ -32,6 +32,7 @@ type ValidationContext struct {
 	Index          types.ChainIndex
 	State          StateAccumulator
 	History        HistoryAccumulator
+	SiafundPool    types.Currency
 	TotalWork      types.Work
 	Difficulty     types.Work
 	LastAdjust     time.Time
@@ -60,6 +61,8 @@ func (vc *ValidationContext) MaxBlockWeight() uint64 {
 func (vc *ValidationContext) TransactionWeight(txn types.Transaction) (weight uint64) {
 	weight += uint64(40 * len(txn.SiacoinInputs))
 	weight += uint64(1 * len(txn.SiacoinOutputs))
+	weight += uint64(40 * len(txn.SiafundInputs))
+	weight += uint64(1 * len(txn.SiafundOutputs))
 	return
 }
 
@@ -122,6 +125,21 @@ func (vc *ValidationContext) Commitment(minerAddr types.Address, txns []types.Tr
 			h.WriteCurrency(out.Value)
 			h.WriteHash(out.Address)
 		}
+		for _, in := range txn.SiafundInputs {
+			h.WriteOutputID(in.Parent.ID)
+			h.WriteCurrency(in.Parent.Value)
+			h.WriteHash(in.Parent.Address)
+			for _, p := range in.Parent.MerkleProof {
+				h.WriteHash(p)
+			}
+			h.WriteUint64(in.Parent.LeafIndex)
+			h.WriteHash(in.PublicKey)
+			h.Write(in.Signature[:])
+		}
+		for _, out := range txn.SiafundOutputs {
+			h.WriteCurrency(out.Value)
+			h.WriteHash(out.Address)
+		}
 		h.WriteCurrency(txn.MinerFee)
 	}
 	txnsHash := h.Sum()
@@ -142,6 +160,13 @@ func (vc *ValidationContext) SigHash(txn types.Transaction) types.Hash256 {
 		h.WriteOutputID(in.Parent.ID)
 	}
 	for _, out := range txn.SiacoinOutputs {
+		h.WriteCurrency(out.Value)
+		h.WriteHash(out.Address)
+	}
+	for _, in := range txn.SiafundInputs {
+		h.WriteOutputID(in.Parent.ID)
+	}
+	for _, out := range txn.SiafundOutputs {
 		h.WriteCurrency(out.Value)
 		h.WriteHash(out.Address)
 	}
@@ -188,6 +213,11 @@ func (vc *ValidationContext) containsZeroValuedOutputs(txn types.Transaction) bo
 			return true
 		}
 	}
+	for _, out := range txn.SiafundOutputs {
+		if out.Value.IsZero() {
+			return true
+		}
+	}
 	return false
 }
 
@@ -203,6 +233,11 @@ func (vc *ValidationContext) validTimeLocks(txn types.Transaction) bool {
 
 func (vc *ValidationContext) validPubkeys(txn types.Transaction) bool {
 	for _, in := range txn.SiacoinInputs {
+		if in.PublicKey.Address() != in.Parent.Address {
+			return false
+		}
+	}
+	for _, in := range txn.SiafundInputs {
 		if in.PublicKey.Address() != in.Parent.Address {
 			return false
 		}
@@ -229,6 +264,24 @@ func (vc *ValidationContext) outputsEqualInputs(txn types.Transaction) bool {
 	if overflowed || inputSC != outputSC {
 		return false
 	}
+
+	var inputSF, outputSF types.Currency
+	for _, in := range txn.SiafundInputs {
+		inputSF, overflowed = inputSF.AddWithOverflow(in.Parent.Value)
+		if overflowed {
+			return false
+		}
+	}
+	for _, out := range txn.SiafundOutputs {
+		outputSF, overflowed = outputSF.AddWithOverflow(out.Value)
+		if overflowed {
+			return false
+		}
+	}
+	if overflowed || inputSF != outputSF {
+		return false
+	}
+
 	return true
 }
 
@@ -238,12 +291,22 @@ func (vc *ValidationContext) validInputMerkleProofs(txn types.Transaction) bool 
 			return false
 		}
 	}
+	for _, in := range txn.SiafundInputs {
+		if !vc.State.ContainsUnspentSiafundOutput(in.Parent) {
+			return false
+		}
+	}
 	return true
 }
 
 func (vc *ValidationContext) validSignatures(txn types.Transaction) bool {
 	sigHash := vc.SigHash(txn)
 	for _, in := range txn.SiacoinInputs {
+		if !ed25519.Verify(in.PublicKey[:], sigHash[:], in.Signature[:]) {
+			return false
+		}
+	}
+	for _, in := range txn.SiafundInputs {
 		if !ed25519.Verify(in.PublicKey[:], sigHash[:], in.Signature[:]) {
 			return false
 		}
@@ -309,6 +372,12 @@ func (vc *ValidationContext) noDoubleSpends(txns []types.Transaction) error {
 	spent := make(map[types.OutputID]struct{})
 	for i, txn := range txns {
 		for _, in := range txn.SiacoinInputs {
+			if _, ok := spent[in.Parent.ID]; ok {
+				return fmt.Errorf("transaction set is invalid: transaction %v double-spends %v", i, in.Parent.ID)
+			}
+			spent[in.Parent.ID] = struct{}{}
+		}
+		for _, in := range txn.SiafundInputs {
 			if _, ok := spent[in.Parent.ID]; ok {
 				return fmt.Errorf("transaction set is invalid: transaction %v double-spends %v", i, in.Parent.ID)
 			}

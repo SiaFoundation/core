@@ -7,6 +7,9 @@ import (
 	"go.sia.tech/core/types"
 )
 
+// SiafundCount is the number of siafunds in existence.
+const SiafundCount = 10000
+
 // BlockInterval is the expected wall clock time between consecutive blocks.
 const BlockInterval = 10 * time.Minute
 
@@ -51,7 +54,7 @@ func applyHeader(vc ValidationContext, h types.BlockHeader) ValidationContext {
 	return vc
 }
 
-func updatedInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinOutput, objects []stateObject) {
+func updatedInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinOutput, sfos []types.SiafundOutput, objects []stateObject) {
 	addObject := func(so stateObject) {
 		// copy proofs so we don't mutate transaction data
 		so.proof = append([]types.Hash256(nil), so.proof...)
@@ -65,12 +68,18 @@ func updatedInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinOu
 				addObject(siacoinOutputStateObject(in.Parent, flagSpent))
 			}
 		}
+		for _, in := range txn.SiafundInputs {
+			sfos = append(sfos, in.Parent)
+			if in.Parent.LeafIndex != types.EphemeralLeafIndex {
+				addObject(siafundOutputStateObject(in.Parent, flagSpent))
+			}
+		}
 	}
 
 	return
 }
 
-func createdInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinOutput, objects []stateObject) {
+func createdInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinOutput, sfos []types.SiafundOutput, objects []stateObject) {
 	flags := make(map[types.OutputID]uint64)
 	for _, txn := range b.Transactions {
 		for _, in := range txn.SiacoinInputs {
@@ -82,6 +91,10 @@ func createdInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinOu
 	addSiacoinOutput := func(o types.SiacoinOutput) {
 		scos = append(scos, o)
 		objects = append(objects, siacoinOutputStateObject(o, flags[o.ID]))
+	}
+	addSiafundOutput := func(o types.SiafundOutput) {
+		sfos = append(sfos, o)
+		objects = append(objects, siafundOutputStateObject(o, flags[o.ID]))
 	}
 
 	addSiacoinOutput(types.SiacoinOutput{
@@ -113,6 +126,23 @@ func createdInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinOu
 				Timelock: 0,
 			})
 		}
+		for _, in := range txn.SiafundInputs {
+			addSiacoinOutput(types.SiacoinOutput{
+				ID: nextID(),
+				// TODO: don't create zero-valued claim outputs?
+				Value:    vc.SiafundPool.Sub(in.Parent.ClaimStart).Div64(SiafundCount).Mul64(in.Parent.Value.Lo),
+				Address:  in.ClaimAddress,
+				Timelock: vc.BlockRewardTimelock(), // TODO: define a separate method for this?
+			})
+		}
+		for _, out := range txn.SiafundOutputs {
+			addSiafundOutput(types.SiafundOutput{
+				ID:         nextID(),
+				Value:      out.Value,
+				Address:    out.Address,
+				ClaimStart: vc.SiafundPool,
+			})
+		}
 	}
 
 	return
@@ -124,6 +154,8 @@ type StateApplyUpdate struct {
 	Context             ValidationContext
 	SpentSiacoinOutputs []types.SiacoinOutput
 	NewSiacoinOutputs   []types.SiacoinOutput
+	SpentSiafundOutputs []types.SiafundOutput
+	NewSiafundOutputs   []types.SiafundOutput
 	updatedObjects      [64][]stateObject
 	treeGrowth          [64][]types.Hash256
 }
@@ -138,10 +170,28 @@ func (sau *StateApplyUpdate) SiacoinOutputWasSpent(o types.SiacoinOutput) bool {
 	return false
 }
 
+// SiafundOutputWasSpent returns true if the given SiafundOutput was spent.
+func (sau *StateApplyUpdate) SiafundOutputWasSpent(o types.SiafundOutput) bool {
+	for i := range sau.SpentSiafundOutputs {
+		if sau.SpentSiafundOutputs[i].LeafIndex == o.LeafIndex {
+			return true
+		}
+	}
+	return false
+}
+
 // UpdateSiacoinOutputProof updates the Merkle proof of the supplied output to
 // incorporate the changes made to the state tree. The output's proof must be
 // up-to-date; if it is not, UpdateSiacoinOutputProof may panic.
 func (sau *StateApplyUpdate) UpdateSiacoinOutputProof(o *types.SiacoinOutput) {
+	updateProof(o.MerkleProof, o.LeafIndex, &sau.updatedObjects)
+	o.MerkleProof = append(o.MerkleProof, sau.treeGrowth[len(o.MerkleProof)]...)
+}
+
+// UpdateSiafundOutputProof updates the Merkle proof of the supplied output to
+// incorporate the changes made to the state tree. The output's proof must be
+// up-to-date; if it is not, UpdateSiafundOutputProof may panic.
+func (sau *StateApplyUpdate) UpdateSiafundOutputProof(o *types.SiafundOutput) {
 	updateProof(o.MerkleProof, o.LeafIndex, &sau.updatedObjects)
 	o.MerkleProof = append(o.MerkleProof, sau.treeGrowth[len(o.MerkleProof)]...)
 }
@@ -153,14 +203,19 @@ func ApplyBlock(vc ValidationContext, b types.Block) (sau StateApplyUpdate) {
 	sau.Context = applyHeader(vc, b.Header)
 
 	var updated, created []stateObject
-	sau.SpentSiacoinOutputs, updated = updatedInBlock(vc, b)
-	sau.NewSiacoinOutputs, created = createdInBlock(vc, b)
+	sau.SpentSiacoinOutputs, sau.SpentSiafundOutputs, updated = updatedInBlock(vc, b)
+	sau.NewSiacoinOutputs, sau.NewSiafundOutputs, created = createdInBlock(vc, b)
 
 	sau.updatedObjects = sau.Context.State.updateExistingObjects(updated)
 	sau.treeGrowth = sau.Context.State.addNewObjects(created)
 	for i := range sau.NewSiacoinOutputs {
 		sau.NewSiacoinOutputs[i].LeafIndex = created[0].leafIndex
 		sau.NewSiacoinOutputs[i].MerkleProof = created[0].proof
+		created = created[1:]
+	}
+	for i := range sau.NewSiafundOutputs {
+		sau.NewSiafundOutputs[i].LeafIndex = created[0].leafIndex
+		sau.NewSiafundOutputs[i].MerkleProof = created[0].proof
 		created = created[1:]
 	}
 
@@ -181,12 +236,20 @@ type StateRevertUpdate struct {
 	Context             ValidationContext
 	SpentSiacoinOutputs []types.SiacoinOutput
 	NewSiacoinOutputs   []types.SiacoinOutput
+	SpentSiafundOutputs []types.SiafundOutput
+	NewSiafundOutputs   []types.SiafundOutput
 	updatedObjects      [64][]stateObject
 }
 
 // SiacoinOutputWasRemoved returns true if the specified SiacoinOutput was
 // reverted.
 func (sru *StateRevertUpdate) SiacoinOutputWasRemoved(o types.SiacoinOutput) bool {
+	return o.LeafIndex >= sru.Context.State.NumLeaves
+}
+
+// SiafundOutputWasRemoved returns true if the specified SiafundOutput was
+// reverted.
+func (sru *StateRevertUpdate) SiafundOutputWasRemoved(o types.SiafundOutput) bool {
 	return o.LeafIndex >= sru.Context.State.NumLeaves
 }
 
@@ -200,12 +263,22 @@ func (sru *StateRevertUpdate) UpdateSiacoinOutputProof(o *types.SiacoinOutput) {
 	updateProof(o.MerkleProof, o.LeafIndex, &sru.updatedObjects)
 }
 
+// UpdateSiafundOutputProof updates the Merkle proof of the supplied output to
+// incorporate the changes made to the state tree. The output's proof must be
+// up-to-date; if it is not, UpdateSiafundOutputProof may panic.
+func (sru *StateRevertUpdate) UpdateSiafundOutputProof(o *types.SiafundOutput) {
+	if mh := mergeHeight(sru.Context.State.NumLeaves, o.LeafIndex); mh <= len(o.MerkleProof) {
+		o.MerkleProof = o.MerkleProof[:mh-1]
+	}
+	updateProof(o.MerkleProof, o.LeafIndex, &sru.updatedObjects)
+}
+
 // RevertBlock produces a StateRevertUpdate from a block and the
 // ValidationContext prior to that block.
 func RevertBlock(vc ValidationContext, b types.Block) (sru StateRevertUpdate) {
 	sru.Context = vc
-	sru.SpentSiacoinOutputs, _ = updatedInBlock(vc, b)
-	sru.NewSiacoinOutputs, _ = createdInBlock(vc, b)
+	sru.SpentSiacoinOutputs, sru.SpentSiafundOutputs, _ = updatedInBlock(vc, b)
+	sru.NewSiacoinOutputs, sru.NewSiafundOutputs, _ = createdInBlock(vc, b)
 	sru.updatedObjects = objectsByTree(b.Transactions)
 	return
 }
