@@ -119,11 +119,12 @@ type Beneficiary struct {
 // A Transaction transfers value by consuming existing Outputs and creating new
 // Outputs.
 type Transaction struct {
-	SiacoinInputs  []SiacoinInput
-	SiacoinOutputs []Beneficiary
-	SiafundInputs  []SiafundInput
-	SiafundOutputs []Beneficiary
-	MinerFee       Currency
+	SiacoinInputs        []SiacoinInput
+	SiacoinOutputs       []Beneficiary
+	SiafundInputs        []SiafundInput
+	SiafundOutputs       []Beneficiary
+	NewFoundationAddress Address
+	MinerFee             Currency
 }
 
 // ID returns the hash of all block-independent data in the transaction.
@@ -147,6 +148,7 @@ func (txn *Transaction) ID() TransactionID {
 		h.WriteCurrency(txn.SiafundOutputs[i].Value)
 		h.WriteHash(txn.SiafundOutputs[i].Address)
 	}
+	h.WriteHash(txn.NewFoundationAddress)
 	h.WriteCurrency(txn.MinerFee)
 	return TransactionID(h.Sum())
 }

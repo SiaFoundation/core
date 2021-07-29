@@ -513,6 +513,7 @@ func writeCheckpoint(w io.Writer, c consensus.Checkpoint) error {
 			writeCurrency(out.Value)
 			writeHash(out.Address)
 		}
+		writeHash(txn.NewFoundationAddress)
 		writeCurrency(txn.MinerFee)
 	}
 
@@ -632,6 +633,7 @@ func readCheckpoint(r io.Reader, c *consensus.Checkpoint) error {
 			out.Value = readCurrency()
 			out.Address = readHash()
 		}
+		txn.NewFoundationAddress = readHash()
 		txn.MinerFee = readCurrency()
 	}
 

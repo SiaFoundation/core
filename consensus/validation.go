@@ -12,6 +12,8 @@ import (
 	"go.sia.tech/core/types"
 )
 
+const foundationHardforkHeight = 300000
+
 var (
 	// ErrFutureBlock is returned by AppendHeader if a block's timestamp is too far
 	// in the future. The block may be valid at a later time.
@@ -29,14 +31,15 @@ var hasherPool = &sync.Pool{New: func() interface{} { return types.NewHasher() }
 
 // ValidationContext contains the necessary context to fully validate a block.
 type ValidationContext struct {
-	Index          types.ChainIndex
-	State          StateAccumulator
-	History        HistoryAccumulator
-	SiafundPool    types.Currency
-	TotalWork      types.Work
-	Difficulty     types.Work
-	LastAdjust     time.Time
-	PrevTimestamps [11]time.Time
+	Index             types.ChainIndex
+	State             StateAccumulator
+	History           HistoryAccumulator
+	SiafundPool       types.Currency
+	FoundationAddress types.Address
+	TotalWork         types.Work
+	Difficulty        types.Work
+	LastAdjust        time.Time
+	PrevTimestamps    [11]time.Time
 }
 
 // BlockReward returns the reward for mining a child block.
@@ -50,6 +53,22 @@ func (vc *ValidationContext) BlockReward() types.Currency {
 // spendable.
 func (vc *ValidationContext) BlockRewardTimelock() uint64 {
 	return (vc.Index.Height + 1) + 144
+}
+
+// FoundationSubsidy returns the Foundation subsidy value for the child block.
+func (vc *ValidationContext) FoundationSubsidy() types.Currency {
+	const blocksPerYear = 144 * 365
+	const foundationSubsidyFrequency = blocksPerYear / 12
+	foundationSubsidyPerBlock := types.BaseUnitsPerCoin.Mul64(30000)
+	initialfoundationSubsidy := foundationSubsidyPerBlock.Mul64(blocksPerYear)
+
+	blockHeight := vc.Index.Height + 1
+	if blockHeight < foundationHardforkHeight || (blockHeight-foundationHardforkHeight)%foundationSubsidyFrequency != 0 {
+		return types.ZeroCurrency
+	} else if blockHeight == foundationHardforkHeight {
+		return initialfoundationSubsidy
+	}
+	return foundationSubsidyPerBlock.Mul64(foundationSubsidyFrequency)
 }
 
 // MaxBlockWeight is the maximum "weight" of a valid child block.
@@ -140,6 +159,7 @@ func (vc *ValidationContext) Commitment(minerAddr types.Address, txns []types.Tr
 			h.WriteCurrency(out.Value)
 			h.WriteHash(out.Address)
 		}
+		h.WriteHash(txn.NewFoundationAddress)
 		h.WriteCurrency(txn.MinerFee)
 	}
 	txnsHash := h.Sum()
@@ -170,6 +190,7 @@ func (vc *ValidationContext) SigHash(txn types.Transaction) types.Hash256 {
 		h.WriteCurrency(out.Value)
 		h.WriteHash(out.Address)
 	}
+	h.WriteHash(txn.NewFoundationAddress)
 	h.WriteCurrency(txn.MinerFee)
 	return h.Sum()
 }
@@ -299,6 +320,18 @@ func (vc *ValidationContext) validInputMerkleProofs(txn types.Transaction) bool 
 	return true
 }
 
+func (vc *ValidationContext) validFoundationUpdate(txn types.Transaction) bool {
+	if txn.NewFoundationAddress == types.VoidAddress {
+		return true
+	}
+	for _, in := range txn.SiacoinInputs {
+		if in.Parent.Address == vc.FoundationAddress {
+			return true
+		}
+	}
+	return false
+}
+
 func (vc *ValidationContext) validSignatures(txn types.Transaction) bool {
 	sigHash := vc.SigHash(txn)
 	for _, in := range txn.SiacoinInputs {
@@ -328,6 +361,8 @@ func (vc *ValidationContext) ValidateTransaction(txn types.Transaction) error {
 		return errors.New("transaction contains unlock conditions that do not hash to the correct address")
 	case !vc.validInputMerkleProofs(txn):
 		return errors.New("transaction contains an invalid input proof")
+	case !vc.validFoundationUpdate(txn):
+		return errors.New("transaction contains an invalid Foundation address update")
 	case !vc.validSignatures(txn):
 		return errors.New("transaction contains an invalid signature")
 	}

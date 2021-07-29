@@ -106,6 +106,17 @@ func createdInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinOu
 		Address:  b.Header.MinerAddress,
 		Timelock: vc.BlockRewardTimelock(),
 	})
+	if subsidy := vc.FoundationSubsidy(); !subsidy.IsZero() {
+		addSiacoinOutput(types.SiacoinOutput{
+			ID: types.OutputID{
+				TransactionID: types.TransactionID(b.ID()),
+				Index:         1,
+			},
+			Value:    subsidy,
+			Address:  vc.FoundationAddress,
+			Timelock: vc.BlockRewardTimelock(),
+		})
+	}
 	for _, txn := range b.Transactions {
 		txid := txn.ID()
 		var index uint64
@@ -217,6 +228,12 @@ func ApplyBlock(vc ValidationContext, b types.Block) (sau StateApplyUpdate) {
 		sau.NewSiafundOutputs[i].LeafIndex = created[0].leafIndex
 		sau.NewSiafundOutputs[i].MerkleProof = created[0].proof
 		created = created[1:]
+	}
+
+	for _, txn := range b.Transactions {
+		if txn.NewFoundationAddress != types.VoidAddress {
+			sau.Context.FoundationAddress = txn.NewFoundationAddress
+		}
 	}
 
 	return
