@@ -44,9 +44,13 @@ type ValidationContext struct {
 
 // BlockReward returns the reward for mining a child block.
 func (vc *ValidationContext) BlockReward() types.Currency {
-	r := types.BaseUnitsPerCoin.Mul64(50)
-	n := (vc.Index.Height + 1) / 210000
-	return types.NewCurrency(r.Lo>>n|r.Hi<<(64-n), r.Hi>>n) // r >> n
+	const initialCoinbase = 300000
+	const minimumCoinbase = 30000
+	blockHeight := vc.Index.Height + 1
+	if blockHeight < initialCoinbase-minimumCoinbase {
+		return types.BaseUnitsPerCoin.Mul64(initialCoinbase - blockHeight)
+	}
+	return types.BaseUnitsPerCoin.Mul64(minimumCoinbase)
 }
 
 // BlockRewardTimelock is the height at which a child block's reward becomes

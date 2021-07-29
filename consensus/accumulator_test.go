@@ -2,7 +2,6 @@ package consensus
 
 import (
 	"encoding/binary"
-	"math/bits"
 	"math/rand"
 	"reflect"
 	"testing"
@@ -19,31 +18,19 @@ func TestBlockRewardValue(t *testing.T) {
 		height uint64
 		exp    string
 	}{
-		{0, "50"},
-		{210e3 - 1, "50"},
-		{210e3 * 1, "25"},
-		{210e3 + 1, "25"},
-		{210e3 * 2, "12.5"},
-		{210e3 * 3, "6.25"},
-		{210e3 * 4, "3.125"},
-		{210e3 * 5, "1.563"},
-		{210e3 * 6, "0.781"},
-		{210e3 * 7, "0.391"},
+		{0, "300000"},
+		{1, "299999"},
+		{100000, "200000"},
+		{269999, "30001"},
+		{270000, "30000"},
+		{270001, "30000"},
+		{1e6, "30000"},
 	}
 	for _, test := range tests {
 		got := reward(test.height)
 		if got.String() != test.exp {
 			t.Errorf("expected %v, got %v", test.exp, got)
 		}
-	}
-	// test final reward
-	totalHalvings := bits.Len(50 * 1e9)
-	finalRewardHeight := uint64(210e3 * totalHalvings)
-	if reward(finalRewardHeight - 1).IsZero() {
-		t.Errorf("final reward should be non-zero")
-	}
-	if !reward(finalRewardHeight).IsZero() {
-		t.Errorf("reward after final reward height should be zero")
 	}
 }
 
