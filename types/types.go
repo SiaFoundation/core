@@ -224,14 +224,10 @@ func (b *Block) Index() ChainIndex { return b.Header.Index() }
 type Work struct {
 	// The representation is the expected number of hashes required to produce a
 	// given hash, in big-endian order.
-	//
-	// TODO: no reason not to use little-endian here, except that it would make
-	// it harder to convert to/from big.Int. If we replace big.Int with custom
-	// division code, then we can switch to little-endian.
 	NumHashes [32]byte
 }
 
-// Add returns w+v.
+// Add returns w+v, wrapping on overflow.
 func (w Work) Add(v Work) Work {
 	var r Work
 	var sum, c uint64
@@ -240,6 +236,45 @@ func (w Work) Add(v Work) Work {
 		vi := binary.BigEndian.Uint64(v.NumHashes[i:])
 		sum, c = bits.Add64(wi, vi, c)
 		binary.BigEndian.PutUint64(r.NumHashes[i:], sum)
+	}
+	return r
+}
+
+// Sub returns w-v, wrapping on underflow.
+func (w Work) Sub(v Work) Work {
+	var r Work
+	var sum, c uint64
+	for i := 24; i >= 0; i -= 8 {
+		wi := binary.BigEndian.Uint64(w.NumHashes[i:])
+		vi := binary.BigEndian.Uint64(v.NumHashes[i:])
+		sum, c = bits.Sub64(wi, vi, c)
+		binary.BigEndian.PutUint64(r.NumHashes[i:], sum)
+	}
+	return r
+}
+
+// Mul64 returns w*v, wrapping on overflow.
+func (w Work) Mul64(v uint64) Work {
+	var r Work
+	var c uint64
+	for i := 24; i >= 0; i -= 8 {
+		wi := binary.BigEndian.Uint64(w.NumHashes[i:])
+		hi, prod := bits.Mul64(wi, v)
+		prod, cc := bits.Add64(prod, c, 0)
+		c = hi + cc
+		binary.BigEndian.PutUint64(r.NumHashes[i:], prod)
+	}
+	return r
+}
+
+// Div64 returns w/v.
+func (w Work) Div64(v uint64) Work {
+	var r Work
+	var quo, rem uint64
+	for i := 0; i < len(w.NumHashes); i += 8 {
+		wi := binary.BigEndian.Uint64(w.NumHashes[i:])
+		quo, rem = bits.Div64(rem, wi, v)
+		binary.BigEndian.PutUint64(r.NumHashes[i:], quo)
 	}
 	return r
 }
@@ -275,9 +310,9 @@ func WorkRequiredForHash(id BlockID) Work {
 	// TODO: write a zero-alloc uint256 division instead of using big.Int
 	maxTarget := new(big.Int).Lsh(big.NewInt(1), 256)
 	idInt := new(big.Int).SetBytes(id[:])
-	quo := maxTarget.Div(maxTarget, idInt).Bytes()
+	quo := maxTarget.Div(maxTarget, idInt)
 	var w Work
-	copy(w.NumHashes[32-len(quo):], quo)
+	quo.FillBytes(w.NumHashes[:])
 	return w
 }
 
@@ -298,9 +333,9 @@ func HashRequiringWork(w Work) BlockID {
 	}
 	maxTarget := new(big.Int).Lsh(big.NewInt(1), 256)
 	workInt := new(big.Int).SetBytes(w.NumHashes[:])
-	quo := maxTarget.Div(maxTarget, workInt).Bytes()
+	quo := maxTarget.Div(maxTarget, workInt)
 	var id BlockID
-	copy(id[32-len(quo):], quo)
+	quo.FillBytes(id[:])
 	return id
 }
 
