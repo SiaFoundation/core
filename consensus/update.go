@@ -1,7 +1,6 @@
 package consensus
 
 import (
-	"math/big"
 	"time"
 
 	"go.sia.tech/core/types"
@@ -13,44 +12,81 @@ const SiafundCount = 10000
 // BlockInterval is the expected wall clock time between consecutive blocks.
 const BlockInterval = 10 * time.Minute
 
-// DifficultyAdjustmentInterval is the number of blocks between adjustments to
-// the block mining target.
-const DifficultyAdjustmentInterval = 2016
+func updateOakTotals(oakTime, newTime time.Duration, oakWork, newWork types.Work) (time.Duration, types.Work) {
+	// decay totals by 0.5% before adding the new values
+	decayedTime := oakTime - (oakTime / 200) + newTime
+	decayedWork := oakWork.Sub(oakWork.Div64(200)).Add(newWork)
+	return decayedTime, decayedWork
+}
 
-func adjustDifficulty(w types.Work, interval time.Duration) types.Work {
-	if interval.Round(time.Second) != interval {
-		// developer error; interval should be the difference between two Unix
-		// timestamps
-		panic("interval not rounded to nearest second")
+func adjustDifficulty(difficulty types.Work, height uint64, actualTime time.Duration, oakTime time.Duration, oakWork types.Work) types.Work {
+	// NOTE: To avoid overflow/underflow issues, this function operates on
+	// integer seconds (rather than time.Duration, which uses nanoseconds). This
+	// shouldn't appreciably affect the precision of the algorithm.
+
+	const blockInterval = BlockInterval / time.Second
+	expectedTime := blockInterval * time.Duration(height)
+	delta := (expectedTime - actualTime) / time.Second
+	// square the delta and preserve its sign
+	shift := delta * delta
+	if delta < 0 {
+		shift = -shift
 	}
-	const maxInterval = BlockInterval * DifficultyAdjustmentInterval * 4
-	const minInterval = BlockInterval * DifficultyAdjustmentInterval / 4
-	if interval > maxInterval {
-		interval = maxInterval
-	} else if interval < minInterval {
-		interval = minInterval
+	// scale such that a delta of 10,000 produces a shift of 10 seconds
+	shift *= 10
+	shift /= 10000 * 10000
+
+	// calculate the new target block time, clamped to a factor of 3
+	targetBlockTime := blockInterval + shift
+	if min := blockInterval / 3; targetBlockTime < min {
+		targetBlockTime = min
+	} else if max := blockInterval * 3; targetBlockTime > max {
+		targetBlockTime = max
 	}
-	workInt := new(big.Int).SetBytes(w.NumHashes[:])
-	workInt.Mul(workInt, big.NewInt(int64(BlockInterval*DifficultyAdjustmentInterval)))
-	workInt.Div(workInt, big.NewInt(int64(interval)))
-	quo := workInt.Bytes()
-	copy(w.NumHashes[32-len(quo):], quo)
-	return w
+
+	// estimate the hashrate from the (decayed) total work and the (decayed,
+	// clamped) total time
+	if oakTime <= time.Second {
+		oakTime = time.Second
+	}
+	estimatedHashrate := oakWork.Div64(uint64(oakTime / time.Second))
+
+	// multiply the estimated hashrate by the target block time; this is the
+	// expected number of hashes required to produce the next block, i.e. the
+	// new difficulty
+	newDifficulty := estimatedHashrate.Mul64(uint64(targetBlockTime))
+
+	// clamp the adjustment to 0.4%
+	maxAdjust := difficulty.Div64(250)
+	if min := difficulty.Sub(maxAdjust); newDifficulty.Cmp(min) < 0 {
+		newDifficulty = min
+	} else if max := difficulty.Add(maxAdjust); newDifficulty.Cmp(max) > 0 {
+		newDifficulty = max
+	}
+	return newDifficulty
 }
 
 func applyHeader(vc ValidationContext, h types.BlockHeader) ValidationContext {
+	if h.Height == 0 {
+		// special handling for GenesisUpdate
+		vc.PrevTimestamps[0] = h.Timestamp
+		vc.History.AppendLeaf(h.Index())
+		vc.Index = h.Index()
+		return vc
+	}
 	blockWork := types.WorkRequiredForHash(h.ID())
-	if h.Height > 0 && h.Height%DifficultyAdjustmentInterval == 0 {
-		vc.Difficulty = adjustDifficulty(vc.Difficulty, h.Timestamp.Sub(vc.LastAdjust))
-		vc.LastAdjust = h.Timestamp
-	}
 	vc.TotalWork = vc.TotalWork.Add(blockWork)
-	if vc.numTimestamps() == len(vc.PrevTimestamps) {
+	parentTimestamp := vc.PrevTimestamps[vc.numTimestamps()-1]
+	vc.OakTime, vc.OakWork = updateOakTotals(vc.OakTime, h.Timestamp.Sub(parentTimestamp), vc.OakWork, blockWork)
+	vc.Difficulty = adjustDifficulty(vc.Difficulty, h.Height, h.Timestamp.Sub(vc.GenesisTimestamp), vc.OakTime, vc.OakWork)
+	if vc.numTimestamps() < len(vc.PrevTimestamps) {
+		vc.PrevTimestamps[vc.numTimestamps()] = h.Timestamp
+	} else {
 		copy(vc.PrevTimestamps[:], vc.PrevTimestamps[1:])
+		vc.PrevTimestamps[len(vc.PrevTimestamps)-1] = h.Timestamp
 	}
-	vc.PrevTimestamps[vc.numTimestamps()-1] = h.Timestamp
+	vc.History.AppendLeaf(h.Index())
 	vc.Index = h.Index()
-	vc.History.AppendLeaf(vc.Index)
 	return vc
 }
 
@@ -242,8 +278,8 @@ func ApplyBlock(vc ValidationContext, b types.Block) (sau StateApplyUpdate) {
 // GenesisUpdate returns the StateApplyUpdate for the genesis block b.
 func GenesisUpdate(b types.Block, initialDifficulty types.Work) StateApplyUpdate {
 	return ApplyBlock(ValidationContext{
-		Difficulty: initialDifficulty,
-		LastAdjust: b.Header.Timestamp,
+		Difficulty:       initialDifficulty,
+		GenesisTimestamp: b.Header.Timestamp,
 	}, b)
 }
 

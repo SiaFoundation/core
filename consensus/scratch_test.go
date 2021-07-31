@@ -162,23 +162,15 @@ func TestScratchChainDifficultyAdjustment(t *testing.T) {
 	b := genesisWithBeneficiaries()
 	vc := GenesisUpdate(b, testingDifficulty).Context
 
-	// mine enough blocks to trigger adjustment
+	// mine a block, triggering adjustment
 	sc := NewScratchChain(vc)
-	for i := 0; i < DifficultyAdjustmentInterval; i++ {
-		b.Header = types.BlockHeader{
-			Height:    b.Header.Height + 1,
-			ParentID:  b.Header.ID(),
-			Timestamp: b.Header.Timestamp.Add(time.Second),
-		}
-		b.Header.Commitment = vc.Commitment(types.VoidAddress, b.Transactions)
-		findBlockNonce(&b.Header, types.HashRequiringWork(vc.Difficulty))
-		if err := sc.AppendHeader(b.Header); err != nil {
-			t.Fatal(err)
-		} else if _, err := sc.ApplyBlock(b); err != nil {
-			t.Fatal(err)
-		}
-		vc = ApplyBlock(vc, b).Context
+	b = mineBlock(vc, b)
+	if err := sc.AppendHeader(b.Header); err != nil {
+		t.Fatal(err)
+	} else if _, err := sc.ApplyBlock(b); err != nil {
+		t.Fatal(err)
 	}
+	vc = ApplyBlock(vc, b).Context
 
 	// difficulty should have changed
 	currentDifficulty := sc.tvc.Difficulty
@@ -187,50 +179,20 @@ func TestScratchChainDifficultyAdjustment(t *testing.T) {
 	}
 
 	// mine a block with less than the minimum work; it should be rejected
-	b.Header = types.BlockHeader{
-		Height:    b.Header.Height + 1,
-		ParentID:  b.Header.ID(),
-		Timestamp: b.Header.Timestamp.Add(time.Second),
-	}
-	b.Header.Commitment = vc.Commitment(types.VoidAddress, b.Transactions)
+	b = mineBlock(vc, b)
 	for types.WorkRequiredForHash(b.ID()).Cmp(currentDifficulty) >= 0 {
 		rand.Read(b.Header.Nonce[:])
 	}
 	if err := sc.AppendHeader(b.Header); err == nil {
 		t.Fatal("expected block to be rejected")
 	}
-	vc = ApplyBlock(vc, b).Context
 
 	// mine at actual difficulty
-	findBlockNonce(&b.Header, types.HashRequiringWork(currentDifficulty))
+	findBlockNonce(&b.Header, types.HashRequiringWork(vc.Difficulty))
 	if err := sc.AppendHeader(b.Header); err != nil {
 		t.Fatal(err)
 	} else if _, err := sc.ApplyBlock(b); err != nil {
 		t.Fatal(err)
 	}
 	vc = ApplyBlock(vc, b).Context
-}
-
-func TestAdjustDifficulty(t *testing.T) {
-	w := types.Work{NumHashes: [32]byte{31: 100}}
-	twice := adjustDifficulty(w, BlockInterval*DifficultyAdjustmentInterval/2)
-	if twice.String() != "200" {
-		t.Errorf("expected 200, got %v", twice.String())
-	}
-	half := adjustDifficulty(w, BlockInterval*DifficultyAdjustmentInterval*2)
-	if half.String() != "50" {
-		t.Errorf("expected 50, got %v", half.String())
-	}
-	third := adjustDifficulty(w, BlockInterval*DifficultyAdjustmentInterval*3)
-	if third.String() != "33" {
-		t.Errorf("expected 33, got %v", third.String())
-	}
-	max := adjustDifficulty(w, BlockInterval*DifficultyAdjustmentInterval/100)
-	if max.String() != "400" {
-		t.Errorf("expected 400, got %v", max.String())
-	}
-	min := adjustDifficulty(w, BlockInterval*DifficultyAdjustmentInterval*100)
-	if min.String() != "25" {
-		t.Errorf("expected 25, got %v", min.String())
-	}
 }

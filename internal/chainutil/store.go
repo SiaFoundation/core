@@ -524,7 +524,7 @@ func writeCheckpoint(w io.Writer, c consensus.Checkpoint) error {
 	}
 
 	// write context
-	vc := c.Context
+	vc := &c.Context
 	writeUint64(vc.Index.Height)
 	writeHash(vc.Index.ID)
 	writeUint64(vc.State.NumLeaves)
@@ -539,12 +539,16 @@ func writeCheckpoint(w io.Writer, c consensus.Checkpoint) error {
 			writeHash(vc.History.Trees[i])
 		}
 	}
-	writeHash(vc.TotalWork.NumHashes)
-	writeHash(vc.Difficulty.NumHashes)
-	writeTime(vc.LastAdjust)
 	for i := range vc.PrevTimestamps {
 		writeTime(vc.PrevTimestamps[i])
 	}
+	writeHash(vc.TotalWork.NumHashes)
+	writeHash(vc.Difficulty.NumHashes)
+	writeHash(vc.OakWork.NumHashes)
+	writeUint64(uint64(vc.OakTime))
+	writeTime(vc.GenesisTimestamp)
+	writeCurrency(vc.SiafundPool)
+	writeHash(vc.FoundationAddress)
 
 	_, err := w.Write(buf.Bytes())
 	return err
@@ -661,12 +665,16 @@ func readCheckpoint(r io.Reader, c *consensus.Checkpoint) error {
 			vc.History.Trees[i] = readHash()
 		}
 	}
-	vc.TotalWork.NumHashes = readHash()
-	vc.Difficulty.NumHashes = readHash()
-	vc.LastAdjust = readTime()
 	for i := range vc.PrevTimestamps {
 		vc.PrevTimestamps[i] = readTime()
 	}
+	vc.TotalWork.NumHashes = readHash()
+	vc.Difficulty.NumHashes = readHash()
+	vc.OakWork.NumHashes = readHash()
+	vc.OakTime = time.Duration(readUint64())
+	vc.GenesisTimestamp = readTime()
+	vc.SiafundPool = readCurrency()
+	vc.FoundationAddress = readHash()
 
 	return err
 }

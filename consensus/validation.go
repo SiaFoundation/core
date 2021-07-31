@@ -31,15 +31,20 @@ var hasherPool = &sync.Pool{New: func() interface{} { return types.NewHasher() }
 
 // ValidationContext contains the necessary context to fully validate a block.
 type ValidationContext struct {
-	Index             types.ChainIndex
-	State             StateAccumulator
-	History           HistoryAccumulator
+	Index types.ChainIndex
+
+	State          StateAccumulator
+	History        HistoryAccumulator
+	PrevTimestamps [11]time.Time
+
+	TotalWork        types.Work
+	Difficulty       types.Work
+	OakWork          types.Work
+	OakTime          time.Duration
+	GenesisTimestamp time.Time
+
 	SiafundPool       types.Currency
 	FoundationAddress types.Address
-	TotalWork         types.Work
-	Difficulty        types.Work
-	LastAdjust        time.Time
-	PrevTimestamps    [11]time.Time
 }
 
 // BlockReward returns the reward for mining a child block.
@@ -122,12 +127,16 @@ func (vc *ValidationContext) Commitment(minerAddr types.Address, txns []types.Tr
 			h.WriteHash(root)
 		}
 	}
-	h.WriteHash(vc.TotalWork.NumHashes)
-	h.WriteHash(vc.Difficulty.NumHashes)
-	h.WriteTime(vc.LastAdjust)
 	for _, ts := range vc.PrevTimestamps {
 		h.WriteTime(ts)
 	}
+	h.WriteHash(vc.TotalWork.NumHashes)
+	h.WriteHash(vc.Difficulty.NumHashes)
+	h.WriteHash(vc.OakWork.NumHashes)
+	h.WriteUint64(uint64(vc.OakTime))
+	h.WriteTime(vc.GenesisTimestamp)
+	h.WriteCurrency(vc.SiafundPool)
+	h.WriteHash(vc.FoundationAddress)
 	ctxHash := h.Sum()
 
 	h.Reset()

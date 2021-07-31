@@ -8,7 +8,7 @@ import (
 	"go.sia.tech/core/types"
 )
 
-var testingDifficulty = types.Work{NumHashes: [32]byte{31: 1}}
+var testingDifficulty = types.Work{NumHashes: [32]byte{30: 1}}
 
 func testingKeypair() (types.PublicKey, ed25519.PrivateKey) {
 	var pubkey types.PublicKey

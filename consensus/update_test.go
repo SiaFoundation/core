@@ -62,6 +62,9 @@ func TestSiafunds(t *testing.T) {
 	// skip to timelock height and try again
 	sau.Context.Index.Height = sau.NewSiacoinOutputs[1].Timelock + 1
 	sau.Context.Index.ID = b.ID()
+	for i := range sau.Context.PrevTimestamps {
+		sau.Context.PrevTimestamps[i] = b.Header.Timestamp
+	}
 	b.Header.Height = sau.Context.Index.Height
 	signAllInputs(&txn, sau.Context, claimPrivkey)
 	b = mineBlock(sau.Context, b, txn)
@@ -87,6 +90,9 @@ func TestFoundationSubsidy(t *testing.T) {
 	// skip to Foundation hardfork height; we should receive the initial subsidy
 	b.Header.Height = foundationHardforkHeight - 1
 	sau.Context.Index.Height = foundationHardforkHeight - 1
+	for i := range sau.Context.PrevTimestamps {
+		sau.Context.PrevTimestamps[i] = b.Header.Timestamp
+	}
 	b = mineBlock(sau.Context, b)
 	if err := sau.Context.ValidateBlock(b); err != nil {
 		t.Fatal(err)
