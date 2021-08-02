@@ -346,33 +346,47 @@ func HashBytes(b []byte) Hash256 { return blake2b.Sum256(b) }
 type Hasher struct {
 	h   hash.Hash
 	buf [64]byte
+	n   int
+}
+
+func (h *Hasher) flush() {
+	h.h.Write(h.buf[:h.n])
+	h.n = 0
 }
 
 // Reset resets the underlying hasher.
 func (h *Hasher) Reset() {
 	h.h.Reset()
+	h.n = 0
 }
 
 // Write implements io.Writer.
 func (h *Hasher) Write(p []byte) (int, error) {
 	buf := bytes.NewBuffer(p)
 	for buf.Len() > 0 {
-		n := copy(h.buf[:], buf.Next(len(h.buf)))
-		h.h.Write(h.buf[:n])
+		if h.n == len(h.buf) {
+			h.flush()
+		}
+		h.n += copy(h.buf[h.n:], buf.Next(len(h.buf[h.n:])))
 	}
 	return len(p), nil
 }
 
 // WriteHash writes a generic hash to the underlying hasher.
 func (h *Hasher) WriteHash(p [32]byte) {
-	copy(h.buf[:], p[:])
-	h.h.Write(h.buf[:32])
+	if len(h.buf[h.n:]) < 32 {
+		h.flush()
+	}
+	h.n += copy(h.buf[h.n:], p[:])
 }
 
 // WriteUint64 writes a uint64 value to the underlying hasher.
 func (h *Hasher) WriteUint64(u uint64) {
-	binary.LittleEndian.PutUint64(h.buf[:8], u)
-	h.h.Write(h.buf[:8])
+	if len(h.buf[h.n:]) < 8 {
+		h.flush()
+	}
+	binary.LittleEndian.PutUint64(h.buf[h.n:], u)
+	h.n += 8
 }
 
 // WriteTime writes a time.Time value to the underlying hasher.
@@ -382,27 +396,31 @@ func (h *Hasher) WriteTime(t time.Time) {
 
 // WriteCurrency writes a Currency value to the underlying hasher.
 func (h *Hasher) WriteCurrency(c Currency) {
-	binary.LittleEndian.PutUint64(h.buf[:8], c.Lo)
-	binary.LittleEndian.PutUint64(h.buf[8:], c.Hi)
-	h.h.Write(h.buf[:16])
+	h.WriteUint64(c.Lo)
+	h.WriteUint64(c.Hi)
 }
 
 // WriteChainIndex writes a ChainIndex value to the underlying hasher.
 func (h *Hasher) WriteChainIndex(index ChainIndex) {
-	binary.LittleEndian.PutUint64(h.buf[:8], index.Height)
-	copy(h.buf[8:], index.ID[:])
-	h.h.Write(h.buf[:40])
+	h.WriteUint64(index.Height)
+	h.WriteHash(index.ID)
 }
 
 // WriteOutputID writes an OutputID value to the underlying hasher.
 func (h *Hasher) WriteOutputID(id OutputID) {
-	copy(h.buf[:32], id.TransactionID[:])
-	binary.LittleEndian.PutUint64(h.buf[32:], id.Index)
-	h.h.Write(h.buf[:40])
+	h.WriteHash(id.TransactionID)
+	h.WriteUint64(id.Index)
+}
+
+// WriteBeneficiary writes a Beneficiary value to the underlying hasher.
+func (h *Hasher) WriteBeneficiary(b Beneficiary) {
+	h.WriteCurrency(b.Value)
+	h.WriteHash(b.Address)
 }
 
 // Sum returns the hash of the data written to the underlying hasher.
 func (h *Hasher) Sum() Hash256 {
+	h.flush()
 	var sum Hash256
 	h.h.Sum(sum[:0])
 	return sum
