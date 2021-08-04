@@ -1,6 +1,7 @@
 package consensus
 
 import (
+	"math/rand"
 	"testing"
 	"time"
 
@@ -147,5 +148,179 @@ func TestFoundationSubsidy(t *testing.T) {
 	signAllInputs(&txn, sau.Context, privkey)
 	if err := sau.Context.ValidateTransaction(txn); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestFileContracts(t *testing.T) {
+	renterPubkey, renterPrivkey := testingKeypair()
+	hostPubkey, hostPrivkey := testingKeypair()
+	b := genesisWithBeneficiaries(types.Beneficiary{
+		Address: renterPubkey.Address(),
+		Value:   types.BaseUnitsPerCoin.Mul64(100),
+	}, types.Beneficiary{
+		Address: hostPubkey.Address(),
+		Value:   types.BaseUnitsPerCoin.Mul64(7),
+	})
+	sau := GenesisUpdate(b, testingDifficulty)
+	renterOutput := sau.NewSiacoinOutputs[1]
+	hostOutput := sau.NewSiacoinOutputs[2]
+
+	// form initial contract
+	initialRev := types.FileContractRevision{
+		WindowStart: 5,
+		WindowEnd:   10,
+		ValidRenterOutput: types.Beneficiary{
+			Address: renterPubkey.Address(),
+			Value:   types.BaseUnitsPerCoin.Mul64(58),
+		},
+		ValidHostOutput: types.Beneficiary{
+			Address: renterPubkey.Address(),
+			Value:   types.BaseUnitsPerCoin.Mul64(19),
+		},
+		MissedRenterOutput: types.Beneficiary{
+			Address: renterPubkey.Address(),
+			Value:   types.BaseUnitsPerCoin.Mul64(58),
+		},
+		MissedHostOutput: types.Beneficiary{
+			Address: renterPubkey.Address(),
+			Value:   types.BaseUnitsPerCoin.Mul64(19),
+		},
+		RenterPublicKey: renterPubkey,
+		HostPublicKey:   hostPubkey,
+	}
+	outputSum := initialRev.ValidRenterOutput.Value.Add(initialRev.ValidHostOutput.Value).Add(sau.Context.FileContractTax(initialRev))
+	txn := types.Transaction{
+		SiacoinInputs: []types.SiacoinInput{
+			{Parent: renterOutput, PublicKey: renterPubkey},
+			{Parent: hostOutput, PublicKey: hostPubkey},
+		},
+		FileContracts: []types.FileContractRevision{initialRev},
+		MinerFee:      renterOutput.Value.Add(hostOutput.Value).Sub(outputSum),
+	}
+	sigHash := sau.Context.SigHash(txn)
+	txn.SiacoinInputs[0].Signature = types.SignTransaction(renterPrivkey, sigHash)
+	txn.SiacoinInputs[1].Signature = types.SignTransaction(hostPrivkey, sigHash)
+
+	b = mineBlock(sau.Context, b, txn)
+	if err := sau.Context.ValidateBlock(b); err != nil {
+		t.Fatal(err)
+	}
+	sau = ApplyBlock(sau.Context, b)
+
+	if len(sau.NewFileContracts) != 1 {
+		t.Fatal("expected one new file contract")
+	}
+	fc := sau.NewFileContracts[0]
+	if !sau.Context.State.ContainsUnresolvedFileContract(fc) {
+		t.Fatal("accumulator should contain unresolved contract")
+	}
+	if sau.Context.SiafundPool != sau.Context.FileContractTax(initialRev) {
+		t.Fatal("expected siafund pool to increase")
+	}
+
+	// renter and host now exchange data + revisions out-of-band; we simulate
+	// the final revision
+	segmentLeafHash := func(segment []byte) types.Hash256 {
+		buf := make([]byte, 1+64)
+		buf[0] = leafHashPrefix
+		copy(buf[1:], segment)
+		return types.HashBytes(buf)
+	}
+	res := types.FileContractResolution{
+		Parent:        fc,
+		FinalRevision: fc.Revision,
+	}
+	finalRev := &res.FinalRevision
+	sp := &res.StorageProof
+	data := make([]byte, 64*2)
+	rand.Read(data)
+	finalRev.FileMerkleRoot = merkleNodeHash(
+		segmentLeafHash(data[:64]),
+		segmentLeafHash(data[64:]),
+	)
+	finalRev.RevisionNumber++
+	txn = types.Transaction{
+		FileContractResolutions: []types.FileContractResolution{res},
+	}
+	sigHash = sau.Context.SigHash(txn)
+	txn.FileContractResolutions[0].RenterSignature = types.SignTransaction(renterPrivkey, sigHash)
+	txn.FileContractResolutions[0].HostSignature = types.SignTransaction(hostPrivkey, sigHash)
+
+	// resolution shouldn't be valid yet
+	if err := sau.Context.ValidateTransaction(txn); err == nil {
+		t.Fatal("expected early resolution to be rejected")
+	}
+
+	// mine until we enter the proof window
+	//
+	// NOTE: unlike other tests, we can't "cheat" here by fast-forwarding,
+	// because we need to maintain a history proof
+	for sau.Context.Index.Height < fc.Revision.WindowStart {
+		b = mineBlock(sau.Context, b)
+		sau = ApplyBlock(sau.Context, b)
+		sau.UpdateFileContractProof(&res.Parent)
+	}
+	sp.WindowStart = sau.Context.Index
+	proofIndex := sau.Context.StorageProofSegmentIndex(res.FinalRevision.Filesize, sp.WindowStart, res.Parent.ID)
+	copy(sp.DataSegment[:], data[64*proofIndex:])
+	if proofIndex == 0 {
+		sp.SegmentProof = append(sp.SegmentProof, segmentLeafHash(data[64:]))
+	} else {
+		sp.SegmentProof = append(sp.SegmentProof, segmentLeafHash(data[:64]))
+	}
+
+	// resolution should be accepted now
+	txn = types.Transaction{
+		FileContractResolutions: []types.FileContractResolution{res},
+	}
+	sigHash = sau.Context.SigHash(txn)
+	txn.FileContractResolutions[0].RenterSignature = types.SignTransaction(renterPrivkey, sigHash)
+	txn.FileContractResolutions[0].HostSignature = types.SignTransaction(hostPrivkey, sigHash)
+	b = mineBlock(sau.Context, b, txn)
+	if err := sau.Context.ValidateBlock(b); err != nil {
+		t.Fatal(err)
+	}
+	validSAU := ApplyBlock(sau.Context, b)
+	if len(validSAU.ResolvedFileContracts) != 1 {
+		t.Fatal("expected one resolved file contract")
+	} else if len(validSAU.NewSiacoinOutputs) != 3 {
+		t.Fatal("expected three new siacoin outputs")
+	}
+
+	// revert the block and instead mine past the proof window
+	for sau.Context.Index.Height <= fc.Revision.WindowEnd {
+		b = mineBlock(sau.Context, b)
+		sau = ApplyBlock(sau.Context, b)
+		sau.UpdateFileContractProof(&res.Parent)
+		sau.UpdateWindowProof(sp)
+	}
+	// storage proof resolution should now be rejected
+	txn = types.Transaction{
+		FileContractResolutions: []types.FileContractResolution{res},
+	}
+	sigHash = sau.Context.SigHash(txn)
+	txn.FileContractResolutions[0].RenterSignature = types.SignTransaction(renterPrivkey, sigHash)
+	txn.FileContractResolutions[0].HostSignature = types.SignTransaction(hostPrivkey, sigHash)
+	if err := sau.Context.ValidateTransaction(txn); err == nil {
+		t.Fatal("expected too-late storage proof to be rejected")
+	}
+	// missed resolution should be accepted, though
+	res.StorageProof = types.StorageProof{}
+	txn = types.Transaction{
+		FileContractResolutions: []types.FileContractResolution{res},
+	}
+	sigHash = sau.Context.SigHash(txn)
+	txn.FileContractResolutions[0].RenterSignature = types.SignTransaction(renterPrivkey, sigHash)
+	txn.FileContractResolutions[0].HostSignature = types.SignTransaction(hostPrivkey, sigHash)
+	b = mineBlock(sau.Context, b, txn)
+	if err := sau.Context.ValidateBlock(b); err != nil {
+		t.Fatal(err)
+	}
+	sau = ApplyBlock(sau.Context, b)
+
+	if len(sau.ResolvedFileContracts) != 1 {
+		t.Fatal("expected one resolved file contract")
+	} else if len(sau.NewSiacoinOutputs) != 3 {
+		t.Fatal("expected three new siacoin outputs")
 	}
 }

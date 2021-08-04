@@ -15,6 +15,7 @@ const nodeHashPrefix = 0x01
 // flags for state objects
 const (
 	flagSpent = 1 << iota
+	flagExpired
 )
 
 // mergeHeight returns the height at which the proof paths of x and y merge.
@@ -102,6 +103,20 @@ func siafundOutputStateObject(o types.SiafundOutput, flags uint64) stateObject {
 		leafIndex: o.LeafIndex,
 		flags:     flags,
 		proof:     o.MerkleProof,
+	}
+}
+
+func fileContractStateObject(fc types.FileContract, flags uint64) stateObject {
+	h := hasherPool.Get().(*types.Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	h.WriteOutputID(fc.ID)
+	h.WriteFileContractRevision(fc.Revision)
+	return stateObject{
+		objHash:   h.Sum(),
+		leafIndex: fc.LeafIndex,
+		flags:     flags,
+		proof:     fc.MerkleProof,
 	}
 }
 
@@ -193,6 +208,12 @@ func (sa *StateAccumulator) ContainsUnspentSiacoinOutput(o types.SiacoinOutput) 
 // the accumulator.
 func (sa *StateAccumulator) ContainsUnspentSiafundOutput(o types.SiafundOutput) bool {
 	return sa.containsObject(siafundOutputStateObject(o, 0))
+}
+
+// ContainsUnresolvedFileContract returns true if fc is a valid unresolved file
+// contract in the accumulator.
+func (sa *StateAccumulator) ContainsUnresolvedFileContract(fc types.FileContract) bool {
+	return sa.containsObject(fileContractStateObject(fc, 0))
 }
 
 // addNewObjects adds the supplied objects to the accumulator, filling in their
@@ -442,13 +463,36 @@ func (ha *HistoryAccumulator) HasTreeAtHeight(height int) bool {
 	return ha.NumLeaves&(1<<height) != 0
 }
 
-// AppendLeaf appends an index to the accumulator.
-func (ha *HistoryAccumulator) AppendLeaf(index types.ChainIndex) {
+// AppendLeaf appends an index to the accumulator. It returns the "growth" of
+// the accumulator, which can be used to update history proofs.
+func (ha *HistoryAccumulator) AppendLeaf(index types.ChainIndex) (growth []types.Hash256) {
 	h := merkleHistoryLeafHash(index)
 	i := 0
 	for ; ha.HasTreeAtHeight(i); i++ {
 		h = merkleNodeHash(ha.Trees[i], h)
+		growth = append(growth, ha.Trees[i])
 	}
 	ha.Trees[i] = h
+	growth = append(growth, ha.Trees[i])
 	ha.NumLeaves++
+	return
+}
+
+// Contains returns true if the accumulator contains the given index.
+func (ha *HistoryAccumulator) Contains(index types.ChainIndex, proof []types.Hash256) bool {
+	root := merkleProofRoot(merkleHistoryLeafHash(index), index.Height, proof)
+	start, end := bits.TrailingZeros64(ha.NumLeaves), bits.Len64(ha.NumLeaves)
+	for i := start; i < end; i++ {
+		if ha.HasTreeAtHeight(i) && ha.Trees[i] == root {
+			return true
+		}
+	}
+	return false
+}
+
+func storageProofRoot(sp types.StorageProof, segmentIndex uint64) types.Hash256 {
+	buf := make([]byte, 65)
+	buf[0] = leafHashPrefix
+	copy(buf[1:], sp.DataSegment[:])
+	return merkleProofRoot(types.HashBytes(buf), segmentIndex, sp.SegmentProof)
 }

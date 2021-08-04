@@ -3,8 +3,10 @@ package consensus
 
 import (
 	"crypto/ed25519"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"math/bits"
 	"sort"
 	"sync"
 	"time"
@@ -103,6 +105,42 @@ func (vc *ValidationContext) BlockWeight(txns []types.Transaction) uint64 {
 	return weight
 }
 
+// FileContractTax computes the tax levied on a given contract.
+func (vc *ValidationContext) FileContractTax(fc types.FileContractRevision) types.Currency {
+	sum := fc.ValidRenterOutput.Value.Add(fc.ValidHostOutput.Value)
+	tax := sum.Div64(25) // 4%
+	// round down to SiafundCount
+	_, r := bits.Div64(0, tax.Hi, SiafundCount)
+	_, r = bits.Div64(r, tax.Lo, SiafundCount)
+	return tax.Sub(types.NewCurrency64(r))
+}
+
+// StorageProofSegmentIndex returns the segment index used when computing or
+// validating a storage proof.
+func (vc *ValidationContext) StorageProofSegmentIndex(filesize uint64, windowStart types.ChainIndex, fcid types.OutputID) uint64 {
+	const segmentSize = uint64(len(types.StorageProof{}.DataSegment))
+	if filesize <= segmentSize {
+		return 0
+	}
+	numSegments := filesize / segmentSize
+	if filesize%segmentSize != 0 {
+		numSegments++
+	}
+
+	h := hasherPool.Get().(*types.Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	h.WriteChainIndex(windowStart)
+	h.WriteOutputID(fcid)
+	seed := h.Sum()
+
+	var r uint64
+	for i := 0; i < len(seed); i += 8 {
+		_, r = bits.Div64(r, binary.BigEndian.Uint64(seed[i:]), numSegments)
+	}
+	return r
+}
+
 // Commitment computes the commitment hash for a child block.
 func (vc *ValidationContext) Commitment(minerAddr types.Address, txns []types.Transaction) types.Hash256 {
 	h := hasherPool.Get().(*types.Hasher)
@@ -171,6 +209,23 @@ func (vc *ValidationContext) Commitment(minerAddr types.Address, txns []types.Tr
 		for _, out := range txn.SiafundOutputs {
 			h.WriteCurrency(out.Value)
 			h.WriteHash(out.Address)
+		}
+		for _, fc := range txn.FileContracts {
+			h.WriteFileContractRevision(fc)
+		}
+		for _, fcr := range txn.FileContractResolutions {
+			h.WriteOutputID(fcr.Parent.ID)
+			h.WriteFileContractRevision(fcr.FinalRevision)
+			h.Write(fcr.RenterSignature[:])
+			h.Write(fcr.HostSignature[:])
+			h.WriteChainIndex(fcr.StorageProof.WindowStart)
+			for _, p := range fcr.StorageProof.WindowProof {
+				h.WriteHash(p)
+			}
+			h.Write(fcr.StorageProof.DataSegment[:])
+			for _, p := range fcr.StorageProof.SegmentProof {
+				h.WriteHash(p)
+			}
 		}
 		h.WriteHash(txn.NewFoundationAddress)
 		h.WriteCurrency(txn.MinerFee)
@@ -265,6 +320,63 @@ func (vc *ValidationContext) validTimeLocks(txn types.Transaction) bool {
 	return true
 }
 
+func (vc *ValidationContext) validFileContracts(txn types.Transaction) bool {
+	for _, fc := range txn.FileContracts {
+		validSum := fc.ValidRenterOutput.Value.Add(fc.ValidHostOutput.Value)
+		missedSum := fc.MissedRenterOutput.Value.Add(fc.MissedHostOutput.Value)
+		if missedSum.Cmp(validSum) > 0 {
+			return false
+		} else if fc.WindowEnd <= fc.WindowStart {
+			return false
+		}
+	}
+	return true
+}
+
+func (vc *ValidationContext) validFileContractResolutions(txn types.Transaction) bool {
+	for _, fcr := range txn.FileContractResolutions {
+		rev := fcr.Parent.Revision
+		if fcr.HasRevision() {
+			oldValidSum := rev.ValidRenterOutput.Value.Add(rev.ValidHostOutput.Value)
+			validSum := fcr.FinalRevision.ValidRenterOutput.Value.Add(fcr.FinalRevision.ValidHostOutput.Value)
+			missedSum := fcr.FinalRevision.MissedRenterOutput.Value.Add(fcr.FinalRevision.MissedHostOutput.Value)
+			switch {
+			case fcr.FinalRevision.RevisionNumber <= rev.RevisionNumber:
+				return false
+			case !validSum.Equals(oldValidSum):
+				return false
+			case missedSum.Cmp(validSum) > 0:
+				return false
+			case fcr.FinalRevision.WindowEnd <= fcr.FinalRevision.WindowStart:
+				return false
+			}
+			rev = fcr.FinalRevision
+		}
+
+		if fcr.HasStorageProof() {
+			// we must be within the proof window
+			if vc.Index.Height < rev.WindowStart || rev.WindowEnd < vc.Index.Height {
+				return false
+			}
+			// validate storage proof
+			if fcr.StorageProof.WindowStart.Height != rev.WindowStart {
+				// see note on this field in types.StorageProof
+				return false
+			}
+			segmentIndex := vc.StorageProofSegmentIndex(rev.Filesize, fcr.StorageProof.WindowStart, fcr.Parent.ID)
+			if storageProofRoot(fcr.StorageProof, segmentIndex) != rev.FileMerkleRoot {
+				return false
+			}
+		} else {
+			// contract must have expired
+			if vc.Index.Height <= rev.WindowEnd {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func (vc *ValidationContext) validPubkeys(txn types.Transaction) bool {
 	for _, in := range txn.SiacoinInputs {
 		if in.PublicKey.Address() != in.Parent.Address {
@@ -294,6 +406,20 @@ func (vc *ValidationContext) outputsEqualInputs(txn types.Transaction) bool {
 			return false
 		}
 	}
+	for _, fc := range txn.FileContracts {
+		outputSC, overflowed = outputSC.AddWithOverflow(fc.ValidRenterOutput.Value)
+		if overflowed {
+			return false
+		}
+		outputSC, overflowed = outputSC.AddWithOverflow(fc.ValidHostOutput.Value)
+		if overflowed {
+			return false
+		}
+		outputSC, overflowed = outputSC.AddWithOverflow(vc.FileContractTax(fc))
+		if overflowed {
+			return false
+		}
+	}
 	outputSC, overflowed = outputSC.AddWithOverflow(txn.MinerFee)
 	if overflowed || inputSC != outputSC {
 		return false
@@ -319,7 +445,7 @@ func (vc *ValidationContext) outputsEqualInputs(txn types.Transaction) bool {
 	return true
 }
 
-func (vc *ValidationContext) validInputMerkleProofs(txn types.Transaction) bool {
+func (vc *ValidationContext) validStateProofs(txn types.Transaction) bool {
 	for _, in := range txn.SiacoinInputs {
 		if in.Parent.LeafIndex != types.EphemeralLeafIndex && !vc.State.ContainsUnspentSiacoinOutput(in.Parent) {
 			return false
@@ -327,6 +453,20 @@ func (vc *ValidationContext) validInputMerkleProofs(txn types.Transaction) bool 
 	}
 	for _, in := range txn.SiafundInputs {
 		if !vc.State.ContainsUnspentSiafundOutput(in.Parent) {
+			return false
+		}
+	}
+	for _, fcr := range txn.FileContractResolutions {
+		if !vc.State.ContainsUnresolvedFileContract(fcr.Parent) {
+			return false
+		}
+	}
+	return true
+}
+
+func (vc *ValidationContext) validHistoryProofs(txn types.Transaction) bool {
+	for _, fcr := range txn.FileContractResolutions {
+		if fcr.HasStorageProof() && !vc.History.Contains(fcr.StorageProof.WindowStart, fcr.StorageProof.WindowProof) {
 			return false
 		}
 	}
@@ -357,6 +497,16 @@ func (vc *ValidationContext) validSignatures(txn types.Transaction) bool {
 			return false
 		}
 	}
+	for _, fcr := range txn.FileContractResolutions {
+		// NOTE: very important that we verify with the parent keys, *not* the
+		// revised keys!
+		if !ed25519.Verify(fcr.Parent.Revision.RenterPublicKey[:], sigHash[:], fcr.RenterSignature[:]) {
+			return false
+		}
+		if !ed25519.Verify(fcr.Parent.Revision.HostPublicKey[:], sigHash[:], fcr.HostSignature[:]) {
+			return false
+		}
+	}
 	return true
 }
 
@@ -372,10 +522,16 @@ func (vc *ValidationContext) ValidateTransaction(txn types.Transaction) error {
 		return errors.New("outputs of transaction do not equal its inputs")
 	case !vc.validPubkeys(txn):
 		return errors.New("transaction contains unlock conditions that do not hash to the correct address")
-	case !vc.validInputMerkleProofs(txn):
-		return errors.New("transaction contains an invalid input proof")
+	case !vc.validStateProofs(txn):
+		return errors.New("transaction contains an invalid state proof")
+	case !vc.validHistoryProofs(txn):
+		return errors.New("transaction contains an invalid history proof")
 	case !vc.validFoundationUpdate(txn):
 		return errors.New("transaction contains an invalid Foundation address update")
+	case !vc.validFileContracts(txn):
+		return errors.New("transaction contains an invalid file contract")
+	case !vc.validFileContractResolutions(txn):
+		return errors.New("transaction contains an invalid file contract resolution")
 	case !vc.validSignatures(txn):
 		return errors.New("transaction contains an invalid signature")
 	}

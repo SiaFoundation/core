@@ -116,15 +116,90 @@ type Beneficiary struct {
 	Address Address
 }
 
+// A FileContractRevision represents the current state of a FileContract.
+type FileContractRevision struct {
+	Filesize           uint64
+	FileMerkleRoot     Hash256
+	WindowStart        uint64
+	WindowEnd          uint64
+	ValidRenterOutput  Beneficiary
+	ValidHostOutput    Beneficiary
+	MissedRenterOutput Beneficiary
+	MissedHostOutput   Beneficiary
+	RenterPublicKey    PublicKey
+	HostPublicKey      PublicKey
+	RevisionNumber     uint64
+}
+
+// A FileContract is a storage agreement between a renter and a host. It
+// consists of a bidirectional payment channel that resolves as either "valid"
+// or "missed" depending on whether a valid StorageProof is submitted for the
+// contract.
+type FileContract struct {
+	ID          OutputID
+	Revision    FileContractRevision
+	MerkleProof []Hash256
+	LeafIndex   uint64
+}
+
+// A FileContractResolution closes a file contract's payment channel. If a valid
+// revision is included, the revision is applied before the channel closes. If a
+// valid storage proof is provided within the contract's proof window, the
+// channel resolves as "valid." After the window has ended, anyone may submit a
+// resolution (omitting the storage proof), which will cause the contract to
+// resolve as "missed."
+type FileContractResolution struct {
+	Parent          FileContract
+	FinalRevision   FileContractRevision
+	RenterSignature InputSignature
+	HostSignature   InputSignature
+	StorageProof    StorageProof
+}
+
+// HasRevision returns true if any fields in the resolution's FinalRevision are
+// non-zero.
+func (fcr *FileContractResolution) HasRevision() bool {
+	return fcr.FinalRevision != (FileContractRevision{})
+}
+
+// HasStorageProof returns true if any fields in the resolution's StorageProof
+// are non-zero.
+func (fcr *FileContractResolution) HasStorageProof() bool {
+	sp := &fcr.StorageProof
+	return sp.WindowStart != (ChainIndex{}) || len(sp.WindowProof) > 0 ||
+		sp.DataSegment != ([64]byte{}) || len(sp.SegmentProof) > 0
+}
+
+// A StorageProof asserts the presence of a small segment of data within a
+// larger body of contract data.
+type StorageProof struct {
+	// The proof segment is selected pseudorandomly, which requires a source of
+	// unpredictable entropy; we use the ID of the block at the start of the
+	// proof window. The StorageProof includes this ID, and asserts its presence
+	// in the chain via a separate Merkle proof.
+	//
+	// For convenience, WindowStart is a ChainIndex rather than a BlockID.
+	// Consequently, WindowStart.Height MUST match the WindowStart field of the
+	// contract's final revision; otherwise, the prover could use any
+	// WindowStart, giving them control over the segment index.
+	WindowStart ChainIndex
+	WindowProof []Hash256
+	// The segment is always 64 bytes, extended with zeros if necessary.
+	DataSegment  [64]byte
+	SegmentProof []Hash256
+}
+
 // A Transaction transfers value by consuming existing Outputs and creating new
 // Outputs.
 type Transaction struct {
-	SiacoinInputs        []SiacoinInput
-	SiacoinOutputs       []Beneficiary
-	SiafundInputs        []SiafundInput
-	SiafundOutputs       []Beneficiary
-	NewFoundationAddress Address
-	MinerFee             Currency
+	SiacoinInputs           []SiacoinInput
+	SiacoinOutputs          []Beneficiary
+	SiafundInputs           []SiafundInput
+	SiafundOutputs          []Beneficiary
+	FileContracts           []FileContractRevision
+	FileContractResolutions []FileContractResolution
+	NewFoundationAddress    Address
+	MinerFee                Currency
 }
 
 // ID returns the hash of all block-independent data in the transaction.
@@ -132,21 +207,29 @@ func (txn *Transaction) ID() TransactionID {
 	h := hasherPool.Get().(*Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	// Input IDs, Outputs, and MinerFee are sufficient to uniquely identify a
-	// transaction
-	for i := range txn.SiacoinInputs {
-		h.WriteOutputID(txn.SiacoinInputs[i].Parent.ID)
+	for _, in := range txn.SiacoinInputs {
+		h.WriteOutputID(in.Parent.ID)
 	}
-	for i := range txn.SiacoinOutputs {
-		h.WriteCurrency(txn.SiacoinOutputs[i].Value)
-		h.WriteHash(txn.SiacoinOutputs[i].Address)
+	for _, out := range txn.SiacoinOutputs {
+		h.WriteBeneficiary(out)
 	}
-	for i := range txn.SiafundInputs {
-		h.WriteOutputID(txn.SiafundInputs[i].Parent.ID)
+	for _, in := range txn.SiafundInputs {
+		h.WriteOutputID(in.Parent.ID)
 	}
-	for i := range txn.SiafundOutputs {
-		h.WriteCurrency(txn.SiafundOutputs[i].Value)
-		h.WriteHash(txn.SiafundOutputs[i].Address)
+	for _, out := range txn.SiafundOutputs {
+		h.WriteBeneficiary(out)
+	}
+	for _, fc := range txn.FileContracts {
+		h.WriteFileContractRevision(fc)
+	}
+	for _, fcr := range txn.FileContractResolutions {
+		h.WriteOutputID(fcr.Parent.ID)
+		h.WriteFileContractRevision(fcr.FinalRevision)
+		h.WriteChainIndex(fcr.StorageProof.WindowStart)
+		h.Write(fcr.StorageProof.DataSegment[:])
+		for _, p := range fcr.StorageProof.SegmentProof {
+			h.WriteHash(p)
+		}
 	}
 	h.WriteHash(txn.NewFoundationAddress)
 	h.WriteCurrency(txn.MinerFee)
@@ -416,6 +499,22 @@ func (h *Hasher) WriteOutputID(id OutputID) {
 func (h *Hasher) WriteBeneficiary(b Beneficiary) {
 	h.WriteCurrency(b.Value)
 	h.WriteHash(b.Address)
+}
+
+// WriteFileContractRevision writes a FileContractRevision value to the
+// underlying hasher.
+func (h *Hasher) WriteFileContractRevision(rev FileContractRevision) {
+	h.WriteUint64(rev.Filesize)
+	h.WriteHash(rev.FileMerkleRoot)
+	h.WriteUint64(rev.WindowStart)
+	h.WriteUint64(rev.WindowEnd)
+	h.WriteBeneficiary(rev.ValidRenterOutput)
+	h.WriteBeneficiary(rev.ValidHostOutput)
+	h.WriteBeneficiary(rev.MissedRenterOutput)
+	h.WriteBeneficiary(rev.MissedHostOutput)
+	h.WriteHash(rev.RenterPublicKey)
+	h.WriteHash(rev.HostPublicKey)
+	h.WriteUint64(rev.RevisionNumber)
 }
 
 // Sum returns the hash of the data written to the underlying hasher.
