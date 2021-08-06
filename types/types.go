@@ -572,6 +572,11 @@ func (ci ChainIndex) String() string {
 }
 
 // String implements fmt.Stringer.
+func (oid OutputID) String() string {
+	return fmt.Sprintf("%v:%v", oid.TransactionID, oid.Index)
+}
+
+// String implements fmt.Stringer.
 func (a Address) String() string { return stringerHex("addr", a[:]) }
 
 // MarshalJSON implements json.Marshaler.

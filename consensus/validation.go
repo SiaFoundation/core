@@ -23,6 +23,10 @@ var (
 
 	// ErrOverweight is returned when a block's weight exceeds MaxBlockWeight.
 	ErrOverweight = errors.New("block is too heavy")
+
+	// ErrOverflow is returned when the sum of a transaction's inputs and/or
+	// outputs overflows the Currency representation.
+	ErrOverflow = errors.New("sum of currency values overflowed")
 )
 
 // Pool for reducing heap allocations when hashing. This are only necessary
@@ -296,45 +300,45 @@ func (vc *ValidationContext) validateHeader(h types.BlockHeader) error {
 	return nil
 }
 
-func (vc *ValidationContext) containsZeroValuedOutputs(txn types.Transaction) bool {
-	for _, out := range txn.SiacoinOutputs {
+func (vc *ValidationContext) containsZeroValuedOutputs(txn types.Transaction) error {
+	for i, out := range txn.SiacoinOutputs {
 		if out.Value.IsZero() {
-			return true
+			return fmt.Errorf("siacoin output %v has zero value", i)
 		}
 	}
-	for _, out := range txn.SiafundOutputs {
+	for i, out := range txn.SiafundOutputs {
 		if out.Value.IsZero() {
-			return true
+			return fmt.Errorf("siafund output %v has zero value", i)
 		}
 	}
-	return false
+	return nil
 }
 
-func (vc *ValidationContext) validTimeLocks(txn types.Transaction) bool {
+func (vc *ValidationContext) validTimeLocks(txn types.Transaction) error {
 	blockHeight := vc.Index.Height + 1
-	for _, in := range txn.SiacoinInputs {
+	for i, in := range txn.SiacoinInputs {
 		if in.Parent.Timelock > blockHeight {
-			return false
+			return fmt.Errorf("siacoin input %v is timelocked until block %v", i, in.Parent.Timelock)
 		}
 	}
-	return true
+	return nil
 }
 
-func (vc *ValidationContext) validFileContracts(txn types.Transaction) bool {
-	for _, fc := range txn.FileContracts {
+func (vc *ValidationContext) validFileContracts(txn types.Transaction) error {
+	for i, fc := range txn.FileContracts {
 		validSum := fc.ValidRenterOutput.Value.Add(fc.ValidHostOutput.Value)
 		missedSum := fc.MissedRenterOutput.Value.Add(fc.MissedHostOutput.Value)
 		if missedSum.Cmp(validSum) > 0 {
-			return false
+			return fmt.Errorf("file contract %v has missed output value (%v) exceeding valid output value (%v)", i, missedSum, validSum)
 		} else if fc.WindowEnd <= fc.WindowStart {
-			return false
+			return fmt.Errorf("file contract %v has window that ends (%v) before it begins (%v)", i, fc.WindowEnd, fc.WindowStart)
 		}
 	}
-	return true
+	return nil
 }
 
-func (vc *ValidationContext) validFileContractResolutions(txn types.Transaction) bool {
-	for _, fcr := range txn.FileContractResolutions {
+func (vc *ValidationContext) validFileContractResolutions(txn types.Transaction) error {
+	for i, fcr := range txn.FileContractResolutions {
 		rev := fcr.Parent.Revision
 		if fcr.HasRevision() {
 			oldValidSum := rev.ValidRenterOutput.Value.Add(rev.ValidHostOutput.Value)
@@ -342,13 +346,13 @@ func (vc *ValidationContext) validFileContractResolutions(txn types.Transaction)
 			missedSum := fcr.FinalRevision.MissedRenterOutput.Value.Add(fcr.FinalRevision.MissedHostOutput.Value)
 			switch {
 			case fcr.FinalRevision.RevisionNumber <= rev.RevisionNumber:
-				return false
+				return fmt.Errorf("file contract resolution %v decreases revision number (%v -> %v)", i, rev.RevisionNumber, fcr.FinalRevision.RevisionNumber)
 			case !validSum.Equals(oldValidSum):
-				return false
+				return fmt.Errorf("file contract resolution %v modifies valid output value (%v -> %v)", i, oldValidSum, validSum)
 			case missedSum.Cmp(validSum) > 0:
-				return false
+				return fmt.Errorf("file contract resolution %v has missed output value (%v) exceeding valid output value (%v)", i, missedSum, validSum)
 			case fcr.FinalRevision.WindowEnd <= fcr.FinalRevision.WindowStart:
-				return false
+				return fmt.Errorf("file contract resolution %v has window that ends (%v) before it begins (%v)", i, fcr.FinalRevision.WindowEnd, fcr.FinalRevision.WindowStart)
 			}
 			rev = fcr.FinalRevision
 		}
@@ -356,184 +360,206 @@ func (vc *ValidationContext) validFileContractResolutions(txn types.Transaction)
 		if fcr.HasStorageProof() {
 			// we must be within the proof window
 			if vc.Index.Height < rev.WindowStart || rev.WindowEnd < vc.Index.Height {
-				return false
+				return fmt.Errorf("file contract resolution %v attempts to claim valid outputs, but proof window (%v - %v) has expired", i, rev.WindowStart, rev.WindowEnd)
 			}
 			// validate storage proof
 			if fcr.StorageProof.WindowStart.Height != rev.WindowStart {
 				// see note on this field in types.StorageProof
-				return false
+				return fmt.Errorf("file contract resolution %v has storage proof with WindowStart (%v) that does not match final revision WindowStart (%v)", i, fcr.StorageProof.WindowStart.Height, rev.WindowStart)
 			}
 			segmentIndex := vc.StorageProofSegmentIndex(rev.Filesize, fcr.StorageProof.WindowStart, fcr.Parent.ID)
 			if storageProofRoot(fcr.StorageProof, segmentIndex) != rev.FileMerkleRoot {
-				return false
+				return fmt.Errorf("file contract resolution %v has storage proof root that does not match final Merkle root", i)
 			}
 		} else {
 			// contract must have expired
 			if vc.Index.Height <= rev.WindowEnd {
-				return false
+				return fmt.Errorf("file contract resolution %v attempts to claim missed outputs, but proof window (%v - %v) has not expired", i, rev.WindowStart, rev.WindowEnd)
 			}
 		}
 	}
-	return true
+	return nil
 }
 
-func (vc *ValidationContext) validPubkeys(txn types.Transaction) bool {
-	for _, in := range txn.SiacoinInputs {
+func (vc *ValidationContext) validPubkeys(txn types.Transaction) error {
+	for i, in := range txn.SiacoinInputs {
 		if in.PublicKey.Address() != in.Parent.Address {
-			return false
+			return fmt.Errorf("siacoin input %v claims incorrect pubkey for parent address", i)
 		}
 	}
-	for _, in := range txn.SiafundInputs {
+	for i, in := range txn.SiafundInputs {
 		if in.PublicKey.Address() != in.Parent.Address {
-			return false
+			return fmt.Errorf("siafund input %v claims incorrect pubkey for parent address", i)
 		}
 	}
-	return true
+	return nil
 }
 
-func (vc *ValidationContext) outputsEqualInputs(txn types.Transaction) bool {
+func (vc *ValidationContext) outputsEqualInputs(txn types.Transaction) error {
 	var inputSC, outputSC types.Currency
 	var overflowed bool
 	for _, in := range txn.SiacoinInputs {
 		inputSC, overflowed = inputSC.AddWithOverflow(in.Parent.Value)
 		if overflowed {
-			return false
+			return ErrOverflow
 		}
 	}
 	for _, out := range txn.SiacoinOutputs {
 		outputSC, overflowed = outputSC.AddWithOverflow(out.Value)
 		if overflowed {
-			return false
+			return ErrOverflow
 		}
 	}
 	for _, fc := range txn.FileContracts {
 		outputSC, overflowed = outputSC.AddWithOverflow(fc.ValidRenterOutput.Value)
 		if overflowed {
-			return false
+			return ErrOverflow
 		}
 		outputSC, overflowed = outputSC.AddWithOverflow(fc.ValidHostOutput.Value)
 		if overflowed {
-			return false
+			return ErrOverflow
 		}
 		outputSC, overflowed = outputSC.AddWithOverflow(vc.FileContractTax(fc))
 		if overflowed {
-			return false
+			return ErrOverflow
 		}
 	}
 	outputSC, overflowed = outputSC.AddWithOverflow(txn.MinerFee)
-	if overflowed || inputSC != outputSC {
-		return false
+	if overflowed {
+		return ErrOverflow
+	}
+	if inputSC != outputSC {
+		return fmt.Errorf("siacoin inputs (%v) do not equal siacoin outputs (%v)", inputSC, outputSC)
 	}
 
 	var inputSF, outputSF types.Currency
 	for _, in := range txn.SiafundInputs {
 		inputSF, overflowed = inputSF.AddWithOverflow(in.Parent.Value)
 		if overflowed {
-			return false
+			return ErrOverflow
 		}
 	}
 	for _, out := range txn.SiafundOutputs {
 		outputSF, overflowed = outputSF.AddWithOverflow(out.Value)
 		if overflowed {
-			return false
+			return ErrOverflow
 		}
 	}
-	if overflowed || inputSF != outputSF {
-		return false
+	if inputSF != outputSF {
+		return fmt.Errorf("siafund inputs (%v) do not equal siafund outputs (%v)", inputSC, outputSC)
 	}
 
-	return true
+	return nil
 }
 
-func (vc *ValidationContext) validStateProofs(txn types.Transaction) bool {
-	for _, in := range txn.SiacoinInputs {
-		if in.Parent.LeafIndex != types.EphemeralLeafIndex && !vc.State.ContainsUnspentSiacoinOutput(in.Parent) {
-			return false
+func (vc *ValidationContext) validStateProofs(txn types.Transaction) error {
+	for i, in := range txn.SiacoinInputs {
+		switch {
+		case in.Parent.LeafIndex == types.EphemeralLeafIndex:
+			continue
+		case vc.State.ContainsUnspentSiacoinOutput(in.Parent):
+			continue
+		case vc.State.ContainsSpentSiacoinOutput(in.Parent):
+			return fmt.Errorf("siacoin input %v double-spends output %v", i, in.Parent.ID)
+		default:
+			return fmt.Errorf("siacoin input %v spends output (%v) not present in the accumulator", i, in.Parent.ID)
 		}
 	}
-	for _, in := range txn.SiafundInputs {
-		if !vc.State.ContainsUnspentSiafundOutput(in.Parent) {
-			return false
+	for i, in := range txn.SiafundInputs {
+		switch {
+		case vc.State.ContainsUnspentSiafundOutput(in.Parent):
+			continue
+		case vc.State.ContainsSpentSiafundOutput(in.Parent):
+			return fmt.Errorf("siafund input %v double-spends output %v", i, in.Parent.ID)
+		default:
+			return fmt.Errorf("siafund input %v spends output (%v) not present in the accumulator", i, in.Parent.ID)
 		}
 	}
-	for _, fcr := range txn.FileContractResolutions {
-		if !vc.State.ContainsUnresolvedFileContract(fcr.Parent) {
-			return false
+	for i, fcr := range txn.FileContractResolutions {
+		if vc.State.ContainsUnresolvedFileContract(fcr.Parent) {
+			continue
+		}
+		switch {
+		case vc.State.ContainsValidFileContract(fcr.Parent):
+			return fmt.Errorf("file contract resolution %v resolves a contract (%v) that has already resolved valid", i, fcr.Parent.ID)
+		case vc.State.ContainsMissedFileContract(fcr.Parent):
+			return fmt.Errorf("file contract resolution %v resolves a contract (%v) that has already resolved valid", i, fcr.Parent.ID)
+		default:
+			return fmt.Errorf("file contract resolution %v resolves a contract (%v) not present in the accumulator", i, fcr.Parent.ID)
 		}
 	}
-	return true
+	return nil
 }
 
-func (vc *ValidationContext) validHistoryProofs(txn types.Transaction) bool {
-	for _, fcr := range txn.FileContractResolutions {
+func (vc *ValidationContext) validHistoryProofs(txn types.Transaction) error {
+	for i, fcr := range txn.FileContractResolutions {
 		if fcr.HasStorageProof() && !vc.History.Contains(fcr.StorageProof.WindowStart, fcr.StorageProof.WindowProof) {
-			return false
+			return fmt.Errorf("file contract resolution %v has storage proof with invalid history proof", i)
 		}
 	}
-	return true
+	return nil
 }
 
-func (vc *ValidationContext) validFoundationUpdate(txn types.Transaction) bool {
+func (vc *ValidationContext) validFoundationUpdate(txn types.Transaction) error {
 	if txn.NewFoundationAddress == types.VoidAddress {
-		return true
+		return nil
 	}
 	for _, in := range txn.SiacoinInputs {
 		if in.Parent.Address == vc.FoundationAddress {
-			return true
+			return nil
 		}
 	}
-	return false
+	return errors.New("transaction changes Foundation address, but does not spend an input controlled by current address")
 }
 
-func (vc *ValidationContext) validSignatures(txn types.Transaction) bool {
+func (vc *ValidationContext) validSignatures(txn types.Transaction) error {
 	sigHash := vc.SigHash(txn)
-	for _, in := range txn.SiacoinInputs {
+	for i, in := range txn.SiacoinInputs {
 		if !ed25519.Verify(in.PublicKey[:], sigHash[:], in.Signature[:]) {
-			return false
+			return fmt.Errorf("siacoin input %v has invalid signature", i)
 		}
 	}
-	for _, in := range txn.SiafundInputs {
+	for i, in := range txn.SiafundInputs {
 		if !ed25519.Verify(in.PublicKey[:], sigHash[:], in.Signature[:]) {
-			return false
+			return fmt.Errorf("siafund input %v has invalid signature", i)
 		}
 	}
-	for _, fcr := range txn.FileContractResolutions {
+	for i, fcr := range txn.FileContractResolutions {
 		// NOTE: very important that we verify with the parent keys, *not* the
 		// revised keys!
 		if !ed25519.Verify(fcr.Parent.Revision.RenterPublicKey[:], sigHash[:], fcr.RenterSignature[:]) {
-			return false
+			return fmt.Errorf("file contract resolution %v has invalid renter signature", i)
 		}
 		if !ed25519.Verify(fcr.Parent.Revision.HostPublicKey[:], sigHash[:], fcr.HostSignature[:]) {
-			return false
+			return fmt.Errorf("file contract resolution %v has invalid host signature", i)
 		}
 	}
-	return true
+	return nil
 }
 
 // ValidateTransaction partially validates txn for inclusion in a child block.
 // It does not validate ephemeral outputs.
 func (vc *ValidationContext) ValidateTransaction(txn types.Transaction) error {
-	switch {
-	case vc.containsZeroValuedOutputs(txn):
-		return errors.New("transaction contains zero-valued outputs")
-	case !vc.validTimeLocks(txn):
-		return errors.New("transaction spends time-locked outputs")
-	case !vc.outputsEqualInputs(txn):
-		return errors.New("outputs of transaction do not equal its inputs")
-	case !vc.validPubkeys(txn):
-		return errors.New("transaction contains unlock conditions that do not hash to the correct address")
-	case !vc.validStateProofs(txn):
-		return errors.New("transaction contains an invalid state proof")
-	case !vc.validHistoryProofs(txn):
-		return errors.New("transaction contains an invalid history proof")
-	case !vc.validFoundationUpdate(txn):
-		return errors.New("transaction contains an invalid Foundation address update")
-	case !vc.validFileContracts(txn):
-		return errors.New("transaction contains an invalid file contract")
-	case !vc.validFileContractResolutions(txn):
-		return errors.New("transaction contains an invalid file contract resolution")
-	case !vc.validSignatures(txn):
-		return errors.New("transaction contains an invalid signature")
+	if err := vc.containsZeroValuedOutputs(txn); err != nil {
+		return err
+	} else if err := vc.validTimeLocks(txn); err != nil {
+		return err
+	} else if err := vc.outputsEqualInputs(txn); err != nil {
+		return err
+	} else if err := vc.validPubkeys(txn); err != nil {
+		return err
+	} else if err := vc.validStateProofs(txn); err != nil {
+		return err
+	} else if err := vc.validHistoryProofs(txn); err != nil {
+		return err
+	} else if err := vc.validFoundationUpdate(txn); err != nil {
+		return err
+	} else if err := vc.validFileContracts(txn); err != nil {
+		return err
+	} else if err := vc.validFileContractResolutions(txn); err != nil {
+		return err
+	} else if err := vc.validSignatures(txn); err != nil {
+		return err
 	}
 	return nil
 }
