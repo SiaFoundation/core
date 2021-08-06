@@ -198,22 +198,46 @@ func (sa *StateAccumulator) containsObject(so stateObject) bool {
 	return false
 }
 
-// ContainsUnspentSiacoinOutput returns true if o is a valid unspent output in
-// the accumulator.
+// ContainsUnspentSiacoinOutput returns true if the accumulator contains o as an
+// unspent output.
 func (sa *StateAccumulator) ContainsUnspentSiacoinOutput(o types.SiacoinOutput) bool {
 	return sa.containsObject(siacoinOutputStateObject(o, 0))
 }
 
-// ContainsUnspentSiafundOutput returns true if o is a valid unspent output in
-// the accumulator.
+// ContainsSpentSiacoinOutput returns true if the accumulator contains o as a
+// spent output.
+func (sa *StateAccumulator) ContainsSpentSiacoinOutput(o types.SiacoinOutput) bool {
+	return sa.containsObject(siacoinOutputStateObject(o, flagSpent))
+}
+
+// ContainsUnspentSiafundOutput returns true if the accumulator contains o as an
+// unspent output.
 func (sa *StateAccumulator) ContainsUnspentSiafundOutput(o types.SiafundOutput) bool {
 	return sa.containsObject(siafundOutputStateObject(o, 0))
 }
 
-// ContainsUnresolvedFileContract returns true if fc is a valid unresolved file
-// contract in the accumulator.
+// ContainsSpentSiafundOutput returns true if the accumulator contains o as a
+// spent output.
+func (sa *StateAccumulator) ContainsSpentSiafundOutput(o types.SiafundOutput) bool {
+	return sa.containsObject(siafundOutputStateObject(o, flagSpent))
+}
+
+// ContainsUnresolvedFileContract returns true if the accumulator contains fc as an
+// unresolved file contract.
 func (sa *StateAccumulator) ContainsUnresolvedFileContract(fc types.FileContract) bool {
 	return sa.containsObject(fileContractStateObject(fc, 0))
+}
+
+// ContainsValidFileContract returns true if the accumulator contains fc as a
+// resolved-valid file contract.
+func (sa *StateAccumulator) ContainsValidFileContract(fc types.FileContract) bool {
+	return sa.containsObject(fileContractStateObject(fc, flagSpent))
+}
+
+// ContainsMissedFileContract returns true if the accumulator contains fc as a
+// resolved-missed file contract.
+func (sa *StateAccumulator) ContainsMissedFileContract(fc types.FileContract) bool {
+	return sa.containsObject(fileContractStateObject(fc, flagSpent|flagExpired))
 }
 
 // addNewObjects adds the supplied objects to the accumulator, filling in their
