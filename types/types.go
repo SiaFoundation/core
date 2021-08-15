@@ -198,6 +198,7 @@ type Transaction struct {
 	SiafundOutputs          []Beneficiary
 	FileContracts           []FileContractRevision
 	FileContractResolutions []FileContractResolution
+	ArbitraryData           []byte
 	NewFoundationAddress    Address
 	MinerFee                Currency
 }
@@ -231,6 +232,7 @@ func (txn *Transaction) ID() TransactionID {
 			h.WriteHash(p)
 		}
 	}
+	h.Write(txn.ArbitraryData)
 	h.WriteHash(txn.NewFoundationAddress)
 	h.WriteCurrency(txn.MinerFee)
 	return TransactionID(h.Sum())
@@ -256,6 +258,7 @@ func (txn *Transaction) DeepCopy() Transaction {
 		c.FileContractResolutions[i].StorageProof.WindowProof = append([]Hash256(nil), c.FileContractResolutions[i].StorageProof.WindowProof...)
 		c.FileContractResolutions[i].StorageProof.SegmentProof = append([]Hash256(nil), c.FileContractResolutions[i].StorageProof.SegmentProof...)
 	}
+	c.ArbitraryData = append([]byte(nil), c.ArbitraryData...)
 	return c
 }
 
@@ -574,6 +577,7 @@ func (h *Hasher) WriteTransaction(txn Transaction) {
 			h.WriteHash(p)
 		}
 	}
+	h.Write(txn.ArbitraryData)
 	h.WriteHash(txn.NewFoundationAddress)
 	h.WriteCurrency(txn.MinerFee)
 }
