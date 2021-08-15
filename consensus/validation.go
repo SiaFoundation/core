@@ -88,16 +88,43 @@ func (vc *ValidationContext) FoundationSubsidy() types.Currency {
 
 // MaxBlockWeight is the maximum "weight" of a valid child block.
 func (vc *ValidationContext) MaxBlockWeight() uint64 {
-	return 100e3
+	return 2_000_000
 }
 
 // TransactionWeight computes the weight of a txn.
-func (vc *ValidationContext) TransactionWeight(txn types.Transaction) (weight uint64) {
-	weight += uint64(40 * len(txn.SiacoinInputs))
-	weight += uint64(1 * len(txn.SiacoinOutputs))
-	weight += uint64(40 * len(txn.SiafundInputs))
-	weight += uint64(1 * len(txn.SiafundOutputs))
-	return
+func (vc *ValidationContext) TransactionWeight(txn types.Transaction) uint64 {
+	var storage int
+	for _, in := range txn.SiacoinInputs {
+		storage += 32 + 8 + 16 + 32 + 8 + (len(in.Parent.MerkleProof) * 32) + 8 + 32 + 64
+	}
+	storage += 48 * len(txn.SiacoinOutputs)
+	for _, in := range txn.SiafundInputs {
+		storage += 32 + 8 + 16 + 32 + 16 + (len(in.Parent.MerkleProof) * 32) + 8 + 32 + 64
+	}
+	storage += 320 * len(txn.FileContracts)
+	for _, fcr := range txn.FileContractResolutions {
+		storage += 32 + 8 + 320 + (len(fcr.Parent.MerkleProof) * 32) + 8 + 64 + 64
+		if fcr.HasRevision() {
+			storage += 320
+		}
+		if fcr.HasStorageProof() {
+			storage += 8 + 32 + (len(fcr.StorageProof.WindowProof) * 32) + 64 + (len(fcr.StorageProof.SegmentProof) * 32)
+		}
+	}
+	storage += 1 * len(txn.ArbitraryData)
+	storage += 32 // NewFoundationAddress
+	storage += 16 // MinerFee
+
+	var signatures int
+	signatures += len(txn.SiacoinInputs)
+	signatures += len(txn.SiafundInputs)
+	for _, fcr := range txn.FileContractResolutions {
+		if fcr.HasRevision() {
+			signatures += 2
+		}
+	}
+
+	return uint64(storage) + 100*uint64(signatures)
 }
 
 // BlockWeight computes the combined weight of a block's txns.
