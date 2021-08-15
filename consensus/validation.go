@@ -93,10 +93,14 @@ func (vc *ValidationContext) MaxBlockWeight() uint64 {
 
 // TransactionWeight computes the weight of a txn.
 func (vc *ValidationContext) TransactionWeight(txn types.Transaction) (weight uint64) {
+	weight += uint64(len(txn.ArbitraryData))
+	weight += uint64(80 * len(txn.FileContracts))
+	weight += uint64(100 * len(txn.FileContractResolutions))
 	weight += uint64(40 * len(txn.SiacoinInputs))
 	weight += uint64(1 * len(txn.SiacoinOutputs))
 	weight += uint64(40 * len(txn.SiafundInputs))
 	weight += uint64(1 * len(txn.SiafundOutputs))
+
 	return
 }
 
