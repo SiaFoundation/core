@@ -515,7 +515,17 @@ func (vc *ValidationContext) ValidateTransaction(txn types.Transaction) error {
 }
 
 func (vc *ValidationContext) validEphemeralOutputs(txns []types.Transaction) error {
-	// TODO: this is rather inefficient. Definitely need a better algorithm.
+	// skip this check if no ephemeral outputs are present
+	for _, txn := range txns {
+		for _, in := range txn.SiacoinInputs {
+			if in.Parent.LeafIndex == types.EphemeralLeafIndex {
+				goto validate
+			}
+		}
+	}
+	return nil
+
+validate:
 	available := make(map[types.OutputID]types.Beneficiary)
 	for txnIndex, txn := range txns {
 		txid := txn.ID()
