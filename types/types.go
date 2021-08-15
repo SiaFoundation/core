@@ -452,14 +452,16 @@ func (h *Hasher) Reset() {
 
 // Write implements io.Writer.
 func (h *Hasher) Write(p []byte) (int, error) {
-	buf := bytes.NewBuffer(p)
-	for buf.Len() > 0 {
+	lenp := len(p)
+	for len(p) > 0 {
 		if h.n == len(h.buf) {
 			h.flush()
 		}
-		h.n += copy(h.buf[h.n:], buf.Next(len(h.buf[h.n:])))
+		c := copy(h.buf[h.n:], p)
+		h.n += c
+		p = p[c:]
 	}
-	return len(p), nil
+	return lenp, nil
 }
 
 // WriteHash writes a generic hash to the underlying hasher.
@@ -522,6 +524,58 @@ func (h *Hasher) WriteFileContractRevision(rev FileContractRevision) {
 	h.WriteHash(rev.RenterPublicKey)
 	h.WriteHash(rev.HostPublicKey)
 	h.WriteUint64(rev.RevisionNumber)
+}
+
+// WriteTransaction writes a Transaction value to the underlying hasher.
+func (h *Hasher) WriteTransaction(txn Transaction) {
+	for _, in := range txn.SiacoinInputs {
+		h.WriteOutputID(in.Parent.ID)
+		h.WriteCurrency(in.Parent.Value)
+		h.WriteHash(in.Parent.Address)
+		h.WriteUint64(in.Parent.Timelock)
+		for _, p := range in.Parent.MerkleProof {
+			h.WriteHash(p)
+		}
+		h.WriteUint64(in.Parent.LeafIndex)
+		h.WriteHash(in.PublicKey)
+		h.Write(in.Signature[:])
+	}
+	for _, out := range txn.SiacoinOutputs {
+		h.WriteBeneficiary(out)
+	}
+	for _, in := range txn.SiafundInputs {
+		h.WriteOutputID(in.Parent.ID)
+		h.WriteCurrency(in.Parent.Value)
+		h.WriteHash(in.Parent.Address)
+		for _, p := range in.Parent.MerkleProof {
+			h.WriteHash(p)
+		}
+		h.WriteUint64(in.Parent.LeafIndex)
+		h.WriteHash(in.PublicKey)
+		h.Write(in.Signature[:])
+	}
+	for _, out := range txn.SiafundOutputs {
+		h.WriteBeneficiary(out)
+	}
+	for _, fc := range txn.FileContracts {
+		h.WriteFileContractRevision(fc)
+	}
+	for _, fcr := range txn.FileContractResolutions {
+		h.WriteOutputID(fcr.Parent.ID)
+		h.WriteFileContractRevision(fcr.FinalRevision)
+		h.Write(fcr.RenterSignature[:])
+		h.Write(fcr.HostSignature[:])
+		h.WriteChainIndex(fcr.StorageProof.WindowStart)
+		for _, p := range fcr.StorageProof.WindowProof {
+			h.WriteHash(p)
+		}
+		h.Write(fcr.StorageProof.DataSegment[:])
+		for _, p := range fcr.StorageProof.SegmentProof {
+			h.WriteHash(p)
+		}
+	}
+	h.WriteHash(txn.NewFoundationAddress)
+	h.WriteCurrency(txn.MinerFee)
 }
 
 // Sum returns the hash of the data written to the underlying hasher.

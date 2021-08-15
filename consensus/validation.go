@@ -151,10 +151,7 @@ func (vc *ValidationContext) Commitment(minerAddr types.Address, txns []types.Tr
 	defer hasherPool.Put(h)
 	h.Reset()
 
-	// instead of hashing all the data together, hash vc and txns separately;
-	// this makes it possible to cheaply verify *just* the txns, or *just* the
-	// minerAddr, etc.
-
+	// hash the ValidationContext
 	h.WriteUint64(vc.Index.Height)
 	h.WriteHash(vc.Index.ID)
 	h.WriteUint64(vc.State.NumLeaves)
@@ -181,61 +178,14 @@ func (vc *ValidationContext) Commitment(minerAddr types.Address, txns []types.Tr
 	h.WriteHash(vc.FoundationAddress)
 	ctxHash := h.Sum()
 
+	// hash the transactions
 	h.Reset()
 	for _, txn := range txns {
-		for _, in := range txn.SiacoinInputs {
-			h.WriteOutputID(in.Parent.ID)
-			h.WriteCurrency(in.Parent.Value)
-			h.WriteHash(in.Parent.Address)
-			h.WriteUint64(in.Parent.Timelock)
-			for _, p := range in.Parent.MerkleProof {
-				h.WriteHash(p)
-			}
-			h.WriteUint64(in.Parent.LeafIndex)
-			h.WriteHash(in.PublicKey)
-			h.Write(in.Signature[:])
-		}
-		for _, out := range txn.SiacoinOutputs {
-			h.WriteCurrency(out.Value)
-			h.WriteHash(out.Address)
-		}
-		for _, in := range txn.SiafundInputs {
-			h.WriteOutputID(in.Parent.ID)
-			h.WriteCurrency(in.Parent.Value)
-			h.WriteHash(in.Parent.Address)
-			for _, p := range in.Parent.MerkleProof {
-				h.WriteHash(p)
-			}
-			h.WriteUint64(in.Parent.LeafIndex)
-			h.WriteHash(in.PublicKey)
-			h.Write(in.Signature[:])
-		}
-		for _, out := range txn.SiafundOutputs {
-			h.WriteCurrency(out.Value)
-			h.WriteHash(out.Address)
-		}
-		for _, fc := range txn.FileContracts {
-			h.WriteFileContractRevision(fc)
-		}
-		for _, fcr := range txn.FileContractResolutions {
-			h.WriteOutputID(fcr.Parent.ID)
-			h.WriteFileContractRevision(fcr.FinalRevision)
-			h.Write(fcr.RenterSignature[:])
-			h.Write(fcr.HostSignature[:])
-			h.WriteChainIndex(fcr.StorageProof.WindowStart)
-			for _, p := range fcr.StorageProof.WindowProof {
-				h.WriteHash(p)
-			}
-			h.Write(fcr.StorageProof.DataSegment[:])
-			for _, p := range fcr.StorageProof.SegmentProof {
-				h.WriteHash(p)
-			}
-		}
-		h.WriteHash(txn.NewFoundationAddress)
-		h.WriteCurrency(txn.MinerFee)
+		h.WriteTransaction(txn)
 	}
 	txnsHash := h.Sum()
 
+	// concatenate the hashes and the miner address
 	h.Reset()
 	h.WriteHash(ctxHash)
 	h.WriteHash(minerAddr)
