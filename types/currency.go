@@ -8,11 +8,14 @@ import (
 	"strings"
 )
 
+// ZeroCurrency represents zero base units.
+var ZeroCurrency Currency
+
 // HastingsPerSiacoin is the number of hastings (base units) in a siacoin.
 var HastingsPerSiacoin = NewCurrency(2003764205206896640, 54210) // 10^24
 
-// ZeroCurrency represents zero base units.
-var ZeroCurrency Currency
+// Siacoins returns a Currency value representing n siacoins.
+func Siacoins(n uint32) Currency { return HastingsPerSiacoin.Mul64(uint64(n)) }
 
 // Currency represents a quantity of hastings as an unsigned 128-bit number.
 type Currency struct {
