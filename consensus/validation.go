@@ -59,9 +59,9 @@ func (vc *ValidationContext) BlockReward() types.Currency {
 	const minimumCoinbase = 30000
 	blockHeight := vc.Index.Height + 1
 	if blockHeight < initialCoinbase-minimumCoinbase {
-		return types.BaseUnitsPerCoin.Mul64(initialCoinbase - blockHeight)
+		return types.HastingsPerSiacoin.Mul64(initialCoinbase - blockHeight)
 	}
-	return types.BaseUnitsPerCoin.Mul64(minimumCoinbase)
+	return types.HastingsPerSiacoin.Mul64(minimumCoinbase)
 }
 
 // BlockRewardTimelock is the height at which a child block's reward becomes
@@ -74,7 +74,7 @@ func (vc *ValidationContext) BlockRewardTimelock() uint64 {
 func (vc *ValidationContext) FoundationSubsidy() types.Currency {
 	const blocksPerYear = 144 * 365
 	const foundationSubsidyFrequency = blocksPerYear / 12
-	foundationSubsidyPerBlock := types.BaseUnitsPerCoin.Mul64(30000)
+	foundationSubsidyPerBlock := types.HastingsPerSiacoin.Mul64(30000)
 	initialfoundationSubsidy := foundationSubsidyPerBlock.Mul64(blocksPerYear)
 
 	blockHeight := vc.Index.Height + 1

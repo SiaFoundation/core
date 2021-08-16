@@ -156,10 +156,10 @@ func TestFileContracts(t *testing.T) {
 	hostPubkey, hostPrivkey := testingKeypair()
 	b := genesisWithBeneficiaries(types.Beneficiary{
 		Address: renterPubkey.Address(),
-		Value:   types.BaseUnitsPerCoin.Mul64(100),
+		Value:   types.HastingsPerSiacoin.Mul64(100),
 	}, types.Beneficiary{
 		Address: hostPubkey.Address(),
-		Value:   types.BaseUnitsPerCoin.Mul64(7),
+		Value:   types.HastingsPerSiacoin.Mul64(7),
 	})
 	sau := GenesisUpdate(b, testingDifficulty)
 	renterOutput := sau.NewSiacoinOutputs[1]
@@ -171,19 +171,19 @@ func TestFileContracts(t *testing.T) {
 		WindowEnd:   10,
 		ValidRenterOutput: types.Beneficiary{
 			Address: renterPubkey.Address(),
-			Value:   types.BaseUnitsPerCoin.Mul64(58),
+			Value:   types.HastingsPerSiacoin.Mul64(58),
 		},
 		ValidHostOutput: types.Beneficiary{
 			Address: renterPubkey.Address(),
-			Value:   types.BaseUnitsPerCoin.Mul64(19),
+			Value:   types.HastingsPerSiacoin.Mul64(19),
 		},
 		MissedRenterOutput: types.Beneficiary{
 			Address: renterPubkey.Address(),
-			Value:   types.BaseUnitsPerCoin.Mul64(58),
+			Value:   types.HastingsPerSiacoin.Mul64(58),
 		},
 		MissedHostOutput: types.Beneficiary{
 			Address: renterPubkey.Address(),
-			Value:   types.BaseUnitsPerCoin.Mul64(19),
+			Value:   types.HastingsPerSiacoin.Mul64(19),
 		},
 		RenterPublicKey: renterPubkey,
 		HostPublicKey:   hostPubkey,

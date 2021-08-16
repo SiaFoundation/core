@@ -38,7 +38,7 @@ func TestEphemeralOutputs(t *testing.T) {
 	pubkey, privkey := testingKeypair()
 	sau := GenesisUpdate(genesisWithBeneficiaries(types.Beneficiary{
 		Address: pubkey.Address(),
-		Value:   types.BaseUnitsPerCoin,
+		Value:   types.HastingsPerSiacoin,
 	}), testingDifficulty)
 
 	// create an ephemeral output
@@ -49,7 +49,7 @@ func TestEphemeralOutputs(t *testing.T) {
 		}},
 		SiacoinOutputs: []types.Beneficiary{{
 			Address: pubkey.Address(),
-			Value:   types.BaseUnitsPerCoin,
+			Value:   types.HastingsPerSiacoin,
 		}},
 	}
 	signAllInputs(&parentTxn, sau.Context, privkey)
@@ -84,7 +84,7 @@ func TestEphemeralOutputs(t *testing.T) {
 
 	// change the value of the output and attempt to spend it
 	mintTxn := childTxn.DeepCopy()
-	mintTxn.SiacoinInputs[0].Parent.Value = types.BaseUnitsPerCoin.Mul64(1e6)
+	mintTxn.SiacoinInputs[0].Parent.Value = types.HastingsPerSiacoin.Mul64(1e6)
 	mintTxn.SiacoinOutputs[0].Value = mintTxn.SiacoinInputs[0].Parent.Value
 	signAllInputs(&mintTxn, sau.Context, privkey)
 

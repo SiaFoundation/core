@@ -36,19 +36,19 @@ func TestScratchChain(t *testing.T) {
 	ourAddr := pubkey.Address()
 
 	b := genesisWithBeneficiaries([]types.Beneficiary{
-		{Value: types.BaseUnitsPerCoin.Mul64(1), Address: ourAddr},
-		{Value: types.BaseUnitsPerCoin.Mul64(2), Address: ourAddr},
-		{Value: types.BaseUnitsPerCoin.Mul64(3), Address: ourAddr},
-		{Value: types.BaseUnitsPerCoin.Mul64(4), Address: ourAddr},
-		{Value: types.BaseUnitsPerCoin.Mul64(5), Address: ourAddr},
-		{Value: types.BaseUnitsPerCoin.Mul64(6), Address: ourAddr},
-		{Value: types.BaseUnitsPerCoin.Mul64(7), Address: ourAddr},
-		{Value: types.BaseUnitsPerCoin.Mul64(8), Address: ourAddr},
-		{Value: types.BaseUnitsPerCoin.Mul64(9), Address: ourAddr},
-		{Value: types.BaseUnitsPerCoin.Mul64(10), Address: ourAddr},
-		{Value: types.BaseUnitsPerCoin.Mul64(11), Address: ourAddr},
-		{Value: types.BaseUnitsPerCoin.Mul64(12), Address: ourAddr},
-		{Value: types.BaseUnitsPerCoin.Mul64(13), Address: ourAddr},
+		{Value: types.HastingsPerSiacoin.Mul64(1), Address: ourAddr},
+		{Value: types.HastingsPerSiacoin.Mul64(2), Address: ourAddr},
+		{Value: types.HastingsPerSiacoin.Mul64(3), Address: ourAddr},
+		{Value: types.HastingsPerSiacoin.Mul64(4), Address: ourAddr},
+		{Value: types.HastingsPerSiacoin.Mul64(5), Address: ourAddr},
+		{Value: types.HastingsPerSiacoin.Mul64(6), Address: ourAddr},
+		{Value: types.HastingsPerSiacoin.Mul64(7), Address: ourAddr},
+		{Value: types.HastingsPerSiacoin.Mul64(8), Address: ourAddr},
+		{Value: types.HastingsPerSiacoin.Mul64(9), Address: ourAddr},
+		{Value: types.HastingsPerSiacoin.Mul64(10), Address: ourAddr},
+		{Value: types.HastingsPerSiacoin.Mul64(11), Address: ourAddr},
+		{Value: types.HastingsPerSiacoin.Mul64(12), Address: ourAddr},
+		{Value: types.HastingsPerSiacoin.Mul64(13), Address: ourAddr},
 	}...)
 	sau := GenesisUpdate(b, testingDifficulty)
 
@@ -62,10 +62,10 @@ func TestScratchChain(t *testing.T) {
 	}
 	txn := types.Transaction{
 		SiacoinOutputs: []types.Beneficiary{{
-			Value:   spendTotal.Sub(types.BaseUnitsPerCoin),
+			Value:   spendTotal.Sub(types.HastingsPerSiacoin),
 			Address: ourAddr,
 		}},
-		MinerFee: types.BaseUnitsPerCoin,
+		MinerFee: types.HastingsPerSiacoin,
 	}
 	for _, o := range toSpend {
 		txn.SiacoinInputs = append(txn.SiacoinInputs, types.SiacoinInput{
@@ -91,10 +91,10 @@ func TestScratchChain(t *testing.T) {
 			PublicKey: pubkey,
 		}},
 		SiacoinOutputs: []types.Beneficiary{{
-			Value:   newOutputs[1].Value.Sub(types.BaseUnitsPerCoin),
+			Value:   newOutputs[1].Value.Sub(types.HastingsPerSiacoin),
 			Address: ourAddr,
 		}},
-		MinerFee: types.BaseUnitsPerCoin,
+		MinerFee: types.HastingsPerSiacoin,
 	}
 	signAllInputs(&txn, sau.Context, privkey)
 
@@ -137,10 +137,10 @@ func TestScratchChain(t *testing.T) {
 			PublicKey: pubkey,
 		}},
 		SiacoinOutputs: []types.Beneficiary{{
-			Value:   spendTotal.Sub(types.BaseUnitsPerCoin),
+			Value:   spendTotal.Sub(types.HastingsPerSiacoin),
 			Address: ourAddr,
 		}},
-		MinerFee: types.BaseUnitsPerCoin,
+		MinerFee: types.HastingsPerSiacoin,
 	}
 	signAllInputs(&childTxn, sau.Context, privkey)
 

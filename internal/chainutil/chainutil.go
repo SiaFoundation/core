@@ -195,7 +195,7 @@ func NewChainSim() *ChainSim {
 	for i := range gift {
 		gift[i] = types.Beneficiary{
 			Address: ourAddr,
-			Value:   types.BaseUnitsPerCoin.Mul64(10 * uint64(i+1)),
+			Value:   types.HastingsPerSiacoin.Mul64(10 * uint64(i+1)),
 		}
 	}
 	genesisTxns := []types.Transaction{{SiacoinOutputs: gift}}

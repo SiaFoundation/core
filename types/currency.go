@@ -8,13 +8,13 @@ import (
 	"strings"
 )
 
-// BaseUnitsPerCoin is the number of base units in a single coin.
-var BaseUnitsPerCoin = NewCurrency64(1e9)
+// HastingsPerSiacoin is the number of hastings (base units) in a siacoin.
+var HastingsPerSiacoin = NewCurrency(2003764205206896640, 54210) // 10^24
 
 // ZeroCurrency represents zero base units.
 var ZeroCurrency Currency
 
-// Currency represents a quantity of base units as an unsigned 128-bit number.
+// Currency represents a quantity of hastings as an unsigned 128-bit number.
 type Currency struct {
 	Lo, Hi uint64
 }
@@ -83,7 +83,6 @@ func (c Currency) Sub(v Currency) Currency {
 // Mul64 returns c*v. If the result would overflow, Mul64 panics.
 //
 // Note that it is safe to multiply any two Currency values that are below 2^64.
-// In particular, it is always safe to call Mul64 on BaseUnitsPerCoin.
 func (c Currency) Mul64(v uint64) Currency {
 	// NOTE: this is the overflow-checked equivalent of:
 	//
@@ -175,9 +174,9 @@ func (c Currency) ExactString() string {
 }
 
 // String returns the base-10 representation of c as a string, in units of
-// BaseUnitsPerCoin, rounded to three decimal places.
+// HastingsPerSiacoin, rounded to three decimal places.
 func (c Currency) String() string {
-	fs := new(big.Rat).SetFrac(c.Big(), BaseUnitsPerCoin.Big()).FloatString(3)
+	fs := new(big.Rat).SetFrac(c.Big(), HastingsPerSiacoin.Big()).FloatString(3)
 	return strings.TrimSuffix(strings.TrimRight(fs, "0"), ".")
 }
 
