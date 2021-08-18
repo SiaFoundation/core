@@ -70,7 +70,6 @@ func applyHeader(vc ValidationContext, h types.BlockHeader) ValidationContext {
 	if h.Height == 0 {
 		// special handling for GenesisUpdate
 		vc.PrevTimestamps[0] = h.Timestamp
-		vc.History.AppendLeaf(h.Index())
 		vc.Index = h.Index()
 		return vc
 	}
@@ -242,6 +241,7 @@ type StateApplyUpdate struct {
 	NewSiafundOutputs    []types.SiafundOutput
 	RevisedFileContracts []types.FileContract
 	NewFileContracts     []types.FileContract
+	HistoryProof         []types.Hash256
 	updatedObjects       [64][]stateObject
 	treeGrowth           [64][]types.Hash256
 	historyGrowth        []types.Hash256
@@ -274,7 +274,7 @@ func (sau *StateApplyUpdate) updateStateProof(proof []types.Hash256, leafIndex u
 
 func (sau *StateApplyUpdate) updateHistoryProof(proof []types.Hash256, leafIndex uint64) []types.Hash256 {
 	if len(sau.historyGrowth) > len(proof) {
-		proof = append(proof, sau.historyGrowth[len(proof)])
+		proof = append(proof, sau.historyGrowth[len(proof):]...)
 	}
 	return proof
 }
@@ -335,7 +335,8 @@ func ApplyBlock(vc ValidationContext, b types.Block) (sau StateApplyUpdate) {
 		created = created[1:]
 	}
 
-	sau.historyGrowth = sau.Context.History.AppendLeaf(b.Index())
+	sau.HistoryProof = sau.Context.History.AppendLeaf(b.Index())
+	sau.historyGrowth = historyGrowth(b.Index(), sau.HistoryProof)
 
 	for _, txn := range b.Transactions {
 		// update SiafundPool

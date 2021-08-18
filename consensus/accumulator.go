@@ -474,6 +474,19 @@ func merkleHistoryLeafHash(index types.ChainIndex) types.Hash256 {
 	return types.HashBytes(buf)
 }
 
+func merkleHistoryProofRoot(index types.ChainIndex, proof []types.Hash256) types.Hash256 {
+	return merkleProofRoot(merkleHistoryLeafHash(index), index.Height, proof)
+}
+
+func historyGrowth(index types.ChainIndex, proof []types.Hash256) (growth []types.Hash256) {
+	h := merkleHistoryLeafHash(index)
+	for _, sibling := range proof {
+		growth = append(growth, h)
+		h = merkleNodeHash(sibling, h)
+	}
+	return
+}
+
 // A HistoryAccumulator is a Merkle tree of sequential ChainIndexes.
 type HistoryAccumulator struct {
 	// same design as StateAccumulator
@@ -487,24 +500,23 @@ func (ha *HistoryAccumulator) HasTreeAtHeight(height int) bool {
 	return ha.NumLeaves&(1<<height) != 0
 }
 
-// AppendLeaf appends an index to the accumulator. It returns the "growth" of
-// the accumulator, which can be used to update history proofs.
-func (ha *HistoryAccumulator) AppendLeaf(index types.ChainIndex) (growth []types.Hash256) {
+// AppendLeaf appends an index to the accumulator. It returns a proof for the
+// index.
+func (ha *HistoryAccumulator) AppendLeaf(index types.ChainIndex) (proof []types.Hash256) {
 	h := merkleHistoryLeafHash(index)
 	i := 0
 	for ; ha.HasTreeAtHeight(i); i++ {
 		h = merkleNodeHash(ha.Trees[i], h)
-		growth = append(growth, ha.Trees[i])
+		proof = append(proof, ha.Trees[i])
 	}
 	ha.Trees[i] = h
-	growth = append(growth, ha.Trees[i])
 	ha.NumLeaves++
 	return
 }
 
 // Contains returns true if the accumulator contains the given index.
 func (ha *HistoryAccumulator) Contains(index types.ChainIndex, proof []types.Hash256) bool {
-	root := merkleProofRoot(merkleHistoryLeafHash(index), index.Height, proof)
+	root := merkleHistoryProofRoot(index, proof)
 	start, end := bits.TrailingZeros64(ha.NumLeaves), bits.Len64(ha.NumLeaves)
 	for i := start; i < end; i++ {
 		if ha.HasTreeAtHeight(i) && ha.Trees[i] == root {
@@ -514,9 +526,13 @@ func (ha *HistoryAccumulator) Contains(index types.ChainIndex, proof []types.Has
 	return false
 }
 
-func storageProofRoot(sp types.StorageProof, segmentIndex uint64) types.Hash256 {
-	buf := make([]byte, 65)
+func storageProofLeafHash(segment []byte) types.Hash256 {
+	buf := make([]byte, 1+64)
 	buf[0] = leafHashPrefix
-	copy(buf[1:], sp.DataSegment[:])
-	return merkleProofRoot(types.HashBytes(buf), segmentIndex, sp.SegmentProof)
+	copy(buf[1:], segment)
+	return types.HashBytes(buf)
+}
+
+func storageProofRoot(sp types.StorageProof, segmentIndex uint64) types.Hash256 {
+	return merkleProofRoot(storageProofLeafHash(sp.DataSegment[:]), segmentIndex, sp.SegmentProof)
 }

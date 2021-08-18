@@ -256,7 +256,7 @@ func (txn *Transaction) DeepCopy() Transaction {
 	c.FileContracts = append([]FileContractState(nil), c.FileContracts...)
 	c.FileContractRevisions = append([]FileContractRevision(nil), c.FileContractRevisions...)
 	for i := range c.FileContractRevisions {
-		c.FileContractRevisions[i].Parent.MerkleProof = append([]Hash256(nil), c.SiafundInputs[i].Parent.MerkleProof...)
+		c.FileContractRevisions[i].Parent.MerkleProof = append([]Hash256(nil), c.FileContractRevisions[i].Parent.MerkleProof...)
 	}
 	c.FileContractResolutions = append([]FileContractResolution(nil), c.FileContractResolutions...)
 	for i := range c.FileContractResolutions {

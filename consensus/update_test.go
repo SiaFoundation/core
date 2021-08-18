@@ -266,6 +266,7 @@ func TestFileContracts(t *testing.T) {
 		sau.UpdateFileContractProof(&fc)
 	}
 	sp.WindowStart = sau.Context.Index
+	sp.WindowProof = sau.HistoryProof
 	proofIndex := sau.Context.StorageProofSegmentIndex(fc.State.Filesize, sp.WindowStart, fc.ID)
 	copy(sp.DataSegment[:], data[64*proofIndex:])
 	if proofIndex == 0 {
