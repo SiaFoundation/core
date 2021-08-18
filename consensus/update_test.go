@@ -166,7 +166,7 @@ func TestFileContracts(t *testing.T) {
 	hostOutput := sau.NewSiacoinOutputs[2]
 
 	// form initial contract
-	initialRev := types.FileContractRevision{
+	initialRev := types.FileContractState{
 		WindowStart: 5,
 		WindowEnd:   10,
 		ValidRenterOutput: types.Beneficiary{
@@ -194,7 +194,7 @@ func TestFileContracts(t *testing.T) {
 			{Parent: renterOutput, PublicKey: renterPubkey},
 			{Parent: hostOutput, PublicKey: hostPubkey},
 		},
-		FileContracts: []types.FileContractRevision{initialRev},
+		FileContracts: []types.FileContractState{initialRev},
 		MinerFee:      renterOutput.Value.Add(hostOutput.Value).Sub(outputSum),
 	}
 	sigHash := sau.Context.SigHash(txn)
@@ -226,42 +226,47 @@ func TestFileContracts(t *testing.T) {
 		copy(buf[1:], segment)
 		return types.HashBytes(buf)
 	}
-	res := types.FileContractResolution{
-		Parent:        fc,
-		FinalRevision: fc.Revision,
-	}
-	finalRev := &res.FinalRevision
-	sp := &res.StorageProof
 	data := make([]byte, 64*2)
 	rand.Read(data)
-	finalRev.FileMerkleRoot = merkleNodeHash(
+	finalRev := types.FileContractRevision{
+		Parent:   fc,
+		NewState: fc.State,
+	}
+	finalRev.NewState.FileMerkleRoot = merkleNodeHash(
 		segmentLeafHash(data[:64]),
 		segmentLeafHash(data[64:]),
 	)
-	finalRev.RevisionNumber++
+	finalRev.NewState.RevisionNumber++
+	contractHash := sau.Context.ContractSigHash(finalRev.NewState)
+	finalRev.RenterSignature = types.SignTransaction(renterPrivkey, contractHash)
+	finalRev.HostSignature = types.SignTransaction(hostPrivkey, contractHash)
 	txn = types.Transaction{
-		FileContractResolutions: []types.FileContractResolution{res},
+		FileContractRevisions: []types.FileContractRevision{finalRev},
 	}
-	sigHash = sau.Context.SigHash(txn)
-	txn.FileContractResolutions[0].RenterSignature = types.SignTransaction(renterPrivkey, sigHash)
-	txn.FileContractResolutions[0].HostSignature = types.SignTransaction(hostPrivkey, sigHash)
 
-	// resolution shouldn't be valid yet
-	if err := sau.Context.ValidateTransaction(txn); err == nil {
-		t.Fatal("expected early resolution to be rejected")
+	b = mineBlock(sau.Context, b, txn)
+	if err := sau.Context.ValidateBlock(b); err != nil {
+		t.Fatal(err)
 	}
+	sau = ApplyBlock(sau.Context, b)
+	if len(sau.RevisedFileContracts) != 1 {
+		t.Fatal("expected one revised file contract")
+	}
+	fc = sau.RevisedFileContracts[0]
+	sau.UpdateFileContractProof(&fc)
 
 	// mine until we enter the proof window
 	//
 	// NOTE: unlike other tests, we can't "cheat" here by fast-forwarding,
 	// because we need to maintain a history proof
-	for sau.Context.Index.Height < fc.Revision.WindowStart {
+	var sp types.StorageProof
+	for sau.Context.Index.Height < fc.State.WindowStart {
 		b = mineBlock(sau.Context, b)
 		sau = ApplyBlock(sau.Context, b)
-		sau.UpdateFileContractProof(&res.Parent)
+		sau.UpdateFileContractProof(&fc)
 	}
 	sp.WindowStart = sau.Context.Index
-	proofIndex := sau.Context.StorageProofSegmentIndex(res.FinalRevision.Filesize, sp.WindowStart, res.Parent.ID)
+	proofIndex := sau.Context.StorageProofSegmentIndex(fc.State.Filesize, sp.WindowStart, fc.ID)
 	copy(sp.DataSegment[:], data[64*proofIndex:])
 	if proofIndex == 0 {
 		sp.SegmentProof = append(sp.SegmentProof, segmentLeafHash(data[64:]))
@@ -269,58 +274,44 @@ func TestFileContracts(t *testing.T) {
 		sp.SegmentProof = append(sp.SegmentProof, segmentLeafHash(data[:64]))
 	}
 
-	// resolution should be accepted now
+	// create valid contract resolution
+	res := types.FileContractResolution{
+		Parent:       fc,
+		StorageProof: sp,
+	}
 	txn = types.Transaction{
 		FileContractResolutions: []types.FileContractResolution{res},
 	}
-	sigHash = sau.Context.SigHash(txn)
-	txn.FileContractResolutions[0].RenterSignature = types.SignTransaction(renterPrivkey, sigHash)
-	txn.FileContractResolutions[0].HostSignature = types.SignTransaction(hostPrivkey, sigHash)
+
 	b = mineBlock(sau.Context, b, txn)
 	if err := sau.Context.ValidateBlock(b); err != nil {
 		t.Fatal(err)
 	}
 	validSAU := ApplyBlock(sau.Context, b)
-	if len(validSAU.ResolvedFileContracts) != 1 {
-		t.Fatal("expected one resolved file contract")
-	} else if len(validSAU.NewSiacoinOutputs) != 3 {
+	if len(validSAU.NewSiacoinOutputs) != 3 {
 		t.Fatal("expected three new siacoin outputs")
 	}
 
 	// revert the block and instead mine past the proof window
-	for sau.Context.Index.Height <= fc.Revision.WindowEnd {
+	for sau.Context.Index.Height <= fc.State.WindowEnd {
 		b = mineBlock(sau.Context, b)
 		sau = ApplyBlock(sau.Context, b)
 		sau.UpdateFileContractProof(&res.Parent)
-		sau.UpdateWindowProof(sp)
+		sau.UpdateWindowProof(&res.StorageProof)
 	}
 	// storage proof resolution should now be rejected
-	txn = types.Transaction{
-		FileContractResolutions: []types.FileContractResolution{res},
-	}
-	sigHash = sau.Context.SigHash(txn)
-	txn.FileContractResolutions[0].RenterSignature = types.SignTransaction(renterPrivkey, sigHash)
-	txn.FileContractResolutions[0].HostSignature = types.SignTransaction(hostPrivkey, sigHash)
 	if err := sau.Context.ValidateTransaction(txn); err == nil {
 		t.Fatal("expected too-late storage proof to be rejected")
 	}
 	// missed resolution should be accepted, though
-	res.StorageProof = types.StorageProof{}
-	txn = types.Transaction{
-		FileContractResolutions: []types.FileContractResolution{res},
-	}
-	sigHash = sau.Context.SigHash(txn)
-	txn.FileContractResolutions[0].RenterSignature = types.SignTransaction(renterPrivkey, sigHash)
-	txn.FileContractResolutions[0].HostSignature = types.SignTransaction(hostPrivkey, sigHash)
+	txn.FileContractResolutions[0].StorageProof = types.StorageProof{}
 	b = mineBlock(sau.Context, b, txn)
 	if err := sau.Context.ValidateBlock(b); err != nil {
 		t.Fatal(err)
 	}
 	sau = ApplyBlock(sau.Context, b)
 
-	if len(sau.ResolvedFileContracts) != 1 {
-		t.Fatal("expected one resolved file contract")
-	} else if len(sau.NewSiacoinOutputs) != 3 {
+	if len(sau.NewSiacoinOutputs) != 3 {
 		t.Fatal("expected three new siacoin outputs")
 	}
 }

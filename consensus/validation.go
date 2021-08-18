@@ -102,11 +102,11 @@ func (vc *ValidationContext) TransactionWeight(txn types.Transaction) uint64 {
 		storage += 32 + 8 + 16 + 32 + 16 + (len(in.Parent.MerkleProof) * 32) + 8 + 32 + 64
 	}
 	storage += 320 * len(txn.FileContracts)
+	for _, fcr := range txn.FileContractRevisions {
+		storage += 32 + 8 + 320 + (len(fcr.Parent.MerkleProof) * 32) + 8 + 64 + 64 + 320
+	}
 	for _, fcr := range txn.FileContractResolutions {
 		storage += 32 + 8 + 320 + (len(fcr.Parent.MerkleProof) * 32) + 8 + 64 + 64
-		if fcr.HasRevision() {
-			storage += 320
-		}
 		if fcr.HasStorageProof() {
 			storage += 8 + 32 + (len(fcr.StorageProof.WindowProof) * 32) + 64 + (len(fcr.StorageProof.SegmentProof) * 32)
 		}
@@ -118,11 +118,7 @@ func (vc *ValidationContext) TransactionWeight(txn types.Transaction) uint64 {
 	var signatures int
 	signatures += len(txn.SiacoinInputs)
 	signatures += len(txn.SiafundInputs)
-	for _, fcr := range txn.FileContractResolutions {
-		if fcr.HasRevision() {
-			signatures += 2
-		}
-	}
+	signatures += 2 * len(txn.FileContractRevisions)
 
 	return uint64(storage) + 100*uint64(signatures)
 }
@@ -137,7 +133,7 @@ func (vc *ValidationContext) BlockWeight(txns []types.Transaction) uint64 {
 }
 
 // FileContractTax computes the tax levied on a given contract.
-func (vc *ValidationContext) FileContractTax(fc types.FileContractRevision) types.Currency {
+func (vc *ValidationContext) FileContractTax(fc types.FileContractState) types.Currency {
 	sum := fc.ValidRenterOutput.Value.Add(fc.ValidHostOutput.Value)
 	tax := sum.Div64(25) // 4%
 	// round down to SiafundCount
@@ -229,18 +225,37 @@ func (vc *ValidationContext) SigHash(txn types.Transaction) types.Hash256 {
 		h.WriteOutputID(in.Parent.ID)
 	}
 	for _, out := range txn.SiacoinOutputs {
-		h.WriteCurrency(out.Value)
-		h.WriteHash(out.Address)
+		h.WriteBeneficiary(out)
 	}
 	for _, in := range txn.SiafundInputs {
 		h.WriteOutputID(in.Parent.ID)
 	}
 	for _, out := range txn.SiafundOutputs {
-		h.WriteCurrency(out.Value)
-		h.WriteHash(out.Address)
+		h.WriteBeneficiary(out)
 	}
+	for _, fc := range txn.FileContracts {
+		h.WriteFileContractState(fc)
+	}
+	for _, fcr := range txn.FileContractRevisions {
+		h.WriteOutputID(fcr.Parent.ID)
+		h.WriteFileContractState(fcr.NewState)
+	}
+	for _, fcr := range txn.FileContractResolutions {
+		h.WriteOutputID(fcr.Parent.ID)
+		h.WriteChainIndex(fcr.StorageProof.WindowStart)
+	}
+	h.Write(txn.ArbitraryData)
 	h.WriteHash(txn.NewFoundationAddress)
 	h.WriteCurrency(txn.MinerFee)
+	return h.Sum()
+}
+
+// ContractSigHash returns the hash that must be signed for a file contract revision.
+func (vc *ValidationContext) ContractSigHash(fc types.FileContractState) types.Hash256 {
+	h := hasherPool.Get().(*types.Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	h.WriteFileContractState(fc)
 	return h.Sum()
 }
 
@@ -314,26 +329,32 @@ func (vc *ValidationContext) validFileContracts(txn types.Transaction) error {
 	return nil
 }
 
+func (vc *ValidationContext) validFileContractRevisions(txn types.Transaction) error {
+	for i, fcr := range txn.FileContractRevisions {
+		old, new := fcr.Parent.State, fcr.NewState
+		if vc.Index.Height > old.WindowStart {
+			return fmt.Errorf("file contract revision %v cannot be applied to contract whose proof window (%v - %v) has already begun", i, old.WindowStart, old.WindowEnd)
+		}
+		oldValidSum := old.ValidRenterOutput.Value.Add(old.ValidHostOutput.Value)
+		newValidSum := new.ValidRenterOutput.Value.Add(new.ValidHostOutput.Value)
+		newMissedSum := new.MissedRenterOutput.Value.Add(new.MissedHostOutput.Value)
+		switch {
+		case new.RevisionNumber <= old.RevisionNumber:
+			return fmt.Errorf("file contract revision %v decreases revision number (%v -> %v)", i, old.RevisionNumber, new.RevisionNumber)
+		case !newValidSum.Equals(oldValidSum):
+			return fmt.Errorf("file contract revision %v modifies valid output value (%v -> %v)", i, oldValidSum, newValidSum)
+		case newMissedSum.Cmp(newValidSum) > 0:
+			return fmt.Errorf("file contract revision %v has missed output value (%v) exceeding valid output value (%v)", i, newMissedSum, newValidSum)
+		case new.WindowEnd <= new.WindowStart:
+			return fmt.Errorf("file contract revision %v has window that ends (%v) before it begins (%v)", i, new.WindowEnd, new.WindowStart)
+		}
+	}
+	return nil
+}
+
 func (vc *ValidationContext) validFileContractResolutions(txn types.Transaction) error {
 	for i, fcr := range txn.FileContractResolutions {
-		rev := fcr.Parent.Revision
-		if fcr.HasRevision() {
-			oldValidSum := rev.ValidRenterOutput.Value.Add(rev.ValidHostOutput.Value)
-			validSum := fcr.FinalRevision.ValidRenterOutput.Value.Add(fcr.FinalRevision.ValidHostOutput.Value)
-			missedSum := fcr.FinalRevision.MissedRenterOutput.Value.Add(fcr.FinalRevision.MissedHostOutput.Value)
-			switch {
-			case fcr.FinalRevision.RevisionNumber <= rev.RevisionNumber:
-				return fmt.Errorf("file contract resolution %v decreases revision number (%v -> %v)", i, rev.RevisionNumber, fcr.FinalRevision.RevisionNumber)
-			case !validSum.Equals(oldValidSum):
-				return fmt.Errorf("file contract resolution %v modifies valid output value (%v -> %v)", i, oldValidSum, validSum)
-			case missedSum.Cmp(validSum) > 0:
-				return fmt.Errorf("file contract resolution %v has missed output value (%v) exceeding valid output value (%v)", i, missedSum, validSum)
-			case fcr.FinalRevision.WindowEnd <= fcr.FinalRevision.WindowStart:
-				return fmt.Errorf("file contract resolution %v has window that ends (%v) before it begins (%v)", i, fcr.FinalRevision.WindowEnd, fcr.FinalRevision.WindowStart)
-			}
-			rev = fcr.FinalRevision
-		}
-
+		rev := fcr.Parent.State
 		if fcr.HasStorageProof() {
 			// we must be within the proof window
 			if vc.Index.Height < rev.WindowStart || rev.WindowEnd < vc.Index.Height {
@@ -452,6 +473,19 @@ func (vc *ValidationContext) validStateProofs(txn types.Transaction) error {
 			return fmt.Errorf("siafund input %v spends output (%v) not present in the accumulator", i, in.Parent.ID)
 		}
 	}
+	for i, fcr := range txn.FileContractRevisions {
+		if vc.State.ContainsUnresolvedFileContract(fcr.Parent) {
+			continue
+		}
+		switch {
+		case vc.State.ContainsValidFileContract(fcr.Parent):
+			return fmt.Errorf("file contract revision %v revises a contract (%v) that has already resolved valid", i, fcr.Parent.ID)
+		case vc.State.ContainsMissedFileContract(fcr.Parent):
+			return fmt.Errorf("file contract revision %v revises a contract (%v) that has already resolved missed", i, fcr.Parent.ID)
+		default:
+			return fmt.Errorf("file contract revision %v revises a contract (%v) not present in the accumulator", i, fcr.Parent.ID)
+		}
+	}
 	for i, fcr := range txn.FileContractResolutions {
 		if vc.State.ContainsUnresolvedFileContract(fcr.Parent) {
 			continue
@@ -460,7 +494,7 @@ func (vc *ValidationContext) validStateProofs(txn types.Transaction) error {
 		case vc.State.ContainsValidFileContract(fcr.Parent):
 			return fmt.Errorf("file contract resolution %v resolves a contract (%v) that has already resolved valid", i, fcr.Parent.ID)
 		case vc.State.ContainsMissedFileContract(fcr.Parent):
-			return fmt.Errorf("file contract resolution %v resolves a contract (%v) that has already resolved valid", i, fcr.Parent.ID)
+			return fmt.Errorf("file contract resolution %v resolves a contract (%v) that has already resolved missed", i, fcr.Parent.ID)
 		default:
 			return fmt.Errorf("file contract resolution %v resolves a contract (%v) not present in the accumulator", i, fcr.Parent.ID)
 		}
@@ -501,13 +535,14 @@ func (vc *ValidationContext) validSignatures(txn types.Transaction) error {
 			return fmt.Errorf("siafund input %v has invalid signature", i)
 		}
 	}
-	for i, fcr := range txn.FileContractResolutions {
+	for i, fcr := range txn.FileContractRevisions {
+		contractHash := vc.ContractSigHash(fcr.NewState)
 		// NOTE: very important that we verify with the parent keys, *not* the
 		// revised keys!
-		if !ed25519.Verify(fcr.Parent.Revision.RenterPublicKey[:], sigHash[:], fcr.RenterSignature[:]) {
+		if !ed25519.Verify(fcr.Parent.State.RenterPublicKey[:], contractHash[:], fcr.RenterSignature[:]) {
 			return fmt.Errorf("file contract resolution %v has invalid renter signature", i)
 		}
-		if !ed25519.Verify(fcr.Parent.Revision.HostPublicKey[:], sigHash[:], fcr.HostSignature[:]) {
+		if !ed25519.Verify(fcr.Parent.State.HostPublicKey[:], contractHash[:], fcr.HostSignature[:]) {
 			return fmt.Errorf("file contract resolution %v has invalid host signature", i)
 		}
 	}
@@ -532,6 +567,8 @@ func (vc *ValidationContext) ValidateTransaction(txn types.Transaction) error {
 	} else if err := vc.validFoundationUpdate(txn); err != nil {
 		return err
 	} else if err := vc.validFileContracts(txn); err != nil {
+		return err
+	} else if err := vc.validFileContractRevisions(txn); err != nil {
 		return err
 	} else if err := vc.validFileContractResolutions(txn); err != nil {
 		return err

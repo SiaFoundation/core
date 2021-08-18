@@ -116,8 +116,19 @@ type Beneficiary struct {
 	Address Address
 }
 
-// A FileContractRevision represents the current state of a FileContract.
-type FileContractRevision struct {
+// A FileContract is a storage agreement between a renter and a host. It
+// consists of a bidirectional payment channel that resolves as either "valid"
+// or "missed" depending on whether a valid StorageProof is submitted for the
+// contract.
+type FileContract struct {
+	ID          OutputID
+	State       FileContractState
+	MerkleProof []Hash256
+	LeafIndex   uint64
+}
+
+// A FileContractState represents the current state of a file contract.
+type FileContractState struct {
 	Filesize           uint64
 	FileMerkleRoot     Hash256
 	WindowStart        uint64
@@ -131,35 +142,22 @@ type FileContractRevision struct {
 	RevisionNumber     uint64
 }
 
-// A FileContract is a storage agreement between a renter and a host. It
-// consists of a bidirectional payment channel that resolves as either "valid"
-// or "missed" depending on whether a valid StorageProof is submitted for the
-// contract.
-type FileContract struct {
-	ID          OutputID
-	Revision    FileContractRevision
-	MerkleProof []Hash256
-	LeafIndex   uint64
+// A FileContractRevision updates the state of an existing file contract.
+type FileContractRevision struct {
+	Parent          FileContract
+	NewState        FileContractState
+	RenterSignature InputSignature
+	HostSignature   InputSignature
 }
 
 // A FileContractResolution closes a file contract's payment channel. If a valid
-// revision is included, the revision is applied before the channel closes. If a
-// valid storage proof is provided within the contract's proof window, the
-// channel resolves as "valid." After the window has ended, anyone may submit a
+// storage proof is provided within the contract's proof window, the channel
+// resolves as "valid." After the window has ended, anyone may submit a
 // resolution (omitting the storage proof), which will cause the contract to
 // resolve as "missed."
 type FileContractResolution struct {
-	Parent          FileContract
-	FinalRevision   FileContractRevision
-	RenterSignature InputSignature
-	HostSignature   InputSignature
-	StorageProof    StorageProof
-}
-
-// HasRevision returns true if any fields in the resolution's FinalRevision are
-// non-zero.
-func (fcr *FileContractResolution) HasRevision() bool {
-	return fcr.FinalRevision != (FileContractRevision{})
+	Parent       FileContract
+	StorageProof StorageProof
 }
 
 // HasStorageProof returns true if any fields in the resolution's StorageProof
@@ -196,7 +194,8 @@ type Transaction struct {
 	SiacoinOutputs          []Beneficiary
 	SiafundInputs           []SiafundInput
 	SiafundOutputs          []Beneficiary
-	FileContracts           []FileContractRevision
+	FileContracts           []FileContractState
+	FileContractRevisions   []FileContractRevision
 	FileContractResolutions []FileContractResolution
 	ArbitraryData           []byte
 	NewFoundationAddress    Address
@@ -221,11 +220,14 @@ func (txn *Transaction) ID() TransactionID {
 		h.WriteBeneficiary(out)
 	}
 	for _, fc := range txn.FileContracts {
-		h.WriteFileContractRevision(fc)
+		h.WriteFileContractState(fc)
+	}
+	for _, fcr := range txn.FileContractRevisions {
+		h.WriteOutputID(fcr.Parent.ID)
+		h.WriteFileContractState(fcr.NewState)
 	}
 	for _, fcr := range txn.FileContractResolutions {
 		h.WriteOutputID(fcr.Parent.ID)
-		h.WriteFileContractRevision(fcr.FinalRevision)
 		h.WriteChainIndex(fcr.StorageProof.WindowStart)
 		h.Write(fcr.StorageProof.DataSegment[:])
 		for _, p := range fcr.StorageProof.SegmentProof {
@@ -251,7 +253,11 @@ func (txn *Transaction) DeepCopy() Transaction {
 		c.SiafundInputs[i].Parent.MerkleProof = append([]Hash256(nil), c.SiafundInputs[i].Parent.MerkleProof...)
 	}
 	c.SiafundOutputs = append([]Beneficiary(nil), c.SiafundOutputs...)
-	c.FileContracts = append([]FileContractRevision(nil), c.FileContracts...)
+	c.FileContracts = append([]FileContractState(nil), c.FileContracts...)
+	c.FileContractRevisions = append([]FileContractRevision(nil), c.FileContractRevisions...)
+	for i := range c.FileContractRevisions {
+		c.FileContractRevisions[i].Parent.MerkleProof = append([]Hash256(nil), c.SiafundInputs[i].Parent.MerkleProof...)
+	}
 	c.FileContractResolutions = append([]FileContractResolution(nil), c.FileContractResolutions...)
 	for i := range c.FileContractResolutions {
 		c.FileContractResolutions[i].Parent.MerkleProof = append([]Hash256(nil), c.SiafundInputs[i].Parent.MerkleProof...)
@@ -513,9 +519,9 @@ func (h *Hasher) WriteBeneficiary(b Beneficiary) {
 	h.WriteHash(b.Address)
 }
 
-// WriteFileContractRevision writes a FileContractRevision value to the
+// WriteFileContractState writes a FileContractState value to the
 // underlying hasher.
-func (h *Hasher) WriteFileContractRevision(rev FileContractRevision) {
+func (h *Hasher) WriteFileContractState(rev FileContractState) {
 	h.WriteUint64(rev.Filesize)
 	h.WriteHash(rev.FileMerkleRoot)
 	h.WriteUint64(rev.WindowStart)
@@ -561,13 +567,26 @@ func (h *Hasher) WriteTransaction(txn Transaction) {
 		h.WriteBeneficiary(out)
 	}
 	for _, fc := range txn.FileContracts {
-		h.WriteFileContractRevision(fc)
+		h.WriteFileContractState(fc)
+	}
+	for _, fcr := range txn.FileContractRevisions {
+		h.WriteOutputID(fcr.Parent.ID)
+		h.WriteFileContractState(fcr.Parent.State)
+		for _, p := range fcr.Parent.MerkleProof {
+			h.WriteHash(p)
+		}
+		h.WriteUint64(fcr.Parent.LeafIndex)
+		h.WriteFileContractState(fcr.NewState)
+		h.Write(fcr.RenterSignature[:])
+		h.Write(fcr.HostSignature[:])
 	}
 	for _, fcr := range txn.FileContractResolutions {
 		h.WriteOutputID(fcr.Parent.ID)
-		h.WriteFileContractRevision(fcr.FinalRevision)
-		h.Write(fcr.RenterSignature[:])
-		h.Write(fcr.HostSignature[:])
+		h.WriteFileContractState(fcr.Parent.State)
+		for _, p := range fcr.Parent.MerkleProof {
+			h.WriteHash(p)
+		}
+		h.WriteUint64(fcr.Parent.LeafIndex)
 		h.WriteChainIndex(fcr.StorageProof.WindowStart)
 		for _, p := range fcr.StorageProof.WindowProof {
 			h.WriteHash(p)

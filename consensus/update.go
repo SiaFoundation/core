@@ -107,17 +107,18 @@ func updatedInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinOu
 			sfos = append(sfos, in.Parent)
 			addObject(siafundOutputStateObject(in.Parent, flagSpent))
 		}
-		for _, fcr := range txn.FileContractResolutions {
+		for _, fcr := range txn.FileContractRevisions {
 			fc := fcr.Parent
-			if fcr.FinalRevision.RevisionNumber > fc.Revision.RevisionNumber {
-				fc.Revision = fcr.FinalRevision
-			}
+			fc.State = fcr.NewState
 			fcs = append(fcs, fc)
+			addObject(fileContractStateObject(fc, 0))
+		}
+		for _, fcr := range txn.FileContractResolutions {
 			var flags uint64 = flagSpent
 			if !fcr.HasStorageProof() {
 				flags |= flagExpired // TODO: do we need this?
 			}
-			addObject(fileContractStateObject(fc, flags))
+			addObject(fileContractStateObject(fcr.Parent, flags))
 		}
 	}
 
@@ -205,18 +206,15 @@ func createdInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinOu
 		}
 		for _, fc := range txn.FileContracts {
 			addFileContract(types.FileContract{
-				ID:       nextID(),
-				Revision: fc,
+				ID:    nextID(),
+				State: fc,
 			})
 		}
 		for _, fcr := range txn.FileContractResolutions {
 			fc := fcr.Parent
-			if fcr.FinalRevision.RevisionNumber > fc.Revision.RevisionNumber {
-				fc.Revision = fcr.FinalRevision
-			}
-			renter, host := fc.Revision.ValidRenterOutput, fc.Revision.ValidRenterOutput
-			if fcr.StorageProof.WindowStart == (types.ChainIndex{}) {
-				renter, host = fc.Revision.MissedRenterOutput, fc.Revision.MissedRenterOutput
+			renter, host := fc.State.ValidRenterOutput, fc.State.ValidRenterOutput
+			if fcr.HasStorageProof() {
+				renter, host = fc.State.MissedRenterOutput, fc.State.MissedRenterOutput
 			}
 			addSiacoinOutput(types.SiacoinOutput{
 				ID:      nextID(),
@@ -237,16 +235,16 @@ func createdInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinOu
 // A StateApplyUpdate reflects the changes to consensus state resulting from the
 // application of a block.
 type StateApplyUpdate struct {
-	Context               ValidationContext
-	SpentSiacoinOutputs   []types.SiacoinOutput
-	NewSiacoinOutputs     []types.SiacoinOutput
-	SpentSiafundOutputs   []types.SiafundOutput
-	NewSiafundOutputs     []types.SiafundOutput
-	ResolvedFileContracts []types.FileContract
-	NewFileContracts      []types.FileContract
-	updatedObjects        [64][]stateObject
-	treeGrowth            [64][]types.Hash256
-	historyGrowth         []types.Hash256
+	Context              ValidationContext
+	SpentSiacoinOutputs  []types.SiacoinOutput
+	NewSiacoinOutputs    []types.SiacoinOutput
+	SpentSiafundOutputs  []types.SiafundOutput
+	NewSiafundOutputs    []types.SiafundOutput
+	RevisedFileContracts []types.FileContract
+	NewFileContracts     []types.FileContract
+	updatedObjects       [64][]stateObject
+	treeGrowth           [64][]types.Hash256
+	historyGrowth        []types.Hash256
 }
 
 // SiacoinOutputWasSpent returns true if the given SiacoinOutput was spent.
@@ -316,7 +314,7 @@ func ApplyBlock(vc ValidationContext, b types.Block) (sau StateApplyUpdate) {
 	sau.Context = applyHeader(vc, b.Header)
 
 	var updated, created []stateObject
-	sau.SpentSiacoinOutputs, sau.SpentSiafundOutputs, sau.ResolvedFileContracts, updated = updatedInBlock(vc, b)
+	sau.SpentSiacoinOutputs, sau.SpentSiafundOutputs, sau.RevisedFileContracts, updated = updatedInBlock(vc, b)
 	sau.NewSiacoinOutputs, sau.NewSiafundOutputs, sau.NewFileContracts, created = createdInBlock(vc, b)
 
 	sau.updatedObjects = sau.Context.State.updateExistingObjects(updated)
@@ -364,14 +362,14 @@ func GenesisUpdate(b types.Block, initialDifficulty types.Work) StateApplyUpdate
 // A StateRevertUpdate reflects the changes to consensus state resulting from the
 // removal of a block.
 type StateRevertUpdate struct {
-	Context               ValidationContext
-	SpentSiacoinOutputs   []types.SiacoinOutput
-	NewSiacoinOutputs     []types.SiacoinOutput
-	SpentSiafundOutputs   []types.SiafundOutput
-	NewSiafundOutputs     []types.SiafundOutput
-	ResolvedFileContracts []types.FileContract
-	NewFileContracts      []types.FileContract
-	updatedObjects        [64][]stateObject
+	Context              ValidationContext
+	SpentSiacoinOutputs  []types.SiacoinOutput
+	NewSiacoinOutputs    []types.SiacoinOutput
+	SpentSiafundOutputs  []types.SiafundOutput
+	NewSiafundOutputs    []types.SiafundOutput
+	RevisedFileContracts []types.FileContract
+	NewFileContracts     []types.FileContract
+	updatedObjects       [64][]stateObject
 }
 
 // SiacoinOutputWasRemoved returns true if the specified SiacoinOutput was
@@ -433,7 +431,7 @@ func (sru *StateRevertUpdate) UpdateWindowProof(sp *types.StorageProof) {
 // ValidationContext prior to that block.
 func RevertBlock(vc ValidationContext, b types.Block) (sru StateRevertUpdate) {
 	sru.Context = vc
-	sru.SpentSiacoinOutputs, sru.SpentSiafundOutputs, sru.ResolvedFileContracts, _ = updatedInBlock(vc, b)
+	sru.SpentSiacoinOutputs, sru.SpentSiafundOutputs, sru.RevisedFileContracts, _ = updatedInBlock(vc, b)
 	sru.NewSiacoinOutputs, sru.NewSiafundOutputs, sru.NewFileContracts, _ = createdInBlock(vc, b)
 	sru.updatedObjects = objectsByTree(b.Transactions)
 	return

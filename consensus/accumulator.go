@@ -111,7 +111,7 @@ func fileContractStateObject(fc types.FileContract, flags uint64) stateObject {
 	defer hasherPool.Put(h)
 	h.Reset()
 	h.WriteOutputID(fc.ID)
-	h.WriteFileContractRevision(fc.Revision)
+	h.WriteFileContractState(fc.State)
 	return stateObject{
 		objHash:   h.Sum(),
 		leafIndex: fc.LeafIndex,
