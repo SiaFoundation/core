@@ -17,6 +17,9 @@ var HastingsPerSiacoin = NewCurrency(2003764205206896640, 54210) // 10^24
 // Siacoins returns a Currency value representing n siacoins.
 func Siacoins(n uint32) Currency { return HastingsPerSiacoin.Mul64(uint64(n)) }
 
+// Siafunds returns a Currency value representing n siafunds.
+func Siafunds(n uint16) Currency { return NewCurrency64(uint64(n)) }
+
 // Currency represents a quantity of hastings as an unsigned 128-bit number.
 type Currency struct {
 	Lo, Hi uint64
