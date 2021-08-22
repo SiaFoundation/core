@@ -260,7 +260,7 @@ func (txn *Transaction) DeepCopy() Transaction {
 	}
 	c.FileContractResolutions = append([]FileContractResolution(nil), c.FileContractResolutions...)
 	for i := range c.FileContractResolutions {
-		c.FileContractResolutions[i].Parent.MerkleProof = append([]Hash256(nil), c.SiafundInputs[i].Parent.MerkleProof...)
+		c.FileContractResolutions[i].Parent.MerkleProof = append([]Hash256(nil), c.FileContractResolutions[i].Parent.MerkleProof...)
 		c.FileContractResolutions[i].StorageProof.WindowProof = append([]Hash256(nil), c.FileContractResolutions[i].StorageProof.WindowProof...)
 		c.FileContractResolutions[i].StorageProof.SegmentProof = append([]Hash256(nil), c.FileContractResolutions[i].StorageProof.SegmentProof...)
 	}

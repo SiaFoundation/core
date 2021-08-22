@@ -282,12 +282,12 @@ func (vc *ValidationContext) validateHeader(h types.BlockHeader) error {
 		return errors.New("wrong height")
 	} else if h.ParentID != vc.Index.ID {
 		return errors.New("wrong parent ID")
-	} else if types.WorkRequiredForHash(h.ID()).Cmp(vc.Difficulty) < 0 {
-		return errors.New("insufficient work")
 	} else if time.Until(h.Timestamp) > 2*time.Hour {
 		return ErrFutureBlock
 	} else if h.Timestamp.Before(vc.medianTimestamp()) {
 		return errors.New("timestamp is too far in the past")
+	} else if types.WorkRequiredForHash(h.ID()).Cmp(vc.Difficulty) < 0 {
+		return errors.New("insufficient work")
 	}
 	return nil
 }
@@ -321,9 +321,9 @@ func (vc *ValidationContext) validFileContracts(txn types.Transaction) error {
 		validSum := fc.ValidRenterOutput.Value.Add(fc.ValidHostOutput.Value)
 		missedSum := fc.MissedRenterOutput.Value.Add(fc.MissedHostOutput.Value)
 		if missedSum.Cmp(validSum) > 0 {
-			return fmt.Errorf("file contract %v has missed output value (%v) exceeding valid output value (%v)", i, missedSum, validSum)
+			return fmt.Errorf("file contract %v has missed output sum (%v SC) exceeding valid output sum (%v SC)", i, missedSum, validSum)
 		} else if fc.WindowEnd <= fc.WindowStart {
-			return fmt.Errorf("file contract %v has window that ends (%v) before it begins (%v)", i, fc.WindowEnd, fc.WindowStart)
+			return fmt.Errorf("file contract %v has proof window (%v-%v) that ends before it begins", i, fc.WindowStart, fc.WindowEnd)
 		}
 	}
 	return nil
@@ -340,13 +340,13 @@ func (vc *ValidationContext) validFileContractRevisions(txn types.Transaction) e
 		newMissedSum := new.MissedRenterOutput.Value.Add(new.MissedHostOutput.Value)
 		switch {
 		case new.RevisionNumber <= old.RevisionNumber:
-			return fmt.Errorf("file contract revision %v decreases revision number (%v -> %v)", i, old.RevisionNumber, new.RevisionNumber)
+			return fmt.Errorf("file contract revision %v does not increase revision number (%v -> %v)", i, old.RevisionNumber, new.RevisionNumber)
 		case !newValidSum.Equals(oldValidSum):
-			return fmt.Errorf("file contract revision %v modifies valid output value (%v -> %v)", i, oldValidSum, newValidSum)
+			return fmt.Errorf("file contract revision %v modifies valid output sum (%v -> %v)", i, oldValidSum, newValidSum)
 		case newMissedSum.Cmp(newValidSum) > 0:
-			return fmt.Errorf("file contract revision %v has missed output value (%v) exceeding valid output value (%v)", i, newMissedSum, newValidSum)
+			return fmt.Errorf("file contract revision %v has missed output sum (%v) exceeding valid output sum (%v)", i, newMissedSum, newValidSum)
 		case new.WindowEnd <= new.WindowStart:
-			return fmt.Errorf("file contract revision %v has window that ends (%v) before it begins (%v)", i, new.WindowEnd, new.WindowStart)
+			return fmt.Errorf("file contract revision %v has proof window (%v - %v) that ends before it begins", i, new.WindowStart, new.WindowEnd)
 		}
 	}
 	return nil
@@ -427,7 +427,7 @@ func (vc *ValidationContext) outputsEqualInputs(txn types.Transaction) error {
 		return ErrOverflow
 	}
 	if inputSC != outputSC {
-		return fmt.Errorf("siacoin inputs (%v) do not equal siacoin outputs (%v)", inputSC, outputSC)
+		return fmt.Errorf("siacoin inputs (%v SC) do not equal siacoin outputs (%v SC)", inputSC, outputSC)
 	}
 
 	var inputSF, outputSF types.Currency
@@ -444,7 +444,7 @@ func (vc *ValidationContext) outputsEqualInputs(txn types.Transaction) error {
 		}
 	}
 	if inputSF != outputSF {
-		return fmt.Errorf("siafund inputs (%v) do not equal siafund outputs (%v)", inputSC, outputSC)
+		return fmt.Errorf("siafund inputs (%v SF) do not equal siafund outputs (%v SF)", inputSF.ExactString(), outputSF.ExactString())
 	}
 
 	return nil
@@ -540,10 +540,10 @@ func (vc *ValidationContext) validSignatures(txn types.Transaction) error {
 		// NOTE: very important that we verify with the parent keys, *not* the
 		// revised keys!
 		if !ed25519.Verify(fcr.Parent.State.RenterPublicKey[:], contractHash[:], fcr.RenterSignature[:]) {
-			return fmt.Errorf("file contract resolution %v has invalid renter signature", i)
+			return fmt.Errorf("file contract revision %v has invalid renter signature", i)
 		}
 		if !ed25519.Verify(fcr.Parent.State.HostPublicKey[:], contractHash[:], fcr.HostSignature[:]) {
-			return fmt.Errorf("file contract resolution %v has invalid host signature", i)
+			return fmt.Errorf("file contract revision %v has invalid host signature", i)
 		}
 	}
 	return nil
@@ -623,19 +623,19 @@ validate:
 }
 
 func (vc *ValidationContext) noDoubleSpends(txns []types.Transaction) error {
-	spent := make(map[types.OutputID]struct{})
+	spent := make(map[types.OutputID]int)
 	for i, txn := range txns {
 		for _, in := range txn.SiacoinInputs {
-			if _, ok := spent[in.Parent.ID]; ok {
-				return fmt.Errorf("transaction set is invalid: transaction %v double-spends %v", i, in.Parent.ID)
+			if prev, ok := spent[in.Parent.ID]; ok {
+				return fmt.Errorf("transaction set is invalid: transaction %v double-spends output %v (previously spent in transaction %v)", i, in.Parent.ID, prev)
 			}
-			spent[in.Parent.ID] = struct{}{}
+			spent[in.Parent.ID] = i
 		}
-		for _, in := range txn.SiafundInputs {
+		for prev, in := range txn.SiafundInputs {
 			if _, ok := spent[in.Parent.ID]; ok {
-				return fmt.Errorf("transaction set is invalid: transaction %v double-spends %v", i, in.Parent.ID)
+				return fmt.Errorf("transaction set is invalid: transaction %v double-spends output %v (previously spent in transaction %v)", i, in.Parent.ID, prev)
 			}
-			spent[in.Parent.ID] = struct{}{}
+			spent[in.Parent.ID] = i
 		}
 	}
 	return nil
