@@ -241,9 +241,9 @@ type StateApplyUpdate struct {
 	NewSiafundOutputs    []types.SiafundOutput
 	RevisedFileContracts []types.FileContract
 	NewFileContracts     []types.FileContract
-	HistoryProof         []types.Hash256
 	updatedObjects       [64][]stateObject
 	treeGrowth           [64][]types.Hash256
+	historyProof         []types.Hash256
 	historyGrowth        []types.Hash256
 }
 
@@ -307,6 +307,11 @@ func (sau *StateApplyUpdate) UpdateWindowProof(sp *types.StorageProof) {
 	sp.WindowProof = sau.updateHistoryProof(sp.WindowProof, sp.WindowStart.Height)
 }
 
+// HistoryProof returns a history proof for the current block.
+func (sau *StateApplyUpdate) HistoryProof() []types.Hash256 {
+	return append([]types.Hash256(nil), sau.historyProof...)
+}
+
 // ApplyBlock integrates a block into the current consensus state, producing
 // a StateApplyUpdate detailing the resulting changes. The block is assumed to
 // be fully validated.
@@ -335,8 +340,8 @@ func ApplyBlock(vc ValidationContext, b types.Block) (sau StateApplyUpdate) {
 		created = created[1:]
 	}
 
-	sau.HistoryProof = sau.Context.History.AppendLeaf(b.Index())
-	sau.historyGrowth = historyGrowth(b.Index(), sau.HistoryProof)
+	sau.historyProof = sau.Context.History.AppendLeaf(b.Index())
+	sau.historyGrowth = historyGrowth(b.Index(), sau.historyProof)
 
 	for _, txn := range b.Transactions {
 		// update SiafundPool

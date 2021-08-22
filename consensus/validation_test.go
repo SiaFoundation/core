@@ -212,8 +212,8 @@ func TestValidateTransaction(t *testing.T) {
 	resolvedValidContract := sau.NewFileContracts[2]
 	resolvedMissedContract := sau.NewFileContracts[3]
 	closedProof := types.StorageProof{
-		WindowStart: genesisBlock.Index(),
-		WindowProof: append([]types.Hash256(nil), sau.HistoryProof...),
+		WindowStart: sau.Context.Index,
+		WindowProof: sau.HistoryProof(),
 	}
 	proofIndex := sau.Context.StorageProofSegmentIndex(closedContract.State.Filesize, closedProof.WindowStart, closedContract.ID)
 	copy(closedProof.DataSegment[:], data[64*proofIndex:])
@@ -223,8 +223,8 @@ func TestValidateTransaction(t *testing.T) {
 		closedProof.SegmentProof = append(closedProof.SegmentProof, storageProofLeafHash(data[:64]))
 	}
 	resolvedValidProof := types.StorageProof{
-		WindowStart: genesisBlock.Index(),
-		WindowProof: append([]types.Hash256(nil), sau.HistoryProof...),
+		WindowStart: sau.Context.Index,
+		WindowProof: sau.HistoryProof(),
 	}
 	proofIndex = sau.Context.StorageProofSegmentIndex(resolvedValidContract.State.Filesize, resolvedValidProof.WindowStart, resolvedValidContract.ID)
 	copy(resolvedValidProof.DataSegment[:], data[64*proofIndex:])
