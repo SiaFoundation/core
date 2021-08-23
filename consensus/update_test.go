@@ -151,6 +151,31 @@ func TestFoundationSubsidy(t *testing.T) {
 	}
 }
 
+func TestUpdateWindowProof(t *testing.T) {
+	for before := 0; before < 10; before++ {
+		for after := 0; after < 10; after++ {
+			b := genesisWithBeneficiaries()
+			sau := GenesisUpdate(b, testingDifficulty)
+			for i := 0; i < before; i++ {
+				b = mineBlock(sau.Context, b)
+				sau = ApplyBlock(sau.Context, b)
+			}
+			sp := types.StorageProof{
+				WindowStart: sau.Context.Index,
+				WindowProof: sau.HistoryProof(),
+			}
+			for i := 0; i < after; i++ {
+				b = mineBlock(sau.Context, b)
+				sau = ApplyBlock(sau.Context, b)
+				sau.UpdateWindowProof(&sp)
+			}
+			if !sau.Context.History.Contains(sp.WindowStart, sp.WindowProof) {
+				t.Fatal("UpdateWindowProof created invalid history proof")
+			}
+		}
+	}
+}
+
 func TestFileContracts(t *testing.T) {
 	renterPubkey, renterPrivkey := testingKeypair()
 	hostPubkey, hostPrivkey := testingKeypair()
@@ -259,14 +284,15 @@ func TestFileContracts(t *testing.T) {
 	//
 	// NOTE: unlike other tests, we can't "cheat" here by fast-forwarding,
 	// because we need to maintain a history proof
-	var sp types.StorageProof
 	for sau.Context.Index.Height < fc.State.WindowStart {
 		b = mineBlock(sau.Context, b)
 		sau = ApplyBlock(sau.Context, b)
 		sau.UpdateFileContractProof(&fc)
 	}
-	sp.WindowStart = sau.Context.Index
-	sp.WindowProof = sau.HistoryProof()
+	sp := types.StorageProof{
+		WindowStart: sau.Context.Index,
+		WindowProof: sau.HistoryProof(),
+	}
 	proofIndex := sau.Context.StorageProofSegmentIndex(fc.State.Filesize, sp.WindowStart, fc.ID)
 	copy(sp.DataSegment[:], data[64*proofIndex:])
 	if proofIndex == 0 {
@@ -276,19 +302,18 @@ func TestFileContracts(t *testing.T) {
 	}
 
 	// create valid contract resolution
-	res := types.FileContractResolution{
-		Parent:       fc,
-		StorageProof: sp,
-	}
 	txn = types.Transaction{
-		FileContractResolutions: []types.FileContractResolution{res},
+		FileContractResolutions: []types.FileContractResolution{{
+			Parent:       fc,
+			StorageProof: sp,
+		}},
 	}
 
-	b = mineBlock(sau.Context, b, txn)
-	if err := sau.Context.ValidateBlock(b); err != nil {
+	validBlock := mineBlock(sau.Context, b, txn)
+	if err := sau.Context.ValidateBlock(validBlock); err != nil {
 		t.Fatal(err)
 	}
-	validSAU := ApplyBlock(sau.Context, b)
+	validSAU := ApplyBlock(sau.Context, validBlock)
 	if len(validSAU.NewSiacoinOutputs) != 3 {
 		t.Fatal("expected three new siacoin outputs")
 	}
@@ -297,8 +322,8 @@ func TestFileContracts(t *testing.T) {
 	for sau.Context.Index.Height <= fc.State.WindowEnd {
 		b = mineBlock(sau.Context, b)
 		sau = ApplyBlock(sau.Context, b)
-		sau.UpdateFileContractProof(&res.Parent)
-		sau.UpdateWindowProof(&res.StorageProof)
+		sau.UpdateFileContractProof(&txn.FileContractResolutions[0].Parent)
+		sau.UpdateWindowProof(&txn.FileContractResolutions[0].StorageProof)
 	}
 	// storage proof resolution should now be rejected
 	if err := sau.Context.ValidateTransaction(txn); err == nil {

@@ -274,7 +274,8 @@ func (sau *StateApplyUpdate) updateStateProof(proof []types.Hash256, leafIndex u
 
 func (sau *StateApplyUpdate) updateHistoryProof(proof []types.Hash256, leafIndex uint64) []types.Hash256 {
 	if len(sau.historyGrowth) > len(proof) {
-		proof = append(proof, sau.historyGrowth[len(proof):]...)
+		proof = append(proof, sau.historyGrowth[len(proof)])
+		proof = append(proof, sau.historyProof[len(proof):]...)
 	}
 	return proof
 }
