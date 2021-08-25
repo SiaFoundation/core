@@ -204,36 +204,7 @@ func (txn *Transaction) ID() TransactionID {
 	h := hasherPool.Get().(*Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	for _, in := range txn.SiacoinInputs {
-		h.WriteOutputID(in.Parent.ID)
-	}
-	for _, out := range txn.SiacoinOutputs {
-		h.WriteBeneficiary(out)
-	}
-	for _, in := range txn.SiafundInputs {
-		h.WriteOutputID(in.Parent.ID)
-	}
-	for _, out := range txn.SiafundOutputs {
-		h.WriteBeneficiary(out)
-	}
-	for _, fc := range txn.FileContracts {
-		h.WriteFileContractState(fc)
-	}
-	for _, fcr := range txn.FileContractRevisions {
-		h.WriteOutputID(fcr.Parent.ID)
-		h.WriteFileContractState(fcr.NewState)
-	}
-	for _, fcr := range txn.FileContractResolutions {
-		h.WriteOutputID(fcr.Parent.ID)
-		h.WriteChainIndex(fcr.StorageProof.WindowStart)
-		h.Write(fcr.StorageProof.DataSegment[:])
-		for _, p := range fcr.StorageProof.SegmentProof {
-			h.WriteHash(p)
-		}
-	}
-	h.Write(txn.ArbitraryData)
-	h.WriteHash(txn.NewFoundationAddress)
-	h.WriteCurrency(txn.MinerFee)
+	h.WriteTransaction(*txn)
 	return TransactionID(h.Sum())
 }
 
