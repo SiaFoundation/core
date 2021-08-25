@@ -143,6 +143,8 @@ func DecodePolicy(b []byte) (SpendPolicy, error) {
 		return
 	}
 
+	const maxPolicies = 1024
+	totalPolicies := 1
 	var readPolicy func() SpendPolicy
 	readPolicy = func() SpendPolicy {
 		switch op := readUint8(); op {
@@ -155,8 +157,16 @@ func DecodePolicy(b []byte) (SpendPolicy, error) {
 				N:  readUint8(),
 				Of: make([]SpendPolicy, readUint8()),
 			}
+			totalPolicies += len(thresh.Of)
+			if totalPolicies > maxPolicies {
+				setErr(errors.New("policy is too complex"))
+				return nil
+			}
 			for i := range thresh.Of {
 				thresh.Of[i] = readPolicy()
+				if err != nil {
+					return nil
+				}
 			}
 			return thresh
 		default:
