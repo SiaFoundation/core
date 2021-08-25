@@ -188,14 +188,7 @@ func (sa *StateAccumulator) HasTreeAtHeight(height int) bool {
 }
 
 func (sa *StateAccumulator) containsObject(so stateObject) bool {
-	root := so.proofRoot()
-	start, end := bits.TrailingZeros64(sa.NumLeaves), bits.Len64(sa.NumLeaves)
-	for i := start; i < end; i++ {
-		if sa.HasTreeAtHeight(i) && sa.Trees[i] == root {
-			return true
-		}
-	}
-	return false
+	return sa.HasTreeAtHeight(len(so.proof)) && sa.Trees[len(so.proof)] == so.proofRoot()
 }
 
 // ContainsUnspentSiacoinOutput returns true if the accumulator contains o as an
@@ -516,14 +509,7 @@ func (ha *HistoryAccumulator) AppendLeaf(index types.ChainIndex) (proof []types.
 
 // Contains returns true if the accumulator contains the given index.
 func (ha *HistoryAccumulator) Contains(index types.ChainIndex, proof []types.Hash256) bool {
-	root := merkleHistoryProofRoot(index, proof)
-	start, end := bits.TrailingZeros64(ha.NumLeaves), bits.Len64(ha.NumLeaves)
-	for i := start; i < end; i++ {
-		if ha.HasTreeAtHeight(i) && ha.Trees[i] == root {
-			return true
-		}
-	}
-	return false
+	return ha.HasTreeAtHeight(len(proof)) && ha.Trees[len(proof)] == merkleHistoryProofRoot(index, proof)
 }
 
 func storageProofLeafHash(segment []byte) types.Hash256 {
