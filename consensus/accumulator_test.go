@@ -84,10 +84,10 @@ func TestAccumulator(t *testing.T) {
 	// apply a block that spends some outputs
 	txn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{
-			{Parent: origOutputs[6]},
-			{Parent: origOutputs[7]},
-			{Parent: origOutputs[8]},
-			{Parent: origOutputs[9]},
+			{Parent: origOutputs[6], SpendPolicy: types.AnyoneCanSpend()},
+			{Parent: origOutputs[7], SpendPolicy: types.AnyoneCanSpend()},
+			{Parent: origOutputs[8], SpendPolicy: types.AnyoneCanSpend()},
+			{Parent: origOutputs[9], SpendPolicy: types.AnyoneCanSpend()},
 		},
 		SiacoinOutputs: []types.Beneficiary{{
 			Value:   randAmount(),
@@ -159,7 +159,7 @@ func TestAccumulator(t *testing.T) {
 	// using an intermediary transaction to test "ephemeral" outputs
 	parentTxn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{
-			{Parent: origOutputs[2]},
+			{Parent: origOutputs[2], SpendPolicy: types.AnyoneCanSpend()},
 		},
 		SiacoinOutputs: []types.Beneficiary{{
 			Value:   randAmount(),
@@ -177,6 +177,7 @@ func TestAccumulator(t *testing.T) {
 				Address:   randAddr(),
 				LeafIndex: types.EphemeralLeafIndex,
 			},
+			SpendPolicy: types.AnyoneCanSpend(),
 		}},
 		SiacoinOutputs: []types.Beneficiary{{
 			Value:   randAmount(),
@@ -253,7 +254,7 @@ func TestAccumulatorRevert(t *testing.T) {
 
 	txn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{
-			{Parent: origOutputs[5]},
+			{Parent: origOutputs[5], SpendPolicy: types.AnyoneCanSpend()},
 		},
 		SiacoinOutputs: []types.Beneficiary{{
 			Value:   randAmount(),

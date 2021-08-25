@@ -13,6 +13,9 @@ type SpendPolicy interface {
 	isPolicy()
 }
 
+// AnyoneCanSpend returns a policy that has no requirements.
+func AnyoneCanSpend() SpendPolicy { return PolicyThreshold{N: 0} }
+
 // PolicyAbove requires the input to be spent above a given block height.
 type PolicyAbove uint64
 
