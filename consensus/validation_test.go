@@ -29,28 +29,28 @@ func genesisWithBeneficiaries(beneficiaries ...types.Beneficiary) types.Block {
 func signAllInputs(txn *types.Transaction, vc ValidationContext, priv ed25519.PrivateKey) {
 	sigHash := vc.SigHash(*txn)
 	for i := range txn.SiacoinInputs {
-		txn.SiacoinInputs[i].Signature = types.SignTransaction(priv, sigHash)
+		txn.SiacoinInputs[i].Signatures = []types.InputSignature{types.SignTransaction(priv, sigHash)}
 	}
 	for i := range txn.SiafundInputs {
-		txn.SiafundInputs[i].Signature = types.SignTransaction(priv, sigHash)
+		txn.SiafundInputs[i].Signatures = []types.InputSignature{types.SignTransaction(priv, sigHash)}
 	}
 }
 
 func TestEphemeralOutputs(t *testing.T) {
 	pubkey, privkey := testingKeypair()
 	sau := GenesisUpdate(genesisWithBeneficiaries(types.Beneficiary{
-		Address: pubkey.Address(),
+		Address: types.StandardAddress(pubkey),
 		Value:   types.Siacoins(1),
 	}), testingDifficulty)
 
 	// create an ephemeral output
 	parentTxn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
-			Parent:    sau.NewSiacoinOutputs[1],
-			PublicKey: pubkey,
+			Parent:      sau.NewSiacoinOutputs[1],
+			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
 		SiacoinOutputs: []types.Beneficiary{{
-			Address: pubkey.Address(),
+			Address: types.StandardAddress(pubkey),
 			Value:   types.Siacoins(1),
 		}},
 	}
@@ -61,18 +61,18 @@ func TestEphemeralOutputs(t *testing.T) {
 			Index:         0,
 		},
 		Value:     parentTxn.SiacoinOutputs[0].Value,
-		Address:   pubkey.Address(),
+		Address:   types.StandardAddress(pubkey),
 		LeafIndex: types.EphemeralLeafIndex,
 	}
 
 	// create a transaction that spends the ephemeral output
 	childTxn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
-			Parent:    ephemeralOutput,
-			PublicKey: pubkey,
+			Parent:      ephemeralOutput,
+			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
 		SiacoinOutputs: []types.Beneficiary{{
-			Address: pubkey.Address(),
+			Address: types.StandardAddress(pubkey),
 			Value:   ephemeralOutput.Value,
 		}},
 	}
@@ -132,21 +132,21 @@ func TestValidateTransaction(t *testing.T) {
 		Transactions: []types.Transaction{{
 			SiacoinOutputs: []types.Beneficiary{
 				{
-					Address: pubkey.Address(),
+					Address: types.StandardAddress(pubkey),
 					Value:   types.Siacoins(11),
 				},
 				{
-					Address: pubkey.Address(),
+					Address: types.StandardAddress(pubkey),
 					Value:   types.Siacoins(11),
 				},
 			},
 			SiafundOutputs: []types.Beneficiary{
 				{
-					Address: pubkey.Address(),
+					Address: types.StandardAddress(pubkey),
 					Value:   types.Siafunds(100),
 				},
 				{
-					Address: pubkey.Address(),
+					Address: types.StandardAddress(pubkey),
 					Value:   types.Siafunds(100),
 				},
 			},
@@ -156,19 +156,19 @@ func TestValidateTransaction(t *testing.T) {
 					WindowStart: 5,
 					WindowEnd:   10,
 					ValidRenterOutput: types.Beneficiary{
-						Address: renterPubkey.Address(),
+						Address: types.StandardAddress(renterPubkey),
 						Value:   types.Siacoins(58),
 					},
 					ValidHostOutput: types.Beneficiary{
-						Address: renterPubkey.Address(),
+						Address: types.StandardAddress(renterPubkey),
 						Value:   types.Siacoins(19),
 					},
 					MissedRenterOutput: types.Beneficiary{
-						Address: renterPubkey.Address(),
+						Address: types.StandardAddress(renterPubkey),
 						Value:   types.Siacoins(58),
 					},
 					MissedHostOutput: types.Beneficiary{
-						Address: renterPubkey.Address(),
+						Address: types.StandardAddress(renterPubkey),
 						Value:   types.Siacoins(19),
 					},
 					RenterPublicKey: renterPubkey,
@@ -254,12 +254,12 @@ func TestValidateTransaction(t *testing.T) {
 	sau.UpdateWindowProof(&resolvedValidProof)
 	resolveTxn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
-			Parent:    spentSC,
-			PublicKey: pubkey,
+			Parent:      spentSC,
+			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
 		SiafundInputs: []types.SiafundInput{{
-			Parent:    spentSF,
-			PublicKey: pubkey,
+			Parent:      spentSF,
+			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
 		SiacoinOutputs: []types.Beneficiary{{
 			Address: types.VoidAddress,
@@ -300,16 +300,16 @@ func TestValidateTransaction(t *testing.T) {
 	// and revises/resolves the remaining contracts
 	txn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
-			Parent:    unspentSC,
-			PublicKey: pubkey,
+			Parent:      unspentSC,
+			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
 		SiacoinOutputs: []types.Beneficiary{{
 			Address: types.VoidAddress,
 			Value:   types.Siacoins(1),
 		}},
 		SiafundInputs: []types.SiafundInput{{
-			Parent:    unspentSF,
-			PublicKey: pubkey,
+			Parent:      unspentSF,
+			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
 		SiafundOutputs: []types.Beneficiary{{
 			Address: types.VoidAddress,
@@ -401,15 +401,9 @@ func TestValidateTransaction(t *testing.T) {
 			},
 		},
 		{
-			"invalid siacoin pubkey",
-			func(txn *types.Transaction) {
-				txn.SiacoinInputs[0].PublicKey[0] ^= 1
-			},
-		},
-		{
 			"invalid siacoin signature",
 			func(txn *types.Transaction) {
-				txn.SiacoinInputs[0].Signature[0] ^= 1
+				txn.SiacoinInputs[0].Signatures[0][0] ^= 1
 			},
 		},
 		{
@@ -425,15 +419,9 @@ func TestValidateTransaction(t *testing.T) {
 			},
 		},
 		{
-			"invalid siafund pubkey",
-			func(txn *types.Transaction) {
-				txn.SiafundInputs[0].PublicKey[0] ^= 1
-			},
-		},
-		{
 			"invalid siafund signature",
 			func(txn *types.Transaction) {
-				txn.SiafundInputs[0].Signature[0] ^= 1
+				txn.SiafundInputs[0].Signatures[0][0] ^= 1
 			},
 		},
 		{
@@ -543,7 +531,7 @@ func TestValidateTransaction(t *testing.T) {
 		{
 			"invalid Foundation update",
 			func(txn *types.Transaction) {
-				txn.NewFoundationAddress = pubkey.Address()
+				txn.NewFoundationAddress = types.StandardAddress(pubkey)
 			},
 		},
 	}
@@ -559,12 +547,12 @@ func TestValidateTransaction(t *testing.T) {
 func TestValidateTransactionSet(t *testing.T) {
 	pubkey, privkey := testingKeypair()
 	genesisBlock := genesisWithBeneficiaries(types.Beneficiary{
-		Address: pubkey.Address(),
+		Address: types.StandardAddress(pubkey),
 		Value:   types.Siacoins(1),
 	})
 	// also add some SF
 	genesisBlock.Transactions[0].SiafundOutputs = []types.Beneficiary{{
-		Address: pubkey.Address(),
+		Address: types.StandardAddress(pubkey),
 		Value:   types.Siafunds(100),
 	}}
 	sau := GenesisUpdate(genesisBlock, testingDifficulty)
@@ -572,19 +560,19 @@ func TestValidateTransactionSet(t *testing.T) {
 
 	txn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
-			Parent:    sau.NewSiacoinOutputs[1],
-			PublicKey: pubkey,
+			Parent:      sau.NewSiacoinOutputs[1],
+			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
 		SiacoinOutputs: []types.Beneficiary{{
-			Address: pubkey.Address(),
+			Address: types.StandardAddress(pubkey),
 			Value:   sau.NewSiacoinOutputs[1].Value,
 		}},
 		SiafundInputs: []types.SiafundInput{{
-			Parent:    sau.NewSiafundOutputs[0],
-			PublicKey: pubkey,
+			Parent:      sau.NewSiafundOutputs[0],
+			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
 		SiafundOutputs: []types.Beneficiary{{
-			Address: pubkey.Address(),
+			Address: types.StandardAddress(pubkey),
 			Value:   sau.NewSiafundOutputs[0].Value,
 		}},
 	}
@@ -607,7 +595,7 @@ func TestValidateTransactionSet(t *testing.T) {
 func TestValidateHeader(t *testing.T) {
 	pubkey, _ := testingKeypair()
 	genesis := genesisWithBeneficiaries(types.Beneficiary{
-		Address: pubkey.Address(),
+		Address: types.StandardAddress(pubkey),
 		Value:   types.Siacoins(1),
 	})
 	vc := GenesisUpdate(genesis, testingDifficulty).Context

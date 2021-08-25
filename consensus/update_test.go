@@ -13,7 +13,7 @@ func TestSiafunds(t *testing.T) {
 	b := types.Block{
 		Header: types.BlockHeader{Timestamp: time.Unix(734600000, 0)},
 		Transactions: []types.Transaction{{SiafundOutputs: []types.Beneficiary{{
-			Address: pubkey.Address(),
+			Address: types.StandardAddress(pubkey),
 			Value:   types.NewCurrency64(100),
 		}}}},
 	}
@@ -24,11 +24,11 @@ func TestSiafunds(t *testing.T) {
 	txn := types.Transaction{
 		SiafundInputs: []types.SiafundInput{{
 			Parent:       sau.NewSiafundOutputs[0],
-			PublicKey:    pubkey,
-			ClaimAddress: claimPubkey.Address(),
+			SpendPolicy:  types.PolicyPublicKey(pubkey),
+			ClaimAddress: types.StandardAddress(claimPubkey),
 		}},
 		SiafundOutputs: []types.Beneficiary{{
-			Address: claimPubkey.Address(),
+			Address: types.StandardAddress(claimPubkey),
 			Value:   types.NewCurrency64(100),
 		}},
 	}
@@ -49,8 +49,8 @@ func TestSiafunds(t *testing.T) {
 	// attempt to spend the claim output; it should be timelocked
 	txn = types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
-			Parent:    sau.NewSiacoinOutputs[1],
-			PublicKey: claimPubkey,
+			Parent:      sau.NewSiacoinOutputs[1],
+			SpendPolicy: types.PolicyPublicKey(claimPubkey),
 		}},
 		MinerFee: sau.NewSiacoinOutputs[1].Value,
 	}
@@ -78,12 +78,12 @@ func TestFoundationSubsidy(t *testing.T) {
 	// mine genesis block with initial Foundation address
 	pubkey, privkey := testingKeypair()
 	b := genesisWithBeneficiaries(types.Beneficiary{
-		Address: pubkey.Address(),
+		Address: types.StandardAddress(pubkey),
 		Value:   types.NewCurrency64(100),
 	})
-	b.Transactions[0].NewFoundationAddress = pubkey.Address()
+	b.Transactions[0].NewFoundationAddress = types.StandardAddress(pubkey)
 	sau := GenesisUpdate(b, testingDifficulty)
-	if sau.Context.FoundationAddress != pubkey.Address() {
+	if sau.Context.FoundationAddress != types.StandardAddress(pubkey) {
 		t.Fatal("Foundation address not updated")
 	}
 	initialOutput := sau.NewSiacoinOutputs[1]
@@ -119,8 +119,8 @@ func TestFoundationSubsidy(t *testing.T) {
 	newAddress := types.Address{1, 2, 3}
 	txn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
-			Parent:    initialOutput,
-			PublicKey: pubkey,
+			Parent:      initialOutput,
+			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
 		NewFoundationAddress: newAddress,
 		MinerFee:             initialOutput.Value,
@@ -140,8 +140,8 @@ func TestFoundationSubsidy(t *testing.T) {
 	sau.Context.Index.Height = subsidyOutput.Timelock + 1
 	txn = types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
-			Parent:    subsidyOutput,
-			PublicKey: pubkey,
+			Parent:      subsidyOutput,
+			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
 		MinerFee: subsidyOutput.Value,
 	}
@@ -180,10 +180,10 @@ func TestFileContracts(t *testing.T) {
 	renterPubkey, renterPrivkey := testingKeypair()
 	hostPubkey, hostPrivkey := testingKeypair()
 	b := genesisWithBeneficiaries(types.Beneficiary{
-		Address: renterPubkey.Address(),
+		Address: types.StandardAddress(renterPubkey),
 		Value:   types.Siacoins(100),
 	}, types.Beneficiary{
-		Address: hostPubkey.Address(),
+		Address: types.StandardAddress(hostPubkey),
 		Value:   types.Siacoins(7),
 	})
 	sau := GenesisUpdate(b, testingDifficulty)
@@ -195,19 +195,19 @@ func TestFileContracts(t *testing.T) {
 		WindowStart: 5,
 		WindowEnd:   10,
 		ValidRenterOutput: types.Beneficiary{
-			Address: renterPubkey.Address(),
+			Address: types.StandardAddress(renterPubkey),
 			Value:   types.Siacoins(58),
 		},
 		ValidHostOutput: types.Beneficiary{
-			Address: renterPubkey.Address(),
+			Address: types.StandardAddress(renterPubkey),
 			Value:   types.Siacoins(19),
 		},
 		MissedRenterOutput: types.Beneficiary{
-			Address: renterPubkey.Address(),
+			Address: types.StandardAddress(renterPubkey),
 			Value:   types.Siacoins(58),
 		},
 		MissedHostOutput: types.Beneficiary{
-			Address: renterPubkey.Address(),
+			Address: types.StandardAddress(renterPubkey),
 			Value:   types.Siacoins(19),
 		},
 		RenterPublicKey: renterPubkey,
@@ -216,15 +216,15 @@ func TestFileContracts(t *testing.T) {
 	outputSum := initialRev.ValidRenterOutput.Value.Add(initialRev.ValidHostOutput.Value).Add(sau.Context.FileContractTax(initialRev))
 	txn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{
-			{Parent: renterOutput, PublicKey: renterPubkey},
-			{Parent: hostOutput, PublicKey: hostPubkey},
+			{Parent: renterOutput, SpendPolicy: types.PolicyPublicKey(renterPubkey)},
+			{Parent: hostOutput, SpendPolicy: types.PolicyPublicKey(hostPubkey)},
 		},
 		FileContracts: []types.FileContractState{initialRev},
 		MinerFee:      renterOutput.Value.Add(hostOutput.Value).Sub(outputSum),
 	}
 	sigHash := sau.Context.SigHash(txn)
-	txn.SiacoinInputs[0].Signature = types.SignTransaction(renterPrivkey, sigHash)
-	txn.SiacoinInputs[1].Signature = types.SignTransaction(hostPrivkey, sigHash)
+	txn.SiacoinInputs[0].Signatures = []types.InputSignature{types.SignTransaction(renterPrivkey, sigHash)}
+	txn.SiacoinInputs[1].Signatures = []types.InputSignature{types.SignTransaction(hostPrivkey, sigHash)}
 
 	b = mineBlock(sau.Context, b, txn)
 	if err := sau.Context.ValidateBlock(b); err != nil {
