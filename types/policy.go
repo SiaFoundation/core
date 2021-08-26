@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/bits"
 	"strings"
 )
 
@@ -54,8 +55,73 @@ func (p PolicyThreshold) String() string {
 	}
 }
 
+// PolicyUnlockConditions reproduces the requirements imposed by Sia's original
+// "UnlockConditions" type. It exists for compatibility purposes and should not
+// be used to construct new policies.
+type PolicyUnlockConditions struct {
+	Timelock           uint64
+	PublicKeys         []PublicKey
+	SignaturesRequired uint8
+}
+
+func (PolicyUnlockConditions) isPolicy() {}
+
+func unlockConditionsRoot(uc PolicyUnlockConditions) Hash256 {
+	buf := make([]byte, 65)
+	uint64Leaf := func(u uint64) Hash256 {
+		buf[0] = 0
+		binary.LittleEndian.PutUint64(buf[1:], u)
+		return HashBytes(buf[:9])
+	}
+	pubkeyLeaf := func(pk PublicKey) Hash256 {
+		buf[0] = 0
+		copy(buf[1:], "ed25519\x00\x00\x00\x00\x00\x00\x00\x00\x00")
+		binary.LittleEndian.PutUint64(buf[17:], uint64(len(pk)))
+		copy(buf[25:], pk[:])
+		return HashBytes(buf[:57])
+	}
+	nodeHash := func(left, right Hash256) Hash256 {
+		buf[0] = 1
+		copy(buf[1:], left[:])
+		copy(buf[33:], right[:])
+		return HashBytes(buf[:65])
+	}
+	var trees [8]Hash256
+	var numLeaves uint8
+	addLeaf := func(h Hash256) {
+		i := 0
+		for ; numLeaves&(1<<i) != 0; i++ {
+			h = nodeHash(trees[i], h)
+		}
+		trees[i] = h
+		numLeaves++
+	}
+	treeRoot := func() Hash256 {
+		i := bits.TrailingZeros8(numLeaves)
+		root := trees[i]
+		for i++; i < len(trees); i++ {
+			if numLeaves&(1<<i) != 0 {
+				root = nodeHash(trees[i], root)
+			}
+		}
+		return root
+	}
+
+	addLeaf(uint64Leaf(uc.Timelock))
+	for _, key := range uc.PublicKeys {
+		addLeaf(pubkeyLeaf(key))
+	}
+	addLeaf(uint64Leaf(uint64(uc.SignaturesRequired)))
+	return treeRoot()
+}
+
 // PolicyAddress computes the opaque address for a given policy.
 func PolicyAddress(p SpendPolicy) Address {
+	if uc, ok := p.(PolicyUnlockConditions); ok {
+		// NOTE: to preserve compatibility, we use the original address
+		// derivation code for these policies
+		return Address(unlockConditionsRoot(uc))
+	}
 	return Address(HashBytes(EncodePolicy(p)))
 }
 
@@ -69,6 +135,7 @@ const (
 	opAbove
 	opPublicKey
 	opThreshold
+	opUnlockConditions
 )
 
 // EncodePolicy encodes the given policy.
@@ -100,6 +167,14 @@ func EncodePolicy(p SpendPolicy) (b []byte) {
 			for i := range p.Of {
 				appendPolicy(p.Of[i])
 			}
+		case PolicyUnlockConditions:
+			appendUint8(opUnlockConditions)
+			appendUint32(uint32(p.Timelock))
+			appendUint8(uint8(len(p.PublicKeys)))
+			for i := range p.PublicKeys {
+				appendPublicKey(PublicKey(p.PublicKeys[i]))
+			}
+			appendUint8(p.SignaturesRequired)
 		default:
 			panic("unhandled policy type")
 		}
@@ -172,6 +247,16 @@ func DecodePolicy(b []byte) (SpendPolicy, error) {
 				}
 			}
 			return thresh
+		case opUnlockConditions:
+			uc := PolicyUnlockConditions{
+				Timelock:   uint64(readUint32()),
+				PublicKeys: make([]PublicKey, readUint8()),
+			}
+			for i := range uc.PublicKeys {
+				uc.PublicKeys[i] = readPublicKey()
+			}
+			uc.SignaturesRequired = readUint8()
+			return uc
 		default:
 			setErr(fmt.Errorf("unknown policy (opcode %v)", op))
 			return nil
