@@ -536,10 +536,9 @@ func (vc *ValidationContext) validSpendPolicies(txn types.Transaction) error {
 				}
 				return fmt.Errorf("height not above %v", uint64(p))
 			case types.PolicyPublicKey:
-				for len(sigs) > 0 {
-					sig := sigs[0]
-					sigs = sigs[1:]
-					if ed25519.Verify(p[:], sigHash[:], sig[:]) {
+				for i := range sigs {
+					if ed25519.Verify(p[:], sigHash[:], sigs[i][:]) {
+						sigs = sigs[i+1:]
 						return nil
 					}
 				}
