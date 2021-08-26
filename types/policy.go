@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"math/bits"
-	"strings"
 )
 
 // A SpendPolicy describes the conditions under which an input may be spent.
@@ -29,32 +28,6 @@ type PolicyThreshold struct {
 	Of []SpendPolicy
 }
 
-func (PolicyAbove) isPolicy()     {}
-func (PolicyPublicKey) isPolicy() {}
-func (PolicyThreshold) isPolicy() {}
-
-// String implements fmt.Stringer
-func (p PolicyPublicKey) String() string { return fmt.Sprintf("pk(%x)", p[:]) }
-
-// String implements fmt.Stringer
-func (p PolicyAbove) String() string { return fmt.Sprintf("above(%v)", uint64(p)) }
-
-// String implements fmt.Stringer
-func (p PolicyThreshold) String() string {
-	ps := make([]string, len(p.Of))
-	for i := range ps {
-		ps[i] = fmt.Sprint(p.Of[i])
-	}
-	switch p.N {
-	case 1:
-		return fmt.Sprintf("any(%v)", strings.Join(ps, ", "))
-	case uint8(len(p.Of)):
-		return fmt.Sprintf("all(%v)", strings.Join(ps, ", "))
-	default:
-		return fmt.Sprintf("atleast(%v, %v)", p.N, strings.Join(ps, ", "))
-	}
-}
-
 // PolicyUnlockConditions reproduces the requirements imposed by Sia's original
 // "UnlockConditions" type. It exists for compatibility purposes and should not
 // be used to construct new policies.
@@ -64,6 +37,9 @@ type PolicyUnlockConditions struct {
 	SignaturesRequired uint8
 }
 
+func (PolicyAbove) isPolicy()            {}
+func (PolicyPublicKey) isPolicy()        {}
+func (PolicyThreshold) isPolicy()        {}
 func (PolicyUnlockConditions) isPolicy() {}
 
 func unlockConditionsRoot(uc PolicyUnlockConditions) Hash256 {
