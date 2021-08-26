@@ -463,6 +463,11 @@ func writeCheckpoint(w io.Writer, c consensus.Checkpoint) error {
 		writeHash(id.TransactionID)
 		writeUint64(id.Index)
 	}
+	writePolicy := func(p types.SpendPolicy) {
+		b := types.EncodePolicy(p)
+		writeInt(len(b))
+		write(b)
+	}
 
 	// write header
 	h := c.Block.Header
@@ -486,8 +491,11 @@ func writeCheckpoint(w io.Writer, c consensus.Checkpoint) error {
 			writeUint64(in.Parent.Timelock)
 			writeInt(len(in.Parent.MerkleProof))
 			writeUint64(in.Parent.LeafIndex)
-			writeHash(in.PublicKey)
-			write(in.Signature[:])
+			writePolicy(in.SpendPolicy)
+			writeInt(len(in.Signatures))
+			for k := range in.Signatures {
+				write(in.Signatures[k][:])
+			}
 		}
 		writeInt(len(txn.SiacoinOutputs))
 		for j := range txn.SiacoinOutputs {
@@ -504,8 +512,11 @@ func writeCheckpoint(w io.Writer, c consensus.Checkpoint) error {
 			writeHash(in.Parent.Address)
 			writeInt(len(in.Parent.MerkleProof))
 			writeUint64(in.Parent.LeafIndex)
-			writeHash(in.PublicKey)
-			write(in.Signature[:])
+			writePolicy(in.SpendPolicy)
+			writeInt(len(in.Signatures))
+			for k := range in.Signatures {
+				write(in.Signatures[k][:])
+			}
 		}
 		writeInt(len(txn.SiafundOutputs))
 		for j := range txn.SiafundOutputs {
@@ -586,6 +597,14 @@ func readCheckpoint(r io.Reader, c *consensus.Checkpoint) error {
 			Index:         readUint64(),
 		}
 	}
+	readPolicy := func() (p types.SpendPolicy) {
+		b := make([]byte, readUint64())
+		read(b)
+		if err == nil {
+			p, err = types.DecodePolicy(b)
+		}
+		return
+	}
 
 	// read header
 	h := &c.Block.Header
@@ -610,8 +629,11 @@ func readCheckpoint(r io.Reader, c *consensus.Checkpoint) error {
 			in.Parent.Timelock = readUint64()
 			in.Parent.MerkleProof = make([]types.Hash256, readUint64())
 			in.Parent.LeafIndex = readUint64()
-			in.PublicKey = readHash()
-			read(in.Signature[:])
+			in.SpendPolicy = readPolicy()
+			in.Signatures = make([]types.InputSignature, readUint64())
+			for k := range in.Signatures {
+				read(in.Signatures[k][:])
+			}
 		}
 		txn.SiacoinOutputs = make([]types.Beneficiary, readUint64())
 		for j := range txn.SiacoinOutputs {
@@ -628,8 +650,11 @@ func readCheckpoint(r io.Reader, c *consensus.Checkpoint) error {
 			in.Parent.Address = readHash()
 			in.Parent.MerkleProof = make([]types.Hash256, readUint64())
 			in.Parent.LeafIndex = readUint64()
-			in.PublicKey = readHash()
-			read(in.Signature[:])
+			in.SpendPolicy = readPolicy()
+			in.Signatures = make([]types.InputSignature, readUint64())
+			for k := range in.Signatures {
+				read(in.Signatures[k][:])
+			}
 		}
 		txn.SiafundOutputs = make([]types.Beneficiary, readUint64())
 		for j := range txn.SiafundOutputs {

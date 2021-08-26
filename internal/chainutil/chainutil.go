@@ -100,7 +100,7 @@ func (cs *ChainSim) MineBlockWithTxns(txns ...types.Transaction) types.Block {
 		sau.UpdateSiacoinOutputProof(&cs.outputs[i])
 	}
 	for _, out := range sau.NewSiacoinOutputs {
-		if out.Address == cs.pubkey.Address() {
+		if out.Address == types.StandardAddress(cs.pubkey) {
 			cs.outputs = append(cs.outputs, out)
 		}
 	}
@@ -123,8 +123,8 @@ func (cs *ChainSim) MineBlockWithBeneficiaries(bs ...types.Beneficiary) types.Bl
 	var totalIn types.Currency
 	for i, out := range cs.outputs {
 		txn.SiacoinInputs = append(txn.SiacoinInputs, types.SiacoinInput{
-			Parent:    out,
-			PublicKey: cs.pubkey,
+			Parent:      out,
+			SpendPolicy: types.PolicyPublicKey(cs.pubkey),
 		})
 		totalIn = totalIn.Add(out.Value)
 		if totalIn.Cmp(totalOut) >= 0 {
@@ -138,7 +138,7 @@ func (cs *ChainSim) MineBlockWithBeneficiaries(bs ...types.Beneficiary) types.Bl
 	} else if totalIn.Cmp(totalOut) > 0 {
 		// add change output
 		txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.Beneficiary{
-			Address: cs.pubkey.Address(),
+			Address: types.StandardAddress(cs.pubkey),
 			Value:   totalIn.Sub(totalOut),
 		})
 	}
@@ -146,7 +146,7 @@ func (cs *ChainSim) MineBlockWithBeneficiaries(bs ...types.Beneficiary) types.Bl
 	// sign and mine
 	sigHash := cs.Context.SigHash(txn)
 	for i := range txn.SiacoinInputs {
-		txn.SiacoinInputs[i].Signature = types.SignTransaction(cs.privkey, sigHash)
+		txn.SiacoinInputs[i].Signatures = []types.InputSignature{types.SignTransaction(cs.privkey, sigHash)}
 	}
 	return cs.MineBlockWithTxns(txn)
 }
@@ -157,18 +157,18 @@ func (cs *ChainSim) MineBlock() types.Block {
 	for _, out := range cs.outputs {
 		txn := types.Transaction{
 			SiacoinInputs: []types.SiacoinInput{{
-				Parent:    out,
-				PublicKey: cs.pubkey,
+				Parent:      out,
+				SpendPolicy: types.PolicyPublicKey(cs.pubkey),
 			}},
 			SiacoinOutputs: []types.Beneficiary{
-				{Address: cs.pubkey.Address(), Value: out.Value.Sub(types.NewCurrency64(cs.Context.Index.Height + 1))},
+				{Address: types.StandardAddress(cs.pubkey), Value: out.Value.Sub(types.NewCurrency64(cs.Context.Index.Height + 1))},
 				{Address: types.Address{cs.nonce[6], cs.nonce[7], 1, 2, 3}, Value: types.NewCurrency64(1)},
 			},
 			MinerFee: types.NewCurrency64(cs.Context.Index.Height),
 		}
 		sigHash := cs.Context.SigHash(txn)
 		for i := range txn.SiacoinInputs {
-			txn.SiacoinInputs[i].Signature = types.SignTransaction(cs.privkey, sigHash)
+			txn.SiacoinInputs[i].Signatures = []types.InputSignature{types.SignTransaction(cs.privkey, sigHash)}
 		}
 
 		txns = append(txns, txn)
@@ -190,7 +190,7 @@ func NewChainSim() *ChainSim {
 	privkey := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
 	var pubkey types.PublicKey
 	copy(pubkey[:], privkey[32:])
-	ourAddr := pubkey.Address()
+	ourAddr := types.StandardAddress(pubkey)
 	gift := make([]types.Beneficiary, 10)
 	for i := range gift {
 		gift[i] = types.Beneficiary{
@@ -208,7 +208,7 @@ func NewChainSim() *ChainSim {
 	sau := consensus.GenesisUpdate(genesis, types.Work{NumHashes: [32]byte{31: 4}})
 	var outputs []types.SiacoinOutput
 	for _, out := range sau.NewSiacoinOutputs {
-		if out.Address == pubkey.Address() {
+		if out.Address == types.StandardAddress(pubkey) {
 			outputs = append(outputs, out)
 		}
 	}

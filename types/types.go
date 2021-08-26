@@ -50,9 +50,6 @@ type ChainIndex struct {
 // A PublicKey is an Ed25519 public key.
 type PublicKey [32]byte
 
-// Address returns the address corresponding to a public key.
-func (pk PublicKey) Address() Address { return Address(HashBytes(pk[:])) }
-
 // A TransactionID uniquely identifies a transaction.
 type TransactionID Hash256
 
@@ -96,18 +93,18 @@ func SignTransaction(privateKey ed25519.PrivateKey, sigHash Hash256) (is InputSi
 // A SiacoinInput spends its parent Output by revealing its public key and signing the
 // transaction.
 type SiacoinInput struct {
-	Parent    SiacoinOutput
-	PublicKey PublicKey
-	Signature InputSignature
+	Parent      SiacoinOutput
+	SpendPolicy SpendPolicy
+	Signatures  []InputSignature
 }
 
 // A SiafundInput spends its parent Output by revealing its public key and signing the
 // transaction.
 type SiafundInput struct {
 	Parent       SiafundOutput
-	PublicKey    PublicKey
 	ClaimAddress Address
-	Signature    InputSignature
+	SpendPolicy  SpendPolicy
+	Signatures   []InputSignature
 }
 
 // A Beneficiary is the recipient of some of the value spent in a transaction.
@@ -207,36 +204,7 @@ func (txn *Transaction) ID() TransactionID {
 	h := hasherPool.Get().(*Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	for _, in := range txn.SiacoinInputs {
-		h.WriteOutputID(in.Parent.ID)
-	}
-	for _, out := range txn.SiacoinOutputs {
-		h.WriteBeneficiary(out)
-	}
-	for _, in := range txn.SiafundInputs {
-		h.WriteOutputID(in.Parent.ID)
-	}
-	for _, out := range txn.SiafundOutputs {
-		h.WriteBeneficiary(out)
-	}
-	for _, fc := range txn.FileContracts {
-		h.WriteFileContractState(fc)
-	}
-	for _, fcr := range txn.FileContractRevisions {
-		h.WriteOutputID(fcr.Parent.ID)
-		h.WriteFileContractState(fcr.NewState)
-	}
-	for _, fcr := range txn.FileContractResolutions {
-		h.WriteOutputID(fcr.Parent.ID)
-		h.WriteChainIndex(fcr.StorageProof.WindowStart)
-		h.Write(fcr.StorageProof.DataSegment[:])
-		for _, p := range fcr.StorageProof.SegmentProof {
-			h.WriteHash(p)
-		}
-	}
-	h.Write(txn.ArbitraryData)
-	h.WriteHash(txn.NewFoundationAddress)
-	h.WriteCurrency(txn.MinerFee)
+	h.WriteTransaction(*txn)
 	return TransactionID(h.Sum())
 }
 
@@ -246,11 +214,13 @@ func (txn *Transaction) DeepCopy() Transaction {
 	c.SiacoinInputs = append([]SiacoinInput(nil), c.SiacoinInputs...)
 	for i := range c.SiacoinInputs {
 		c.SiacoinInputs[i].Parent.MerkleProof = append([]Hash256(nil), c.SiacoinInputs[i].Parent.MerkleProof...)
+		c.SiacoinInputs[i].Signatures = append([]InputSignature(nil), c.SiacoinInputs[i].Signatures...)
 	}
 	c.SiacoinOutputs = append([]Beneficiary(nil), c.SiacoinOutputs...)
 	c.SiafundInputs = append([]SiafundInput(nil), c.SiafundInputs...)
 	for i := range c.SiafundInputs {
 		c.SiafundInputs[i].Parent.MerkleProof = append([]Hash256(nil), c.SiafundInputs[i].Parent.MerkleProof...)
+		c.SiafundInputs[i].Signatures = append([]InputSignature(nil), c.SiafundInputs[i].Signatures...)
 	}
 	c.SiafundOutputs = append([]Beneficiary(nil), c.SiafundOutputs...)
 	c.FileContracts = append([]FileContractState(nil), c.FileContracts...)
@@ -546,8 +516,10 @@ func (h *Hasher) WriteTransaction(txn Transaction) {
 			h.WriteHash(p)
 		}
 		h.WriteUint64(in.Parent.LeafIndex)
-		h.WriteHash(in.PublicKey)
-		h.Write(in.Signature[:])
+		h.Write(EncodePolicy(in.SpendPolicy))
+		for _, sig := range in.Signatures {
+			h.Write(sig[:])
+		}
 	}
 	for _, out := range txn.SiacoinOutputs {
 		h.WriteBeneficiary(out)
@@ -560,8 +532,10 @@ func (h *Hasher) WriteTransaction(txn Transaction) {
 			h.WriteHash(p)
 		}
 		h.WriteUint64(in.Parent.LeafIndex)
-		h.WriteHash(in.PublicKey)
-		h.Write(in.Signature[:])
+		h.Write(EncodePolicy(in.SpendPolicy))
+		for _, sig := range in.Signatures {
+			h.Write(sig[:])
+		}
 	}
 	for _, out := range txn.SiafundOutputs {
 		h.WriteBeneficiary(out)

@@ -95,11 +95,11 @@ func (vc *ValidationContext) MaxBlockWeight() uint64 {
 func (vc *ValidationContext) TransactionWeight(txn types.Transaction) uint64 {
 	var storage int
 	for _, in := range txn.SiacoinInputs {
-		storage += 32 + 8 + 16 + 32 + 8 + (len(in.Parent.MerkleProof) * 32) + 8 + 32 + 64
+		storage += 32 + 8 + 16 + 32 + 8 + (len(in.Parent.MerkleProof) * 32) + 8 + len(types.EncodePolicy(in.SpendPolicy)) + (len(in.Signatures) * 64)
 	}
 	storage += 48 * len(txn.SiacoinOutputs)
 	for _, in := range txn.SiafundInputs {
-		storage += 32 + 8 + 16 + 32 + 16 + (len(in.Parent.MerkleProof) * 32) + 8 + 32 + 64
+		storage += 32 + 8 + 16 + 32 + 16 + (len(in.Parent.MerkleProof) * 32) + 8 + len(types.EncodePolicy(in.SpendPolicy)) + (len(in.Signatures) * 64)
 	}
 	storage += 320 * len(txn.FileContracts)
 	for _, fcr := range txn.FileContractRevisions {
@@ -116,8 +116,12 @@ func (vc *ValidationContext) TransactionWeight(txn types.Transaction) uint64 {
 	storage += 16 // MinerFee
 
 	var signatures int
-	signatures += len(txn.SiacoinInputs)
-	signatures += len(txn.SiafundInputs)
+	for _, in := range txn.SiacoinInputs {
+		signatures += len(in.Signatures)
+	}
+	for _, in := range txn.SiafundInputs {
+		signatures += len(in.Signatures)
+	}
 	signatures += 2 * len(txn.FileContractRevisions)
 
 	return uint64(storage) + 100*uint64(signatures)
@@ -348,6 +352,17 @@ func (vc *ValidationContext) validFileContractRevisions(txn types.Transaction) e
 		case new.WindowEnd <= new.WindowStart:
 			return fmt.Errorf("file contract revision %v has proof window (%v - %v) that ends before it begins", i, new.WindowStart, new.WindowEnd)
 		}
+
+		// verify signatures
+		//
+		// NOTE: very important that we verify with the *old* keys!
+		contractHash := vc.ContractSigHash(new)
+		if !ed25519.Verify(old.RenterPublicKey[:], contractHash[:], fcr.RenterSignature[:]) {
+			return fmt.Errorf("file contract revision %v has invalid renter signature", i)
+		}
+		if !ed25519.Verify(old.HostPublicKey[:], contractHash[:], fcr.HostSignature[:]) {
+			return fmt.Errorf("file contract revision %v has invalid host signature", i)
+		}
 	}
 	return nil
 }
@@ -374,20 +389,6 @@ func (vc *ValidationContext) validFileContractResolutions(txn types.Transaction)
 			if vc.Index.Height <= rev.WindowEnd {
 				return fmt.Errorf("file contract resolution %v attempts to claim missed outputs, but proof window (%v - %v) has not expired", i, rev.WindowStart, rev.WindowEnd)
 			}
-		}
-	}
-	return nil
-}
-
-func (vc *ValidationContext) validPubkeys(txn types.Transaction) error {
-	for i, in := range txn.SiacoinInputs {
-		if in.PublicKey.Address() != in.Parent.Address {
-			return fmt.Errorf("siacoin input %v claims incorrect pubkey for parent address", i)
-		}
-	}
-	for i, in := range txn.SiafundInputs {
-		if in.PublicKey.Address() != in.Parent.Address {
-			return fmt.Errorf("siafund input %v claims incorrect pubkey for parent address", i)
 		}
 	}
 	return nil
@@ -523,27 +524,54 @@ func (vc *ValidationContext) validFoundationUpdate(txn types.Transaction) error 
 	return errors.New("transaction changes Foundation address, but does not spend an input controlled by current address")
 }
 
-func (vc *ValidationContext) validSignatures(txn types.Transaction) error {
+func (vc *ValidationContext) validSpendPolicies(txn types.Transaction) error {
 	sigHash := vc.SigHash(txn)
+	verifyPolicy := func(p types.SpendPolicy, sigs []types.InputSignature) error {
+		var verify func(types.SpendPolicy) error
+		verify = func(p types.SpendPolicy) error {
+			switch p := p.(type) {
+			case types.PolicyAbove:
+				if uint64(p) > vc.Index.Height {
+					return nil
+				}
+				return fmt.Errorf("height not above %v", uint64(p))
+			case types.PolicyPublicKey:
+				for len(sigs) > 0 {
+					sig := sigs[0]
+					sigs = sigs[1:]
+					if ed25519.Verify(p[:], sigHash[:], sig[:]) {
+						return nil
+					}
+				}
+				return errors.New("no signatures matching pubkey")
+			case types.PolicyThreshold:
+				for i := 0; i < len(p.Of) && p.N > 0; i++ {
+					if verify(p.Of[i]) == nil {
+						p.N--
+					}
+				}
+				if p.N != 0 {
+					return errors.New("threshold not reached")
+				}
+				return nil
+			}
+			panic("invalid policy type") // developer error
+		}
+		return verify(p)
+	}
+
 	for i, in := range txn.SiacoinInputs {
-		if !ed25519.Verify(in.PublicKey[:], sigHash[:], in.Signature[:]) {
-			return fmt.Errorf("siacoin input %v has invalid signature", i)
+		if types.PolicyAddress(in.SpendPolicy) != in.Parent.Address {
+			return fmt.Errorf("siacoin input %v claims incorrect policy for parent address", i)
+		} else if err := verifyPolicy(in.SpendPolicy, in.Signatures); err != nil {
+			return fmt.Errorf("siacoin input %v failed to satisfy spend policy: %w", i, err)
 		}
 	}
 	for i, in := range txn.SiafundInputs {
-		if !ed25519.Verify(in.PublicKey[:], sigHash[:], in.Signature[:]) {
-			return fmt.Errorf("siafund input %v has invalid signature", i)
-		}
-	}
-	for i, fcr := range txn.FileContractRevisions {
-		contractHash := vc.ContractSigHash(fcr.NewState)
-		// NOTE: very important that we verify with the parent keys, *not* the
-		// revised keys!
-		if !ed25519.Verify(fcr.Parent.State.RenterPublicKey[:], contractHash[:], fcr.RenterSignature[:]) {
-			return fmt.Errorf("file contract revision %v has invalid renter signature", i)
-		}
-		if !ed25519.Verify(fcr.Parent.State.HostPublicKey[:], contractHash[:], fcr.HostSignature[:]) {
-			return fmt.Errorf("file contract revision %v has invalid host signature", i)
+		if types.PolicyAddress(in.SpendPolicy) != in.Parent.Address {
+			return fmt.Errorf("siafund input %v claims incorrect policy for parent address", i)
+		} else if err := verifyPolicy(in.SpendPolicy, in.Signatures); err != nil {
+			return fmt.Errorf("siafund input %v failed to satisfy spend policy: %w", i, err)
 		}
 	}
 	return nil
@@ -558,8 +586,6 @@ func (vc *ValidationContext) ValidateTransaction(txn types.Transaction) error {
 		return err
 	} else if err := vc.outputsEqualInputs(txn); err != nil {
 		return err
-	} else if err := vc.validPubkeys(txn); err != nil {
-		return err
 	} else if err := vc.validStateProofs(txn); err != nil {
 		return err
 	} else if err := vc.validHistoryProofs(txn); err != nil {
@@ -572,7 +598,7 @@ func (vc *ValidationContext) ValidateTransaction(txn types.Transaction) error {
 		return err
 	} else if err := vc.validFileContractResolutions(txn); err != nil {
 		return err
-	} else if err := vc.validSignatures(txn); err != nil {
+	} else if err := vc.validSpendPolicies(txn); err != nil {
 		return err
 	}
 	return nil

@@ -33,7 +33,7 @@ func mineBlock(vc ValidationContext, parent types.Block, txns ...types.Transacti
 
 func TestScratchChain(t *testing.T) {
 	pubkey, privkey := testingKeypair()
-	ourAddr := pubkey.Address()
+	ourAddr := types.StandardAddress(pubkey)
 
 	b := genesisWithBeneficiaries([]types.Beneficiary{
 		{Value: types.Siacoins(1), Address: ourAddr},
@@ -69,8 +69,8 @@ func TestScratchChain(t *testing.T) {
 	}
 	for _, o := range toSpend {
 		txn.SiacoinInputs = append(txn.SiacoinInputs, types.SiacoinInput{
-			Parent:    o,
-			PublicKey: pubkey,
+			Parent:      o,
+			SpendPolicy: types.PolicyPublicKey(pubkey),
 		})
 	}
 	signAllInputs(&txn, sau.Context, privkey)
@@ -87,8 +87,8 @@ func TestScratchChain(t *testing.T) {
 
 	txn = types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
-			Parent:    newOutputs[1],
-			PublicKey: pubkey,
+			Parent:      newOutputs[1],
+			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
 		SiacoinOutputs: []types.Beneficiary{{
 			Value:   newOutputs[1].Value.Sub(types.Siacoins(1)),
@@ -114,8 +114,8 @@ func TestScratchChain(t *testing.T) {
 	}
 	parentTxn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
-			Parent:    toSpend[0],
-			PublicKey: pubkey,
+			Parent:      toSpend[0],
+			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
 		SiacoinOutputs: []types.Beneficiary{{
 			Value:   spendTotal,
@@ -134,7 +134,7 @@ func TestScratchChain(t *testing.T) {
 				Address:   ourAddr,
 				LeafIndex: types.EphemeralLeafIndex,
 			},
-			PublicKey: pubkey,
+			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
 		SiacoinOutputs: []types.Beneficiary{{
 			Value:   spendTotal.Sub(types.Siacoins(1)),
