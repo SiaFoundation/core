@@ -531,7 +531,7 @@ func (vc *ValidationContext) validSpendPolicies(txn types.Transaction) error {
 		verify = func(p types.SpendPolicy) error {
 			switch p := p.(type) {
 			case types.PolicyAbove:
-				if uint64(p) > vc.Index.Height {
+				if vc.Index.Height > uint64(p) {
 					return nil
 				}
 				return fmt.Errorf("height not above %v", uint64(p))
