@@ -531,21 +531,20 @@ func (vc *ValidationContext) validSpendPolicies(txn types.Transaction) error {
 		verify = func(p types.SpendPolicy) error {
 			switch p := p.(type) {
 			case types.PolicyAbove:
-				if uint64(p) > vc.Index.Height {
+				if vc.Index.Height > uint64(p) {
 					return nil
 				}
 				return fmt.Errorf("height not above %v", uint64(p))
 			case types.PolicyPublicKey:
-				for len(sigs) > 0 {
-					sig := sigs[0]
-					sigs = sigs[1:]
-					if ed25519.Verify(p[:], sigHash[:], sig[:]) {
+				for i := range sigs {
+					if ed25519.Verify(p[:], sigHash[:], sigs[i][:]) {
+						sigs = sigs[i+1:]
 						return nil
 					}
 				}
 				return errors.New("no signatures matching pubkey")
 			case types.PolicyThreshold:
-				for i := 0; i < len(p.Of) && p.N > 0; i++ {
+				for i := 0; i < len(p.Of) && p.N > 0 && len(p.Of[i:]) >= int(p.N); i++ {
 					if verify(p.Of[i]) == nil {
 						p.N--
 					}
@@ -554,6 +553,18 @@ func (vc *ValidationContext) validSpendPolicies(txn types.Transaction) error {
 					return errors.New("threshold not reached")
 				}
 				return nil
+			case types.PolicyUnlockConditions:
+				if err := verify(types.PolicyAbove(p.Timelock)); err != nil {
+					return err
+				}
+				thresh := types.PolicyThreshold{
+					N:  p.SignaturesRequired,
+					Of: make([]types.SpendPolicy, len(p.PublicKeys)),
+				}
+				for i, pk := range p.PublicKeys {
+					thresh.Of[i] = types.PolicyPublicKey(pk)
+				}
+				return verify(thresh)
 			}
 			panic("invalid policy type") // developer error
 		}

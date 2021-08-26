@@ -6,8 +6,10 @@ import (
 	"crypto/ed25519"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"hash"
+	"io"
 	"math"
 	"math/big"
 	"math/bits"
@@ -606,7 +608,10 @@ func marshalJSONHex(prefix string, data []byte) ([]byte, error) {
 }
 
 func unmarshalJSONHex(dst []byte, prefix string, data []byte) error {
-	_, err := hex.Decode(dst, bytes.TrimPrefix(bytes.Trim(data, `"`), []byte(prefix+":")))
+	n, err := hex.Decode(dst, bytes.TrimPrefix(bytes.Trim(data, `"`), []byte(prefix+":")))
+	if n < len(dst) {
+		err = io.EOF
+	}
 	if err != nil {
 		return fmt.Errorf("decoding %v:<hex> failed: %w", prefix, err)
 	}
@@ -635,13 +640,28 @@ func (oid OutputID) String() string {
 }
 
 // String implements fmt.Stringer.
-func (a Address) String() string { return stringerHex("addr", a[:]) }
+func (a Address) String() string {
+	checksum := HashBytes(a[:])
+	return stringerHex("addr", append(a[:], checksum[:6]...))
+}
 
 // MarshalJSON implements json.Marshaler.
-func (a Address) MarshalJSON() ([]byte, error) { return marshalJSONHex("addr", a[:]) }
+func (a Address) MarshalJSON() ([]byte, error) {
+	checksum := HashBytes(a[:])
+	return marshalJSONHex("addr", append(a[:], checksum[:6]...))
+}
 
 // UnmarshalJSON implements json.Unmarshaler.
-func (a *Address) UnmarshalJSON(b []byte) error { return unmarshalJSONHex(a[:], "addr", b) }
+func (a *Address) UnmarshalJSON(b []byte) error {
+	withChecksum := make([]byte, 32+6)
+	if err := unmarshalJSONHex(withChecksum, "addr", b); err != nil {
+		return err
+	} else if checksum := HashBytes(a[:]); !bytes.Equal(checksum[:6], withChecksum[32:]) {
+		return errors.New("bad checksum")
+	}
+	copy(a[:], withChecksum[:32])
+	return nil
+}
 
 // String implements fmt.Stringer.
 func (bid BlockID) String() string { return stringerHex("bid", bid[:]) }
