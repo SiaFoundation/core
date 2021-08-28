@@ -222,10 +222,7 @@ func (fs *FlatStore) Flush() error {
 func (fs *FlatStore) recoverBest(tip types.ChainIndex) error {
 	// if the store is empty, wipe the bestFile too
 	if len(fs.offsets) == 0 {
-		if err := fs.bestFile.Truncate(0); err != nil {
-			return err
-		}
-		return nil
+		return fs.bestFile.Truncate(0)
 	}
 
 	// truncate to multiple of bestSize
@@ -274,6 +271,7 @@ func (fs *FlatStore) recoverBest(tip types.ChainIndex) error {
 	return nil
 }
 
+// Close closes the store.
 func (fs *FlatStore) Close() error {
 	errs := []error{
 		fs.Flush(),

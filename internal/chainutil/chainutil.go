@@ -9,12 +9,14 @@ import (
 	"go.sia.tech/core/types"
 )
 
+// FindBlockNonce finds a block nonce meeting the target.
 func FindBlockNonce(h *types.BlockHeader, target types.BlockID) {
 	for !h.ID().MeetsTarget(target) {
 		binary.LittleEndian.PutUint64(h.Nonce[:], binary.LittleEndian.Uint64(h.Nonce[:])+1)
 	}
 }
 
+// JustHeaders renters only the headers of each block.
 func JustHeaders(blocks []types.Block) []types.BlockHeader {
 	headers := make([]types.BlockHeader, len(blocks))
 	for i := range headers {
@@ -23,6 +25,7 @@ func JustHeaders(blocks []types.Block) []types.BlockHeader {
 	return headers
 }
 
+// JustTransactions returns only the transactions of each block.
 func JustTransactions(blocks []types.Block) [][]types.Transaction {
 	txns := make([][]types.Transaction, len(blocks))
 	for i := range txns {
@@ -31,6 +34,7 @@ func JustTransactions(blocks []types.Block) [][]types.Transaction {
 	return txns
 }
 
+// JustTransactionIDs returns only the transaction ids included in each block.
 func JustTransactionIDs(blocks []types.Block) [][]types.TransactionID {
 	txns := make([][]types.TransactionID, len(blocks))
 	for i := range txns {
@@ -42,6 +46,7 @@ func JustTransactionIDs(blocks []types.Block) [][]types.TransactionID {
 	return txns
 }
 
+// JustChainIndexes returns only the chain index of each block.
 func JustChainIndexes(blocks []types.Block) []types.ChainIndex {
 	cis := make([]types.ChainIndex, len(blocks))
 	for i := range cis {
@@ -50,6 +55,7 @@ func JustChainIndexes(blocks []types.Block) []types.ChainIndex {
 	return cis
 }
 
+// ChainSim represents a simulation of a blockchain.
 type ChainSim struct {
 	Genesis consensus.Checkpoint
 	Chain   []types.Block
@@ -63,6 +69,7 @@ type ChainSim struct {
 	outputs []types.SiacoinOutput
 }
 
+// Fork forks the current chain.
 func (cs *ChainSim) Fork() *ChainSim {
 	cs2 := *cs
 	cs2.Chain = append([]types.Block(nil), cs2.Chain...)
@@ -73,6 +80,7 @@ func (cs *ChainSim) Fork() *ChainSim {
 	return &cs2
 }
 
+//MineBlockWithTxns mine a block with the given transaction.
 func (cs *ChainSim) MineBlockWithTxns(txns ...types.Transaction) types.Block {
 	prev := cs.Genesis.Block.Header
 	if len(cs.Chain) > 0 {
@@ -108,6 +116,8 @@ func (cs *ChainSim) MineBlockWithTxns(txns ...types.Transaction) types.Block {
 	return b
 }
 
+// MineBlockWithBeneficiaries mine a block with a transaction sending siacoin
+// to each beneficiary. Requires enough funds to cover the siacoin outputs.
 func (cs *ChainSim) MineBlockWithBeneficiaries(bs ...types.Beneficiary) types.Block {
 	txn := types.Transaction{
 		SiacoinOutputs: bs,
@@ -151,6 +161,7 @@ func (cs *ChainSim) MineBlockWithBeneficiaries(bs ...types.Beneficiary) types.Bl
 	return cs.MineBlockWithTxns(txn)
 }
 
+// MineBlock mine an empty block.
 func (cs *ChainSim) MineBlock() types.Block {
 	// simulate chain activity by sending our existing outputs to new addresses
 	var txns []types.Transaction
@@ -177,6 +188,7 @@ func (cs *ChainSim) MineBlock() types.Block {
 	return cs.MineBlockWithTxns(txns...)
 }
 
+// MineBlocks mine a number of blocks.
 func (cs *ChainSim) MineBlocks(n int) []types.Block {
 	blocks := make([]types.Block, n)
 	for i := range blocks {
@@ -185,6 +197,7 @@ func (cs *ChainSim) MineBlocks(n int) []types.Block {
 	return blocks
 }
 
+// NewChainSim returns a new ChainSim useful for simulating forks.
 func NewChainSim() *ChainSim {
 	// gift ourselves some coins in the genesis block
 	privkey := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))

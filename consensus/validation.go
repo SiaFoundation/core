@@ -335,32 +335,32 @@ func (vc *ValidationContext) validFileContracts(txn types.Transaction) error {
 
 func (vc *ValidationContext) validFileContractRevisions(txn types.Transaction) error {
 	for i, fcr := range txn.FileContractRevisions {
-		old, new := fcr.Parent.State, fcr.NewState
-		if vc.Index.Height > old.WindowStart {
-			return fmt.Errorf("file contract revision %v cannot be applied to contract whose proof window (%v - %v) has already begun", i, old.WindowStart, old.WindowEnd)
+		oldState, newState := fcr.Parent.State, fcr.NewState
+		if vc.Index.Height > oldState.WindowStart {
+			return fmt.Errorf("file contract revision %v cannot be applied to contract whose proof window (%v - %v) has already begun", i, oldState.WindowStart, oldState.WindowEnd)
 		}
-		oldValidSum := old.ValidRenterOutput.Value.Add(old.ValidHostOutput.Value)
-		newValidSum := new.ValidRenterOutput.Value.Add(new.ValidHostOutput.Value)
-		newMissedSum := new.MissedRenterOutput.Value.Add(new.MissedHostOutput.Value)
+		oldValidSum := oldState.ValidRenterOutput.Value.Add(oldState.ValidHostOutput.Value)
+		newValidSum := newState.ValidRenterOutput.Value.Add(newState.ValidHostOutput.Value)
+		newMissedSum := newState.MissedRenterOutput.Value.Add(newState.MissedHostOutput.Value)
 		switch {
-		case new.RevisionNumber <= old.RevisionNumber:
-			return fmt.Errorf("file contract revision %v does not increase revision number (%v -> %v)", i, old.RevisionNumber, new.RevisionNumber)
+		case newState.RevisionNumber <= oldState.RevisionNumber:
+			return fmt.Errorf("file contract revision %v does not increase revision number (%v -> %v)", i, oldState.RevisionNumber, newState.RevisionNumber)
 		case !newValidSum.Equals(oldValidSum):
 			return fmt.Errorf("file contract revision %v modifies valid output sum (%v -> %v)", i, oldValidSum, newValidSum)
 		case newMissedSum.Cmp(newValidSum) > 0:
 			return fmt.Errorf("file contract revision %v has missed output sum (%v) exceeding valid output sum (%v)", i, newMissedSum, newValidSum)
-		case new.WindowEnd <= new.WindowStart:
-			return fmt.Errorf("file contract revision %v has proof window (%v - %v) that ends before it begins", i, new.WindowStart, new.WindowEnd)
+		case newState.WindowEnd <= newState.WindowStart:
+			return fmt.Errorf("file contract revision %v has proof window (%v - %v) that ends before it begins", i, newState.WindowStart, newState.WindowEnd)
 		}
 
 		// verify signatures
 		//
 		// NOTE: very important that we verify with the *old* keys!
-		contractHash := vc.ContractSigHash(new)
-		if !ed25519.Verify(old.RenterPublicKey[:], contractHash[:], fcr.RenterSignature[:]) {
+		contractHash := vc.ContractSigHash(newState)
+		if !ed25519.Verify(oldState.RenterPublicKey[:], contractHash[:], fcr.RenterSignature[:]) {
 			return fmt.Errorf("file contract revision %v has invalid renter signature", i)
 		}
-		if !ed25519.Verify(old.HostPublicKey[:], contractHash[:], fcr.HostSignature[:]) {
+		if !ed25519.Verify(oldState.HostPublicKey[:], contractHash[:], fcr.HostSignature[:]) {
 			return fmt.Errorf("file contract revision %v has invalid host signature", i)
 		}
 	}
