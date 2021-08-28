@@ -1,8 +1,9 @@
 package consensus
 
 import (
+	"crypto/rand"
 	"encoding/binary"
-	"math/rand"
+	mrand "math/rand"
 	"reflect"
 	"testing"
 
@@ -465,7 +466,7 @@ func BenchmarkUpdateExistingObjects(b *testing.B) {
 	for i := range proofs {
 		proofs[i] = append([]types.Hash256(nil), outputs[i].MerkleProof...)
 	}
-	indices := rand.Perm(len(outputs))[:len(outputs)/2]
+	indices := mrand.Perm(len(outputs))[:len(outputs)/2]
 	updated := make([]stateObject, len(indices))
 	for i, j := range indices {
 		updated[i] = siacoinOutputStateObject(outputs[j], flagSpent)

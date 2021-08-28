@@ -19,6 +19,12 @@ import (
 	"golang.org/x/crypto/blake2b"
 )
 
+var (
+	// ErrAddressLength is returned when parsing an address that is not the
+	// correct length.
+	ErrAddressLength = fmt.Errorf("address must be 32 bytes")
+)
+
 // EphemeralLeafIndex is used as the LeafIndex of Outputs that are created and
 // spent within the same block. Such outputs do not require a proof of
 // existence. They are, however, assigned a proper index and are incorporated
@@ -661,6 +667,20 @@ func (a *Address) UnmarshalJSON(b []byte) error {
 	}
 	copy(a[:], withChecksum[:32])
 	return nil
+}
+
+// NewAddressFromString parses an address from a prefixed hex encoded string.
+func NewAddressFromString(s string) (Address, error) {
+	buf, err := hex.DecodeString(s[5:])
+	if err != nil {
+		return Address{}, fmt.Errorf("failed to decode address: %w", err)
+	} else if len(buf) != 32 {
+		return Address{}, ErrAddressLength
+	}
+
+	var a Address
+	copy(a[:], buf)
+	return a, nil
 }
 
 // String implements fmt.Stringer.
