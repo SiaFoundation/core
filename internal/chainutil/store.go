@@ -1,8 +1,8 @@
 package chainutil
 
 import (
+	"bufio"
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"io"
 	"os"
@@ -123,7 +123,7 @@ func (fs *FlatStore) Checkpoint(index types.ChainIndex) (c consensus.Checkpoint,
 	} else if _, err := fs.entryFile.Seek(offset, io.SeekStart); err != nil {
 		return consensus.Checkpoint{}, err
 	}
-	err = readCheckpoint(fs.entryFile, &c)
+	err = readCheckpoint(bufio.NewReader(fs.entryFile), &c)
 	return
 }
 
@@ -135,20 +135,17 @@ func (fs *FlatStore) Header(index types.ChainIndex) (types.BlockHeader, error) {
 	} else if _, err := fs.entryFile.ReadAt(b, offset); err != nil {
 		return types.BlockHeader{}, err
 	}
-	buf := bytes.NewBuffer(b)
-	readUint64 := func() uint64 {
-		return binary.LittleEndian.Uint64(buf.Next(8))
-	}
+	d := types.NewDecoder(bytes.NewBuffer(b))
 
 	var h types.BlockHeader
-	h.Height = readUint64()
-	buf.Read(h.ParentID[:])
-	buf.Read(h.Nonce[:])
-	h.Timestamp = time.Unix(int64(readUint64()), 0)
-	buf.Read(h.MinerAddress[:])
-	buf.Read(h.Commitment[:])
+	h.Height = d.ReadUint64()
+	h.ParentID = types.BlockID(d.ReadHash())
+	d.Read(h.Nonce[:])
+	h.Timestamp = time.Unix(int64(d.ReadUint64()), 0)
+	h.MinerAddress = d.ReadAddress()
+	h.Commitment = d.ReadHash()
 
-	return h, nil
+	return h, d.Err()
 }
 
 // ExtendBest implements chain.ManagerStore.
@@ -183,10 +180,12 @@ func (fs *FlatStore) BestIndex(height uint64) (index types.ChainIndex, err error
 	buf := make([]byte, bestSize)
 	if _, err = fs.bestFile.ReadAt(buf, offset); err == io.EOF {
 		err = chain.ErrUnknownIndex
+		return
 	}
-	index.Height = readUint64(buf[:8])
-	copy(index.ID[:], buf[8:40])
-	return
+
+	d := types.NewDecoder(bytes.NewReader(buf))
+	index = d.ReadChainIndex()
+	return index, d.Err()
 }
 
 // Flush implements chain.ManagerStore.
@@ -365,32 +364,31 @@ func NewFlatStore(dir string, c consensus.Checkpoint) (*FlatStore, consensus.Che
 	return fs, c, nil
 }
 
-const bestSize = 40
-const indexSize = 48
-const metaSize = 56
+const (
+	bestSize  = 40
+	indexSize = 48
+	metaSize  = 56
+)
 
-func writeUint64(buf []byte, u uint64) { binary.LittleEndian.PutUint64(buf, u) }
-func readUint64(buf []byte) uint64     { return binary.LittleEndian.Uint64(buf) }
+func bufferedDecoder(r io.Reader, size int) (*types.Decoder, error) {
+	buf := make([]byte, size)
+	_, err := io.ReadFull(r, buf)
+	return types.NewDecoder(bytes.NewReader(buf)), err
+}
 
 func writeMeta(w io.Writer, meta metadata) error {
-	buf := make([]byte, metaSize)
-	writeUint64(buf[0:], uint64(meta.indexSize))
-	writeUint64(buf[8:], uint64(meta.entrySize))
-	writeUint64(buf[16:], meta.tip.Height)
-	copy(buf[24:], meta.tip.ID[:])
-	_, err := w.Write(buf)
-	return err
+	e := types.NewEncoder(w)
+	e.WriteUint64(uint64(meta.indexSize))
+	e.WriteUint64(uint64(meta.entrySize))
+	e.WriteChainIndex(meta.tip)
+	return e.Flush()
 }
 
 func readMeta(r io.Reader) (meta metadata, err error) {
-	buf := make([]byte, metaSize)
-	if _, err = io.ReadFull(r, buf); err != nil {
-		return
-	}
-	meta.indexSize = int64(binary.LittleEndian.Uint64(buf[0:]))
-	meta.entrySize = int64(binary.LittleEndian.Uint64(buf[8:]))
-	meta.tip.Height = binary.LittleEndian.Uint64(buf[16:])
-	copy(meta.tip.ID[:], buf[24:])
+	d, err := bufferedDecoder(r, metaSize)
+	meta.indexSize = int64(d.ReadUint64())
+	meta.entrySize = int64(d.ReadUint64())
+	meta.tip = d.ReadChainIndex()
 	return
 }
 
@@ -404,300 +402,135 @@ func readMetaFile(path string) (meta metadata, err error) {
 }
 
 func writeBest(w io.Writer, index types.ChainIndex) error {
-	buf := make([]byte, bestSize)
-	writeUint64(buf[:8], index.Height)
-	copy(buf[8:40], index.ID[:])
-	_, err := w.Write(buf)
-	return err
+	e := types.NewEncoder(w)
+	e.WriteChainIndex(index)
+	return e.Flush()
 }
 
 func readBest(r io.Reader) (index types.ChainIndex, err error) {
-	buf := make([]byte, bestSize)
-	if _, err = io.ReadFull(r, buf); err != nil {
-		return
-	}
-	index.Height = readUint64(buf[:8])
-	copy(index.ID[:], buf[8:40])
+	d, err := bufferedDecoder(r, bestSize)
+	index = d.ReadChainIndex()
 	return
 }
 
 func writeIndex(w io.Writer, index types.ChainIndex, offset int64) error {
-	buf := make([]byte, indexSize)
-	writeUint64(buf[:8], index.Height)
-	copy(buf[8:40], index.ID[:])
-	writeUint64(buf[40:48], uint64(offset))
-	_, err := w.Write(buf)
-	return err
+	e := types.NewEncoder(w)
+	e.WriteChainIndex(index)
+	e.WriteUint64(uint64(offset))
+	return e.Flush()
 }
 
 func readIndex(r io.Reader) (index types.ChainIndex, offset int64, err error) {
-	buf := make([]byte, indexSize)
-	if _, err = io.ReadFull(r, buf); err != nil {
-		return
-	}
-	index.Height = readUint64(buf[:8])
-	copy(index.ID[:], buf[8:40])
-	offset = int64(readUint64(buf[40:48]))
+	d, err := bufferedDecoder(r, indexSize)
+	index = d.ReadChainIndex()
+	offset = int64(d.ReadUint64())
 	return
 }
 
 func writeCheckpoint(w io.Writer, c consensus.Checkpoint) error {
-	// encoding helpers
-	var buf bytes.Buffer
-	write := func(p []byte) { buf.Write(p) }
-	writeHash := func(h [32]byte) { buf.Write(h[:]) }
-	writeUint64 := func(u uint64) {
-		b := make([]byte, 8)
-		binary.LittleEndian.PutUint64(b, u)
-		buf.Write(b)
-	}
-	writeInt := func(i int) { writeUint64(uint64(i)) }
-	writeTime := func(t time.Time) { writeUint64(uint64(t.Unix())) }
-	writeCurrency := func(c types.Currency) {
-		writeUint64(c.Lo)
-		writeUint64(c.Hi)
-	}
-	writeOutputID := func(id types.OutputID) {
-		writeHash(id.TransactionID)
-		writeUint64(id.Index)
-	}
-	writePolicy := func(p types.SpendPolicy) {
-		b := types.EncodePolicy(p)
-		writeInt(len(b))
-		write(b)
-	}
+	e := types.NewEncoder(w)
 
 	// write header
 	h := c.Block.Header
-	writeUint64(h.Height)
-	writeHash(h.ParentID)
-	write(h.Nonce[:])
-	writeTime(h.Timestamp)
-	writeHash(h.MinerAddress)
-	writeHash(h.Commitment)
+	e.WriteUint64(h.Height)
+	e.WriteHash(types.Hash256(h.ParentID))
+	e.Write(h.Nonce[:])
+	e.WriteTime(h.Timestamp)
+	e.WriteAddress(h.MinerAddress)
+	e.WriteHash(h.Commitment)
 
 	// write txns
-	writeInt(len(c.Block.Transactions))
+	e.WriteInt(len(c.Block.Transactions))
 	for _, txn := range c.Block.Transactions {
-		writeInt(len(txn.SiacoinInputs))
-		for j := range txn.SiacoinInputs {
-			in := &txn.SiacoinInputs[j]
-			writeOutputID(in.Parent.ID)
-			writeUint64(in.Parent.ID.Index)
-			writeCurrency(in.Parent.Value)
-			writeHash(in.Parent.Address)
-			writeUint64(in.Parent.Timelock)
-			writeInt(len(in.Parent.MerkleProof))
-			writeUint64(in.Parent.LeafIndex)
-			writePolicy(in.SpendPolicy)
-			writeInt(len(in.Signatures))
-			for k := range in.Signatures {
-				write(in.Signatures[k][:])
-			}
-		}
-		writeInt(len(txn.SiacoinOutputs))
-		for j := range txn.SiacoinOutputs {
-			out := &txn.SiacoinOutputs[j]
-			writeCurrency(out.Value)
-			writeHash(out.Address)
-		}
-		writeInt(len(txn.SiafundInputs))
-		for j := range txn.SiafundInputs {
-			in := &txn.SiafundInputs[j]
-			writeOutputID(in.Parent.ID)
-			writeUint64(in.Parent.ID.Index)
-			writeCurrency(in.Parent.Value)
-			writeHash(in.Parent.Address)
-			writeInt(len(in.Parent.MerkleProof))
-			writeUint64(in.Parent.LeafIndex)
-			writePolicy(in.SpendPolicy)
-			writeInt(len(in.Signatures))
-			for k := range in.Signatures {
-				write(in.Signatures[k][:])
-			}
-		}
-		writeInt(len(txn.SiafundOutputs))
-		for j := range txn.SiafundOutputs {
-			out := &txn.SiafundOutputs[j]
-			writeCurrency(out.Value)
-			writeHash(out.Address)
-		}
-		writeHash(txn.NewFoundationAddress)
-		writeCurrency(txn.MinerFee)
+		e.WriteTransaction(txn)
 	}
 
 	// write multiproof
 	proof := consensus.ComputeMultiproof(c.Block.Transactions)
 	for _, p := range proof {
-		writeHash(p)
+		e.WriteHash(p)
 	}
 
 	// write context
 	vc := &c.Context
-	writeUint64(vc.Index.Height)
-	writeHash(vc.Index.ID)
-	writeUint64(vc.State.NumLeaves)
+	e.WriteChainIndex(vc.Index)
+	e.WriteUint64(vc.State.NumLeaves)
 	for i := range vc.State.Trees {
 		if vc.State.HasTreeAtHeight(i) {
-			writeHash(vc.State.Trees[i])
+			e.WriteHash(vc.State.Trees[i])
 		}
 	}
-	writeUint64(vc.History.NumLeaves)
+	e.WriteUint64(vc.History.NumLeaves)
 	for i := range vc.History.Trees {
 		if vc.History.HasTreeAtHeight(i) {
-			writeHash(vc.History.Trees[i])
+			e.WriteHash(vc.History.Trees[i])
 		}
 	}
 	for i := range vc.PrevTimestamps {
-		writeTime(vc.PrevTimestamps[i])
+		e.WriteTime(vc.PrevTimestamps[i])
 	}
-	writeHash(vc.TotalWork.NumHashes)
-	writeHash(vc.Difficulty.NumHashes)
-	writeHash(vc.OakWork.NumHashes)
-	writeUint64(uint64(vc.OakTime))
-	writeTime(vc.GenesisTimestamp)
-	writeCurrency(vc.SiafundPool)
-	writeHash(vc.FoundationAddress)
+	e.WriteWork(vc.TotalWork)
+	e.WriteWork(vc.Difficulty)
+	e.WriteWork(vc.OakWork)
+	e.WriteUint64(uint64(vc.OakTime))
+	e.WriteTime(vc.GenesisTimestamp)
+	e.WriteCurrency(vc.SiafundPool)
+	e.WriteAddress(vc.FoundationAddress)
 
-	_, err := w.Write(buf.Bytes())
-	return err
+	return e.Flush()
 }
 
 func readCheckpoint(r io.Reader, c *consensus.Checkpoint) error {
-	// decoding helpers + sticky error
-	buf := make([]byte, 8)
-	var err error
-	read := func(p []byte) {
-		if err == nil {
-			_, err = io.ReadFull(r, p)
-		}
-	}
-	readHash := func() (h [32]byte) {
-		read(h[:])
-		return
-	}
-	readUint64 := func() uint64 {
-		read(buf[:8])
-		if err != nil {
-			// returning 0 means we won't allocate any more slice memory after
-			// we encounter an error
-			return 0
-		}
-		return binary.LittleEndian.Uint64(buf[:8])
-	}
-	readTime := func() time.Time { return time.Unix(int64(readUint64()), 0) }
-	readCurrency := func() (c types.Currency) {
-		return types.NewCurrency(readUint64(), readUint64())
-	}
-	readOutputID := func() types.OutputID {
-		return types.OutputID{
-			TransactionID: readHash(),
-			Index:         readUint64(),
-		}
-	}
-	readPolicy := func() (p types.SpendPolicy) {
-		b := make([]byte, readUint64())
-		read(b)
-		if err == nil {
-			p, err = types.DecodePolicy(b)
-		}
-		return
-	}
+	d := types.NewDecoder(r)
 
 	// read header
 	h := &c.Block.Header
-	h.Height = readUint64()
-	h.ParentID = readHash()
-	read(h.Nonce[:])
-	h.Timestamp = readTime()
-	h.MinerAddress = readHash()
-	h.Commitment = readHash()
+	h.Height = d.ReadUint64()
+	h.ParentID = types.BlockID(d.ReadHash())
+	d.Read(h.Nonce[:])
+	h.Timestamp = d.ReadTime()
+	h.MinerAddress = d.ReadAddress()
+	h.Commitment = d.ReadHash()
 
 	// read txns
-	c.Block.Transactions = make([]types.Transaction, readUint64())
+	c.Block.Transactions = make([]types.Transaction, d.ReadUint64())
 	for i := range c.Block.Transactions {
-		txn := &c.Block.Transactions[i]
-		txn.SiacoinInputs = make([]types.SiacoinInput, readUint64())
-		for j := range txn.SiacoinInputs {
-			in := &txn.SiacoinInputs[j]
-			in.Parent.ID = readOutputID()
-			in.Parent.ID.Index = readUint64()
-			in.Parent.Value = readCurrency()
-			in.Parent.Address = readHash()
-			in.Parent.Timelock = readUint64()
-			in.Parent.MerkleProof = make([]types.Hash256, readUint64())
-			in.Parent.LeafIndex = readUint64()
-			in.SpendPolicy = readPolicy()
-			in.Signatures = make([]types.InputSignature, readUint64())
-			for k := range in.Signatures {
-				read(in.Signatures[k][:])
-			}
-		}
-		txn.SiacoinOutputs = make([]types.Beneficiary, readUint64())
-		for j := range txn.SiacoinOutputs {
-			out := &txn.SiacoinOutputs[j]
-			out.Value = readCurrency()
-			out.Address = readHash()
-		}
-		txn.SiafundInputs = make([]types.SiafundInput, readUint64())
-		for j := range txn.SiafundInputs {
-			in := &txn.SiafundInputs[j]
-			in.Parent.ID = readOutputID()
-			in.Parent.ID.Index = readUint64()
-			in.Parent.Value = readCurrency()
-			in.Parent.Address = readHash()
-			in.Parent.MerkleProof = make([]types.Hash256, readUint64())
-			in.Parent.LeafIndex = readUint64()
-			in.SpendPolicy = readPolicy()
-			in.Signatures = make([]types.InputSignature, readUint64())
-			for k := range in.Signatures {
-				read(in.Signatures[k][:])
-			}
-		}
-		txn.SiafundOutputs = make([]types.Beneficiary, readUint64())
-		for j := range txn.SiafundOutputs {
-			out := &txn.SiafundOutputs[j]
-			out.Value = readCurrency()
-			out.Address = readHash()
-		}
-		txn.NewFoundationAddress = readHash()
-		txn.MinerFee = readCurrency()
+		c.Block.Transactions[i] = d.ReadTransaction()
 	}
 
 	// read multiproof
 	proofLen := consensus.MultiproofSize(c.Block.Transactions)
 	proof := make([]types.Hash256, proofLen)
 	for i := range proof {
-		proof[i] = readHash()
+		proof[i] = d.ReadHash()
 	}
 	consensus.ExpandMultiproof(c.Block.Transactions, proof)
 
 	// read context
 	vc := &c.Context
-	vc.Index.Height = readUint64()
-	vc.Index.ID = readHash()
-	vc.State.NumLeaves = readUint64()
+	vc.Index = d.ReadChainIndex()
+	vc.State.NumLeaves = d.ReadUint64()
 	for i := range vc.State.Trees {
 		if vc.State.HasTreeAtHeight(i) {
-			vc.State.Trees[i] = readHash()
+			vc.State.Trees[i] = d.ReadHash()
 		}
 	}
-	vc.History.NumLeaves = readUint64()
+	vc.History.NumLeaves = d.ReadUint64()
 	for i := range vc.History.Trees {
 		if vc.History.HasTreeAtHeight(i) {
-			vc.History.Trees[i] = readHash()
+			vc.History.Trees[i] = d.ReadHash()
 		}
 	}
 	for i := range vc.PrevTimestamps {
-		vc.PrevTimestamps[i] = readTime()
+		vc.PrevTimestamps[i] = d.ReadTime()
 	}
-	vc.TotalWork.NumHashes = readHash()
-	vc.Difficulty.NumHashes = readHash()
-	vc.OakWork.NumHashes = readHash()
-	vc.OakTime = time.Duration(readUint64())
-	vc.GenesisTimestamp = readTime()
-	vc.SiafundPool = readCurrency()
-	vc.FoundationAddress = readHash()
+	vc.TotalWork = d.ReadWork()
+	vc.Difficulty = d.ReadWork()
+	vc.OakWork = d.ReadWork()
+	vc.OakTime = time.Duration(d.ReadUint64())
+	vc.GenesisTimestamp = d.ReadTime()
+	vc.SiafundPool = d.ReadCurrency()
+	vc.FoundationAddress = d.ReadAddress()
 
-	return err
+	return d.Err()
 }
