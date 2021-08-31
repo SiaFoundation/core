@@ -56,15 +56,6 @@ linters-settings:
   golint:
     min-confidence: 1.0
 
-  gosec:
-    excludes:
-      - G103
-      - G104
-      - G301
-      - G302
-      - G304
-      - G307
-
   gocritic:
     # Which checks should be enabled; can't be combined with 'disabled-checks';
     # See https://go-critic.github.io/overview#checks-overview
@@ -97,7 +88,6 @@ linters:
     - gofmt
     - revive
     - govet
-    - gosec
     - misspell
     - typecheck
     - whitespace
