@@ -78,7 +78,7 @@ func siacoinOutputStateObject(o types.SiacoinOutput, flags uint64) stateObject {
 
 	h.WriteOutputID(o.ID)
 	h.WriteCurrency(o.Value)
-	h.WriteHash(o.Address)
+	h.WriteAddress(o.Address)
 	h.WriteUint64(o.Timelock)
 
 	return stateObject{
@@ -96,7 +96,7 @@ func siafundOutputStateObject(o types.SiafundOutput, flags uint64) stateObject {
 
 	h.WriteOutputID(o.ID)
 	h.WriteCurrency(o.Value)
-	h.WriteHash(o.Address)
+	h.WriteAddress(o.Address)
 
 	return stateObject{
 		objHash:   h.Sum(),
