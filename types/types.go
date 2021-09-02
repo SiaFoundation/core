@@ -483,7 +483,7 @@ func (a *Address) UnmarshalJSON(b []byte) error {
 	withChecksum := make([]byte, 32+6)
 	if err := unmarshalJSONHex(withChecksum, "addr", b); err != nil {
 		return err
-	} else if checksum := HashBytes(a[:]); !bytes.Equal(checksum[:6], withChecksum[32:]) {
+	} else if checksum := HashBytes(withChecksum[:32]); !bytes.Equal(checksum[:6], withChecksum[32:]) {
 		return errors.New("bad checksum")
 	}
 	copy(a[:], withChecksum[:32])
@@ -491,17 +491,9 @@ func (a *Address) UnmarshalJSON(b []byte) error {
 }
 
 // NewAddressFromString parses an address from a prefixed hex encoded string.
-func NewAddressFromString(s string) (Address, error) {
-	buf, err := hex.DecodeString(s[5:])
-	if err != nil {
-		return Address{}, fmt.Errorf("failed to decode address: %w", err)
-	} else if len(buf) != 32 {
-		return Address{}, ErrAddressLength
-	}
-
-	var a Address
-	copy(a[:], buf)
-	return a, nil
+func NewAddressFromString(s string) (a Address, err error) {
+	err = a.UnmarshalJSON([]byte(`"` + s + `"`))
+	return
 }
 
 // String implements fmt.Stringer.
