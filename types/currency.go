@@ -3,6 +3,7 @@ package types
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"math/big"
 	"math/bits"
 	"strings"
@@ -23,6 +24,20 @@ func Siafunds(n uint16) Currency { return NewCurrency64(uint64(n)) }
 // Currency represents a quantity of hastings as an unsigned 128-bit number.
 type Currency struct {
 	Lo, Hi uint64
+}
+
+// Format implements fmt.Formatter. It accepts the formats
+// 's', 'v' (Siacoin representation - rounded to 3 decimal places), or
+// 'd' (exact value, useful for outputing Siafunds or Hastings).
+func (c Currency) Format(f fmt.State, v rune) {
+	switch v {
+	case 's', 'v':
+		f.Write([]byte(c.String()))
+	case 'd':
+		f.Write([]byte(c.ExactString()))
+	default:
+		fmt.Fprintf(f, "%%!%c(unsupported,Currency=%d)", v, c)
+	}
 }
 
 // IsZero returns true if c == 0.

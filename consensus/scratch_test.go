@@ -32,7 +32,7 @@ func mineBlock(vc ValidationContext, parent types.Block, txns ...types.Transacti
 }
 
 func TestScratchChain(t *testing.T) {
-	pubkey, privkey := testingKeypair()
+	pubkey, privkey := testingKeypair(0)
 	ourAddr := types.StandardAddress(pubkey)
 
 	b := genesisWithBeneficiaries([]types.Beneficiary{

@@ -9,7 +9,7 @@ import (
 )
 
 func TestSiafunds(t *testing.T) {
-	pubkey, privkey := testingKeypair()
+	pubkey, privkey := testingKeypair(0)
 	b := types.Block{
 		Header: types.BlockHeader{Timestamp: time.Unix(734600000, 0)},
 		Transactions: []types.Transaction{{SiafundOutputs: []types.Beneficiary{{
@@ -20,7 +20,7 @@ func TestSiafunds(t *testing.T) {
 	sau := GenesisUpdate(b, testingDifficulty)
 
 	// send siafunds to a new address
-	claimPubkey, claimPrivkey := testingKeypair()
+	claimPubkey, claimPrivkey := testingKeypair(1)
 	txn := types.Transaction{
 		SiafundInputs: []types.SiafundInput{{
 			Parent:       sau.NewSiafundOutputs[0],
@@ -76,7 +76,7 @@ func TestSiafunds(t *testing.T) {
 
 func TestFoundationSubsidy(t *testing.T) {
 	// mine genesis block with initial Foundation address
-	pubkey, privkey := testingKeypair()
+	pubkey, privkey := testingKeypair(0)
 	b := genesisWithBeneficiaries(types.Beneficiary{
 		Address: types.StandardAddress(pubkey),
 		Value:   types.NewCurrency64(100),
@@ -149,6 +149,34 @@ func TestFoundationSubsidy(t *testing.T) {
 	if err := sau.Context.ValidateTransaction(txn); err != nil {
 		t.Fatal(err)
 	}
+
+	// skip to the next foundation subsidy height; the foundation address should
+	// receive a new subsidy.
+	sau.Context.Index.Height = foundationHardforkHeight + foundationSubsidyFrequency - 1
+	b.Header.Height = sau.Context.Index.Height
+	b = mineBlock(sau.Context, b, txn)
+	if err := sau.Context.ValidateBlock(b); err != nil {
+		t.Fatal(err)
+	}
+	sau = ApplyBlock(sau.Context, b)
+	subsidyID = types.OutputID{
+		TransactionID: types.TransactionID(b.ID()),
+		Index:         1,
+	}
+	for _, o := range sau.NewSiacoinOutputs {
+		if o.ID == subsidyID {
+			subsidyOutput = o
+			break
+		}
+	}
+
+	// check that the output was created and has the expected value of
+	// 30000 SC * 4380 blocks per month.
+	if subsidyOutput.ID != subsidyID {
+		t.Fatal("subsidy output not created")
+	} else if exp := types.Siacoins(30000).Mul64(foundationSubsidyFrequency); !subsidyOutput.Value.Equals(exp) {
+		t.Fatalf("expected subsidy to be %v SC, got %v SC", exp, subsidyOutput.Value)
+	}
 }
 
 func TestUpdateWindowProof(t *testing.T) {
@@ -177,8 +205,8 @@ func TestUpdateWindowProof(t *testing.T) {
 }
 
 func TestFileContracts(t *testing.T) {
-	renterPubkey, renterPrivkey := testingKeypair()
-	hostPubkey, hostPrivkey := testingKeypair()
+	renterPubkey, renterPrivkey := testingKeypair(0)
+	hostPubkey, hostPrivkey := testingKeypair(1)
 	b := genesisWithBeneficiaries(types.Beneficiary{
 		Address: types.StandardAddress(renterPubkey),
 		Value:   types.Siacoins(100),
