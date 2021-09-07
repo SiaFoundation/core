@@ -19,9 +19,10 @@ import (
 )
 
 var (
-	// ErrAddressLength is returned when parsing an address that is not the
-	// correct length.
-	ErrAddressLength = fmt.Errorf("address must be 32 bytes")
+	// ErrInvalidLength is returned when parsing a string that is not the correct length.
+	ErrInvalidLength = fmt.Errorf("invalid length")
+	// ErrInvalidFormat is returned when a parsed string is not in the correct format.
+	ErrInvalidFormat = errors.New("invalid format")
 )
 
 // EphemeralLeafIndex is used as the LeafIndex of Outputs that are created and
@@ -490,8 +491,8 @@ func (a *Address) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// NewAddressFromString parses an address from a prefixed hex encoded string.
-func NewAddressFromString(s string) (a Address, err error) {
+// ParseAddress parses an address from a prefixed hex encoded string.
+func ParseAddress(s string) (a Address, err error) {
 	err = a.UnmarshalJSON([]byte(`"` + s + `"`))
 	return
 }

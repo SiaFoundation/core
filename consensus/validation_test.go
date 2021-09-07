@@ -3,6 +3,7 @@ package consensus
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/binary"
 	"math"
 	"testing"
 	"time"
@@ -10,11 +11,16 @@ import (
 	"go.sia.tech/core/types"
 )
 
-var testingDifficulty = types.Work{NumHashes: [32]byte{30: 1}}
+var (
+	maxCurrency       = types.NewCurrency(math.MaxUint64, math.MaxUint64)
+	testingDifficulty = types.Work{NumHashes: [32]byte{30: 1}}
+)
 
-func testingKeypair() (types.PublicKey, ed25519.PrivateKey) {
+func testingKeypair(seed uint64) (types.PublicKey, ed25519.PrivateKey) {
+	b := make([]byte, 32)
+	binary.LittleEndian.PutUint64(b, seed)
+	privkey := ed25519.NewKeyFromSeed(b)
 	var pubkey types.PublicKey
-	privkey := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
 	copy(pubkey[:], privkey[32:])
 	return pubkey, privkey
 }
@@ -37,7 +43,7 @@ func signAllInputs(txn *types.Transaction, vc ValidationContext, priv ed25519.Pr
 }
 
 func TestEphemeralOutputs(t *testing.T) {
-	pubkey, privkey := testingKeypair()
+	pubkey, privkey := testingKeypair(0)
 	sau := GenesisUpdate(genesisWithBeneficiaries(types.Beneficiary{
 		Address: types.StandardAddress(pubkey),
 		Value:   types.Siacoins(1),
@@ -118,9 +124,9 @@ func TestValidateTransaction(t *testing.T) {
 	// outputs and accumulator state.
 
 	// create genesis block with multiple outputs and file contracts
-	pubkey, privkey := testingKeypair()
-	renterPubkey, renterPrivkey := testingKeypair()
-	hostPubkey, hostPrivkey := testingKeypair()
+	pubkey, privkey := testingKeypair(0)
+	renterPubkey, renterPrivkey := testingKeypair(1)
+	hostPubkey, hostPrivkey := testingKeypair(2)
 	data := make([]byte, 64*2)
 	rand.Read(data)
 	dataRoot := merkleNodeHash(
@@ -139,6 +145,10 @@ func TestValidateTransaction(t *testing.T) {
 					Address: types.StandardAddress(pubkey),
 					Value:   types.Siacoins(11),
 				},
+				{
+					Address: types.StandardAddress(pubkey),
+					Value:   maxCurrency,
+				},
 			},
 			SiafundOutputs: []types.Beneficiary{
 				{
@@ -148,6 +158,10 @@ func TestValidateTransaction(t *testing.T) {
 				{
 					Address: types.StandardAddress(pubkey),
 					Value:   types.Siafunds(100),
+				},
+				{
+					Address: types.StandardAddress(pubkey),
+					Value:   maxCurrency,
 				},
 			},
 			FileContracts: []types.FileContractState{
@@ -205,8 +219,10 @@ func TestValidateTransaction(t *testing.T) {
 	sau := GenesisUpdate(genesisBlock, testingDifficulty)
 	spentSC := sau.NewSiacoinOutputs[1]
 	unspentSC := sau.NewSiacoinOutputs[2]
+	overflowSC := sau.NewSiacoinOutputs[3]
 	spentSF := sau.NewSiafundOutputs[0]
 	unspentSF := sau.NewSiafundOutputs[1]
+	overflowSF := sau.NewSiafundOutputs[2]
 	openContract := sau.NewFileContracts[0]
 	closedContract := sau.NewFileContracts[1]
 	resolvedValidContract := sau.NewFileContracts[2]
@@ -369,23 +385,98 @@ func TestValidateTransaction(t *testing.T) {
 			},
 		},
 		{
-			"outputs that do not equal inputs",
+			"siacoin input address does not match spend policy",
+			func(txn *types.Transaction) {
+				txn.SiacoinInputs[0].SpendPolicy = types.AnyoneCanSpend()
+			},
+		},
+		{
+			"siafund input address does not match spend policy",
+			func(txn *types.Transaction) {
+				txn.SiafundInputs[0].SpendPolicy = types.AnyoneCanSpend()
+			},
+		},
+		{
+			"siacoin outputs that do not equal inputs",
 			func(txn *types.Transaction) {
 				txn.SiacoinOutputs[0].Value = txn.SiacoinOutputs[0].Value.Div64(2)
+			},
+		},
+		{
+			"siacoin inputs that overflow",
+			func(txn *types.Transaction) {
+				txn.SiacoinInputs = append(txn.SiacoinInputs, types.SiacoinInput{
+					Parent:      overflowSC,
+					SpendPolicy: types.PolicyPublicKey(pubkey),
+				})
+				signAllInputs(txn, vc, privkey)
 			},
 		},
 		{
 			"siacoin outputs that overflow",
 			func(txn *types.Transaction) {
 				txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.Beneficiary{
-					Value: types.NewCurrency(math.MaxUint64, math.MaxUint64),
+					Value: maxCurrency,
 				})
+			},
+		},
+		{
+			"siafund outputs that do not equal inputs",
+			func(txn *types.Transaction) {
+				txn.SiafundOutputs[0].Value = txn.SiafundOutputs[0].Value.Div64(2)
+			},
+		},
+		{
+			"siafund inputs that overflow",
+			func(txn *types.Transaction) {
+				txn.SiafundInputs = append(txn.SiafundInputs, types.SiafundInput{
+					Parent:      overflowSF,
+					SpendPolicy: types.PolicyPublicKey(pubkey),
+				})
+				signAllInputs(txn, vc, privkey)
+			},
+		},
+		{
+			"siafund outputs that overflow",
+			func(txn *types.Transaction) {
+				txn.SiafundOutputs = append(txn.SiafundOutputs, types.Beneficiary{
+					Value: maxCurrency,
+				})
+			},
+		},
+		{
+			"file contract renter output overflows",
+			func(txn *types.Transaction) {
+				txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.Beneficiary{
+					Value: maxCurrency.Sub(types.Siacoins(2)),
+				})
+				txn.FileContracts[0].ValidRenterOutput.Value = types.Siacoins(2)
+			},
+		},
+		{
+			"file contract host output overflows",
+			func(txn *types.Transaction) {
+				txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.Beneficiary{
+					Value: maxCurrency.Sub(types.Siacoins(2)),
+				})
+				txn.FileContracts[0].ValidRenterOutput.Value = types.ZeroCurrency
+				txn.FileContracts[0].ValidHostOutput.Value = types.Siacoins(2)
+			},
+		},
+		{
+			"file contract tax overflow",
+			func(txn *types.Transaction) {
+				txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.Beneficiary{
+					Value: maxCurrency.Sub(types.Siacoins(2)),
+				})
+				txn.FileContracts[0].ValidRenterOutput.Value = types.Siacoins(1)
+				txn.FileContracts[0].ValidHostOutput.Value = types.ZeroCurrency
 			},
 		},
 		{
 			"miner fee that overflows",
 			func(txn *types.Transaction) {
-				txn.MinerFee = types.NewCurrency(math.MaxUint64, math.MaxUint64)
+				txn.MinerFee = maxCurrency
 			},
 		},
 		{
@@ -502,6 +593,12 @@ func TestValidateTransaction(t *testing.T) {
 			},
 		},
 		{
+			"resolution with invalid history proof",
+			func(txn *types.Transaction) {
+				txn.FileContractResolutions[0].StorageProof.WindowProof = nil
+			},
+		},
+		{
 			"resolution of already-resolved-valid file contract",
 			func(txn *types.Transaction) {
 				txn.FileContractResolutions[0].Parent = resolvedValidContract
@@ -544,8 +641,247 @@ func TestValidateTransaction(t *testing.T) {
 	}
 }
 
+func TestValidateSpendPolicy(t *testing.T) {
+	// create a validation context with a height above 0
+	vc := ValidationContext{
+		Index: types.ChainIndex{Height: 100},
+	}
+
+	privkey := func(seed uint64) ed25519.PrivateKey {
+		_, privkey := testingKeypair(seed)
+		return privkey
+	}
+	pubkey := func(seed uint64) types.PublicKey {
+		pubkey, _ := testingKeypair(seed)
+		return pubkey
+	}
+
+	tests := []struct {
+		desc    string
+		policy  types.SpendPolicy
+		sign    func(sigHash types.Hash256) []types.InputSignature
+		wantErr bool
+	}{
+		{
+			desc: "not enough signatures",
+			policy: types.PolicyThreshold{
+				N: 2,
+				Of: []types.SpendPolicy{
+					types.PolicyPublicKey(pubkey(0)),
+					types.PolicyPublicKey(pubkey(1)),
+				},
+			},
+			sign: func(sigHash types.Hash256) []types.InputSignature {
+				return []types.InputSignature{types.SignTransaction(privkey(0), sigHash)}
+			},
+			wantErr: true,
+		},
+		{
+			desc:    "height not above",
+			policy:  types.PolicyAbove(150),
+			sign:    func(types.Hash256) []types.InputSignature { return nil },
+			wantErr: true,
+		},
+		{
+			desc:    "anyone can spend",
+			policy:  types.AnyoneCanSpend(),
+			sign:    func(types.Hash256) []types.InputSignature { return nil },
+			wantErr: false,
+		},
+		{
+			desc: "multiple public key signatures",
+			policy: types.PolicyThreshold{
+				N: 3,
+				Of: []types.SpendPolicy{
+					types.PolicyPublicKey(pubkey(0)),
+					types.PolicyPublicKey(pubkey(1)),
+					types.PolicyPublicKey(pubkey(2)),
+				},
+			},
+			sign: func(sigHash types.Hash256) []types.InputSignature {
+				return []types.InputSignature{
+					types.SignTransaction(privkey(0), sigHash),
+					types.SignTransaction(privkey(1), sigHash),
+					types.SignTransaction(privkey(2), sigHash),
+				}
+			},
+			wantErr: false,
+		},
+		{
+			desc: "invalid foundation failsafe",
+			policy: types.PolicyThreshold{
+				N: 1,
+				Of: []types.SpendPolicy{
+					types.PolicyThreshold{
+						N: 2,
+						Of: []types.SpendPolicy{
+							types.PolicyPublicKey(pubkey(0)),
+							types.PolicyPublicKey(pubkey(1)),
+							types.PolicyPublicKey(pubkey(2)),
+						},
+					},
+					// failsafe policy is not satisfied because the current height is 100
+					types.PolicyThreshold{
+						N: 2,
+						Of: []types.SpendPolicy{
+							types.PolicyPublicKey(pubkey(3)),
+							types.PolicyAbove(150),
+						},
+					},
+				},
+			},
+			sign: func(sigHash types.Hash256) []types.InputSignature {
+				return []types.InputSignature{types.SignTransaction(privkey(3), sigHash)}
+			},
+			wantErr: true,
+		},
+		{
+			desc: "valid foundation primary",
+			policy: types.PolicyThreshold{
+				N: 1,
+				Of: []types.SpendPolicy{
+					types.PolicyThreshold{
+						N: 2,
+						Of: []types.SpendPolicy{
+							types.PolicyPublicKey(pubkey(0)),
+							types.PolicyPublicKey(pubkey(1)),
+							types.PolicyPublicKey(pubkey(2)),
+						},
+					},
+					// failsafe policy is not satisfied because the current height is 100
+					types.PolicyThreshold{
+						N: 2,
+						Of: []types.SpendPolicy{
+							types.PolicyPublicKey(pubkey(3)),
+							types.PolicyAbove(150),
+						},
+					},
+				},
+			},
+			sign: func(sigHash types.Hash256) []types.InputSignature {
+				return []types.InputSignature{
+					types.SignTransaction(privkey(1), sigHash),
+					types.SignTransaction(privkey(2), sigHash),
+				}
+			},
+			wantErr: false,
+		},
+		{
+			desc: "valid foundation failsafe",
+			policy: types.PolicyThreshold{
+				N: 1,
+				Of: []types.SpendPolicy{
+					types.PolicyThreshold{
+						N: 2,
+						Of: []types.SpendPolicy{
+							types.PolicyPublicKey(pubkey(0)),
+							types.PolicyPublicKey(pubkey(1)),
+							types.PolicyPublicKey(pubkey(2)),
+						},
+					},
+					// failsafe policy is satisfied because the current height is 100
+					types.PolicyThreshold{
+						N: 2,
+						Of: []types.SpendPolicy{
+							types.PolicyPublicKey(pubkey(3)),
+							types.PolicyAbove(80),
+						},
+					},
+				},
+			},
+			sign: func(sigHash types.Hash256) []types.InputSignature {
+				return []types.InputSignature{types.SignTransaction(privkey(3), sigHash)}
+			},
+			wantErr: false,
+		},
+		{
+			desc: "invalid legacy unlock hash",
+			policy: types.PolicyUnlockConditions{
+				PublicKeys: []types.PublicKey{
+					pubkey(0),
+					pubkey(1),
+					pubkey(2),
+				},
+				SignaturesRequired: 2,
+			},
+			sign: func(sigHash types.Hash256) []types.InputSignature {
+				return []types.InputSignature{
+					types.SignTransaction(privkey(0), sigHash),
+				}
+			},
+			wantErr: true,
+		},
+		{
+			desc: "invalid timelocked legacy unlock conditions",
+			policy: types.PolicyUnlockConditions{
+				PublicKeys: []types.PublicKey{
+					pubkey(0),
+				},
+				Timelock:           150,
+				SignaturesRequired: 1,
+			},
+			sign: func(sigHash types.Hash256) []types.InputSignature {
+				return []types.InputSignature{
+					types.SignTransaction(privkey(0), sigHash),
+				}
+			},
+			wantErr: true,
+		},
+		{
+			desc: "valid legacy unlock hash",
+			policy: types.PolicyUnlockConditions{
+				PublicKeys: []types.PublicKey{
+					pubkey(0),
+					pubkey(1),
+					pubkey(2),
+				},
+				SignaturesRequired: 2,
+			},
+			sign: func(sigHash types.Hash256) []types.InputSignature {
+				return []types.InputSignature{
+					types.SignTransaction(privkey(0), sigHash),
+					types.SignTransaction(privkey(1), sigHash),
+				}
+			},
+			wantErr: false,
+		},
+		{
+			desc: "valid timelocked legacy unlock conditions",
+			policy: types.PolicyUnlockConditions{
+				PublicKeys: []types.PublicKey{
+					pubkey(0),
+				},
+				Timelock:           80,
+				SignaturesRequired: 1,
+			},
+			sign: func(sigHash types.Hash256) []types.InputSignature {
+				return []types.InputSignature{
+					types.SignTransaction(privkey(0), sigHash),
+				}
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		txn := types.Transaction{
+			SiacoinInputs: []types.SiacoinInput{{
+				Parent: types.SiacoinOutput{
+					Address: types.PolicyAddress(tt.policy),
+				},
+				SpendPolicy: tt.policy,
+			}},
+		}
+		sigHash := vc.SigHash(txn)
+		txn.SiacoinInputs[0].Signatures = tt.sign(sigHash)
+		if err := vc.validSpendPolicies(txn); (err != nil) != tt.wantErr {
+			t.Fatalf("case %q failed: %v", tt.desc, err)
+		}
+	}
+}
+
 func TestValidateTransactionSet(t *testing.T) {
-	pubkey, privkey := testingKeypair()
+	pubkey, privkey := testingKeypair(0)
 	genesisBlock := genesisWithBeneficiaries(types.Beneficiary{
 		Address: types.StandardAddress(pubkey),
 		Value:   types.Siacoins(1),
@@ -582,6 +918,38 @@ func TestValidateTransactionSet(t *testing.T) {
 		t.Fatal("accepted transaction set with repeated txn")
 	}
 
+	doubleSpendSCTxn := types.Transaction{
+		SiacoinInputs: []types.SiacoinInput{{
+			Parent:      sau.NewSiacoinOutputs[1],
+			SpendPolicy: types.PolicyPublicKey(pubkey),
+		}},
+		SiacoinOutputs: []types.Beneficiary{{
+			Address: types.StandardAddress(pubkey),
+			Value:   sau.NewSiacoinOutputs[1].Value,
+		}},
+	}
+	signAllInputs(&doubleSpendSCTxn, vc, privkey)
+
+	if err := sau.Context.ValidateTransactionSet([]types.Transaction{txn, doubleSpendSCTxn}); err == nil {
+		t.Fatal("accepted transaction set with double spent siacoin output")
+	}
+
+	doubleSpendSFTxn := types.Transaction{
+		SiafundInputs: []types.SiafundInput{{
+			Parent:      sau.NewSiafundOutputs[0],
+			SpendPolicy: types.PolicyPublicKey(pubkey),
+		}},
+		SiafundOutputs: []types.Beneficiary{{
+			Address: types.StandardAddress(pubkey),
+			Value:   sau.NewSiafundOutputs[0].Value,
+		}},
+	}
+	signAllInputs(&doubleSpendSFTxn, vc, privkey)
+
+	if err := sau.Context.ValidateTransactionSet([]types.Transaction{txn, doubleSpendSFTxn}); err == nil {
+		t.Fatal("accepted transaction set with double spent siafund output")
+	}
+
 	// overfill set with copies of txn
 	var txns []types.Transaction
 	for sau.Context.BlockWeight(txns) < sau.Context.MaxBlockWeight() {
@@ -592,55 +960,89 @@ func TestValidateTransactionSet(t *testing.T) {
 	}
 }
 
-func TestValidateHeader(t *testing.T) {
-	pubkey, _ := testingKeypair()
+func TestValidateBlock(t *testing.T) {
+	pubkey, privkey := testingKeypair(0)
 	genesis := genesisWithBeneficiaries(types.Beneficiary{
 		Address: types.StandardAddress(pubkey),
 		Value:   types.Siacoins(1),
+	}, types.Beneficiary{
+		Address: types.StandardAddress(pubkey),
+		Value:   types.Siacoins(1),
 	})
-	vc := GenesisUpdate(genesis, testingDifficulty).Context
+	sau := GenesisUpdate(genesis, testingDifficulty)
+	vc := sau.Context
 
-	// mine a valid header
-	h := mineBlock(vc, genesis).Header
-	if err := vc.validateHeader(h); err != nil {
-		t.Fatal(err)
+	// Mine a block with a few transactions. We are not testing transaction
+	// validity here, but the block should still be valid.
+	txns := []types.Transaction{
+		{
+			SiacoinInputs: []types.SiacoinInput{{
+				Parent:      sau.NewSiacoinOutputs[1],
+				SpendPolicy: types.PolicyPublicKey(pubkey),
+			}},
+			SiacoinOutputs: []types.Beneficiary{{
+				Address: types.VoidAddress,
+				Value:   sau.NewSiacoinOutputs[1].Value,
+			}},
+		},
+		{
+			SiacoinInputs: []types.SiacoinInput{{
+				Parent:      sau.NewSiacoinOutputs[2],
+				SpendPolicy: types.PolicyPublicKey(pubkey),
+			}},
+			MinerFee: sau.NewSiacoinOutputs[2].Value,
+		},
 	}
+	signAllInputs(&txns[0], vc, privkey)
+	signAllInputs(&txns[1], vc, privkey)
+	b := mineBlock(vc, genesis, txns...)
 
 	tests := []struct {
 		desc    string
-		corrupt func(*types.BlockHeader)
+		corrupt func(*types.Block)
 	}{
 		{
-			"incorrect block height",
-			func(h *types.BlockHeader) {
-				h.Height = 999
+			"incorrect header block height",
+			func(b *types.Block) {
+				b.Header.Height = 999
 			},
 		},
 		{
-			"incorrect parent ID",
-			func(h *types.BlockHeader) {
-				h.ParentID[0] ^= 1
+			"incorrect header parent ID",
+			func(b *types.Block) {
+				b.Header.ParentID[0] ^= 1
 			},
 		},
 		{
-			"far-future timestamp",
-			func(h *types.BlockHeader) {
-				h.Timestamp = time.Now().Round(time.Second).Add(2*time.Hour + time.Minute)
+			"far-future header timestamp",
+			func(b *types.Block) {
+				b.Header.Timestamp = time.Now().Round(time.Second).Add(2*time.Hour + time.Minute)
 			},
 		},
 		{
-			"long-past timestamp",
-			func(h *types.BlockHeader) {
-				h.Timestamp = h.Timestamp.Add(-24 * time.Hour)
+			"long-past header timestamp",
+			func(b *types.Block) {
+				b.Header.Timestamp = b.Header.Timestamp.Add(-24 * time.Hour)
+			},
+		},
+		{
+			"invalid commitment (different miner address)",
+			func(b *types.Block) {
+				b.Header.MinerAddress[0] ^= 1
+			},
+		},
+		{
+			"invalid commitment (different transactions)",
+			func(b *types.Block) {
+				b.Transactions = b.Transactions[:1]
 			},
 		},
 	}
 	for _, test := range tests {
-		corruptHeader := h
-		test.corrupt(&corruptHeader)
-		findBlockNonce(&corruptHeader, types.HashRequiringWork(vc.Difficulty))
-		if err := vc.validateHeader(corruptHeader); err == nil {
-			t.Fatalf("accepted header with %v", test.desc)
+		corruptBlock := b
+		test.corrupt(&corruptBlock)
+		if err := vc.ValidateBlock(corruptBlock); err == nil {
+			t.Fatalf("accepted block with %v", test.desc)
 		}
 	}
 }

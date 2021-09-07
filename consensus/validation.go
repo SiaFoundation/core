@@ -15,7 +15,13 @@ import (
 	"go.sia.tech/core/types"
 )
 
-const foundationHardforkHeight = 300000
+const (
+	blocksPerDay  = 144
+	blocksPerYear = 144 * 365
+
+	foundationHardforkHeight   = 300000
+	foundationSubsidyFrequency = blocksPerYear / 12
+)
 
 var (
 	// ErrFutureBlock is returned by AppendHeader if a block's timestamp is too far
@@ -73,8 +79,6 @@ func (vc *ValidationContext) BlockRewardTimelock() uint64 {
 
 // FoundationSubsidy returns the Foundation subsidy value for the child block.
 func (vc *ValidationContext) FoundationSubsidy() types.Currency {
-	const blocksPerYear = 144 * 365
-	const foundationSubsidyFrequency = blocksPerYear / 12
 	foundationSubsidyPerBlock := types.Siacoins(30000)
 	initialfoundationSubsidy := foundationSubsidyPerBlock.Mul64(blocksPerYear)
 
@@ -430,7 +434,7 @@ func (vc *ValidationContext) outputsEqualInputs(txn types.Transaction) error {
 		}
 	}
 	if inputSF != outputSF {
-		return fmt.Errorf("siafund inputs (%v SF) do not equal siafund outputs (%v SF)", inputSF.ExactString(), outputSF.ExactString())
+		return fmt.Errorf("siafund inputs (%d SF) do not equal siafund outputs (%d SF)", inputSF, outputSF)
 	}
 
 	return nil
@@ -649,13 +653,13 @@ func (vc *ValidationContext) noDoubleSpends(txns []types.Transaction) error {
 	for i, txn := range txns {
 		for _, in := range txn.SiacoinInputs {
 			if prev, ok := spent[in.Parent.ID]; ok {
-				return fmt.Errorf("transaction set is invalid: transaction %v double-spends output %v (previously spent in transaction %v)", i, in.Parent.ID, prev)
+				return fmt.Errorf("transaction set is invalid: transaction %v double-spends siacoin output %v (previously spent in transaction %v)", i, in.Parent.ID, prev)
 			}
 			spent[in.Parent.ID] = i
 		}
 		for prev, in := range txn.SiafundInputs {
 			if _, ok := spent[in.Parent.ID]; ok {
-				return fmt.Errorf("transaction set is invalid: transaction %v double-spends output %v (previously spent in transaction %v)", i, in.Parent.ID, prev)
+				return fmt.Errorf("transaction set is invalid: transaction %v double-spends siafund output %v (previously spent in transaction %v)", i, in.Parent.ID, prev)
 			}
 			spent[in.Parent.ID] = i
 		}
