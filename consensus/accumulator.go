@@ -493,9 +493,7 @@ func (ha *HistoryAccumulator) HasTreeAtHeight(height int) bool {
 	return ha.NumLeaves&(1<<height) != 0
 }
 
-// AppendLeaf appends an index to the accumulator. It returns a proof for the
-// index.
-func (ha *HistoryAccumulator) AppendLeaf(index types.ChainIndex) (proof []types.Hash256) {
+func (ha *HistoryAccumulator) appendLeaf(index types.ChainIndex) (proof []types.Hash256) {
 	h := merkleHistoryLeafHash(index)
 	i := 0
 	for ; ha.HasTreeAtHeight(i); i++ {

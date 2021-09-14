@@ -341,7 +341,7 @@ func ApplyBlock(vc ValidationContext, b types.Block) (sau StateApplyUpdate) {
 		created = created[1:]
 	}
 
-	sau.historyProof = sau.Context.History.AppendLeaf(b.Index())
+	sau.historyProof = sau.Context.History.appendLeaf(b.Index())
 	sau.historyGrowth = historyGrowth(b.Index(), sau.historyProof)
 
 	for _, txn := range b.Transactions {
