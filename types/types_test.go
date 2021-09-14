@@ -74,6 +74,12 @@ func BenchmarkTransactionID(b *testing.B) {
 		SiafundInputs:  make([]SiafundInput, 10),
 		SiafundOutputs: make([]Beneficiary, 10),
 	}
+	for i := range txn.SiacoinInputs {
+		txn.SiacoinInputs[i].SpendPolicy = AnyoneCanSpend()
+	}
+	for i := range txn.SiafundInputs {
+		txn.SiafundInputs[i].SpendPolicy = AnyoneCanSpend()
+	}
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		_ = txn.ID()
