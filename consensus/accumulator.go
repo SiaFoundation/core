@@ -139,6 +139,12 @@ func objectsByTree(txns []types.Transaction) [64][]stateObject {
 		for _, in := range txn.SiafundInputs {
 			addObject(siafundOutputStateObject(in.Parent, 0))
 		}
+		for _, rev := range txn.FileContractRevisions {
+			addObject(fileContractStateObject(rev.Parent, 0))
+		}
+		for _, res := range txn.FileContractResolutions {
+			addObject(fileContractStateObject(res.Parent, 0))
+		}
 	}
 	for _, objects := range trees {
 		sort.Slice(objects, func(i, j int) bool {
