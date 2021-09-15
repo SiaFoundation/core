@@ -168,7 +168,7 @@ func (vc *ValidationContext) Commitment(minerAddr types.Address, txns []types.Tr
 	h.Reset()
 
 	// hash the context
-	h.WriteEncoderTo(vc)
+	vc.EncodeTo(h.Encoder)
 	ctxHash := h.Sum()
 
 	// hash the transactions

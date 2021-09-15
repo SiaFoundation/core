@@ -642,69 +642,15 @@ type DecoderFrom interface {
 // A Hasher streams objects into an instance of Sia's hash function.
 type Hasher struct {
 	h hash.Hash
-	e *Encoder
+	*Encoder
 }
-
-// Write implements io.Writer.
-func (h *Hasher) Write(p []byte) (int, error) { return h.e.Write(p) }
-
-// WriteHash writes a hash value to the hash digest.
-func (h *Hasher) WriteHash(p Hash256) { h.e.WriteHash(p) }
-
-// WriteAddress writes an address to the hash digest.
-func (h *Hasher) WriteAddress(a Address) { h.e.WriteAddress(a) }
-
-// WritePublicKey writes a public key to the hash digest.
-func (h *Hasher) WritePublicKey(pk PublicKey) { h.e.WritePublicKey(pk) }
-
-// WriteSignature writes a signature to the hash digest.
-func (h *Hasher) WriteSignature(p InputSignature) { h.e.WriteSignature(p) }
-
-// WriteUint8 writes a uint8 value to the hash digest.
-func (h *Hasher) WriteUint8(u uint8) { h.e.WriteUint8(u) }
-
-// WriteUint64 writes a uint64 value to the hash digest.
-func (h *Hasher) WriteUint64(u uint64) { h.e.WriteUint64(u) }
-
-// WritePrefix writes an int value to the hash digest.
-func (h *Hasher) WritePrefix(i int) { h.e.WritePrefix(i) }
-
-// WriteTime writes a time.Time to the hash digest.
-func (h *Hasher) WriteTime(t time.Time) { h.e.WriteTime(t) }
-
-// WriteWork writes a Work value to the hash digest.
-func (h *Hasher) WriteWork(w Work) { h.e.WriteWork(w) }
-
-// WriteCurrency writes a Currency value to the hash digest.
-func (h *Hasher) WriteCurrency(c Currency) { h.e.WriteCurrency(c) }
-
-// WriteChainIndex writes a ChainIndex to the hash digest.
-func (h *Hasher) WriteChainIndex(index ChainIndex) { h.e.WriteChainIndex(index) }
-
-// WriteOutputID writes an OutputID to the hash digest.
-func (h *Hasher) WriteOutputID(o OutputID) { h.e.WriteOutputID(o) }
-
-// WriteBeneficiary writes a beneficiary to the hash digest.
-func (h *Hasher) WriteBeneficiary(b Beneficiary) { h.e.WriteBeneficiary(b) }
-
-// WriteFileContractState writes a FileContractState to the hash digest.
-func (h *Hasher) WriteFileContractState(fc FileContractState) { h.e.WriteFileContractState(fc) }
-
-// WritePolicy writes a SpendPolicy to the hash digest.
-func (h *Hasher) WritePolicy(p SpendPolicy) { h.e.WritePolicy(p) }
-
-// WriteTransaction writes a transaction to the hash digest.
-func (h *Hasher) WriteTransaction(txn Transaction) { h.e.WriteTransaction(txn) }
-
-// WriteEncoderTo writes an EncoderTo to the hash digest.
-func (h *Hasher) WriteEncoderTo(v EncoderTo) { v.EncodeTo(h.e) }
 
 // Reset resets the underlying hash digest state.
 func (h *Hasher) Reset() { h.h.Reset() }
 
 // Sum returns the digest of the objects written to the Hasher.
 func (h *Hasher) Sum() (sum Hash256) {
-	_ = h.e.Flush() // no error possible
+	_ = h.Encoder.Flush() // no error possible
 	h.h.Sum(sum[:0])
 	return
 }
