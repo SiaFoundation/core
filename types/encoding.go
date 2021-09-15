@@ -1,6 +1,7 @@
 package types
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -245,7 +246,7 @@ func NewEncoder(w io.Writer) *Encoder {
 // A Decoder reads values from an underlying stream. Callers MUST check
 // (*Decoder).Err before using any decoded values.
 type Decoder struct {
-	r   io.Reader
+	lr  io.LimitedReader
 	buf [64]byte
 	err error
 }
@@ -271,7 +272,7 @@ func (d *Decoder) Read(p []byte) (int, error) {
 			want = len(d.buf)
 		}
 		var read int
-		read, d.err = io.ReadFull(d.r, d.buf[:want])
+		read, d.err = io.ReadFull(&d.lr, d.buf[:want])
 		n += copy(p, d.buf[:read])
 	}
 	return n, d.err
@@ -289,9 +290,16 @@ func (d *Decoder) ReadUint64() uint64 {
 	return binary.LittleEndian.Uint64(d.buf[:8])
 }
 
-// ReadInt reads an int value from the underlying stream.
-func (d *Decoder) ReadInt() int {
-	return int(d.ReadUint64())
+// ReadPrefix reads a length prefix from the underlying stream. If the length
+// exceeds the number of bytes remaining in the stream, ReadPrefix sets d.Err
+// and returns 0.
+func (d *Decoder) ReadPrefix() uint64 {
+	n := d.ReadUint64()
+	if n > uint64(d.lr.N) {
+		d.setErr(fmt.Errorf("encoded object contains invalid length prefix (%v elems > %v bytes left in stream)", n, d.lr.N))
+		return 0
+	}
+	return n
 }
 
 // ReadTime reads a time.Time from the underlying stream.
@@ -411,14 +419,14 @@ func (d *Decoder) ReadPolicy() (p SpendPolicy) {
 // ReadTransaction reads a transaction from the underlying stream.
 func (d *Decoder) ReadTransaction() (txn Transaction) {
 	readMerkleProof := func() []Hash256 {
-		proof := make([]Hash256, d.ReadInt())
+		proof := make([]Hash256, d.ReadPrefix())
 		for i := range proof {
 			proof[i] = d.ReadHash()
 		}
 		return proof
 	}
 
-	txn.SiacoinInputs = make([]SiacoinInput, d.ReadUint64())
+	txn.SiacoinInputs = make([]SiacoinInput, d.ReadPrefix())
 	for i := range txn.SiacoinInputs {
 		in := &txn.SiacoinInputs[i]
 		in.Parent.ID = d.ReadOutputID()
@@ -428,16 +436,16 @@ func (d *Decoder) ReadTransaction() (txn Transaction) {
 		in.Parent.MerkleProof = readMerkleProof()
 		in.Parent.LeafIndex = d.ReadUint64()
 		in.SpendPolicy = d.ReadPolicy()
-		in.Signatures = make([]InputSignature, d.ReadInt())
+		in.Signatures = make([]InputSignature, d.ReadPrefix())
 		for i := range in.Signatures {
 			in.Signatures[i] = d.ReadSignature()
 		}
 	}
-	txn.SiacoinOutputs = make([]Beneficiary, d.ReadUint64())
+	txn.SiacoinOutputs = make([]Beneficiary, d.ReadPrefix())
 	for i := range txn.SiacoinOutputs {
 		txn.SiacoinOutputs[i] = d.ReadBeneficiary()
 	}
-	txn.SiafundInputs = make([]SiafundInput, d.ReadUint64())
+	txn.SiafundInputs = make([]SiafundInput, d.ReadPrefix())
 	for i := range txn.SiafundInputs {
 		in := &txn.SiafundInputs[i]
 		in.Parent.ID = d.ReadOutputID()
@@ -448,20 +456,20 @@ func (d *Decoder) ReadTransaction() (txn Transaction) {
 		in.Parent.LeafIndex = d.ReadUint64()
 		in.ClaimAddress = d.ReadAddress()
 		in.SpendPolicy = d.ReadPolicy()
-		in.Signatures = make([]InputSignature, d.ReadInt())
+		in.Signatures = make([]InputSignature, d.ReadPrefix())
 		for i := range in.Signatures {
 			in.Signatures[i] = d.ReadSignature()
 		}
 	}
-	txn.SiafundOutputs = make([]Beneficiary, d.ReadUint64())
+	txn.SiafundOutputs = make([]Beneficiary, d.ReadPrefix())
 	for i := range txn.SiafundOutputs {
 		txn.SiafundOutputs[i] = d.ReadBeneficiary()
 	}
-	txn.FileContracts = make([]FileContractState, d.ReadUint64())
+	txn.FileContracts = make([]FileContractState, d.ReadPrefix())
 	for i := range txn.FileContracts {
 		txn.FileContracts[i] = d.ReadFileContractState()
 	}
-	txn.FileContractRevisions = make([]FileContractRevision, d.ReadUint64())
+	txn.FileContractRevisions = make([]FileContractRevision, d.ReadPrefix())
 	for i := range txn.FileContractRevisions {
 		fcr := &txn.FileContractRevisions[i]
 		fcr.Parent.ID = d.ReadOutputID()
@@ -472,7 +480,7 @@ func (d *Decoder) ReadTransaction() (txn Transaction) {
 		fcr.RenterSignature = d.ReadSignature()
 		fcr.HostSignature = d.ReadSignature()
 	}
-	txn.FileContractResolutions = make([]FileContractResolution, d.ReadUint64())
+	txn.FileContractResolutions = make([]FileContractResolution, d.ReadPrefix())
 	for i := range txn.FileContractResolutions {
 		fcr := &txn.FileContractResolutions[i]
 		fcr.Parent.ID = d.ReadOutputID()
@@ -485,7 +493,7 @@ func (d *Decoder) ReadTransaction() (txn Transaction) {
 		d.Read(fcr.StorageProof.DataSegment[:])
 		fcr.StorageProof.SegmentProof = readMerkleProof()
 	}
-	txn.ArbitraryData = make([]byte, d.ReadUint64())
+	txn.ArbitraryData = make([]byte, d.ReadPrefix())
 	d.Read(txn.ArbitraryData)
 	txn.NewFoundationAddress = d.ReadAddress()
 	txn.MinerFee = d.ReadCurrency()
@@ -494,10 +502,18 @@ func (d *Decoder) ReadTransaction() (txn Transaction) {
 }
 
 // NewDecoder returns a Decoder that wraps the provided stream.
-func NewDecoder(r io.Reader) *Decoder {
+func NewDecoder(lr io.LimitedReader) *Decoder {
 	return &Decoder{
-		r: r,
+		lr: lr,
 	}
+}
+
+// NewBufDecoder returns a Decoder for the provided byte slice.
+func NewBufDecoder(buf []byte) *Decoder {
+	return NewDecoder(io.LimitedReader{
+		R: bytes.NewReader(buf),
+		N: int64(len(buf)),
+	})
 }
 
 // A Hasher streams objects into an instance of Sia's hash function.

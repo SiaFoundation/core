@@ -35,11 +35,6 @@ func TestEncoderRoundtrip(t *testing.T) {
 			dec: (*Decoder).ReadUint64,
 		},
 		{
-			val: int(100),
-			enc: (*Encoder).WriteInt,
-			dec: (*Decoder).ReadInt,
-		},
-		{
 			val: CurrentTimestamp(),
 			enc: (*Encoder).WriteTime,
 			dec: (*Decoder).ReadTime,
@@ -94,7 +89,7 @@ func TestEncoderRoundtrip(t *testing.T) {
 		e := NewEncoder(&buf)
 		reflect.ValueOf(test.enc).Call([]reflect.Value{reflect.ValueOf(e), reflect.ValueOf(test.val)})
 		e.Flush()
-		val := reflect.ValueOf(test.dec).Call([]reflect.Value{reflect.ValueOf(NewDecoder(&buf))})[0].Interface()
+		val := reflect.ValueOf(test.dec).Call([]reflect.Value{reflect.ValueOf(NewBufDecoder(buf.Bytes()))})[0].Interface()
 		if !reflect.DeepEqual(test.val, val) {
 			t.Fatalf("value did not survive roundtrip: expected %v, got %v", test.val, val)
 		}
@@ -172,7 +167,7 @@ func TestEncoderCompleteness(t *testing.T) {
 		e := NewEncoder(&buf)
 		e.WriteTransaction(txn)
 		e.Flush()
-		decTxn := NewDecoder(&buf).ReadTransaction()
+		decTxn := NewBufDecoder(buf.Bytes()).ReadTransaction()
 		return reflect.DeepEqual(txn, decTxn)
 	}
 

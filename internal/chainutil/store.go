@@ -2,7 +2,6 @@ package chainutil
 
 import (
 	"bufio"
-	"bytes"
 	"errors"
 	"io"
 	"os"
@@ -135,7 +134,7 @@ func (fs *FlatStore) Header(index types.ChainIndex) (types.BlockHeader, error) {
 	} else if _, err := fs.entryFile.ReadAt(b, offset); err != nil {
 		return types.BlockHeader{}, err
 	}
-	d := types.NewDecoder(bytes.NewBuffer(b))
+	d := types.NewBufDecoder(b)
 
 	var h types.BlockHeader
 	h.Height = d.ReadUint64()
@@ -183,7 +182,7 @@ func (fs *FlatStore) BestIndex(height uint64) (index types.ChainIndex, err error
 		return
 	}
 
-	d := types.NewDecoder(bytes.NewReader(buf))
+	d := types.NewBufDecoder(buf)
 	index = d.ReadChainIndex()
 	return index, d.Err()
 }
@@ -373,7 +372,7 @@ const (
 func bufferedDecoder(r io.Reader, size int) (*types.Decoder, error) {
 	buf := make([]byte, size)
 	_, err := io.ReadFull(r, buf)
-	return types.NewDecoder(bytes.NewReader(buf)), err
+	return types.NewBufDecoder(buf), err
 }
 
 func writeMeta(w io.Writer, meta metadata) error {
@@ -481,7 +480,10 @@ func writeCheckpoint(w io.Writer, c consensus.Checkpoint) error {
 }
 
 func readCheckpoint(r io.Reader, c *consensus.Checkpoint) error {
-	d := types.NewDecoder(r)
+	d := types.NewDecoder(io.LimitedReader{
+		R: r,
+		N: 100e6, // a checkpoint should never be anywhere near this large
+	})
 
 	// read header
 	h := &c.Block.Header
