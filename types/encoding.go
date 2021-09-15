@@ -291,6 +291,11 @@ func NewEncoder(w io.Writer) *Encoder {
 	}
 }
 
+// An EncoderTo can encode itself to a stream via an Encoder.
+type EncoderTo interface {
+	EncodeTo(e *Encoder)
+}
+
 // A Decoder reads values from an underlying stream. Callers MUST check
 // (*Decoder).Err before using any decoded values.
 type Decoder struct {
@@ -299,7 +304,9 @@ type Decoder struct {
 	err error
 }
 
-func (d *Decoder) setErr(err error) {
+// SetErr sets the Decoder's error if it has not already been set. SetErr should
+// only be called from DecodeFrom methods.
+func (d *Decoder) SetErr(err error) {
 	if err != nil && d.err == nil {
 		d.err = err
 		// clear d.buf so that future reads always return zero
@@ -344,7 +351,7 @@ func (d *Decoder) ReadUint64() uint64 {
 func (d *Decoder) ReadPrefix() uint64 {
 	n := d.ReadUint64()
 	if n > uint64(d.lr.N) {
-		d.setErr(fmt.Errorf("encoded object contains invalid length prefix (%v elems > %v bytes left in stream)", n, d.lr.N))
+		d.SetErr(fmt.Errorf("encoded object contains invalid length prefix (%v elems > %v bytes left in stream)", n, d.lr.N))
 		return 0
 	}
 	return n
@@ -458,11 +465,11 @@ func (d *Decoder) ReadPolicy() (p SpendPolicy) {
 	}
 
 	if version := d.ReadUint8(); version != 1 {
-		d.setErr(fmt.Errorf("unsupported policy version (%v)", version))
+		d.SetErr(fmt.Errorf("unsupported policy version (%v)", version))
 		return
 	}
 	p, err := readPolicy()
-	d.setErr(err)
+	d.SetErr(err)
 	return p
 }
 
@@ -627,6 +634,11 @@ func NewBufDecoder(buf []byte) *Decoder {
 	})
 }
 
+// A DecoderFrom can decode itself from a stream via a Decoder.
+type DecoderFrom interface {
+	DecodeFrom(d *Decoder)
+}
+
 // A Hasher streams objects into an instance of Sia's hash function.
 type Hasher struct {
 	h hash.Hash
@@ -683,6 +695,9 @@ func (h *Hasher) WritePolicy(p SpendPolicy) { h.e.WritePolicy(p) }
 
 // WriteTransaction writes a transaction to the hash digest.
 func (h *Hasher) WriteTransaction(txn Transaction) { h.e.WriteTransaction(txn) }
+
+// WriteEncoderTo writes an EncoderTo to the hash digest.
+func (h *Hasher) WriteEncoderTo(v EncoderTo) { v.EncodeTo(h.e) }
 
 // Reset resets the underlying hash digest state.
 func (h *Hasher) Reset() { h.h.Reset() }

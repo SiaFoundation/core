@@ -167,37 +167,14 @@ func (vc *ValidationContext) Commitment(minerAddr types.Address, txns []types.Tr
 	defer hasherPool.Put(h)
 	h.Reset()
 
-	// hash the ValidationContext
-	h.WriteUint64(vc.Index.Height)
-	h.WriteHash(types.Hash256(vc.Index.ID))
-	h.WriteUint64(vc.State.NumLeaves)
-	for i, root := range vc.State.Trees {
-		if vc.State.HasTreeAtHeight(i) {
-			h.WriteHash(root)
-		}
-	}
-	h.WriteUint64(vc.History.NumLeaves)
-	for i, root := range vc.History.Trees {
-		if vc.History.HasTreeAtHeight(i) {
-			h.WriteHash(root)
-		}
-	}
-	for _, ts := range vc.PrevTimestamps {
-		h.WriteTime(ts)
-	}
-	h.WriteHash(vc.TotalWork.NumHashes)
-	h.WriteHash(vc.Difficulty.NumHashes)
-	h.WriteHash(vc.OakWork.NumHashes)
-	h.WriteUint64(uint64(vc.OakTime))
-	h.WriteTime(vc.GenesisTimestamp)
-	h.WriteCurrency(vc.SiafundPool)
-	h.WriteAddress(vc.FoundationAddress)
+	// hash the context
+	h.WriteEncoderTo(vc)
 	ctxHash := h.Sum()
 
 	// hash the transactions
 	h.Reset()
 	for _, txn := range txns {
-		h.WriteTransaction(txn)
+		h.WriteHash(types.Hash256(txn.ID()))
 	}
 	txnsHash := h.Sum()
 
