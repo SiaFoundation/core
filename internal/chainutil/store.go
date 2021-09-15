@@ -439,7 +439,7 @@ func writeCheckpoint(w io.Writer, c consensus.Checkpoint) error {
 	e.WriteHash(h.Commitment)
 
 	// write txns
-	e.WriteInt(len(c.Block.Transactions))
+	e.WritePrefix(len(c.Block.Transactions))
 	for _, txn := range c.Block.Transactions {
 		e.WriteTransaction(txn)
 	}

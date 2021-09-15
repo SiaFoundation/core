@@ -47,7 +47,7 @@ func (e *Encoder) Write(p []byte) (int, error) {
 // WriteHash writes a hash to the underlying stream.
 func (e *Encoder) WriteHash(h Hash256) { e.Write(h[:]) }
 
-// WriteAddress writes an address to the underlying stream.
+// WriteAddress writes an Address to the underlying stream.
 func (e *Encoder) WriteAddress(a Address) { e.Write(a[:]) }
 
 // WritePublicKey writes a public key to the underlying stream.
@@ -66,10 +66,10 @@ func (e *Encoder) WriteUint64(u uint64) {
 	e.Write(buf[:])
 }
 
-// WriteInt writes an int value to the underlying stream.
-func (e *Encoder) WriteInt(i int) { e.WriteUint64(uint64(i)) }
+// WritePrefix writes a length prefix to the underlying stream.
+func (e *Encoder) WritePrefix(i int) { e.WriteUint64(uint64(i)) }
 
-// WriteTime writes a time value to the underlying stream.
+// WriteTime writes a time.Time value to the underlying stream.
 func (e *Encoder) WriteTime(t time.Time) { e.WriteUint64(uint64(t.Unix())) }
 
 // WriteWork writes a Work value to the underlying stream.
@@ -81,38 +81,127 @@ func (e *Encoder) WriteCurrency(c Currency) {
 	e.WriteUint64(c.Hi)
 }
 
-// WriteChainIndex writes a ChainIndex value to the underlying stream.
+// WriteChainIndex writes a ChainIndex to the underlying stream.
 func (e *Encoder) WriteChainIndex(index ChainIndex) {
 	e.WriteUint64(index.Height)
 	e.WriteHash(Hash256(index.ID))
 }
 
-// WriteOutputID writes an OutputID value to the underlying stream.
+// WriteHeader writes a BlockHeader to the underlying stream.
+func (e *Encoder) WriteHeader(h BlockHeader) {
+	e.WriteUint64(h.Height)
+	e.WriteHash(Hash256(h.ParentID))
+	e.Write(h.Nonce[:])
+	e.WriteTime(h.Timestamp)
+	e.WriteAddress(h.MinerAddress)
+	e.WriteHash(h.Commitment)
+}
+
+// WriteOutputID writes an OutputID to the underlying stream.
 func (e *Encoder) WriteOutputID(id OutputID) {
 	e.WriteHash(Hash256(id.TransactionID))
 	e.WriteUint64(id.Index)
 }
 
-// WriteBeneficiary writes a Beneficiary value to the underlying stream.
+// WriteBeneficiary writes a Beneficiary to the underlying stream.
 func (e *Encoder) WriteBeneficiary(b Beneficiary) {
 	e.WriteCurrency(b.Value)
 	e.WriteAddress(b.Address)
 }
 
-// WriteFileContractState writes a FileContractState value to the
+func (e *Encoder) writeMerkleProof(proof []Hash256) {
+	e.WritePrefix(len(proof))
+	for _, p := range proof {
+		e.WriteHash(p)
+	}
+}
+
+// WriteSiacoinInput writes a SiacoinInput to the underlying stream.
+func (e *Encoder) WriteSiacoinInput(in SiacoinInput) {
+	e.WriteSiacoinOutput(in.Parent)
+	e.WritePolicy(in.SpendPolicy)
+	e.WritePrefix(len(in.Signatures))
+	for _, sig := range in.Signatures {
+		e.WriteSignature(sig)
+	}
+}
+
+// WriteSiacoinOutput writes a SiacoinOutput to the underlying stream.
+func (e *Encoder) WriteSiacoinOutput(out SiacoinOutput) {
+	e.WriteOutputID(out.ID)
+	e.WriteCurrency(out.Value)
+	e.WriteAddress(out.Address)
+	e.WriteUint64(out.Timelock)
+	e.writeMerkleProof(out.MerkleProof)
+	e.WriteUint64(out.LeafIndex)
+}
+
+// WriteSiafundInput writes a SiafundInput to the underlying stream.
+func (e *Encoder) WriteSiafundInput(in SiafundInput) {
+	e.WriteSiafundOutput(in.Parent)
+	e.WriteAddress(in.ClaimAddress)
+	e.WritePolicy(in.SpendPolicy)
+	e.WritePrefix(len(in.Signatures))
+	for _, sig := range in.Signatures {
+		e.WriteSignature(sig)
+	}
+}
+
+// WriteSiafundOutput writes a SiafundOutput to the underlying stream.
+func (e *Encoder) WriteSiafundOutput(out SiafundOutput) {
+	e.WriteOutputID(out.ID)
+	e.WriteCurrency(out.Value)
+	e.WriteAddress(out.Address)
+	e.WriteCurrency(out.ClaimStart)
+	e.writeMerkleProof(out.MerkleProof)
+	e.WriteUint64(out.LeafIndex)
+}
+
+// WriteFileContractState writes a FileContractState to the underlying stream.
+func (e *Encoder) WriteFileContractState(fc FileContractState) {
+	e.WriteUint64(fc.Filesize)
+	e.WriteHash(fc.FileMerkleRoot)
+	e.WriteUint64(fc.WindowStart)
+	e.WriteUint64(fc.WindowEnd)
+	e.WriteBeneficiary(fc.ValidRenterOutput)
+	e.WriteBeneficiary(fc.ValidHostOutput)
+	e.WriteBeneficiary(fc.MissedRenterOutput)
+	e.WriteBeneficiary(fc.MissedHostOutput)
+	e.WritePublicKey(fc.RenterPublicKey)
+	e.WritePublicKey(fc.HostPublicKey)
+	e.WriteUint64(fc.RevisionNumber)
+}
+
+// WriteFileContract writes a FileContract to the underlying stream.
+func (e *Encoder) WriteFileContract(fc FileContract) {
+	e.WriteOutputID(fc.ID)
+	e.WriteFileContractState(fc.State)
+	e.writeMerkleProof(fc.MerkleProof)
+	e.WriteUint64(fc.LeafIndex)
+}
+
+// WriteFileContractRevision writes a FileContractRevision to the underlying
+// stream.
+func (e *Encoder) WriteFileContractRevision(rev FileContractRevision) {
+	e.WriteFileContract(rev.Parent)
+	e.WriteFileContractState(rev.NewState)
+	e.WriteSignature(rev.RenterSignature)
+	e.WriteSignature(rev.HostSignature)
+}
+
+// WriteStorageProof writes a StorageProof to the underlying stream.
+func (e *Encoder) WriteStorageProof(sp StorageProof) {
+	e.WriteChainIndex(sp.WindowStart)
+	e.writeMerkleProof(sp.WindowProof)
+	e.Write(sp.DataSegment[:])
+	e.writeMerkleProof(sp.SegmentProof)
+}
+
+// WriteFileContractResolution writes a FileContractResolution value to the
 // underlying stream.
-func (e *Encoder) WriteFileContractState(rev FileContractState) {
-	e.WriteUint64(rev.Filesize)
-	e.WriteHash(rev.FileMerkleRoot)
-	e.WriteUint64(rev.WindowStart)
-	e.WriteUint64(rev.WindowEnd)
-	e.WriteBeneficiary(rev.ValidRenterOutput)
-	e.WriteBeneficiary(rev.ValidHostOutput)
-	e.WriteBeneficiary(rev.MissedRenterOutput)
-	e.WriteBeneficiary(rev.MissedHostOutput)
-	e.WritePublicKey(rev.RenterPublicKey)
-	e.WritePublicKey(rev.HostPublicKey)
-	e.WriteUint64(rev.RevisionNumber)
+func (e *Encoder) WriteFileContractResolution(res FileContractResolution) {
+	e.WriteFileContract(res.Parent)
+	e.WriteStorageProof(res.StorageProof)
 }
 
 const (
@@ -161,76 +250,35 @@ func (e *Encoder) WritePolicy(p SpendPolicy) {
 
 // WriteTransaction writes a Transaction value to the underlying stream.
 func (e *Encoder) WriteTransaction(txn Transaction) {
-	writeMerkleProof := func(proof []Hash256) {
-		e.WriteInt(len(proof))
-		for _, p := range proof {
-			e.WriteHash(p)
-		}
-	}
-
-	e.WriteInt(len(txn.SiacoinInputs))
+	e.WritePrefix(len(txn.SiacoinInputs))
 	for _, in := range txn.SiacoinInputs {
-		e.WriteOutputID(in.Parent.ID)
-		e.WriteCurrency(in.Parent.Value)
-		e.WriteAddress(in.Parent.Address)
-		e.WriteUint64(in.Parent.Timelock)
-		writeMerkleProof(in.Parent.MerkleProof)
-		e.WriteUint64(in.Parent.LeafIndex)
-		e.WritePolicy(in.SpendPolicy)
-		e.WriteInt(len(in.Signatures))
-		for _, sig := range in.Signatures {
-			e.WriteSignature(sig)
-		}
+		e.WriteSiacoinInput(in)
 	}
-	e.WriteInt(len(txn.SiacoinOutputs))
+	e.WritePrefix(len(txn.SiacoinOutputs))
 	for _, out := range txn.SiacoinOutputs {
 		e.WriteBeneficiary(out)
 	}
-	e.WriteInt(len(txn.SiafundInputs))
+	e.WritePrefix(len(txn.SiafundInputs))
 	for _, in := range txn.SiafundInputs {
-		e.WriteOutputID(in.Parent.ID)
-		e.WriteCurrency(in.Parent.Value)
-		e.WriteAddress(in.Parent.Address)
-		e.WriteCurrency(in.Parent.ClaimStart)
-		writeMerkleProof(in.Parent.MerkleProof)
-		e.WriteUint64(in.Parent.LeafIndex)
-		e.WriteAddress(in.ClaimAddress)
-		e.WritePolicy(in.SpendPolicy)
-		e.WriteInt(len(in.Signatures))
-		for _, sig := range in.Signatures {
-			e.WriteSignature(sig)
-		}
+		e.WriteSiafundInput(in)
 	}
-	e.WriteInt(len(txn.SiafundOutputs))
+	e.WritePrefix(len(txn.SiafundOutputs))
 	for _, out := range txn.SiafundOutputs {
 		e.WriteBeneficiary(out)
 	}
-	e.WriteInt(len(txn.FileContracts))
+	e.WritePrefix(len(txn.FileContracts))
 	for _, fc := range txn.FileContracts {
 		e.WriteFileContractState(fc)
 	}
-	e.WriteInt(len(txn.FileContractRevisions))
-	for _, fcr := range txn.FileContractRevisions {
-		e.WriteOutputID(fcr.Parent.ID)
-		e.WriteFileContractState(fcr.Parent.State)
-		writeMerkleProof(fcr.Parent.MerkleProof)
-		e.WriteUint64(fcr.Parent.LeafIndex)
-		e.WriteFileContractState(fcr.NewState)
-		e.WriteSignature(fcr.RenterSignature)
-		e.WriteSignature(fcr.HostSignature)
+	e.WritePrefix(len(txn.FileContractRevisions))
+	for _, rev := range txn.FileContractRevisions {
+		e.WriteFileContractRevision(rev)
 	}
-	e.WriteInt(len(txn.FileContractResolutions))
-	for _, fcr := range txn.FileContractResolutions {
-		e.WriteOutputID(fcr.Parent.ID)
-		e.WriteFileContractState(fcr.Parent.State)
-		writeMerkleProof(fcr.Parent.MerkleProof)
-		e.WriteUint64(fcr.Parent.LeafIndex)
-		e.WriteChainIndex(fcr.StorageProof.WindowStart)
-		writeMerkleProof(fcr.StorageProof.WindowProof)
-		e.Write(fcr.StorageProof.DataSegment[:])
-		writeMerkleProof(fcr.StorageProof.SegmentProof)
+	e.WritePrefix(len(txn.FileContractResolutions))
+	for _, res := range txn.FileContractResolutions {
+		e.WriteFileContractResolution(res)
 	}
-	e.WriteInt(len(txn.ArbitraryData))
+	e.WritePrefix(len(txn.ArbitraryData))
 	e.Write(txn.ArbitraryData)
 	e.WriteAddress(txn.NewFoundationAddress)
 	e.WriteCurrency(txn.MinerFee)
@@ -303,9 +351,7 @@ func (d *Decoder) ReadPrefix() uint64 {
 }
 
 // ReadTime reads a time.Time from the underlying stream.
-func (d *Decoder) ReadTime() time.Time {
-	return time.Unix(int64(d.ReadUint64()), 0)
-}
+func (d *Decoder) ReadTime() time.Time { return time.Unix(int64(d.ReadUint64()), 0) }
 
 // ReadHash reads a hash from the underlying stream.
 func (d *Decoder) ReadHash() (h Hash256) {
@@ -335,33 +381,37 @@ func (d *Decoder) ReadCurrency() (c Currency) {
 
 // ReadChainIndex reads a ChainIndex from the underlying stream.
 func (d *Decoder) ReadChainIndex() ChainIndex {
-	return ChainIndex{d.ReadUint64(), BlockID(d.ReadHash())}
+	return ChainIndex{
+		d.ReadUint64(),
+		BlockID(d.ReadHash()),
+	}
+}
+
+// ReadHeader reads a BlockHeader from the underlying stream.
+func (d *Decoder) ReadHeader() (h BlockHeader) {
+	h.Height = d.ReadUint64()
+	h.ParentID = BlockID(d.ReadHash())
+	d.Read(h.Nonce[:])
+	h.Timestamp = d.ReadTime()
+	h.MinerAddress = d.ReadAddress()
+	h.Commitment = d.ReadHash()
+	return
 }
 
 // ReadOutputID reads an OutputID from the underlying stream.
 func (d *Decoder) ReadOutputID() OutputID {
-	return OutputID{TransactionID(d.ReadHash()), d.ReadUint64()}
+	return OutputID{
+		TransactionID(d.ReadHash()),
+		d.ReadUint64(),
+	}
 }
 
 // ReadBeneficiary reads a Beneficiary from the underlying stream.
 func (d *Decoder) ReadBeneficiary() Beneficiary {
-	return Beneficiary{d.ReadCurrency(), d.ReadAddress()}
-}
-
-// ReadFileContractState reads a FileContractState from the underlying stream.
-func (d *Decoder) ReadFileContractState() (fc FileContractState) {
-	fc.Filesize = d.ReadUint64()
-	fc.FileMerkleRoot = d.ReadHash()
-	fc.WindowStart = d.ReadUint64()
-	fc.WindowEnd = d.ReadUint64()
-	fc.ValidRenterOutput = d.ReadBeneficiary()
-	fc.ValidHostOutput = d.ReadBeneficiary()
-	fc.MissedRenterOutput = d.ReadBeneficiary()
-	fc.MissedHostOutput = d.ReadBeneficiary()
-	fc.RenterPublicKey = PublicKey(d.ReadHash())
-	fc.HostPublicKey = PublicKey(d.ReadHash())
-	fc.RevisionNumber = d.ReadUint64()
-	return
+	return Beneficiary{
+		d.ReadCurrency(),
+		d.ReadAddress(),
+	}
 }
 
 // ReadPolicy reads a SpendPolicy from the underlying stream.
@@ -416,30 +466,119 @@ func (d *Decoder) ReadPolicy() (p SpendPolicy) {
 	return p
 }
 
+func (d *Decoder) readMerkleProof() []Hash256 {
+	proof := make([]Hash256, d.ReadPrefix())
+	for i := range proof {
+		proof[i] = d.ReadHash()
+	}
+	return proof
+}
+
+// ReadSiacoinInput reads a SiacoinInput from the underlying stream.
+func (d *Decoder) ReadSiacoinInput() (in SiacoinInput) {
+	in.Parent = d.ReadSiacoinOutput()
+	in.SpendPolicy = d.ReadPolicy()
+	in.Signatures = make([]InputSignature, d.ReadPrefix())
+	for i := range in.Signatures {
+		in.Signatures[i] = d.ReadSignature()
+	}
+	return
+}
+
+// ReadSiacoinOutput reads a SiacoinOutput from the underlying stream.
+func (d *Decoder) ReadSiacoinOutput() SiacoinOutput {
+	return SiacoinOutput{
+		d.ReadOutputID(),
+		d.ReadCurrency(),
+		d.ReadAddress(),
+		d.ReadUint64(),
+		d.readMerkleProof(),
+		d.ReadUint64(),
+	}
+}
+
+// ReadSiafundInput reads a SiafundInput from the underlying stream.
+func (d *Decoder) ReadSiafundInput() (in SiafundInput) {
+	in.Parent = d.ReadSiafundOutput()
+	in.ClaimAddress = d.ReadAddress()
+	in.SpendPolicy = d.ReadPolicy()
+	in.Signatures = make([]InputSignature, d.ReadPrefix())
+	for i := range in.Signatures {
+		in.Signatures[i] = d.ReadSignature()
+	}
+	return
+}
+
+// ReadSiafundOutput reads a SiafundOutput from the underlying stream.
+func (d *Decoder) ReadSiafundOutput() SiafundOutput {
+	return SiafundOutput{
+		d.ReadOutputID(),
+		d.ReadCurrency(),
+		d.ReadAddress(),
+		d.ReadCurrency(),
+		d.readMerkleProof(),
+		d.ReadUint64(),
+	}
+}
+
+// ReadFileContractState reads a FileContractState from the underlying stream.
+func (d *Decoder) ReadFileContractState() FileContractState {
+	return FileContractState{
+		d.ReadUint64(),
+		d.ReadHash(),
+		d.ReadUint64(),
+		d.ReadUint64(),
+		d.ReadBeneficiary(),
+		d.ReadBeneficiary(),
+		d.ReadBeneficiary(),
+		d.ReadBeneficiary(),
+		PublicKey(d.ReadHash()),
+		PublicKey(d.ReadHash()),
+		d.ReadUint64(),
+	}
+}
+
+// ReadFileContract reads a FileContract from the underlying stream.
+func (d *Decoder) ReadFileContract() (fc FileContract) {
+	return FileContract{
+		d.ReadOutputID(),
+		d.ReadFileContractState(),
+		d.readMerkleProof(),
+		d.ReadUint64(),
+	}
+}
+
+// ReadFileContractRevision reads a FileContractRevision from the underlying
+// stream.
+func (d *Decoder) ReadFileContractRevision() FileContractRevision {
+	return FileContractRevision{
+		d.ReadFileContract(),
+		d.ReadFileContractState(),
+		d.ReadSignature(),
+		d.ReadSignature(),
+	}
+}
+
+// ReadStorageProof reads a StorageProof from the underlying stream.
+func (d *Decoder) ReadStorageProof() (sp StorageProof) {
+	sp.WindowStart = d.ReadChainIndex()
+	sp.WindowProof = d.readMerkleProof()
+	d.Read(sp.DataSegment[:])
+	sp.SegmentProof = d.readMerkleProof()
+	return
+}
+
+// ReadFileContractResolution reads a FileContractResolution from the underlying
+// stream.
+func (d *Decoder) ReadFileContractResolution() (res FileContractResolution) {
+	return FileContractResolution{d.ReadFileContract(), d.ReadStorageProof()}
+}
+
 // ReadTransaction reads a transaction from the underlying stream.
 func (d *Decoder) ReadTransaction() (txn Transaction) {
-	readMerkleProof := func() []Hash256 {
-		proof := make([]Hash256, d.ReadPrefix())
-		for i := range proof {
-			proof[i] = d.ReadHash()
-		}
-		return proof
-	}
-
 	txn.SiacoinInputs = make([]SiacoinInput, d.ReadPrefix())
 	for i := range txn.SiacoinInputs {
-		in := &txn.SiacoinInputs[i]
-		in.Parent.ID = d.ReadOutputID()
-		in.Parent.Value = d.ReadCurrency()
-		in.Parent.Address = d.ReadAddress()
-		in.Parent.Timelock = d.ReadUint64()
-		in.Parent.MerkleProof = readMerkleProof()
-		in.Parent.LeafIndex = d.ReadUint64()
-		in.SpendPolicy = d.ReadPolicy()
-		in.Signatures = make([]InputSignature, d.ReadPrefix())
-		for i := range in.Signatures {
-			in.Signatures[i] = d.ReadSignature()
-		}
+		txn.SiacoinInputs[i] = d.ReadSiacoinInput()
 	}
 	txn.SiacoinOutputs = make([]Beneficiary, d.ReadPrefix())
 	for i := range txn.SiacoinOutputs {
@@ -447,19 +586,7 @@ func (d *Decoder) ReadTransaction() (txn Transaction) {
 	}
 	txn.SiafundInputs = make([]SiafundInput, d.ReadPrefix())
 	for i := range txn.SiafundInputs {
-		in := &txn.SiafundInputs[i]
-		in.Parent.ID = d.ReadOutputID()
-		in.Parent.Value = d.ReadCurrency()
-		in.Parent.Address = d.ReadAddress()
-		in.Parent.ClaimStart = d.ReadCurrency()
-		in.Parent.MerkleProof = readMerkleProof()
-		in.Parent.LeafIndex = d.ReadUint64()
-		in.ClaimAddress = d.ReadAddress()
-		in.SpendPolicy = d.ReadPolicy()
-		in.Signatures = make([]InputSignature, d.ReadPrefix())
-		for i := range in.Signatures {
-			in.Signatures[i] = d.ReadSignature()
-		}
+		txn.SiafundInputs[i] = d.ReadSiafundInput()
 	}
 	txn.SiafundOutputs = make([]Beneficiary, d.ReadPrefix())
 	for i := range txn.SiafundOutputs {
@@ -471,27 +598,11 @@ func (d *Decoder) ReadTransaction() (txn Transaction) {
 	}
 	txn.FileContractRevisions = make([]FileContractRevision, d.ReadPrefix())
 	for i := range txn.FileContractRevisions {
-		fcr := &txn.FileContractRevisions[i]
-		fcr.Parent.ID = d.ReadOutputID()
-		fcr.Parent.State = d.ReadFileContractState()
-		fcr.Parent.MerkleProof = readMerkleProof()
-		fcr.Parent.LeafIndex = d.ReadUint64()
-		fcr.NewState = d.ReadFileContractState()
-		fcr.RenterSignature = d.ReadSignature()
-		fcr.HostSignature = d.ReadSignature()
+		txn.FileContractRevisions[i] = d.ReadFileContractRevision()
 	}
 	txn.FileContractResolutions = make([]FileContractResolution, d.ReadPrefix())
 	for i := range txn.FileContractResolutions {
-		fcr := &txn.FileContractResolutions[i]
-		fcr.Parent.ID = d.ReadOutputID()
-		fcr.Parent.State = d.ReadFileContractState()
-		fcr.Parent.MerkleProof = readMerkleProof()
-		fcr.Parent.LeafIndex = d.ReadUint64()
-		fcr.StorageProof.WindowStart.Height = d.ReadUint64()
-		fcr.StorageProof.WindowStart.ID = BlockID(d.ReadHash())
-		fcr.StorageProof.WindowProof = readMerkleProof()
-		d.Read(fcr.StorageProof.DataSegment[:])
-		fcr.StorageProof.SegmentProof = readMerkleProof()
+		txn.FileContractResolutions[i] = d.ReadFileContractResolution()
 	}
 	txn.ArbitraryData = make([]byte, d.ReadPrefix())
 	d.Read(txn.ArbitraryData)
@@ -543,8 +654,8 @@ func (h *Hasher) WriteUint8(u uint8) { h.e.WriteUint8(u) }
 // WriteUint64 writes a uint64 value to the hash digest.
 func (h *Hasher) WriteUint64(u uint64) { h.e.WriteUint64(u) }
 
-// WriteInt writes an int value to the hash digest.
-func (h *Hasher) WriteInt(i int) { h.e.WriteInt(i) }
+// WritePrefix writes an int value to the hash digest.
+func (h *Hasher) WritePrefix(i int) { h.e.WritePrefix(i) }
 
 // WriteTime writes a time.Time to the hash digest.
 func (h *Hasher) WriteTime(t time.Time) { h.e.WriteTime(t) }

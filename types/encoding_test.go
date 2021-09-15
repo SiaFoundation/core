@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 	"testing/quick"
+	"time"
 )
 
 func TestEncoderRoundtrip(t *testing.T) {
@@ -156,7 +157,9 @@ func TestEncoderCompleteness(t *testing.T) {
 		return v
 	}
 
+	seed := time.Now().Unix()
 	cfg := &quick.Config{
+		Rand: rand.New(rand.NewSource(seed)),
 		Values: func(v []reflect.Value, r *rand.Rand) {
 			v[0] = valueFn(reflect.TypeOf(Transaction{}), r)
 		},
@@ -172,6 +175,6 @@ func TestEncoderCompleteness(t *testing.T) {
 	}
 
 	if quick.Check(checkFn, cfg) != nil {
-		t.Fatal("roundtrip test failed; did you forget to update transaction encoder?")
+		t.Fatalf("roundtrip test failed; did you forget to update transaction encoder? (seed = %v)", seed)
 	}
 }
