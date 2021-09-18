@@ -207,12 +207,12 @@ type Transaction struct {
 	MinerFee                Currency
 }
 
-// ID returns the hash of all block-independent data in the transaction.
+// ID returns the hash of all data in the transaction.
 func (txn *Transaction) ID() TransactionID {
 	h := hasherPool.Get().(*Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	h.WriteTransaction(*txn)
+	h.Encode(*txn)
 	return TransactionID(h.Sum())
 }
 

@@ -2,7 +2,6 @@
 package consensus
 
 import (
-	"bytes"
 	"crypto/ed25519"
 	"encoding/binary"
 	"errors"
@@ -98,11 +97,7 @@ func (vc *ValidationContext) MaxBlockWeight() uint64 {
 
 // TransactionWeight computes the weight of a txn.
 func (vc *ValidationContext) TransactionWeight(txn types.Transaction) uint64 {
-	var buf bytes.Buffer
-	e := types.NewEncoder(&buf)
-	e.WriteTransaction(txn)
-	_ = e.Flush() // no error possible
-	storage := buf.Len()
+	storage := types.EncodedLen(txn)
 
 	var signatures int
 	for _, in := range txn.SiacoinInputs {
@@ -150,8 +145,7 @@ func (vc *ValidationContext) StorageProofSegmentIndex(filesize uint64, windowSta
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	h.WriteChainIndex(windowStart)
-	h.WriteOutputID(fcid)
+	h.EncodeAll(windowStart, fcid)
 	seed := h.Sum()
 
 	var r uint64
@@ -168,21 +162,19 @@ func (vc *ValidationContext) Commitment(minerAddr types.Address, txns []types.Tr
 	h.Reset()
 
 	// hash the context
-	vc.EncodeTo(h.Encoder)
+	h.Encode(vc)
 	ctxHash := h.Sum()
 
 	// hash the transactions
 	h.Reset()
 	for _, txn := range txns {
-		h.WriteHash(types.Hash256(txn.ID()))
+		h.Encode(txn.ID())
 	}
 	txnsHash := h.Sum()
 
 	// concatenate the hashes and the miner address
 	h.Reset()
-	h.WriteHash(ctxHash)
-	h.WriteAddress(minerAddr)
-	h.WriteHash(txnsHash)
+	h.EncodeAll(ctxHash, minerAddr, txnsHash)
 	return h.Sum()
 }
 
@@ -192,31 +184,31 @@ func (vc *ValidationContext) SigHash(txn types.Transaction) types.Hash256 {
 	defer hasherPool.Put(h)
 	h.Reset()
 	for _, in := range txn.SiacoinInputs {
-		h.WriteOutputID(in.Parent.ID)
+		h.Encode(in.Parent.ID)
 	}
 	for _, out := range txn.SiacoinOutputs {
-		h.WriteBeneficiary(out)
+		h.Encode(out)
 	}
 	for _, in := range txn.SiafundInputs {
-		h.WriteOutputID(in.Parent.ID)
+		h.Encode(in.Parent.ID)
 	}
 	for _, out := range txn.SiafundOutputs {
-		h.WriteBeneficiary(out)
+		h.Encode(out)
 	}
 	for _, fc := range txn.FileContracts {
-		h.WriteFileContractState(fc)
+		h.Encode(fc)
 	}
 	for _, fcr := range txn.FileContractRevisions {
-		h.WriteOutputID(fcr.Parent.ID)
-		h.WriteFileContractState(fcr.NewState)
+		h.Encode(fcr.Parent.ID)
+		h.Encode(fcr.NewState)
 	}
 	for _, fcr := range txn.FileContractResolutions {
-		h.WriteOutputID(fcr.Parent.ID)
-		h.WriteChainIndex(fcr.StorageProof.WindowStart)
+		h.Encode(fcr.Parent.ID)
+		h.Encode(fcr.StorageProof.WindowStart)
 	}
 	h.Write(txn.ArbitraryData)
-	h.WriteAddress(txn.NewFoundationAddress)
-	h.WriteCurrency(txn.MinerFee)
+	h.Encode(txn.NewFoundationAddress)
+	h.Encode(txn.MinerFee)
 	return h.Sum()
 }
 
@@ -225,7 +217,7 @@ func (vc *ValidationContext) ContractSigHash(fc types.FileContractState) types.H
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	h.WriteFileContractState(fc)
+	h.Encode(fc)
 	return h.Sum()
 }
 

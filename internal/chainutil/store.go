@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"time"
 
 	"go.sia.tech/core/chain"
 	"go.sia.tech/core/consensus"
@@ -135,15 +134,8 @@ func (fs *FlatStore) Header(index types.ChainIndex) (types.BlockHeader, error) {
 		return types.BlockHeader{}, err
 	}
 	d := types.NewBufDecoder(b)
-
 	var h types.BlockHeader
-	h.Height = d.ReadUint64()
-	h.ParentID = types.BlockID(d.ReadHash())
-	d.Read(h.Nonce[:])
-	h.Timestamp = time.Unix(int64(d.ReadUint64()), 0)
-	h.MinerAddress = d.ReadAddress()
-	h.Commitment = d.ReadHash()
-
+	d.Decode(&h)
 	return h, d.Err()
 }
 
@@ -183,7 +175,7 @@ func (fs *FlatStore) BestIndex(height uint64) (index types.ChainIndex, err error
 	}
 
 	d := types.NewBufDecoder(buf)
-	index = d.ReadChainIndex()
+	d.Decode(&index)
 	return index, d.Err()
 }
 
@@ -379,17 +371,15 @@ func writeMeta(w io.Writer, meta metadata) error {
 	e := types.NewEncoder(w)
 	e.WriteUint64(uint64(meta.indexSize))
 	e.WriteUint64(uint64(meta.entrySize))
-	e.WriteChainIndex(meta.tip)
+	e.Encode(meta.tip)
 	return e.Flush()
 }
 
 func readMeta(r io.Reader) (meta metadata, err error) {
 	d, err := bufferedDecoder(r, metaSize)
-	meta = metadata{
-		int64(d.ReadUint64()),
-		int64(d.ReadUint64()),
-		d.ReadChainIndex(),
-	}
+	meta.indexSize = int64(d.ReadUint64())
+	meta.entrySize = int64(d.ReadUint64())
+	d.Decode(&meta.tip)
 	return
 }
 
@@ -404,34 +394,33 @@ func readMetaFile(path string) (meta metadata, err error) {
 
 func writeBest(w io.Writer, index types.ChainIndex) error {
 	e := types.NewEncoder(w)
-	e.WriteChainIndex(index)
+	e.Encode(index)
 	return e.Flush()
 }
 
 func readBest(r io.Reader) (index types.ChainIndex, err error) {
 	d, err := bufferedDecoder(r, bestSize)
-	index = d.ReadChainIndex()
+	d.Decode(&index)
 	return
 }
 
 func writeIndex(w io.Writer, index types.ChainIndex, offset int64) error {
 	e := types.NewEncoder(w)
-	e.WriteChainIndex(index)
+	e.Encode(index)
 	e.WriteUint64(uint64(offset))
 	return e.Flush()
 }
 
 func readIndex(r io.Reader) (index types.ChainIndex, offset int64, err error) {
 	d, err := bufferedDecoder(r, indexSize)
-	index = d.ReadChainIndex()
+	d.Decode(&index)
 	offset = int64(d.ReadUint64())
 	return
 }
 
 func writeCheckpoint(w io.Writer, c consensus.Checkpoint) error {
 	e := types.NewEncoder(w)
-	(consensus.CompressedBlock)(c.Block).EncodeTo(e)
-	c.Context.EncodeTo(e)
+	e.EncodeAll((consensus.CompressedBlock)(c.Block), c.Context)
 	return e.Flush()
 }
 
@@ -440,7 +429,6 @@ func readCheckpoint(r io.Reader, c *consensus.Checkpoint) error {
 		R: r,
 		N: 10e6, // a checkpoint should never be anywhere near this large
 	})
-	(*consensus.CompressedBlock)(&c.Block).DecodeFrom(d)
-	c.Context.DecodeFrom(d)
+	d.DecodeAll((*consensus.CompressedBlock)(&c.Block), &c.Context)
 	return d.Err()
 }

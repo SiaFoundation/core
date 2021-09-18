@@ -76,11 +76,8 @@ func siacoinOutputStateObject(o types.SiacoinOutput, flags uint64) stateObject {
 	defer hasherPool.Put(h)
 	h.Reset()
 
-	h.WriteOutputID(o.ID)
-	h.WriteCurrency(o.Value)
-	h.WriteAddress(o.Address)
+	h.EncodeAll(o.ID, o.Value, o.Address)
 	h.WriteUint64(o.Timelock)
-
 	return stateObject{
 		objHash:   h.Sum(),
 		leafIndex: o.LeafIndex,
@@ -94,10 +91,7 @@ func siafundOutputStateObject(o types.SiafundOutput, flags uint64) stateObject {
 	defer hasherPool.Put(h)
 	h.Reset()
 
-	h.WriteOutputID(o.ID)
-	h.WriteCurrency(o.Value)
-	h.WriteAddress(o.Address)
-
+	h.EncodeAll(o.ID, o.Value, o.Address, o.ClaimStart)
 	return stateObject{
 		objHash:   h.Sum(),
 		leafIndex: o.LeafIndex,
@@ -110,8 +104,7 @@ func fileContractStateObject(fc types.FileContract, flags uint64) stateObject {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	h.WriteOutputID(fc.ID)
-	h.WriteFileContractState(fc.State)
+	h.EncodeAll(fc.ID, fc.State)
 	return stateObject{
 		objHash:   h.Sum(),
 		leafIndex: fc.LeafIndex,

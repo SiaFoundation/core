@@ -10,89 +10,40 @@ import (
 )
 
 func TestEncoderRoundtrip(t *testing.T) {
-	tests := []struct {
-		val interface{}
-		enc interface{}
-		dec interface{}
-	}{
-		{
-			val: Hash256{0: 0xAA, 31: 0xBB},
-			enc: (*Encoder).WriteHash,
-			dec: (*Decoder).ReadHash,
+	tests := []EncoderTo{
+		Hash256{0: 0xAA, 31: 0xBB},
+		InputSignature{0: 0xAA, 63: 0xBB},
+		Work{NumHashes: [32]byte{0: 0xAA, 31: 0xBB}},
+		NewCurrency(5, 5),
+		ChainIndex{
+			Height: 555,
+			ID:     BlockID{0: 0xAA, 31: 0xBB},
 		},
-		{
-			val: InputSignature{0: 0xAA, 63: 0xBB},
-			enc: (*Encoder).WriteSignature,
-			dec: (*Decoder).ReadSignature,
+		OutputID{
+			TransactionID: TransactionID{0: 0xAA, 31: 0xBB},
+			Index:         5000,
 		},
-		{
-			val: uint8(100),
-			enc: (*Encoder).WriteUint8,
-			dec: (*Decoder).ReadUint8,
+		Beneficiary{
+			Value:   NewCurrency(1000, 1000),
+			Address: Address{0: 0xAA, 31: 0xBB},
 		},
-		{
-			val: uint64(100),
-			enc: (*Encoder).WriteUint64,
-			dec: (*Decoder).ReadUint64,
-		},
-		{
-			val: CurrentTimestamp(),
-			enc: (*Encoder).WriteTime,
-			dec: (*Decoder).ReadTime,
-		},
-		{
-			val: Work{NumHashes: [32]byte{0: 0xAA, 31: 0xBB}},
-			enc: (*Encoder).WriteWork,
-			dec: (*Decoder).ReadWork,
-		},
-		{
-			val: NewCurrency(5, 5),
-			enc: (*Encoder).WriteCurrency,
-			dec: (*Decoder).ReadCurrency,
-		},
-		{
-			val: ChainIndex{
-				Height: 555,
-				ID:     BlockID{0: 0xAA, 31: 0xBB},
-			},
-			enc: (*Encoder).WriteChainIndex,
-			dec: (*Decoder).ReadChainIndex,
-		},
-		{
-			val: OutputID{
-				TransactionID: TransactionID{0: 0xAA, 31: 0xBB},
-				Index:         5000,
-			},
-			enc: (*Encoder).WriteOutputID,
-			dec: (*Decoder).ReadOutputID,
-		},
-		{
-			val: Beneficiary{
-				Value:   NewCurrency(1000, 1000),
-				Address: Address{0: 0xAA, 31: 0xBB},
-			},
-			enc: (*Encoder).WriteBeneficiary,
-			dec: (*Decoder).ReadBeneficiary,
-		},
-		{
-			val: FileContractState{
-				Filesize:       1000,
-				FileMerkleRoot: Hash256{0: 0xAA, 31: 0xBB},
-				WindowStart:    5000,
-				WindowEnd:      5000,
-			},
-			enc: (*Encoder).WriteFileContractState,
-			dec: (*Decoder).ReadFileContractState,
+		FileContractState{
+			Filesize:       1000,
+			FileMerkleRoot: Hash256{0: 0xAA, 31: 0xBB},
+			WindowStart:    5000,
+			WindowEnd:      5000,
 		},
 	}
-	for _, test := range tests {
+	for _, val := range tests {
 		var buf bytes.Buffer
 		e := NewEncoder(&buf)
-		reflect.ValueOf(test.enc).Call([]reflect.Value{reflect.ValueOf(e), reflect.ValueOf(test.val)})
+		e.Encode(val)
 		e.Flush()
-		val := reflect.ValueOf(test.dec).Call([]reflect.Value{reflect.ValueOf(NewBufDecoder(buf.Bytes()))})[0].Interface()
-		if !reflect.DeepEqual(test.val, val) {
-			t.Fatalf("value did not survive roundtrip: expected %v, got %v", test.val, val)
+		decptr := reflect.New(reflect.TypeOf(val))
+		NewBufDecoder(buf.Bytes()).Decode(decptr.Interface().(DecoderFrom))
+		dec := decptr.Elem().Interface()
+		if !reflect.DeepEqual(dec, val) {
+			t.Fatalf("value did not survive roundtrip: expected %v, got %v", val, dec)
 		}
 	}
 }
@@ -168,9 +119,10 @@ func TestEncoderCompleteness(t *testing.T) {
 	checkFn := func(txn Transaction) bool {
 		var buf bytes.Buffer
 		e := NewEncoder(&buf)
-		e.WriteTransaction(txn)
+		e.Encode(txn)
 		e.Flush()
-		decTxn := NewBufDecoder(buf.Bytes()).ReadTransaction()
+		var decTxn Transaction
+		NewBufDecoder(buf.Bytes()).Decode(&decTxn)
 		return reflect.DeepEqual(txn, decTxn)
 	}
 
