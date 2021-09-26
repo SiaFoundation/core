@@ -1,6 +1,7 @@
 package types
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -43,21 +44,6 @@ func (e *Encoder) Write(p []byte) (int, error) {
 	return lenp, e.err
 }
 
-// WriteHash writes a hash to the underlying stream.
-func (e *Encoder) WriteHash(h Hash256) { e.Write(h[:]) }
-
-// WriteAddress writes an address to the underlying stream.
-func (e *Encoder) WriteAddress(a Address) { e.Write(a[:]) }
-
-// WritePublicKey writes a public key to the underlying stream.
-func (e *Encoder) WritePublicKey(pk PublicKey) { e.Write(pk[:]) }
-
-// WriteSignature writes a signature to the underlying stream.
-func (e *Encoder) WriteSignature(is InputSignature) { e.Write(is[:]) }
-
-// WriteUint8 writes a uint8 value to the underlying stream.
-func (e *Encoder) WriteUint8(p uint8) { e.Write([]byte{p}) }
-
 // WriteUint64 writes a uint64 value to the underlying stream.
 func (e *Encoder) WriteUint64(u uint64) {
 	var buf [8]byte
@@ -65,175 +51,11 @@ func (e *Encoder) WriteUint64(u uint64) {
 	e.Write(buf[:])
 }
 
-// WriteInt writes an int value to the underlying stream.
-func (e *Encoder) WriteInt(i int) { e.WriteUint64(uint64(i)) }
+// WritePrefix writes a length prefix to the underlying stream.
+func (e *Encoder) WritePrefix(i int) { e.WriteUint64(uint64(i)) }
 
-// WriteTime writes a time value to the underlying stream.
+// WriteTime writes a time.Time value to the underlying stream.
 func (e *Encoder) WriteTime(t time.Time) { e.WriteUint64(uint64(t.Unix())) }
-
-// WriteWork writes a Work value to the underlying stream.
-func (e *Encoder) WriteWork(w Work) { e.WriteHash(w.NumHashes) }
-
-// WriteCurrency writes a Currency value to the underlying stream.
-func (e *Encoder) WriteCurrency(c Currency) {
-	e.WriteUint64(c.Lo)
-	e.WriteUint64(c.Hi)
-}
-
-// WriteChainIndex writes a ChainIndex value to the underlying stream.
-func (e *Encoder) WriteChainIndex(index ChainIndex) {
-	e.WriteUint64(index.Height)
-	e.WriteHash(Hash256(index.ID))
-}
-
-// WriteOutputID writes an OutputID value to the underlying stream.
-func (e *Encoder) WriteOutputID(id OutputID) {
-	e.WriteHash(Hash256(id.TransactionID))
-	e.WriteUint64(id.Index)
-}
-
-// WriteBeneficiary writes a Beneficiary value to the underlying stream.
-func (e *Encoder) WriteBeneficiary(b Beneficiary) {
-	e.WriteCurrency(b.Value)
-	e.WriteAddress(b.Address)
-}
-
-// WriteFileContractState writes a FileContractState value to the
-// underlying stream.
-func (e *Encoder) WriteFileContractState(rev FileContractState) {
-	e.WriteUint64(rev.Filesize)
-	e.WriteHash(rev.FileMerkleRoot)
-	e.WriteUint64(rev.WindowStart)
-	e.WriteUint64(rev.WindowEnd)
-	e.WriteBeneficiary(rev.ValidRenterOutput)
-	e.WriteBeneficiary(rev.ValidHostOutput)
-	e.WriteBeneficiary(rev.MissedRenterOutput)
-	e.WriteBeneficiary(rev.MissedHostOutput)
-	e.WritePublicKey(rev.RenterPublicKey)
-	e.WritePublicKey(rev.HostPublicKey)
-	e.WriteUint64(rev.RevisionNumber)
-}
-
-const (
-	opInvalid = iota
-	opAbove
-	opPublicKey
-	opThreshold
-	opUnlockConditions
-)
-
-// WritePolicy writes a SpendPolicy to the underlying stream.
-func (e *Encoder) WritePolicy(p SpendPolicy) {
-	var writePolicy func(SpendPolicy)
-	writePolicy = func(p SpendPolicy) {
-		switch p := p.(type) {
-		case PolicyAbove:
-			e.WriteUint8(opAbove)
-			e.WriteUint64(uint64(p))
-		case PolicyPublicKey:
-			e.WriteUint8(opPublicKey)
-			e.WritePublicKey(PublicKey(p))
-		case PolicyThreshold:
-			e.WriteUint8(opThreshold)
-			e.WriteUint8(p.N)
-			e.WriteUint8(uint8(len(p.Of)))
-			for i := range p.Of {
-				writePolicy(p.Of[i])
-			}
-		case PolicyUnlockConditions:
-			e.WriteUint8(opUnlockConditions)
-			e.WriteUint64(p.Timelock)
-			e.WriteUint8(uint8(len(p.PublicKeys)))
-			for i := range p.PublicKeys {
-				e.WritePublicKey(p.PublicKeys[i])
-			}
-			e.WriteUint8(p.SignaturesRequired)
-		default:
-			panic("unhandled policy type")
-		}
-	}
-
-	const version = 1
-	e.WriteUint8(version)
-	writePolicy(p)
-}
-
-// WriteTransaction writes a Transaction value to the underlying stream.
-func (e *Encoder) WriteTransaction(txn Transaction) {
-	writeMerkleProof := func(proof []Hash256) {
-		e.WriteInt(len(proof))
-		for _, p := range proof {
-			e.WriteHash(p)
-		}
-	}
-
-	e.WriteInt(len(txn.SiacoinInputs))
-	for _, in := range txn.SiacoinInputs {
-		e.WriteOutputID(in.Parent.ID)
-		e.WriteCurrency(in.Parent.Value)
-		e.WriteAddress(in.Parent.Address)
-		e.WriteUint64(in.Parent.Timelock)
-		writeMerkleProof(in.Parent.MerkleProof)
-		e.WriteUint64(in.Parent.LeafIndex)
-		e.WritePolicy(in.SpendPolicy)
-		e.WriteInt(len(in.Signatures))
-		for _, sig := range in.Signatures {
-			e.WriteSignature(sig)
-		}
-	}
-	e.WriteInt(len(txn.SiacoinOutputs))
-	for _, out := range txn.SiacoinOutputs {
-		e.WriteBeneficiary(out)
-	}
-	e.WriteInt(len(txn.SiafundInputs))
-	for _, in := range txn.SiafundInputs {
-		e.WriteOutputID(in.Parent.ID)
-		e.WriteCurrency(in.Parent.Value)
-		e.WriteAddress(in.Parent.Address)
-		e.WriteCurrency(in.Parent.ClaimStart)
-		writeMerkleProof(in.Parent.MerkleProof)
-		e.WriteUint64(in.Parent.LeafIndex)
-		e.WriteAddress(in.ClaimAddress)
-		e.WritePolicy(in.SpendPolicy)
-		e.WriteInt(len(in.Signatures))
-		for _, sig := range in.Signatures {
-			e.WriteSignature(sig)
-		}
-	}
-	e.WriteInt(len(txn.SiafundOutputs))
-	for _, out := range txn.SiafundOutputs {
-		e.WriteBeneficiary(out)
-	}
-	e.WriteInt(len(txn.FileContracts))
-	for _, fc := range txn.FileContracts {
-		e.WriteFileContractState(fc)
-	}
-	e.WriteInt(len(txn.FileContractRevisions))
-	for _, fcr := range txn.FileContractRevisions {
-		e.WriteOutputID(fcr.Parent.ID)
-		e.WriteFileContractState(fcr.Parent.State)
-		writeMerkleProof(fcr.Parent.MerkleProof)
-		e.WriteUint64(fcr.Parent.LeafIndex)
-		e.WriteFileContractState(fcr.NewState)
-		e.WriteSignature(fcr.RenterSignature)
-		e.WriteSignature(fcr.HostSignature)
-	}
-	e.WriteInt(len(txn.FileContractResolutions))
-	for _, fcr := range txn.FileContractResolutions {
-		e.WriteOutputID(fcr.Parent.ID)
-		e.WriteFileContractState(fcr.Parent.State)
-		writeMerkleProof(fcr.Parent.MerkleProof)
-		e.WriteUint64(fcr.Parent.LeafIndex)
-		e.WriteChainIndex(fcr.StorageProof.WindowStart)
-		writeMerkleProof(fcr.StorageProof.WindowProof)
-		e.Write(fcr.StorageProof.DataSegment[:])
-		writeMerkleProof(fcr.StorageProof.SegmentProof)
-	}
-	e.WriteInt(len(txn.ArbitraryData))
-	e.Write(txn.ArbitraryData)
-	e.WriteAddress(txn.NewFoundationAddress)
-	e.WriteCurrency(txn.MinerFee)
-}
 
 // NewEncoder returns an Encoder that wraps the provided stream.
 func NewEncoder(w io.Writer) *Encoder {
@@ -242,15 +64,47 @@ func NewEncoder(w io.Writer) *Encoder {
 	}
 }
 
+// An EncoderTo can encode itself to a stream via an Encoder.
+type EncoderTo interface {
+	EncodeTo(e *Encoder)
+}
+
+// EncodedLen returns the length of v when encoded.
+func EncodedLen(v interface{}) int {
+	var buf bytes.Buffer
+	e := NewEncoder(&buf)
+	if et, ok := v.(EncoderTo); ok {
+		et.EncodeTo(e)
+	} else {
+		switch v := v.(type) {
+		case uint64:
+			e.WriteUint64(v)
+		case time.Time:
+			e.WriteTime(v)
+		case []byte:
+			e.WritePrefix(len(v))
+			e.Write(v)
+		case SpendPolicy:
+			e.WritePolicy(v)
+		default:
+			panic(fmt.Sprintf("cannot encode type %T", v))
+		}
+	}
+	_ = e.Flush() // no error possible
+	return buf.Len()
+}
+
 // A Decoder reads values from an underlying stream. Callers MUST check
 // (*Decoder).Err before using any decoded values.
 type Decoder struct {
-	r   io.Reader
+	lr  io.LimitedReader
 	buf [64]byte
 	err error
 }
 
-func (d *Decoder) setErr(err error) {
+// SetErr sets the Decoder's error if it has not already been set. SetErr should
+// only be called from DecodeFrom methods.
+func (d *Decoder) SetErr(err error) {
 	if err != nil && d.err == nil {
 		d.err = err
 		// clear d.buf so that future reads always return zero
@@ -271,16 +125,10 @@ func (d *Decoder) Read(p []byte) (int, error) {
 			want = len(d.buf)
 		}
 		var read int
-		read, d.err = io.ReadFull(d.r, d.buf[:want])
+		read, d.err = io.ReadFull(&d.lr, d.buf[:want])
 		n += copy(p, d.buf[:read])
 	}
 	return n, d.err
-}
-
-// ReadUint8 reads a uint8 value from the underlying stream.
-func (d *Decoder) ReadUint8() uint8 {
-	d.Read(d.buf[:1])
-	return d.buf[0]
 }
 
 // ReadUint64 reads a uint64 value from the underlying stream.
@@ -289,88 +137,374 @@ func (d *Decoder) ReadUint64() uint64 {
 	return binary.LittleEndian.Uint64(d.buf[:8])
 }
 
-// ReadInt reads an int value from the underlying stream.
-func (d *Decoder) ReadInt() int {
-	return int(d.ReadUint64())
+// ReadPrefix reads a length prefix from the underlying stream. If the length
+// exceeds the number of bytes remaining in the stream, ReadPrefix sets d.Err
+// and returns 0.
+func (d *Decoder) ReadPrefix() int {
+	n := d.ReadUint64()
+	if n > uint64(d.lr.N) {
+		d.SetErr(fmt.Errorf("encoded object contains invalid length prefix (%v elems > %v bytes left in stream)", n, d.lr.N))
+		return 0
+	}
+	return int(n)
 }
 
 // ReadTime reads a time.Time from the underlying stream.
-func (d *Decoder) ReadTime() time.Time {
-	return time.Unix(int64(d.ReadUint64()), 0)
+func (d *Decoder) ReadTime() time.Time { return time.Unix(int64(d.ReadUint64()), 0) }
+
+// NewDecoder returns a Decoder that wraps the provided stream.
+func NewDecoder(lr io.LimitedReader) *Decoder {
+	return &Decoder{
+		lr: lr,
+	}
 }
 
-// ReadHash reads a hash from the underlying stream.
-func (d *Decoder) ReadHash() (h Hash256) {
-	d.Read(h[:])
+// A DecoderFrom can decode itself from a stream via a Decoder.
+type DecoderFrom interface {
+	DecodeFrom(d *Decoder)
+}
+
+// NewBufDecoder returns a Decoder for the provided byte slice.
+func NewBufDecoder(buf []byte) *Decoder {
+	return NewDecoder(io.LimitedReader{
+		R: bytes.NewReader(buf),
+		N: int64(len(buf)),
+	})
+}
+
+// A Hasher streams objects into an instance of Sia's hash function.
+type Hasher struct {
+	h hash.Hash
+	E *Encoder
+}
+
+// Reset resets the underlying hash digest state.
+func (h *Hasher) Reset() { h.h.Reset() }
+
+// Sum returns the digest of the objects written to the Hasher.
+func (h *Hasher) Sum() (sum Hash256) {
+	_ = h.E.Flush() // no error possible
+	h.h.Sum(sum[:0])
 	return
 }
 
-// ReadAddress reads an address from the underlying stream.
-func (d *Decoder) ReadAddress() Address { return Address(d.ReadHash()) }
-
-// ReadPublicKey reads a public key from the underlying stream.
-func (d *Decoder) ReadPublicKey() PublicKey { return PublicKey(d.ReadHash()) }
-
-// ReadSignature reads an InputSignature from the underlying stream.
-func (d *Decoder) ReadSignature() (is InputSignature) {
-	d.Read(is[:])
-	return
+// NewHasher returns a new Hasher instance.
+func NewHasher() *Hasher {
+	h, _ := blake2b.New256(nil)
+	e := NewEncoder(h)
+	return &Hasher{h, e}
 }
 
-// ReadWork reads a Work value from the underlying stream.
-func (d *Decoder) ReadWork() Work { return Work{d.ReadHash()} }
+// implementations of EncoderTo and DecoderFrom for core types
 
-// ReadCurrency reads a Currency value from the underlying stream.
-func (d *Decoder) ReadCurrency() (c Currency) {
-	return NewCurrency(d.ReadUint64(), d.ReadUint64())
+// EncodeTo implements types.EncoderTo.
+func (h Hash256) EncodeTo(e *Encoder) { e.Write(h[:]) }
+
+// EncodeTo implements types.EncoderTo.
+func (id BlockID) EncodeTo(e *Encoder) { e.Write(id[:]) }
+
+// EncodeTo implements types.EncoderTo.
+func (id TransactionID) EncodeTo(e *Encoder) { e.Write(id[:]) }
+
+// EncodeTo implements types.EncoderTo.
+func (a Address) EncodeTo(e *Encoder) { e.Write(a[:]) }
+
+// EncodeTo implements types.EncoderTo.
+func (pk PublicKey) EncodeTo(e *Encoder) { e.Write(pk[:]) }
+
+// EncodeTo implements types.EncoderTo.
+func (is InputSignature) EncodeTo(e *Encoder) { e.Write(is[:]) }
+
+// EncodeTo implements types.EncoderTo.
+func (w Work) EncodeTo(e *Encoder) { e.Write(w.NumHashes[:]) }
+
+// EncodeTo implements types.EncoderTo.
+func (c Currency) EncodeTo(e *Encoder) {
+	e.WriteUint64(c.Lo)
+	e.WriteUint64(c.Hi)
 }
 
-// ReadChainIndex reads a ChainIndex from the underlying stream.
-func (d *Decoder) ReadChainIndex() ChainIndex {
-	return ChainIndex{d.ReadUint64(), BlockID(d.ReadHash())}
+// EncodeTo implements types.EncoderTo.
+func (index ChainIndex) EncodeTo(e *Encoder) {
+	e.WriteUint64(index.Height)
+	index.ID.EncodeTo(e)
 }
 
-// ReadOutputID reads an OutputID from the underlying stream.
-func (d *Decoder) ReadOutputID() OutputID {
-	return OutputID{TransactionID(d.ReadHash()), d.ReadUint64()}
+// EncodeTo implements types.EncoderTo.
+func (h BlockHeader) EncodeTo(e *Encoder) {
+	e.WriteUint64(h.Height)
+	h.ParentID.EncodeTo(e)
+	e.Write(h.Nonce[:])
+	e.WriteTime(h.Timestamp)
+	h.MinerAddress.EncodeTo(e)
+	h.Commitment.EncodeTo(e)
 }
 
-// ReadBeneficiary reads a Beneficiary from the underlying stream.
-func (d *Decoder) ReadBeneficiary() Beneficiary {
-	return Beneficiary{d.ReadCurrency(), d.ReadAddress()}
+// EncodeTo implements types.EncoderTo.
+func (id OutputID) EncodeTo(e *Encoder) {
+	id.TransactionID.EncodeTo(e)
+	e.WriteUint64(id.Index)
 }
 
-// ReadFileContractState reads a FileContractState from the underlying stream.
-func (d *Decoder) ReadFileContractState() (fc FileContractState) {
-	fc.Filesize = d.ReadUint64()
-	fc.FileMerkleRoot = d.ReadHash()
-	fc.WindowStart = d.ReadUint64()
-	fc.WindowEnd = d.ReadUint64()
-	fc.ValidRenterOutput = d.ReadBeneficiary()
-	fc.ValidHostOutput = d.ReadBeneficiary()
-	fc.MissedRenterOutput = d.ReadBeneficiary()
-	fc.MissedHostOutput = d.ReadBeneficiary()
-	fc.RenterPublicKey = PublicKey(d.ReadHash())
-	fc.HostPublicKey = PublicKey(d.ReadHash())
-	fc.RevisionNumber = d.ReadUint64()
-	return
+// EncodeTo implements types.EncoderTo.
+func (b Beneficiary) EncodeTo(e *Encoder) {
+	b.Value.EncodeTo(e)
+	b.Address.EncodeTo(e)
+}
+
+func (e *Encoder) writeMerkleProof(proof []Hash256) {
+	e.WritePrefix(len(proof))
+	for _, p := range proof {
+		p.EncodeTo(e)
+	}
+}
+
+// EncodeTo implements types.EncoderTo
+func (in SiacoinInput) EncodeTo(e *Encoder) {
+	in.Parent.EncodeTo(e)
+	e.WritePolicy(in.SpendPolicy)
+	e.WritePrefix(len(in.Signatures))
+	for _, sig := range in.Signatures {
+		sig.EncodeTo(e)
+	}
+}
+
+// EncodeTo implements types.EncoderTo
+func (out SiacoinOutput) EncodeTo(e *Encoder) {
+	out.ID.EncodeTo(e)
+	out.Value.EncodeTo(e)
+	out.Address.EncodeTo(e)
+	e.WriteUint64(out.Timelock)
+	e.writeMerkleProof(out.MerkleProof)
+	e.WriteUint64(out.LeafIndex)
+}
+
+// EncodeTo implements types.EncoderTo
+func (in SiafundInput) EncodeTo(e *Encoder) {
+	in.Parent.EncodeTo(e)
+	in.ClaimAddress.EncodeTo(e)
+	e.WritePolicy(in.SpendPolicy)
+	e.WritePrefix(len(in.Signatures))
+	for _, sig := range in.Signatures {
+		sig.EncodeTo(e)
+	}
+}
+
+// EncodeTo implements types.EncoderTo
+func (out SiafundOutput) EncodeTo(e *Encoder) {
+	out.ID.EncodeTo(e)
+	out.Value.EncodeTo(e)
+	out.Address.EncodeTo(e)
+	out.ClaimStart.EncodeTo(e)
+	e.writeMerkleProof(out.MerkleProof)
+	e.WriteUint64(out.LeafIndex)
+}
+
+// EncodeTo implements types.EncoderTo
+func (fc FileContractState) EncodeTo(e *Encoder) {
+	e.WriteUint64(fc.Filesize)
+	fc.FileMerkleRoot.EncodeTo(e)
+	e.WriteUint64(fc.WindowStart)
+	e.WriteUint64(fc.WindowEnd)
+	fc.ValidRenterOutput.EncodeTo(e)
+	fc.ValidHostOutput.EncodeTo(e)
+	fc.MissedRenterOutput.EncodeTo(e)
+	fc.MissedHostOutput.EncodeTo(e)
+	fc.RenterPublicKey.EncodeTo(e)
+	fc.HostPublicKey.EncodeTo(e)
+	e.WriteUint64(fc.RevisionNumber)
+}
+
+// EncodeTo implements types.EncoderTo
+func (fc FileContract) EncodeTo(e *Encoder) {
+	fc.ID.EncodeTo(e)
+	fc.State.EncodeTo(e)
+	e.writeMerkleProof(fc.MerkleProof)
+	e.WriteUint64(fc.LeafIndex)
+}
+
+// EncodeTo implements types.EncoderTo
+func (rev FileContractRevision) EncodeTo(e *Encoder) {
+	rev.Parent.EncodeTo(e)
+	rev.NewState.EncodeTo(e)
+	rev.RenterSignature.EncodeTo(e)
+	rev.HostSignature.EncodeTo(e)
+}
+
+// EncodeTo implements types.EncoderTo
+func (sp StorageProof) EncodeTo(e *Encoder) {
+	sp.WindowStart.EncodeTo(e)
+	e.writeMerkleProof(sp.WindowProof)
+	e.Write(sp.DataSegment[:])
+	e.writeMerkleProof(sp.SegmentProof)
+}
+
+// EncodeTo implements types.EncoderTo
+func (res FileContractResolution) EncodeTo(e *Encoder) {
+	res.Parent.EncodeTo(e)
+	res.StorageProof.EncodeTo(e)
+}
+
+const (
+	opInvalid = iota
+	opAbove
+	opPublicKey
+	opThreshold
+	opUnlockConditions
+)
+
+// WritePolicy writes a SpendPolicy to the underlying stream.
+func (e *Encoder) WritePolicy(p SpendPolicy) {
+	writeUint8 := func(u uint8) { e.Write([]byte{u}) }
+
+	var writePolicy func(SpendPolicy)
+	writePolicy = func(p SpendPolicy) {
+		switch p := p.(type) {
+		case PolicyAbove:
+			writeUint8(opAbove)
+			e.WriteUint64(uint64(p))
+		case PolicyPublicKey:
+			writeUint8(opPublicKey)
+			PublicKey(p).EncodeTo(e)
+		case PolicyThreshold:
+			writeUint8(opThreshold)
+			writeUint8(p.N)
+			writeUint8(uint8(len(p.Of)))
+			for i := range p.Of {
+				writePolicy(p.Of[i])
+			}
+		case PolicyUnlockConditions:
+			writeUint8(opUnlockConditions)
+			e.WriteUint64(p.Timelock)
+			writeUint8(uint8(len(p.PublicKeys)))
+			for i := range p.PublicKeys {
+				p.PublicKeys[i].EncodeTo(e)
+			}
+			writeUint8(p.SignaturesRequired)
+		default:
+			panic("unhandled policy type")
+		}
+	}
+
+	const version = 1
+	writeUint8(version)
+	writePolicy(p)
+}
+
+// EncodeTo implements types.EncoderTo.
+func (txn Transaction) EncodeTo(e *Encoder) {
+	e.WritePrefix(len(txn.SiacoinInputs))
+	for _, in := range txn.SiacoinInputs {
+		in.EncodeTo(e)
+	}
+	e.WritePrefix(len(txn.SiacoinOutputs))
+	for _, out := range txn.SiacoinOutputs {
+		out.EncodeTo(e)
+	}
+	e.WritePrefix(len(txn.SiafundInputs))
+	for _, in := range txn.SiafundInputs {
+		in.EncodeTo(e)
+	}
+	e.WritePrefix(len(txn.SiafundOutputs))
+	for _, out := range txn.SiafundOutputs {
+		out.EncodeTo(e)
+	}
+	e.WritePrefix(len(txn.FileContracts))
+	for _, fc := range txn.FileContracts {
+		fc.EncodeTo(e)
+	}
+	e.WritePrefix(len(txn.FileContractRevisions))
+	for _, rev := range txn.FileContractRevisions {
+		rev.EncodeTo(e)
+	}
+	e.WritePrefix(len(txn.FileContractResolutions))
+	for _, res := range txn.FileContractResolutions {
+		res.EncodeTo(e)
+	}
+	e.WritePrefix(len(txn.ArbitraryData))
+	e.Write(txn.ArbitraryData)
+	txn.NewFoundationAddress.EncodeTo(e)
+	txn.MinerFee.EncodeTo(e)
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (h *Hash256) DecodeFrom(d *Decoder) { d.Read(h[:]) }
+
+// DecodeFrom implements types.DecoderFrom.
+func (id *BlockID) DecodeFrom(d *Decoder) { d.Read(id[:]) }
+
+// DecodeFrom implements types.DecoderFrom.
+func (id *TransactionID) DecodeFrom(d *Decoder) { d.Read(id[:]) }
+
+// DecodeFrom implements types.DecoderFrom.
+func (a *Address) DecodeFrom(d *Decoder) { d.Read(a[:]) }
+
+// DecodeFrom implements types.DecoderFrom.
+func (pk *PublicKey) DecodeFrom(d *Decoder) { d.Read(pk[:]) }
+
+// DecodeFrom implements types.DecoderFrom.
+func (is *InputSignature) DecodeFrom(d *Decoder) { d.Read(is[:]) }
+
+// DecodeFrom implements types.DecoderFrom.
+func (w *Work) DecodeFrom(d *Decoder) { d.Read(w.NumHashes[:]) }
+
+// DecodeFrom implements types.DecoderFrom.
+func (c *Currency) DecodeFrom(d *Decoder) {
+	c.Lo = d.ReadUint64()
+	c.Hi = d.ReadUint64()
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (index *ChainIndex) DecodeFrom(d *Decoder) {
+	index.Height = d.ReadUint64()
+	index.ID.DecodeFrom(d)
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (h *BlockHeader) DecodeFrom(d *Decoder) {
+	h.Height = d.ReadUint64()
+	h.ParentID.DecodeFrom(d)
+	d.Read(h.Nonce[:])
+	h.Timestamp = d.ReadTime()
+	h.MinerAddress.DecodeFrom(d)
+	h.Commitment.DecodeFrom(d)
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (id *OutputID) DecodeFrom(d *Decoder) {
+	id.TransactionID.DecodeFrom(d)
+	id.Index = d.ReadUint64()
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (b *Beneficiary) DecodeFrom(d *Decoder) {
+	b.Value.DecodeFrom(d)
+	b.Address.DecodeFrom(d)
 }
 
 // ReadPolicy reads a SpendPolicy from the underlying stream.
 func (d *Decoder) ReadPolicy() (p SpendPolicy) {
+	var buf [1]byte
+	readUint8 := func() uint8 {
+		d.Read(buf[:1])
+		return buf[0]
+	}
+
 	const maxPolicies = 1024
 	totalPolicies := 1
 	var readPolicy func() (SpendPolicy, error)
 	readPolicy = func() (SpendPolicy, error) {
-		switch op := d.ReadUint8(); op {
+		switch op := readUint8(); op {
 		case opAbove:
 			return PolicyAbove(d.ReadUint64()), nil
 		case opPublicKey:
-			return PolicyPublicKey(d.ReadHash()), nil
+			var pk PublicKey
+			pk.DecodeFrom(d)
+			return PolicyPublicKey(pk), nil
 		case opThreshold:
 			thresh := PolicyThreshold{
-				N:  d.ReadUint8(),
-				Of: make([]SpendPolicy, d.ReadUint8()),
+				N:  readUint8(),
+				Of: make([]SpendPolicy, readUint8()),
 			}
 			totalPolicies += len(thresh.Of)
 			if totalPolicies > maxPolicies {
@@ -387,189 +521,153 @@ func (d *Decoder) ReadPolicy() (p SpendPolicy) {
 		case opUnlockConditions:
 			uc := PolicyUnlockConditions{
 				Timelock:   d.ReadUint64(),
-				PublicKeys: make([]PublicKey, d.ReadUint8()),
+				PublicKeys: make([]PublicKey, readUint8()),
 			}
 			for i := range uc.PublicKeys {
-				uc.PublicKeys[i] = PublicKey(d.ReadHash())
+				uc.PublicKeys[i].DecodeFrom(d)
 			}
-			uc.SignaturesRequired = d.ReadUint8()
+			uc.SignaturesRequired = readUint8()
 			return uc, nil
 		default:
 			return nil, fmt.Errorf("unknown policy (opcode %v)", op)
 		}
 	}
 
-	if version := d.ReadUint8(); version != 1 {
-		d.setErr(fmt.Errorf("unsupported policy version (%v)", version))
+	if version := readUint8(); version != 1 {
+		d.SetErr(fmt.Errorf("unsupported policy version (%v)", version))
 		return
 	}
 	p, err := readPolicy()
-	d.setErr(err)
+	d.SetErr(err)
 	return p
 }
 
-// ReadTransaction reads a transaction from the underlying stream.
-func (d *Decoder) ReadTransaction() (txn Transaction) {
-	readMerkleProof := func() []Hash256 {
-		proof := make([]Hash256, d.ReadInt())
-		for i := range proof {
-			proof[i] = d.ReadHash()
-		}
-		return proof
+func (d *Decoder) readMerkleProof() []Hash256 {
+	proof := make([]Hash256, d.ReadPrefix())
+	for i := range proof {
+		proof[i].DecodeFrom(d)
 	}
+	return proof
+}
 
-	txn.SiacoinInputs = make([]SiacoinInput, d.ReadUint64())
+// DecodeFrom implements types.DecoderFrom.
+func (in *SiacoinInput) DecodeFrom(d *Decoder) {
+	in.Parent.DecodeFrom(d)
+	in.SpendPolicy = d.ReadPolicy()
+	in.Signatures = make([]InputSignature, d.ReadPrefix())
+	for i := range in.Signatures {
+		in.Signatures[i].DecodeFrom(d)
+	}
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (out *SiacoinOutput) DecodeFrom(d *Decoder) {
+	out.ID.DecodeFrom(d)
+	out.Value.DecodeFrom(d)
+	out.Address.DecodeFrom(d)
+	out.Timelock = d.ReadUint64()
+	out.MerkleProof = d.readMerkleProof()
+	out.LeafIndex = d.ReadUint64()
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (in *SiafundInput) DecodeFrom(d *Decoder) {
+	in.Parent.DecodeFrom(d)
+	in.ClaimAddress.DecodeFrom(d)
+	in.SpendPolicy = d.ReadPolicy()
+	in.Signatures = make([]InputSignature, d.ReadPrefix())
+	for i := range in.Signatures {
+		in.Signatures[i].DecodeFrom(d)
+	}
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (out *SiafundOutput) DecodeFrom(d *Decoder) {
+	out.ID.DecodeFrom(d)
+	out.Value.DecodeFrom(d)
+	out.Address.DecodeFrom(d)
+	out.ClaimStart.DecodeFrom(d)
+	out.MerkleProof = d.readMerkleProof()
+	out.LeafIndex = d.ReadUint64()
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (fc *FileContractState) DecodeFrom(d *Decoder) {
+	fc.Filesize = d.ReadUint64()
+	fc.FileMerkleRoot.DecodeFrom(d)
+	fc.WindowStart = d.ReadUint64()
+	fc.WindowEnd = d.ReadUint64()
+	fc.ValidRenterOutput.DecodeFrom(d)
+	fc.ValidHostOutput.DecodeFrom(d)
+	fc.MissedRenterOutput.DecodeFrom(d)
+	fc.MissedHostOutput.DecodeFrom(d)
+	fc.RenterPublicKey.DecodeFrom(d)
+	fc.HostPublicKey.DecodeFrom(d)
+	fc.RevisionNumber = d.ReadUint64()
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (fc *FileContract) DecodeFrom(d *Decoder) {
+	fc.ID.DecodeFrom(d)
+	fc.State.DecodeFrom(d)
+	fc.MerkleProof = d.readMerkleProof()
+	fc.LeafIndex = d.ReadUint64()
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (rev *FileContractRevision) DecodeFrom(d *Decoder) {
+	rev.Parent.DecodeFrom(d)
+	rev.NewState.DecodeFrom(d)
+	rev.RenterSignature.DecodeFrom(d)
+	rev.HostSignature.DecodeFrom(d)
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (sp *StorageProof) DecodeFrom(d *Decoder) {
+	sp.WindowStart.DecodeFrom(d)
+	sp.WindowProof = d.readMerkleProof()
+	d.Read(sp.DataSegment[:])
+	sp.SegmentProof = d.readMerkleProof()
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (res *FileContractResolution) DecodeFrom(d *Decoder) {
+	res.Parent.DecodeFrom(d)
+	res.StorageProof.DecodeFrom(d)
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (txn *Transaction) DecodeFrom(d *Decoder) {
+	txn.SiacoinInputs = make([]SiacoinInput, d.ReadPrefix())
 	for i := range txn.SiacoinInputs {
-		in := &txn.SiacoinInputs[i]
-		in.Parent.ID = d.ReadOutputID()
-		in.Parent.Value = d.ReadCurrency()
-		in.Parent.Address = d.ReadAddress()
-		in.Parent.Timelock = d.ReadUint64()
-		in.Parent.MerkleProof = readMerkleProof()
-		in.Parent.LeafIndex = d.ReadUint64()
-		in.SpendPolicy = d.ReadPolicy()
-		in.Signatures = make([]InputSignature, d.ReadInt())
-		for i := range in.Signatures {
-			in.Signatures[i] = d.ReadSignature()
-		}
+		txn.SiacoinInputs[i].DecodeFrom(d)
 	}
-	txn.SiacoinOutputs = make([]Beneficiary, d.ReadUint64())
+	txn.SiacoinOutputs = make([]Beneficiary, d.ReadPrefix())
 	for i := range txn.SiacoinOutputs {
-		txn.SiacoinOutputs[i] = d.ReadBeneficiary()
+		txn.SiacoinOutputs[i].DecodeFrom(d)
 	}
-	txn.SiafundInputs = make([]SiafundInput, d.ReadUint64())
+	txn.SiafundInputs = make([]SiafundInput, d.ReadPrefix())
 	for i := range txn.SiafundInputs {
-		in := &txn.SiafundInputs[i]
-		in.Parent.ID = d.ReadOutputID()
-		in.Parent.Value = d.ReadCurrency()
-		in.Parent.Address = d.ReadAddress()
-		in.Parent.ClaimStart = d.ReadCurrency()
-		in.Parent.MerkleProof = readMerkleProof()
-		in.Parent.LeafIndex = d.ReadUint64()
-		in.ClaimAddress = d.ReadAddress()
-		in.SpendPolicy = d.ReadPolicy()
-		in.Signatures = make([]InputSignature, d.ReadInt())
-		for i := range in.Signatures {
-			in.Signatures[i] = d.ReadSignature()
-		}
+		txn.SiafundInputs[i].DecodeFrom(d)
 	}
-	txn.SiafundOutputs = make([]Beneficiary, d.ReadUint64())
+	txn.SiafundOutputs = make([]Beneficiary, d.ReadPrefix())
 	for i := range txn.SiafundOutputs {
-		txn.SiafundOutputs[i] = d.ReadBeneficiary()
+		txn.SiafundOutputs[i].DecodeFrom(d)
 	}
-	txn.FileContracts = make([]FileContractState, d.ReadUint64())
+	txn.FileContracts = make([]FileContractState, d.ReadPrefix())
 	for i := range txn.FileContracts {
-		txn.FileContracts[i] = d.ReadFileContractState()
+		txn.FileContracts[i].DecodeFrom(d)
 	}
-	txn.FileContractRevisions = make([]FileContractRevision, d.ReadUint64())
+	txn.FileContractRevisions = make([]FileContractRevision, d.ReadPrefix())
 	for i := range txn.FileContractRevisions {
-		fcr := &txn.FileContractRevisions[i]
-		fcr.Parent.ID = d.ReadOutputID()
-		fcr.Parent.State = d.ReadFileContractState()
-		fcr.Parent.MerkleProof = readMerkleProof()
-		fcr.Parent.LeafIndex = d.ReadUint64()
-		fcr.NewState = d.ReadFileContractState()
-		fcr.RenterSignature = d.ReadSignature()
-		fcr.HostSignature = d.ReadSignature()
+		txn.FileContractRevisions[i].DecodeFrom(d)
 	}
-	txn.FileContractResolutions = make([]FileContractResolution, d.ReadUint64())
+	txn.FileContractResolutions = make([]FileContractResolution, d.ReadPrefix())
 	for i := range txn.FileContractResolutions {
-		fcr := &txn.FileContractResolutions[i]
-		fcr.Parent.ID = d.ReadOutputID()
-		fcr.Parent.State = d.ReadFileContractState()
-		fcr.Parent.MerkleProof = readMerkleProof()
-		fcr.Parent.LeafIndex = d.ReadUint64()
-		fcr.StorageProof.WindowStart.Height = d.ReadUint64()
-		fcr.StorageProof.WindowStart.ID = BlockID(d.ReadHash())
-		fcr.StorageProof.WindowProof = readMerkleProof()
-		d.Read(fcr.StorageProof.DataSegment[:])
-		fcr.StorageProof.SegmentProof = readMerkleProof()
+		txn.FileContractResolutions[i].DecodeFrom(d)
 	}
-	txn.ArbitraryData = make([]byte, d.ReadUint64())
+	txn.ArbitraryData = make([]byte, d.ReadPrefix())
 	d.Read(txn.ArbitraryData)
-	txn.NewFoundationAddress = d.ReadAddress()
-	txn.MinerFee = d.ReadCurrency()
-
-	return
-}
-
-// NewDecoder returns a Decoder that wraps the provided stream.
-func NewDecoder(r io.Reader) *Decoder {
-	return &Decoder{
-		r: r,
-	}
-}
-
-// A Hasher streams objects into an instance of Sia's hash function.
-type Hasher struct {
-	h hash.Hash
-	e *Encoder
-}
-
-// Write implements io.Writer.
-func (h *Hasher) Write(p []byte) (int, error) { return h.e.Write(p) }
-
-// WriteHash writes a hash value to the hash digest.
-func (h *Hasher) WriteHash(p Hash256) { h.e.WriteHash(p) }
-
-// WriteAddress writes an address to the hash digest.
-func (h *Hasher) WriteAddress(a Address) { h.e.WriteAddress(a) }
-
-// WritePublicKey writes a public key to the hash digest.
-func (h *Hasher) WritePublicKey(pk PublicKey) { h.e.WritePublicKey(pk) }
-
-// WriteSignature writes a signature to the hash digest.
-func (h *Hasher) WriteSignature(p InputSignature) { h.e.WriteSignature(p) }
-
-// WriteUint8 writes a uint8 value to the hash digest.
-func (h *Hasher) WriteUint8(u uint8) { h.e.WriteUint8(u) }
-
-// WriteUint64 writes a uint64 value to the hash digest.
-func (h *Hasher) WriteUint64(u uint64) { h.e.WriteUint64(u) }
-
-// WriteInt writes an int value to the hash digest.
-func (h *Hasher) WriteInt(i int) { h.e.WriteInt(i) }
-
-// WriteTime writes a time.Time to the hash digest.
-func (h *Hasher) WriteTime(t time.Time) { h.e.WriteTime(t) }
-
-// WriteWork writes a Work value to the hash digest.
-func (h *Hasher) WriteWork(w Work) { h.e.WriteWork(w) }
-
-// WriteCurrency writes a Currency value to the hash digest.
-func (h *Hasher) WriteCurrency(c Currency) { h.e.WriteCurrency(c) }
-
-// WriteChainIndex writes a ChainIndex to the hash digest.
-func (h *Hasher) WriteChainIndex(index ChainIndex) { h.e.WriteChainIndex(index) }
-
-// WriteOutputID writes an OutputID to the hash digest.
-func (h *Hasher) WriteOutputID(o OutputID) { h.e.WriteOutputID(o) }
-
-// WriteBeneficiary writes a beneficiary to the hash digest.
-func (h *Hasher) WriteBeneficiary(b Beneficiary) { h.e.WriteBeneficiary(b) }
-
-// WriteFileContractState writes a FileContractState to the hash digest.
-func (h *Hasher) WriteFileContractState(fc FileContractState) { h.e.WriteFileContractState(fc) }
-
-// WritePolicy writes a SpendPolicy to the hash digest.
-func (h *Hasher) WritePolicy(p SpendPolicy) { h.e.WritePolicy(p) }
-
-// WriteTransaction writes a transaction to the hash digest.
-func (h *Hasher) WriteTransaction(txn Transaction) { h.e.WriteTransaction(txn) }
-
-// Reset resets the underlying hash digest state.
-func (h *Hasher) Reset() { h.h.Reset() }
-
-// Sum returns the digest of the objects written to the Hasher.
-func (h *Hasher) Sum() (sum Hash256) {
-	_ = h.e.Flush() // no error possible
-	h.h.Sum(sum[:0])
-	return
-}
-
-// NewHasher returns a new Hasher instance.
-func NewHasher() *Hasher {
-	h, _ := blake2b.New256(nil)
-	e := NewEncoder(h)
-	return &Hasher{h, e}
+	txn.NewFoundationAddress.DecodeFrom(d)
+	txn.MinerFee.DecodeFrom(d)
 }

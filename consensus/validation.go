@@ -2,7 +2,6 @@
 package consensus
 
 import (
-	"bytes"
 	"crypto/ed25519"
 	"encoding/binary"
 	"errors"
@@ -98,11 +97,7 @@ func (vc *ValidationContext) MaxBlockWeight() uint64 {
 
 // TransactionWeight computes the weight of a txn.
 func (vc *ValidationContext) TransactionWeight(txn types.Transaction) uint64 {
-	var buf bytes.Buffer
-	e := types.NewEncoder(&buf)
-	e.WriteTransaction(txn)
-	_ = e.Flush() // no error possible
-	storage := buf.Len()
+	storage := types.EncodedLen(txn)
 
 	var signatures int
 	for _, in := range txn.SiacoinInputs {
@@ -150,8 +145,8 @@ func (vc *ValidationContext) StorageProofSegmentIndex(filesize uint64, windowSta
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	h.WriteChainIndex(windowStart)
-	h.WriteOutputID(fcid)
+	windowStart.EncodeTo(h.E)
+	fcid.EncodeTo(h.E)
 	seed := h.Sum()
 
 	var r uint64
@@ -167,45 +162,22 @@ func (vc *ValidationContext) Commitment(minerAddr types.Address, txns []types.Tr
 	defer hasherPool.Put(h)
 	h.Reset()
 
-	// hash the ValidationContext
-	h.WriteUint64(vc.Index.Height)
-	h.WriteHash(types.Hash256(vc.Index.ID))
-	h.WriteUint64(vc.State.NumLeaves)
-	for i, root := range vc.State.Trees {
-		if vc.State.HasTreeAtHeight(i) {
-			h.WriteHash(root)
-		}
-	}
-	h.WriteUint64(vc.History.NumLeaves)
-	for i, root := range vc.History.Trees {
-		if vc.History.HasTreeAtHeight(i) {
-			h.WriteHash(root)
-		}
-	}
-	for _, ts := range vc.PrevTimestamps {
-		h.WriteTime(ts)
-	}
-	h.WriteHash(vc.TotalWork.NumHashes)
-	h.WriteHash(vc.Difficulty.NumHashes)
-	h.WriteHash(vc.OakWork.NumHashes)
-	h.WriteUint64(uint64(vc.OakTime))
-	h.WriteTime(vc.GenesisTimestamp)
-	h.WriteCurrency(vc.SiafundPool)
-	h.WriteAddress(vc.FoundationAddress)
+	// hash the context
+	vc.EncodeTo(h.E)
 	ctxHash := h.Sum()
 
 	// hash the transactions
 	h.Reset()
 	for _, txn := range txns {
-		h.WriteTransaction(txn)
+		txn.ID().EncodeTo(h.E)
 	}
 	txnsHash := h.Sum()
 
 	// concatenate the hashes and the miner address
 	h.Reset()
-	h.WriteHash(ctxHash)
-	h.WriteAddress(minerAddr)
-	h.WriteHash(txnsHash)
+	ctxHash.EncodeTo(h.E)
+	minerAddr.EncodeTo(h.E)
+	txnsHash.EncodeTo(h.E)
 	return h.Sum()
 }
 
@@ -215,31 +187,31 @@ func (vc *ValidationContext) SigHash(txn types.Transaction) types.Hash256 {
 	defer hasherPool.Put(h)
 	h.Reset()
 	for _, in := range txn.SiacoinInputs {
-		h.WriteOutputID(in.Parent.ID)
+		in.Parent.ID.EncodeTo(h.E)
 	}
 	for _, out := range txn.SiacoinOutputs {
-		h.WriteBeneficiary(out)
+		out.EncodeTo(h.E)
 	}
 	for _, in := range txn.SiafundInputs {
-		h.WriteOutputID(in.Parent.ID)
+		in.Parent.ID.EncodeTo(h.E)
 	}
 	for _, out := range txn.SiafundOutputs {
-		h.WriteBeneficiary(out)
+		out.EncodeTo(h.E)
 	}
 	for _, fc := range txn.FileContracts {
-		h.WriteFileContractState(fc)
+		fc.EncodeTo(h.E)
 	}
 	for _, fcr := range txn.FileContractRevisions {
-		h.WriteOutputID(fcr.Parent.ID)
-		h.WriteFileContractState(fcr.NewState)
+		fcr.Parent.ID.EncodeTo(h.E)
+		fcr.NewState.EncodeTo(h.E)
 	}
 	for _, fcr := range txn.FileContractResolutions {
-		h.WriteOutputID(fcr.Parent.ID)
-		h.WriteChainIndex(fcr.StorageProof.WindowStart)
+		fcr.Parent.ID.EncodeTo(h.E)
+		fcr.StorageProof.WindowStart.EncodeTo(h.E)
 	}
-	h.Write(txn.ArbitraryData)
-	h.WriteAddress(txn.NewFoundationAddress)
-	h.WriteCurrency(txn.MinerFee)
+	h.E.Write(txn.ArbitraryData)
+	txn.NewFoundationAddress.EncodeTo(h.E)
+	txn.MinerFee.EncodeTo(h.E)
 	return h.Sum()
 }
 
@@ -248,7 +220,7 @@ func (vc *ValidationContext) ContractSigHash(fc types.FileContractState) types.H
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	h.WriteFileContractState(fc)
+	fc.EncodeTo(h.E)
 	return h.Sum()
 }
 

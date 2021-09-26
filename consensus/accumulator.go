@@ -76,11 +76,10 @@ func siacoinOutputStateObject(o types.SiacoinOutput, flags uint64) stateObject {
 	defer hasherPool.Put(h)
 	h.Reset()
 
-	h.WriteOutputID(o.ID)
-	h.WriteCurrency(o.Value)
-	h.WriteAddress(o.Address)
-	h.WriteUint64(o.Timelock)
-
+	o.ID.EncodeTo(h.E)
+	o.Value.EncodeTo(h.E)
+	o.Address.EncodeTo(h.E)
+	h.E.WriteUint64(o.Timelock)
 	return stateObject{
 		objHash:   h.Sum(),
 		leafIndex: o.LeafIndex,
@@ -94,10 +93,10 @@ func siafundOutputStateObject(o types.SiafundOutput, flags uint64) stateObject {
 	defer hasherPool.Put(h)
 	h.Reset()
 
-	h.WriteOutputID(o.ID)
-	h.WriteCurrency(o.Value)
-	h.WriteAddress(o.Address)
-
+	o.ID.EncodeTo(h.E)
+	o.Value.EncodeTo(h.E)
+	o.Address.EncodeTo(h.E)
+	o.ClaimStart.EncodeTo(h.E)
 	return stateObject{
 		objHash:   h.Sum(),
 		leafIndex: o.LeafIndex,
@@ -110,8 +109,9 @@ func fileContractStateObject(fc types.FileContract, flags uint64) stateObject {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	h.WriteOutputID(fc.ID)
-	h.WriteFileContractState(fc.State)
+
+	fc.ID.EncodeTo(h.E)
+	fc.State.EncodeTo(h.E)
 	return stateObject{
 		objHash:   h.Sum(),
 		leafIndex: fc.LeafIndex,
@@ -138,6 +138,12 @@ func objectsByTree(txns []types.Transaction) [64][]stateObject {
 		}
 		for _, in := range txn.SiafundInputs {
 			addObject(siafundOutputStateObject(in.Parent, 0))
+		}
+		for _, rev := range txn.FileContractRevisions {
+			addObject(fileContractStateObject(rev.Parent, 0))
+		}
+		for _, res := range txn.FileContractResolutions {
+			addObject(fileContractStateObject(res.Parent, 0))
 		}
 	}
 	for _, objects := range trees {

@@ -2,12 +2,10 @@ package chainutil
 
 import (
 	"bufio"
-	"bytes"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
-	"time"
 
 	"go.sia.tech/core/chain"
 	"go.sia.tech/core/consensus"
@@ -135,16 +133,9 @@ func (fs *FlatStore) Header(index types.ChainIndex) (types.BlockHeader, error) {
 	} else if _, err := fs.entryFile.ReadAt(b, offset); err != nil {
 		return types.BlockHeader{}, err
 	}
-	d := types.NewDecoder(bytes.NewBuffer(b))
-
+	d := types.NewBufDecoder(b)
 	var h types.BlockHeader
-	h.Height = d.ReadUint64()
-	h.ParentID = types.BlockID(d.ReadHash())
-	d.Read(h.Nonce[:])
-	h.Timestamp = time.Unix(int64(d.ReadUint64()), 0)
-	h.MinerAddress = d.ReadAddress()
-	h.Commitment = d.ReadHash()
-
+	h.DecodeFrom(d)
 	return h, d.Err()
 }
 
@@ -183,8 +174,8 @@ func (fs *FlatStore) BestIndex(height uint64) (index types.ChainIndex, err error
 		return
 	}
 
-	d := types.NewDecoder(bytes.NewReader(buf))
-	index = d.ReadChainIndex()
+	d := types.NewBufDecoder(buf)
+	index.DecodeFrom(d)
 	return index, d.Err()
 }
 
@@ -373,14 +364,14 @@ const (
 func bufferedDecoder(r io.Reader, size int) (*types.Decoder, error) {
 	buf := make([]byte, size)
 	_, err := io.ReadFull(r, buf)
-	return types.NewDecoder(bytes.NewReader(buf)), err
+	return types.NewBufDecoder(buf), err
 }
 
 func writeMeta(w io.Writer, meta metadata) error {
 	e := types.NewEncoder(w)
 	e.WriteUint64(uint64(meta.indexSize))
 	e.WriteUint64(uint64(meta.entrySize))
-	e.WriteChainIndex(meta.tip)
+	meta.tip.EncodeTo(e)
 	return e.Flush()
 }
 
@@ -388,7 +379,7 @@ func readMeta(r io.Reader) (meta metadata, err error) {
 	d, err := bufferedDecoder(r, metaSize)
 	meta.indexSize = int64(d.ReadUint64())
 	meta.entrySize = int64(d.ReadUint64())
-	meta.tip = d.ReadChainIndex()
+	meta.tip.DecodeFrom(d)
 	return
 }
 
@@ -403,134 +394,43 @@ func readMetaFile(path string) (meta metadata, err error) {
 
 func writeBest(w io.Writer, index types.ChainIndex) error {
 	e := types.NewEncoder(w)
-	e.WriteChainIndex(index)
+	index.EncodeTo(e)
 	return e.Flush()
 }
 
 func readBest(r io.Reader) (index types.ChainIndex, err error) {
 	d, err := bufferedDecoder(r, bestSize)
-	index = d.ReadChainIndex()
+	index.DecodeFrom(d)
 	return
 }
 
 func writeIndex(w io.Writer, index types.ChainIndex, offset int64) error {
 	e := types.NewEncoder(w)
-	e.WriteChainIndex(index)
+	index.EncodeTo(e)
 	e.WriteUint64(uint64(offset))
 	return e.Flush()
 }
 
 func readIndex(r io.Reader) (index types.ChainIndex, offset int64, err error) {
 	d, err := bufferedDecoder(r, indexSize)
-	index = d.ReadChainIndex()
+	index.DecodeFrom(d)
 	offset = int64(d.ReadUint64())
 	return
 }
 
 func writeCheckpoint(w io.Writer, c consensus.Checkpoint) error {
 	e := types.NewEncoder(w)
-
-	// write header
-	h := c.Block.Header
-	e.WriteUint64(h.Height)
-	e.WriteHash(types.Hash256(h.ParentID))
-	e.Write(h.Nonce[:])
-	e.WriteTime(h.Timestamp)
-	e.WriteAddress(h.MinerAddress)
-	e.WriteHash(h.Commitment)
-
-	// write txns
-	e.WriteInt(len(c.Block.Transactions))
-	for _, txn := range c.Block.Transactions {
-		e.WriteTransaction(txn)
-	}
-
-	// write multiproof
-	proof := consensus.ComputeMultiproof(c.Block.Transactions)
-	for _, p := range proof {
-		e.WriteHash(p)
-	}
-
-	// write context
-	vc := &c.Context
-	e.WriteChainIndex(vc.Index)
-	e.WriteUint64(vc.State.NumLeaves)
-	for i := range vc.State.Trees {
-		if vc.State.HasTreeAtHeight(i) {
-			e.WriteHash(vc.State.Trees[i])
-		}
-	}
-	e.WriteUint64(vc.History.NumLeaves)
-	for i := range vc.History.Trees {
-		if vc.History.HasTreeAtHeight(i) {
-			e.WriteHash(vc.History.Trees[i])
-		}
-	}
-	for i := range vc.PrevTimestamps {
-		e.WriteTime(vc.PrevTimestamps[i])
-	}
-	e.WriteWork(vc.TotalWork)
-	e.WriteWork(vc.Difficulty)
-	e.WriteWork(vc.OakWork)
-	e.WriteUint64(uint64(vc.OakTime))
-	e.WriteTime(vc.GenesisTimestamp)
-	e.WriteCurrency(vc.SiafundPool)
-	e.WriteAddress(vc.FoundationAddress)
-
+	(consensus.CompressedBlock)(c.Block).EncodeTo(e)
+	c.Context.EncodeTo(e)
 	return e.Flush()
 }
 
 func readCheckpoint(r io.Reader, c *consensus.Checkpoint) error {
-	d := types.NewDecoder(r)
-
-	// read header
-	h := &c.Block.Header
-	h.Height = d.ReadUint64()
-	h.ParentID = types.BlockID(d.ReadHash())
-	d.Read(h.Nonce[:])
-	h.Timestamp = d.ReadTime()
-	h.MinerAddress = d.ReadAddress()
-	h.Commitment = d.ReadHash()
-
-	// read txns
-	c.Block.Transactions = make([]types.Transaction, d.ReadUint64())
-	for i := range c.Block.Transactions {
-		c.Block.Transactions[i] = d.ReadTransaction()
-	}
-
-	// read multiproof
-	proofLen := consensus.MultiproofSize(c.Block.Transactions)
-	proof := make([]types.Hash256, proofLen)
-	for i := range proof {
-		proof[i] = d.ReadHash()
-	}
-	consensus.ExpandMultiproof(c.Block.Transactions, proof)
-
-	// read context
-	vc := &c.Context
-	vc.Index = d.ReadChainIndex()
-	vc.State.NumLeaves = d.ReadUint64()
-	for i := range vc.State.Trees {
-		if vc.State.HasTreeAtHeight(i) {
-			vc.State.Trees[i] = d.ReadHash()
-		}
-	}
-	vc.History.NumLeaves = d.ReadUint64()
-	for i := range vc.History.Trees {
-		if vc.History.HasTreeAtHeight(i) {
-			vc.History.Trees[i] = d.ReadHash()
-		}
-	}
-	for i := range vc.PrevTimestamps {
-		vc.PrevTimestamps[i] = d.ReadTime()
-	}
-	vc.TotalWork = d.ReadWork()
-	vc.Difficulty = d.ReadWork()
-	vc.OakWork = d.ReadWork()
-	vc.OakTime = time.Duration(d.ReadUint64())
-	vc.GenesisTimestamp = d.ReadTime()
-	vc.SiafundPool = d.ReadCurrency()
-	vc.FoundationAddress = d.ReadAddress()
-
+	d := types.NewDecoder(io.LimitedReader{
+		R: r,
+		N: 10e6, // a checkpoint should never be anywhere near this large
+	})
+	(*consensus.CompressedBlock)(&c.Block).DecodeFrom(d)
+	c.Context.DecodeFrom(d)
 	return d.Err()
 }
