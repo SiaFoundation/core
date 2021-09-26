@@ -37,10 +37,10 @@ func TestEncoderRoundtrip(t *testing.T) {
 	for _, val := range tests {
 		var buf bytes.Buffer
 		e := NewEncoder(&buf)
-		e.Encode(val)
+		val.EncodeTo(e)
 		e.Flush()
 		decptr := reflect.New(reflect.TypeOf(val))
-		NewBufDecoder(buf.Bytes()).Decode(decptr.Interface().(DecoderFrom))
+		decptr.Interface().(DecoderFrom).DecodeFrom(NewBufDecoder(buf.Bytes()))
 		dec := decptr.Elem().Interface()
 		if !reflect.DeepEqual(dec, val) {
 			t.Fatalf("value did not survive roundtrip: expected %v, got %v", val, dec)
@@ -119,10 +119,10 @@ func TestEncoderCompleteness(t *testing.T) {
 	checkFn := func(txn Transaction) bool {
 		var buf bytes.Buffer
 		e := NewEncoder(&buf)
-		e.Encode(txn)
+		txn.EncodeTo(e)
 		e.Flush()
 		var decTxn Transaction
-		NewBufDecoder(buf.Bytes()).Decode(&decTxn)
+		decTxn.DecodeFrom(NewBufDecoder(buf.Bytes()))
 		return reflect.DeepEqual(txn, decTxn)
 	}
 

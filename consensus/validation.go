@@ -145,7 +145,8 @@ func (vc *ValidationContext) StorageProofSegmentIndex(filesize uint64, windowSta
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	h.EncodeAll(windowStart, fcid)
+	windowStart.EncodeTo(h.E)
+	fcid.EncodeTo(h.E)
 	seed := h.Sum()
 
 	var r uint64
@@ -162,19 +163,21 @@ func (vc *ValidationContext) Commitment(minerAddr types.Address, txns []types.Tr
 	h.Reset()
 
 	// hash the context
-	h.Encode(vc)
+	vc.EncodeTo(h.E)
 	ctxHash := h.Sum()
 
 	// hash the transactions
 	h.Reset()
 	for _, txn := range txns {
-		h.Encode(txn.ID())
+		txn.ID().EncodeTo(h.E)
 	}
 	txnsHash := h.Sum()
 
 	// concatenate the hashes and the miner address
 	h.Reset()
-	h.EncodeAll(ctxHash, minerAddr, txnsHash)
+	ctxHash.EncodeTo(h.E)
+	minerAddr.EncodeTo(h.E)
+	txnsHash.EncodeTo(h.E)
 	return h.Sum()
 }
 
@@ -184,31 +187,31 @@ func (vc *ValidationContext) SigHash(txn types.Transaction) types.Hash256 {
 	defer hasherPool.Put(h)
 	h.Reset()
 	for _, in := range txn.SiacoinInputs {
-		h.Encode(in.Parent.ID)
+		in.Parent.ID.EncodeTo(h.E)
 	}
 	for _, out := range txn.SiacoinOutputs {
-		h.Encode(out)
+		out.EncodeTo(h.E)
 	}
 	for _, in := range txn.SiafundInputs {
-		h.Encode(in.Parent.ID)
+		in.Parent.ID.EncodeTo(h.E)
 	}
 	for _, out := range txn.SiafundOutputs {
-		h.Encode(out)
+		out.EncodeTo(h.E)
 	}
 	for _, fc := range txn.FileContracts {
-		h.Encode(fc)
+		fc.EncodeTo(h.E)
 	}
 	for _, fcr := range txn.FileContractRevisions {
-		h.Encode(fcr.Parent.ID)
-		h.Encode(fcr.NewState)
+		fcr.Parent.ID.EncodeTo(h.E)
+		fcr.NewState.EncodeTo(h.E)
 	}
 	for _, fcr := range txn.FileContractResolutions {
-		h.Encode(fcr.Parent.ID)
-		h.Encode(fcr.StorageProof.WindowStart)
+		fcr.Parent.ID.EncodeTo(h.E)
+		fcr.StorageProof.WindowStart.EncodeTo(h.E)
 	}
-	h.Write(txn.ArbitraryData)
-	h.Encode(txn.NewFoundationAddress)
-	h.Encode(txn.MinerFee)
+	h.E.Write(txn.ArbitraryData)
+	txn.NewFoundationAddress.EncodeTo(h.E)
+	txn.MinerFee.EncodeTo(h.E)
 	return h.Sum()
 }
 
@@ -217,7 +220,7 @@ func (vc *ValidationContext) ContractSigHash(fc types.FileContractState) types.H
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	h.Encode(fc)
+	fc.EncodeTo(h.E)
 	return h.Sum()
 }
 

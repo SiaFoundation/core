@@ -95,9 +95,9 @@ func PolicyAddress(p SpendPolicy) Address {
 		// derivation code for these policies
 		return Address(unlockConditionsRoot(uc))
 	}
-	e := NewHasher()
-	e.WritePolicy(p)
-	return Address(e.Sum())
+	h := NewHasher()
+	h.E.WritePolicy(p)
+	return Address(h.Sum())
 }
 
 // StandardAddress computes the address for a single public key policy.

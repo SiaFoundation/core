@@ -11,7 +11,7 @@ func (sa StateAccumulator) EncodeTo(e *types.Encoder) {
 	e.WriteUint64(sa.NumLeaves)
 	for i, root := range sa.Trees {
 		if sa.HasTreeAtHeight(i) {
-			e.Encode(root)
+			root.EncodeTo(e)
 		}
 	}
 }
@@ -21,7 +21,7 @@ func (sa *StateAccumulator) DecodeFrom(d *types.Decoder) {
 	sa.NumLeaves = d.ReadUint64()
 	for i := range sa.Trees {
 		if sa.HasTreeAtHeight(i) {
-			d.Decode(&sa.Trees[i])
+			sa.Trees[i].DecodeFrom(d)
 		}
 	}
 }
@@ -38,26 +38,36 @@ func (ha *HistoryAccumulator) DecodeFrom(d *types.Decoder) {
 
 // EncodeTo implements types.EncoderTo.
 func (vc ValidationContext) EncodeTo(e *types.Encoder) {
-	e.EncodeAll(vc.Index, vc.State, vc.History)
+	vc.Index.EncodeTo(e)
+	vc.State.EncodeTo(e)
+	vc.History.EncodeTo(e)
 	for _, ts := range vc.PrevTimestamps {
 		e.WriteTime(ts)
 	}
-	e.EncodeAll(vc.TotalWork, vc.Difficulty, vc.OakWork)
+	vc.TotalWork.EncodeTo(e)
+	vc.Difficulty.EncodeTo(e)
+	vc.OakWork.EncodeTo(e)
 	e.WriteUint64(uint64(vc.OakTime))
 	e.WriteTime(vc.GenesisTimestamp)
-	e.EncodeAll(vc.SiafundPool, vc.FoundationAddress)
+	vc.SiafundPool.EncodeTo(e)
+	vc.FoundationAddress.EncodeTo(e)
 }
 
 // DecodeFrom implements types.DecoderFrom.
 func (vc *ValidationContext) DecodeFrom(d *types.Decoder) {
-	d.DecodeAll(&vc.Index, &vc.State, &vc.History)
+	vc.Index.DecodeFrom(d)
+	vc.State.DecodeFrom(d)
+	vc.History.DecodeFrom(d)
 	for i := range vc.PrevTimestamps {
 		vc.PrevTimestamps[i] = d.ReadTime()
 	}
-	d.DecodeAll(&vc.TotalWork, &vc.Difficulty, &vc.OakWork)
+	vc.TotalWork.DecodeFrom(d)
+	vc.Difficulty.DecodeFrom(d)
+	vc.OakWork.DecodeFrom(d)
 	vc.OakTime = time.Duration(d.ReadUint64())
 	vc.GenesisTimestamp = d.ReadTime()
-	d.DecodeAll(&vc.SiafundPool, &vc.FoundationAddress)
+	vc.SiafundPool.DecodeFrom(d)
+	vc.FoundationAddress.DecodeFrom(d)
 }
 
 // A CompressedBlock encodes a block in compressed form by merging its
@@ -66,26 +76,26 @@ type CompressedBlock types.Block
 
 // EncodeTo implements types.EncoderTo.
 func (b CompressedBlock) EncodeTo(e *types.Encoder) {
-	e.Encode(b.Header)
+	b.Header.EncodeTo(e)
 	e.WritePrefix(len(b.Transactions))
 	for _, txn := range b.Transactions {
-		e.Encode((compressedTransaction)(txn))
+		(compressedTransaction)(txn).EncodeTo(e)
 	}
 	for _, p := range ComputeMultiproof(b.Transactions) {
-		e.Encode(p)
+		p.EncodeTo(e)
 	}
 }
 
 // DecodeFrom implements types.DecoderFrom.
 func (b *CompressedBlock) DecodeFrom(d *types.Decoder) {
-	d.Decode(&b.Header)
+	b.Header.DecodeFrom(d)
 	b.Transactions = make([]types.Transaction, d.ReadPrefix())
 	for i := range b.Transactions {
 		(*compressedTransaction)(&b.Transactions[i]).DecodeFrom(d)
 	}
 	proof := make([]types.Hash256, MultiproofSize(b.Transactions))
 	for i := range proof {
-		d.Decode(&proof[i])
+		proof[i].DecodeFrom(d)
 	}
 	ExpandMultiproof(b.Transactions, proof)
 }
@@ -95,14 +105,18 @@ func (b *CompressedBlock) DecodeFrom(d *types.Decoder) {
 type compressedSiacoinOutput types.SiacoinOutput
 
 func (out compressedSiacoinOutput) EncodeTo(e *types.Encoder) {
-	e.EncodeAll(out.ID, out.Value, out.Address)
+	out.ID.EncodeTo(e)
+	out.Value.EncodeTo(e)
+	out.Address.EncodeTo(e)
 	e.WriteUint64(out.Timelock)
 	e.WritePrefix(len(out.MerkleProof)) // omit proof data
 	e.WriteUint64(out.LeafIndex)
 }
 
 func (out *compressedSiacoinOutput) DecodeFrom(d *types.Decoder) {
-	d.DecodeAll(&out.ID, &out.Value, &out.Address)
+	out.ID.DecodeFrom(d)
+	out.Value.DecodeFrom(d)
+	out.Address.DecodeFrom(d)
 	out.Timelock = d.ReadUint64()
 	out.MerkleProof = make([]types.Hash256, d.ReadPrefix()) // omit proof data
 	out.LeafIndex = d.ReadUint64()
@@ -111,33 +125,39 @@ func (out *compressedSiacoinOutput) DecodeFrom(d *types.Decoder) {
 type compressedSiacoinInput types.SiacoinInput
 
 func (in compressedSiacoinInput) EncodeTo(e *types.Encoder) {
-	e.Encode((compressedSiacoinOutput)(in.Parent))
+	(compressedSiacoinOutput)(in.Parent).EncodeTo(e)
 	e.WritePolicy(in.SpendPolicy)
 	e.WritePrefix(len(in.Signatures))
 	for _, sig := range in.Signatures {
-		e.Encode(sig)
+		sig.EncodeTo(e)
 	}
 }
 
 func (in *compressedSiacoinInput) DecodeFrom(d *types.Decoder) {
-	d.Decode((*compressedSiacoinOutput)(&in.Parent))
+	(*compressedSiacoinOutput)(&in.Parent).DecodeFrom(d)
 	in.SpendPolicy = d.ReadPolicy()
 	in.Signatures = make([]types.InputSignature, d.ReadPrefix())
 	for i := range in.Signatures {
-		d.Decode(&in.Signatures[i])
+		in.Signatures[i].DecodeFrom(d)
 	}
 }
 
 type compressedSiafundOutput types.SiafundOutput
 
 func (out compressedSiafundOutput) EncodeTo(e *types.Encoder) {
-	e.EncodeAll(out.ID, out.Value, out.Address, out.ClaimStart)
+	out.ID.EncodeTo(e)
+	out.Value.EncodeTo(e)
+	out.Address.EncodeTo(e)
+	out.ClaimStart.EncodeTo(e)
 	e.WritePrefix(len(out.MerkleProof)) // omit proof data
 	e.WriteUint64(out.LeafIndex)
 }
 
 func (out *compressedSiafundOutput) DecodeFrom(d *types.Decoder) {
-	d.DecodeAll(&out.ID, &out.Value, &out.Address, &out.ClaimStart)
+	out.ID.DecodeFrom(d)
+	out.Value.DecodeFrom(d)
+	out.Address.DecodeFrom(d)
+	out.ClaimStart.DecodeFrom(d)
 	out.MerkleProof = make([]types.Hash256, d.ReadPrefix()) // omit proof data
 	out.LeafIndex = d.ReadUint64()
 }
@@ -145,33 +165,37 @@ func (out *compressedSiafundOutput) DecodeFrom(d *types.Decoder) {
 type compressedSiafundInput types.SiafundInput
 
 func (in compressedSiafundInput) EncodeTo(e *types.Encoder) {
-	e.EncodeAll((compressedSiafundOutput)(in.Parent), in.ClaimAddress)
+	(compressedSiafundOutput)(in.Parent).EncodeTo(e)
+	in.ClaimAddress.EncodeTo(e)
 	e.WritePolicy(in.SpendPolicy)
 	e.WritePrefix(len(in.Signatures))
 	for _, sig := range in.Signatures {
-		e.Encode(sig)
+		sig.EncodeTo(e)
 	}
 }
 
 func (in *compressedSiafundInput) DecodeFrom(d *types.Decoder) {
-	d.DecodeAll((*compressedSiafundOutput)(&in.Parent), &in.ClaimAddress)
+	(*compressedSiafundOutput)(&in.Parent).DecodeFrom(d)
+	in.ClaimAddress.DecodeFrom(d)
 	in.SpendPolicy = d.ReadPolicy()
 	in.Signatures = make([]types.InputSignature, d.ReadPrefix())
 	for i := range in.Signatures {
-		d.Decode(&in.Signatures[i])
+		in.Signatures[i].DecodeFrom(d)
 	}
 }
 
 type compressedFileContract types.FileContract
 
 func (fc compressedFileContract) EncodeTo(e *types.Encoder) {
-	e.EncodeAll(fc.ID, fc.State)
+	fc.ID.EncodeTo(e)
+	fc.State.EncodeTo(e)
 	e.WritePrefix(len(fc.MerkleProof)) // omit proof data
 	e.WriteUint64(fc.LeafIndex)
 }
 
 func (fc *compressedFileContract) DecodeFrom(d *types.Decoder) {
-	d.DecodeAll(&fc.ID, &fc.State)
+	fc.ID.DecodeFrom(d)
+	fc.State.DecodeFrom(d)
 	fc.MerkleProof = make([]types.Hash256, d.ReadPrefix()) // omit proof data
 	fc.LeafIndex = d.ReadUint64()
 }
@@ -179,31 +203,29 @@ func (fc *compressedFileContract) DecodeFrom(d *types.Decoder) {
 type compressedFileContractRevision types.FileContractRevision
 
 func (rev compressedFileContractRevision) EncodeTo(e *types.Encoder) {
-	e.EncodeAll(
-		(compressedFileContract)(rev.Parent),
-		rev.NewState,
-		rev.RenterSignature,
-		rev.HostSignature,
-	)
+	(compressedFileContract)(rev.Parent).EncodeTo(e)
+	rev.NewState.EncodeTo(e)
+	rev.RenterSignature.EncodeTo(e)
+	rev.HostSignature.EncodeTo(e)
 }
 
 func (rev *compressedFileContractRevision) DecodeFrom(d *types.Decoder) {
-	d.DecodeAll(
-		(*compressedFileContract)(&rev.Parent),
-		&rev.NewState,
-		&rev.RenterSignature,
-		&rev.HostSignature,
-	)
+	(*compressedFileContract)(&rev.Parent).DecodeFrom(d)
+	rev.NewState.DecodeFrom(d)
+	rev.RenterSignature.DecodeFrom(d)
+	rev.HostSignature.DecodeFrom(d)
 }
 
 type compressedFileContractResolution types.FileContractResolution
 
 func (res compressedFileContractResolution) EncodeTo(e *types.Encoder) {
-	e.EncodeAll((compressedFileContract)(res.Parent), res.StorageProof)
+	(compressedFileContract)(res.Parent).EncodeTo(e)
+	res.StorageProof.EncodeTo(e)
 }
 
 func (res *compressedFileContractResolution) DecodeFrom(d *types.Decoder) {
-	d.DecodeAll((*compressedFileContract)(&res.Parent), &res.StorageProof)
+	(*compressedFileContract)(&res.Parent).DecodeFrom(d)
+	res.StorageProof.DecodeFrom(d)
 }
 
 type compressedTransaction types.Transaction
@@ -211,69 +233,69 @@ type compressedTransaction types.Transaction
 func (txn compressedTransaction) EncodeTo(e *types.Encoder) {
 	e.WritePrefix(len(txn.SiacoinInputs))
 	for _, in := range txn.SiacoinInputs {
-		e.Encode((compressedSiacoinInput)(in))
+		(compressedSiacoinInput)(in).EncodeTo(e)
 	}
 	e.WritePrefix(len(txn.SiacoinOutputs))
 	for _, out := range txn.SiacoinOutputs {
-		e.Encode(out)
+		out.EncodeTo(e)
 	}
 	e.WritePrefix(len(txn.SiafundInputs))
 	for _, in := range txn.SiafundInputs {
-		e.Encode((compressedSiafundInput)(in))
+		(compressedSiafundInput)(in).EncodeTo(e)
 	}
 	e.WritePrefix(len(txn.SiafundOutputs))
 	for _, out := range txn.SiafundOutputs {
-		e.Encode(out)
+		out.EncodeTo(e)
 	}
 	e.WritePrefix(len(txn.FileContracts))
 	for _, fc := range txn.FileContracts {
-		e.Encode(fc)
+		fc.EncodeTo(e)
 	}
 	e.WritePrefix(len(txn.FileContractRevisions))
 	for _, rev := range txn.FileContractRevisions {
-		e.Encode((compressedFileContractRevision)(rev))
+		(compressedFileContractRevision)(rev).EncodeTo(e)
 	}
 	e.WritePrefix(len(txn.FileContractResolutions))
 	for _, res := range txn.FileContractResolutions {
-		e.Encode((compressedFileContractResolution)(res))
+		(compressedFileContractResolution)(res).EncodeTo(e)
 	}
 	e.WritePrefix(len(txn.ArbitraryData))
 	e.Write(txn.ArbitraryData)
-	e.Encode(txn.NewFoundationAddress)
-	e.Encode(txn.MinerFee)
+	txn.NewFoundationAddress.EncodeTo(e)
+	txn.MinerFee.EncodeTo(e)
 }
 
 func (txn *compressedTransaction) DecodeFrom(d *types.Decoder) {
 	txn.SiacoinInputs = make([]types.SiacoinInput, d.ReadPrefix())
 	for i := range txn.SiacoinInputs {
-		d.Decode((*compressedSiacoinInput)(&txn.SiacoinInputs[i]))
+		(*compressedSiacoinInput)(&txn.SiacoinInputs[i]).DecodeFrom(d)
 	}
 	txn.SiacoinOutputs = make([]types.Beneficiary, d.ReadPrefix())
 	for i := range txn.SiacoinOutputs {
-		d.Decode(&txn.SiacoinOutputs[i])
+		txn.SiacoinOutputs[i].DecodeFrom(d)
 	}
 	txn.SiafundInputs = make([]types.SiafundInput, d.ReadPrefix())
 	for i := range txn.SiafundInputs {
-		d.Decode((*compressedSiafundInput)(&txn.SiafundInputs[i]))
+		(*compressedSiafundInput)(&txn.SiafundInputs[i]).DecodeFrom(d)
 	}
 	txn.SiafundOutputs = make([]types.Beneficiary, d.ReadPrefix())
 	for i := range txn.SiafundOutputs {
-		d.Decode(&txn.SiafundOutputs[i])
+		txn.SiafundOutputs[i].DecodeFrom(d)
 	}
 	txn.FileContracts = make([]types.FileContractState, d.ReadPrefix())
 	for i := range txn.FileContracts {
-		d.Decode(&txn.FileContracts[i])
+		txn.FileContracts[i].DecodeFrom(d)
 	}
 	txn.FileContractRevisions = make([]types.FileContractRevision, d.ReadPrefix())
 	for i := range txn.FileContractRevisions {
-		d.Decode((*compressedFileContractRevision)(&txn.FileContractRevisions[i]))
+		(*compressedFileContractRevision)(&txn.FileContractRevisions[i]).DecodeFrom(d)
 	}
 	txn.FileContractResolutions = make([]types.FileContractResolution, d.ReadPrefix())
 	for i := range txn.FileContractResolutions {
-		d.Decode((*compressedFileContractResolution)(&txn.FileContractResolutions[i]))
+		(*compressedFileContractResolution)(&txn.FileContractResolutions[i]).DecodeFrom(d)
 	}
 	txn.ArbitraryData = make([]byte, d.ReadPrefix())
 	d.Read(txn.ArbitraryData)
-	d.Decode(&txn.NewFoundationAddress)
-	d.Decode(&txn.MinerFee)
+	txn.NewFoundationAddress.DecodeFrom(d)
+	txn.MinerFee.DecodeFrom(d)
 }

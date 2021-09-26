@@ -212,7 +212,7 @@ func (txn *Transaction) ID() TransactionID {
 	h := hasherPool.Get().(*Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	h.Encode(*txn)
+	txn.EncodeTo(h.E)
 	return TransactionID(h.Sum())
 }
 

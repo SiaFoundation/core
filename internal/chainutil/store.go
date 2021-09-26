@@ -135,7 +135,7 @@ func (fs *FlatStore) Header(index types.ChainIndex) (types.BlockHeader, error) {
 	}
 	d := types.NewBufDecoder(b)
 	var h types.BlockHeader
-	d.Decode(&h)
+	h.DecodeFrom(d)
 	return h, d.Err()
 }
 
@@ -175,7 +175,7 @@ func (fs *FlatStore) BestIndex(height uint64) (index types.ChainIndex, err error
 	}
 
 	d := types.NewBufDecoder(buf)
-	d.Decode(&index)
+	index.DecodeFrom(d)
 	return index, d.Err()
 }
 
@@ -371,7 +371,7 @@ func writeMeta(w io.Writer, meta metadata) error {
 	e := types.NewEncoder(w)
 	e.WriteUint64(uint64(meta.indexSize))
 	e.WriteUint64(uint64(meta.entrySize))
-	e.Encode(meta.tip)
+	meta.tip.EncodeTo(e)
 	return e.Flush()
 }
 
@@ -379,7 +379,7 @@ func readMeta(r io.Reader) (meta metadata, err error) {
 	d, err := bufferedDecoder(r, metaSize)
 	meta.indexSize = int64(d.ReadUint64())
 	meta.entrySize = int64(d.ReadUint64())
-	d.Decode(&meta.tip)
+	meta.tip.DecodeFrom(d)
 	return
 }
 
@@ -394,33 +394,34 @@ func readMetaFile(path string) (meta metadata, err error) {
 
 func writeBest(w io.Writer, index types.ChainIndex) error {
 	e := types.NewEncoder(w)
-	e.Encode(index)
+	index.EncodeTo(e)
 	return e.Flush()
 }
 
 func readBest(r io.Reader) (index types.ChainIndex, err error) {
 	d, err := bufferedDecoder(r, bestSize)
-	d.Decode(&index)
+	index.DecodeFrom(d)
 	return
 }
 
 func writeIndex(w io.Writer, index types.ChainIndex, offset int64) error {
 	e := types.NewEncoder(w)
-	e.Encode(index)
+	index.EncodeTo(e)
 	e.WriteUint64(uint64(offset))
 	return e.Flush()
 }
 
 func readIndex(r io.Reader) (index types.ChainIndex, offset int64, err error) {
 	d, err := bufferedDecoder(r, indexSize)
-	d.Decode(&index)
+	index.DecodeFrom(d)
 	offset = int64(d.ReadUint64())
 	return
 }
 
 func writeCheckpoint(w io.Writer, c consensus.Checkpoint) error {
 	e := types.NewEncoder(w)
-	e.EncodeAll((consensus.CompressedBlock)(c.Block), c.Context)
+	(consensus.CompressedBlock)(c.Block).EncodeTo(e)
+	c.Context.EncodeTo(e)
 	return e.Flush()
 }
 
@@ -429,6 +430,7 @@ func readCheckpoint(r io.Reader, c *consensus.Checkpoint) error {
 		R: r,
 		N: 10e6, // a checkpoint should never be anywhere near this large
 	})
-	d.DecodeAll((*consensus.CompressedBlock)(&c.Block), &c.Context)
+	(*consensus.CompressedBlock)(&c.Block).DecodeFrom(d)
+	c.Context.DecodeFrom(d)
 	return d.Err()
 }
