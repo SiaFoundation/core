@@ -243,16 +243,8 @@ func (m *Mux) DialStream() (*Stream, error) {
 		m:        m,
 		accepted: true,
 		cond:     sync.Cond{L: new(sync.Mutex)},
+		id:       m.nextID,
 	}
-	// loop until we find an unused ID
-	//
-	// NOTE: this implementation uses alternating IDs for the Dialer and
-	// Accepter to avoid collisions, but other implementations simply choose the
-	// ID at random; thus, we always have to check for collisions.
-	for m.streams[m.nextID] != nil {
-		m.nextID += 2
-	}
-	s.id = m.nextID
 	m.nextID += 2
 	m.streams[s.id] = s
 	return s, nil
