@@ -2,8 +2,6 @@ package renterhost
 
 import (
 	"bytes"
-	"fmt"
-	"io"
 	"strings"
 
 	"go.sia.tech/core/types"
@@ -79,12 +77,6 @@ var (
 	loopExit  = newSpecifier("LoopExit")
 )
 
-// Cipher specifiers
-var (
-	cipherChaCha20Poly1305 = newSpecifier("ChaCha20Poly1305")
-	cipherNoOverlap        = newSpecifier("NoOverlap")
-)
-
 // RPC IDs
 var (
 	RPCFormContractID       = newSpecifier("LoopFormContract")
@@ -106,20 +98,6 @@ var (
 	RPCWriteActionUpdate = newSpecifier("Update")
 
 	RPCReadStop = newSpecifier("ReadStop")
-)
-
-// Handshake objects
-type (
-	loopKeyExchangeRequest struct {
-		PublicKey types.PublicKey
-		Ciphers   []Specifier
-	}
-
-	loopKeyExchangeResponse struct {
-		PublicKey types.PublicKey
-		Signature types.Signature
-		Cipher    Specifier
-	}
 )
 
 // RPC request/response objects
@@ -596,47 +574,4 @@ func (r *RPCWriteResponse) encodeTo(e *types.Encoder) {
 
 func (r *RPCWriteResponse) decodeFrom(d *types.Decoder) {
 	r.Signature.DecodeFrom(d)
-}
-
-// Handshake objects (these are sent unencrypted; they are not ProtocolObjects)
-
-func (req *loopKeyExchangeRequest) writeTo(w io.Writer) error {
-	e := types.NewEncoder(w)
-	loopEnter.encodeTo(e)
-	req.PublicKey.EncodeTo(e)
-	e.WritePrefix(len(req.Ciphers))
-	for i := range req.Ciphers {
-		req.Ciphers[i].encodeTo(e)
-	}
-	return e.Flush()
-}
-
-func (req *loopKeyExchangeRequest) readFrom(r io.Reader) error {
-	d := types.NewDecoder(io.LimitedReader{R: r, N: 16 + 32 + 8 + 16*16})
-	var id Specifier
-	if id.decodeFrom(d); id != loopEnter {
-		d.SetErr(fmt.Errorf("renter sent wrong specifier %q", id.String()))
-	}
-	req.PublicKey.DecodeFrom(d)
-	req.Ciphers = make([]Specifier, d.ReadPrefix())
-	for i := range req.Ciphers {
-		req.Ciphers[i].decodeFrom(d)
-	}
-	return d.Err()
-}
-
-func (resp *loopKeyExchangeResponse) writeTo(w io.Writer) error {
-	e := types.NewEncoder(w)
-	resp.PublicKey.EncodeTo(e)
-	resp.Signature.EncodeTo(e)
-	resp.Cipher.encodeTo(e)
-	return e.Flush()
-}
-
-func (resp *loopKeyExchangeResponse) readFrom(r io.Reader) error {
-	d := types.NewDecoder(io.LimitedReader{R: r, N: 32 + 8 + 64 + 16})
-	resp.PublicKey.DecodeFrom(d)
-	resp.Signature.DecodeFrom(d)
-	resp.Cipher.decodeFrom(d)
-	return d.Err()
 }

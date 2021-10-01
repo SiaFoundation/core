@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"go.sia.tech/core/types"
-	"golang.org/x/crypto/chacha20poly1305"
 )
 
 var ErrInvalidName = errors.New("invalid name")
@@ -145,11 +144,10 @@ func (s *objString) decodeFrom(d *types.Decoder) { *s = objString(readPrefixedBy
 
 func TestSession(t *testing.T) {
 	renter, host := newFakeConns()
-	pubkey, privkey, _ := ed25519.GenerateKey(nil)
 	hostErr := make(chan error, 1)
 	go func() {
 		hostErr <- func() error {
-			hs, err := NewHostSession(host, privkey)
+			hs, err := NewHostSession(host)
 			if err != nil {
 				return err
 			}
@@ -164,7 +162,7 @@ func TestSession(t *testing.T) {
 				switch id {
 				case newSpecifier("Greet"):
 					var name objString
-					if err := hs.ReadRequest(&name, 0); err != nil {
+					if err := hs.ReadRequest(&name, 4096); err != nil {
 						return err
 					}
 					if name == "" {
@@ -183,7 +181,7 @@ func TestSession(t *testing.T) {
 		}()
 	}()
 
-	rs, err := NewRenterSession(renter, pubkey)
+	rs, err := NewRenterSession(renter)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +189,7 @@ func TestSession(t *testing.T) {
 	var resp objString
 	if err := rs.WriteRequest(newSpecifier("Greet"), &req); err != nil {
 		t.Fatal(err)
-	} else if err := rs.ReadResponse(&resp, 0); err != nil {
+	} else if err := rs.ReadResponse(&resp, 4096); err != nil {
 		t.Fatal(err)
 	} else if resp != "Hello, Foo" {
 		t.Fatal("unexpected response:", resp)
@@ -199,7 +197,7 @@ func TestSession(t *testing.T) {
 	req = objString("")
 	if err := rs.WriteRequest(newSpecifier("Greet"), &req); err != nil {
 		t.Fatal(err)
-	} else if err := rs.ReadResponse(&resp, 0); !errors.Is(err, ErrInvalidName) {
+	} else if err := rs.ReadResponse(&resp, 4096); !errors.Is(err, ErrInvalidName) {
 		t.Fatal(err)
 	}
 	if err := rs.Close(); err != nil {
@@ -230,11 +228,10 @@ func TestFormContract(t *testing.T) {
 	}
 
 	renter, host := newFakeConns()
-	pubkey, privkey, _ := ed25519.GenerateKey(nil)
 	hostErr := make(chan error, 1)
 	go func() {
 		hostErr <- func() error {
-			hs, err := NewHostSession(host, privkey)
+			hs, err := NewHostSession(host)
 			if err != nil {
 				return err
 			}
@@ -249,7 +246,7 @@ func TestFormContract(t *testing.T) {
 				switch id {
 				case RPCFormContractID:
 					var req RPCFormContractRequest
-					if err := hs.ReadRequest(&req, 0); err != nil {
+					if err := hs.ReadRequest(&req, 4096); err != nil {
 						return err
 					} else if !deepEqual(&req, renterReq) {
 						return errors.New("received request does not match sent request")
@@ -259,7 +256,7 @@ func TestFormContract(t *testing.T) {
 						return err
 					}
 					var recvSigs RPCFormContractSignatures
-					if err := hs.ReadResponse(&recvSigs, 0); err != nil {
+					if err := hs.ReadResponse(&recvSigs, 4096); err != nil {
 						return err
 					} else if !deepEqual(&recvSigs, renterSigs) {
 						return errors.New("received sigs do not match sent sigs")
@@ -275,14 +272,14 @@ func TestFormContract(t *testing.T) {
 		}()
 	}()
 
-	rs, err := NewRenterSession(renter, pubkey)
+	rs, err := NewRenterSession(renter)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var recvAdditions RPCFormContractAdditions
 	if err := rs.WriteRequest(RPCFormContractID, renterReq); err != nil {
 		t.Fatal(err)
-	} else if err := rs.ReadResponse(&recvAdditions, 0); err != nil {
+	} else if err := rs.ReadResponse(&recvAdditions, 4096); err != nil {
 		t.Fatal(err)
 	} else if !deepEqual(&recvAdditions, hostAdditions) {
 		t.Fatal("received additions do not match sent additions")
@@ -290,80 +287,11 @@ func TestFormContract(t *testing.T) {
 	var recvSigs RPCFormContractSignatures
 	if err := rs.WriteResponse(renterSigs, nil); err != nil {
 		t.Fatal(err)
-	} else if err := rs.ReadResponse(&recvSigs, 0); err != nil {
+	} else if err := rs.ReadResponse(&recvSigs, 4096); err != nil {
 		t.Fatal(err)
 	} else if !deepEqual(&recvSigs, hostSigs) {
 		t.Fatal("received sigs do not match sent sigs")
 	}
-	if err := rs.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := <-hostErr; err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestRawMessage(t *testing.T) {
-	renter, host := newFakeConns()
-	pubkey, privkey, _ := ed25519.GenerateKey(nil)
-	hostErr := make(chan error, 1)
-	go func() {
-		hostErr <- func() error {
-			hs, err := NewHostSession(host, privkey)
-			if err != nil {
-				return err
-			}
-			defer hs.Close()
-			for {
-				id, err := hs.ReadID()
-				if errors.Is(err, ErrRenterClosed) {
-					return nil
-				} else if err != nil {
-					return err
-				}
-				switch id {
-				case newSpecifier("Foo"):
-					s := newSpecifier("Bar")
-					if err := hs.WriteResponse(&s, nil); err != nil {
-						return err
-					}
-				default:
-					if err := hs.WriteResponse(nil, ErrInvalidName); err != nil {
-						return err
-					}
-				}
-			}
-		}()
-	}()
-
-	rs, err := NewRenterSession(renter, pubkey)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if err := rs.WriteRequest(newSpecifier("Quux"), nil); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := rs.RawResponse(0); err == nil {
-		t.Fatal("expected RPCError, got nil")
-	}
-
-	if err := rs.WriteRequest(newSpecifier("Foo"), nil); err != nil {
-		t.Fatal(err)
-	}
-	msg, err := rs.RawResponse(0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var resp Specifier
-	if _, err := io.ReadFull(msg, resp[:]); err != nil {
-		t.Fatal(err)
-	} else if resp != newSpecifier("Bar") {
-		t.Fatal("unexpected response:", resp)
-	} else if err := msg.VerifyTag(); err != nil {
-		t.Fatal(err)
-	}
-
 	if err := rs.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -467,17 +395,15 @@ func TestEncoding(t *testing.T) {
 }
 
 func BenchmarkWriteMessage(b *testing.B) {
-	aead, _ := chacha20poly1305.New(make([]byte, 32))
 	s := &Session{
 		conn: struct {
 			io.Writer
 			io.ReadCloser
 		}{ioutil.Discard, nil},
-		aead: aead,
 	}
 	obj := newSpecifier("Hello, World!")
 	b.ReportAllocs()
-	b.SetBytes(MinMessageSize)
+	b.SetBytes(16)
 	for i := 0; i < b.N; i++ {
 		if err := s.writeMessage(&obj); err != nil {
 			b.Fatal(err)
@@ -491,13 +417,11 @@ func BenchmarkReadMessage(b *testing.B) {
 		rand.Read(obj[:])
 
 		var buf bytes.Buffer
-		aead, _ := chacha20poly1305.New(make([]byte, 32))
 		(&Session{
 			conn: struct {
 				io.Writer
 				io.ReadCloser
 			}{&buf, nil},
-			aead: aead,
 		}).writeMessage(&obj)
 
 		var rwc struct {
@@ -506,16 +430,15 @@ func BenchmarkReadMessage(b *testing.B) {
 		}
 		s := &Session{
 			conn: &rwc,
-			aead: aead,
 		}
 
 		b.ResetTimer()
 		b.ReportAllocs()
-		b.SetBytes(MinMessageSize)
+		b.SetBytes(16)
 		var obj2 Specifier
 		for i := 0; i < b.N; i++ {
 			rwc.Reset(buf.Bytes())
-			if err := s.readMessage(&obj2, 0); err != nil {
+			if err := s.readMessage(&obj2, 4096); err != nil {
 				b.Fatal(err)
 			} else if obj2 != obj {
 				b.Fatal("mismatch")
@@ -530,13 +453,11 @@ func BenchmarkReadMessage(b *testing.B) {
 		}
 
 		var buf bytes.Buffer
-		aead, _ := chacha20poly1305.New(make([]byte, 32))
 		(&Session{
 			conn: struct {
 				io.Writer
 				io.ReadCloser
 			}{&buf, nil},
-			aead: aead,
 		}).writeMessage(resp)
 
 		var rwc struct {
@@ -545,7 +466,6 @@ func BenchmarkReadMessage(b *testing.B) {
 		}
 		s := &Session{
 			conn: &rwc,
-			aead: aead,
 		}
 
 		b.ResetTimer()
@@ -554,7 +474,7 @@ func BenchmarkReadMessage(b *testing.B) {
 		var resp2 RPCReadResponse
 		for i := 0; i < b.N; i++ {
 			rwc.Reset(buf.Bytes())
-			if err := s.readMessage(&resp2, SectorSize+MinMessageSize); err != nil {
+			if err := s.readMessage(&resp2, SectorSize); err != nil {
 				b.Fatal(err)
 			}
 		}
