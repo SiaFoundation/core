@@ -58,6 +58,15 @@ type ChainIndex struct {
 // A PublicKey is an Ed25519 public key.
 type PublicKey [32]byte
 
+// A Signature is an Ed25519 signature.
+type Signature [64]byte
+
+// SignHash signs h with privateKey, producing a Signature.
+func SignHash(privateKey ed25519.PrivateKey, h Hash256) (s Signature) {
+	copy(s[:], ed25519.Sign(privateKey, h[:]))
+	return
+}
+
 // A TransactionID uniquely identifies a transaction.
 type TransactionID Hash256
 
@@ -90,13 +99,7 @@ type SiafundOutput struct {
 }
 
 // An InputSignature signs a transaction input.
-type InputSignature [64]byte
-
-// SignTransaction signs sigHash with privateKey, producing an InputSignature.
-func SignTransaction(privateKey ed25519.PrivateKey, sigHash Hash256) (is InputSignature) {
-	copy(is[:], ed25519.Sign(privateKey, sigHash[:]))
-	return
-}
+type InputSignature Signature
 
 // A SiacoinInput spends its parent Output by revealing its public key and signing the
 // transaction.
@@ -151,8 +154,8 @@ type FileContractState struct {
 type FileContractRevision struct {
 	Parent          FileContract
 	NewState        FileContractState
-	RenterSignature InputSignature
-	HostSignature   InputSignature
+	RenterSignature Signature
+	HostSignature   Signature
 }
 
 // A FileContractResolution closes a file contract's payment channel. If a valid

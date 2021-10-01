@@ -35,10 +35,10 @@ func genesisWithBeneficiaries(beneficiaries ...types.Beneficiary) types.Block {
 func signAllInputs(txn *types.Transaction, vc ValidationContext, priv ed25519.PrivateKey) {
 	sigHash := vc.SigHash(*txn)
 	for i := range txn.SiacoinInputs {
-		txn.SiacoinInputs[i].Signatures = []types.InputSignature{types.SignTransaction(priv, sigHash)}
+		txn.SiacoinInputs[i].Signatures = []types.InputSignature{types.InputSignature(types.SignHash(priv, sigHash))}
 	}
 	for i := range txn.SiafundInputs {
-		txn.SiafundInputs[i].Signatures = []types.InputSignature{types.SignTransaction(priv, sigHash)}
+		txn.SiafundInputs[i].Signatures = []types.InputSignature{types.InputSignature(types.SignHash(priv, sigHash))}
 	}
 }
 
@@ -360,8 +360,8 @@ func TestValidateTransaction(t *testing.T) {
 	signAllInputs(&txn, vc, privkey)
 	rev := &txn.FileContractRevisions[0]
 	contractHash := vc.ContractSigHash(rev.NewState)
-	rev.RenterSignature = types.SignTransaction(renterPrivkey, contractHash)
-	rev.HostSignature = types.SignTransaction(hostPrivkey, contractHash)
+	rev.RenterSignature = types.SignHash(renterPrivkey, contractHash)
+	rev.HostSignature = types.SignHash(hostPrivkey, contractHash)
 
 	if err := vc.ValidateTransaction(txn); err != nil {
 		t.Fatal(err)
@@ -672,7 +672,7 @@ func TestValidateSpendPolicy(t *testing.T) {
 				},
 			},
 			sign: func(sigHash types.Hash256) []types.InputSignature {
-				return []types.InputSignature{types.SignTransaction(privkey(0), sigHash)}
+				return []types.InputSignature{types.InputSignature(types.SignHash(privkey(0), sigHash))}
 			},
 			wantErr: true,
 		},
@@ -700,9 +700,9 @@ func TestValidateSpendPolicy(t *testing.T) {
 			},
 			sign: func(sigHash types.Hash256) []types.InputSignature {
 				return []types.InputSignature{
-					types.SignTransaction(privkey(0), sigHash),
-					types.SignTransaction(privkey(1), sigHash),
-					types.SignTransaction(privkey(2), sigHash),
+					types.InputSignature(types.SignHash(privkey(0), sigHash)),
+					types.InputSignature(types.SignHash(privkey(1), sigHash)),
+					types.InputSignature(types.SignHash(privkey(2), sigHash)),
 				}
 			},
 			wantErr: false,
@@ -731,7 +731,7 @@ func TestValidateSpendPolicy(t *testing.T) {
 				},
 			},
 			sign: func(sigHash types.Hash256) []types.InputSignature {
-				return []types.InputSignature{types.SignTransaction(privkey(3), sigHash)}
+				return []types.InputSignature{types.InputSignature(types.SignHash(privkey(3), sigHash))}
 			},
 			wantErr: true,
 		},
@@ -760,8 +760,8 @@ func TestValidateSpendPolicy(t *testing.T) {
 			},
 			sign: func(sigHash types.Hash256) []types.InputSignature {
 				return []types.InputSignature{
-					types.SignTransaction(privkey(1), sigHash),
-					types.SignTransaction(privkey(2), sigHash),
+					types.InputSignature(types.SignHash(privkey(1), sigHash)),
+					types.InputSignature(types.SignHash(privkey(2), sigHash)),
 				}
 			},
 			wantErr: false,
@@ -790,7 +790,7 @@ func TestValidateSpendPolicy(t *testing.T) {
 				},
 			},
 			sign: func(sigHash types.Hash256) []types.InputSignature {
-				return []types.InputSignature{types.SignTransaction(privkey(3), sigHash)}
+				return []types.InputSignature{types.InputSignature(types.SignHash(privkey(3), sigHash))}
 			},
 			wantErr: false,
 		},
@@ -806,7 +806,7 @@ func TestValidateSpendPolicy(t *testing.T) {
 			},
 			sign: func(sigHash types.Hash256) []types.InputSignature {
 				return []types.InputSignature{
-					types.SignTransaction(privkey(0), sigHash),
+					types.InputSignature(types.SignHash(privkey(0), sigHash)),
 				}
 			},
 			wantErr: true,
@@ -822,7 +822,7 @@ func TestValidateSpendPolicy(t *testing.T) {
 			},
 			sign: func(sigHash types.Hash256) []types.InputSignature {
 				return []types.InputSignature{
-					types.SignTransaction(privkey(0), sigHash),
+					types.InputSignature(types.SignHash(privkey(0), sigHash)),
 				}
 			},
 			wantErr: true,
@@ -839,8 +839,8 @@ func TestValidateSpendPolicy(t *testing.T) {
 			},
 			sign: func(sigHash types.Hash256) []types.InputSignature {
 				return []types.InputSignature{
-					types.SignTransaction(privkey(0), sigHash),
-					types.SignTransaction(privkey(1), sigHash),
+					types.InputSignature(types.SignHash(privkey(0), sigHash)),
+					types.InputSignature(types.SignHash(privkey(1), sigHash)),
 				}
 			},
 			wantErr: false,
@@ -856,7 +856,7 @@ func TestValidateSpendPolicy(t *testing.T) {
 			},
 			sign: func(sigHash types.Hash256) []types.InputSignature {
 				return []types.InputSignature{
-					types.SignTransaction(privkey(0), sigHash),
+					types.InputSignature(types.SignHash(privkey(0), sigHash)),
 				}
 			},
 			wantErr: false,

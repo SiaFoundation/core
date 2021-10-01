@@ -156,7 +156,7 @@ func (cs *ChainSim) MineBlockWithBeneficiaries(bs ...types.Beneficiary) types.Bl
 	// sign and mine
 	sigHash := cs.Context.SigHash(txn)
 	for i := range txn.SiacoinInputs {
-		txn.SiacoinInputs[i].Signatures = []types.InputSignature{types.SignTransaction(cs.privkey, sigHash)}
+		txn.SiacoinInputs[i].Signatures = []types.InputSignature{types.InputSignature(types.SignHash(cs.privkey, sigHash))}
 	}
 	return cs.MineBlockWithTxns(txn)
 }
@@ -179,7 +179,7 @@ func (cs *ChainSim) MineBlock() types.Block {
 		}
 		sigHash := cs.Context.SigHash(txn)
 		for i := range txn.SiacoinInputs {
-			txn.SiacoinInputs[i].Signatures = []types.InputSignature{types.SignTransaction(cs.privkey, sigHash)}
+			txn.SiacoinInputs[i].Signatures = []types.InputSignature{types.InputSignature(types.SignHash(cs.privkey, sigHash))}
 		}
 
 		txns = append(txns, txn)

@@ -251,8 +251,8 @@ func TestFileContracts(t *testing.T) {
 		MinerFee:      renterOutput.Value.Add(hostOutput.Value).Sub(outputSum),
 	}
 	sigHash := sau.Context.SigHash(txn)
-	txn.SiacoinInputs[0].Signatures = []types.InputSignature{types.SignTransaction(renterPrivkey, sigHash)}
-	txn.SiacoinInputs[1].Signatures = []types.InputSignature{types.SignTransaction(hostPrivkey, sigHash)}
+	txn.SiacoinInputs[0].Signatures = []types.InputSignature{types.InputSignature(types.SignHash(renterPrivkey, sigHash))}
+	txn.SiacoinInputs[1].Signatures = []types.InputSignature{types.InputSignature(types.SignHash(hostPrivkey, sigHash))}
 
 	b = mineBlock(sau.Context, b, txn)
 	if err := sau.Context.ValidateBlock(b); err != nil {
@@ -291,8 +291,8 @@ func TestFileContracts(t *testing.T) {
 	)
 	finalRev.NewState.RevisionNumber++
 	contractHash := sau.Context.ContractSigHash(finalRev.NewState)
-	finalRev.RenterSignature = types.SignTransaction(renterPrivkey, contractHash)
-	finalRev.HostSignature = types.SignTransaction(hostPrivkey, contractHash)
+	finalRev.RenterSignature = types.SignHash(renterPrivkey, contractHash)
+	finalRev.HostSignature = types.SignHash(hostPrivkey, contractHash)
 	txn = types.Transaction{
 		FileContractRevisions: []types.FileContractRevision{finalRev},
 	}

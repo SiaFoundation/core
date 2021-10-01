@@ -238,6 +238,9 @@ func (a Address) EncodeTo(e *Encoder) { e.Write(a[:]) }
 func (pk PublicKey) EncodeTo(e *Encoder) { e.Write(pk[:]) }
 
 // EncodeTo implements types.EncoderTo.
+func (s Signature) EncodeTo(e *Encoder) { e.Write(s[:]) }
+
+// EncodeTo implements types.EncoderTo.
 func (is InputSignature) EncodeTo(e *Encoder) { e.Write(is[:]) }
 
 // EncodeTo implements types.EncoderTo.
@@ -466,6 +469,9 @@ func (a *Address) DecodeFrom(d *Decoder) { d.Read(a[:]) }
 
 // DecodeFrom implements types.DecoderFrom.
 func (pk *PublicKey) DecodeFrom(d *Decoder) { d.Read(pk[:]) }
+
+// DecodeFrom implements types.DecoderFrom.
+func (s *Signature) DecodeFrom(d *Decoder) { d.Read(s[:]) }
 
 // DecodeFrom implements types.DecoderFrom.
 func (is *InputSignature) DecodeFrom(d *Decoder) { d.Read(is[:]) }
