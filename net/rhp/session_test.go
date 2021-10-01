@@ -6,9 +6,11 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"reflect"
+	"strings"
 	"testing"
 
 	"go.sia.tech/core/types"
@@ -394,89 +396,80 @@ func TestEncoding(t *testing.T) {
 	}
 }
 
+func encodedLen(o ProtocolObject) int {
+	var b bytes.Buffer
+	e := types.NewEncoder(&b)
+	o.encodeTo(e)
+	e.Flush()
+	return b.Len()
+}
+
 func BenchmarkWriteMessage(b *testing.B) {
-	s := &Session{
-		conn: struct {
-			io.Writer
-			io.ReadCloser
-		}{ioutil.Discard, nil},
+	bench := func(obj ProtocolObject) {
+		name := strings.TrimPrefix(fmt.Sprintf("%T", obj), "*rhp.")
+		b.Run(name, func(b *testing.B) {
+			s := &Session{
+				conn: struct {
+					io.Writer
+					io.ReadCloser
+				}{ioutil.Discard, nil},
+			}
+
+			b.ResetTimer()
+			b.ReportAllocs()
+			b.SetBytes(int64(encodedLen(obj)))
+			for i := 0; i < b.N; i++ {
+				if err := s.writeMessage(obj); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
-	obj := newSpecifier("Hello, World!")
-	b.ReportAllocs()
-	b.SetBytes(16)
-	for i := 0; i < b.N; i++ {
-		if err := s.writeMessage(&obj); err != nil {
-			b.Fatal(err)
-		}
-	}
+
+	bench(new(Specifier))
+	bench(&RPCSettingsResponse{Settings: make([]byte, 4096)})
+	bench(&RPCReadResponse{
+		Data:        make([]byte, SectorSize),
+		MerkleProof: make([]types.Hash256, 10),
+	})
 }
 
 func BenchmarkReadMessage(b *testing.B) {
-	b.Run("ID", func(b *testing.B) {
-		var obj Specifier
-		rand.Read(obj[:])
+	bench := func(obj ProtocolObject) {
+		name := strings.TrimPrefix(fmt.Sprintf("%T", obj), "*rhp.")
+		b.Run(name, func(b *testing.B) {
+			var buf bytes.Buffer
+			(&Session{
+				conn: struct {
+					io.Writer
+					io.ReadCloser
+				}{&buf, nil},
+			}).writeMessage(obj)
 
-		var buf bytes.Buffer
-		(&Session{
-			conn: struct {
-				io.Writer
-				io.ReadCloser
-			}{&buf, nil},
-		}).writeMessage(&obj)
-
-		var rwc struct {
-			bytes.Reader
-			io.WriteCloser
-		}
-		s := &Session{
-			conn: &rwc,
-		}
-
-		b.ResetTimer()
-		b.ReportAllocs()
-		b.SetBytes(16)
-		var obj2 Specifier
-		for i := 0; i < b.N; i++ {
-			rwc.Reset(buf.Bytes())
-			if err := s.readMessage(&obj2, 4096); err != nil {
-				b.Fatal(err)
-			} else if obj2 != obj {
-				b.Fatal("mismatch")
+			var rwc struct {
+				bytes.Reader
+				io.WriteCloser
 			}
-		}
-	})
-	b.Run("ReadResponse", func(b *testing.B) {
-		resp := &RPCReadResponse{
-			// Signature:   randBytes(64),
-			Data:        randBytes(SectorSize),
-			MerkleProof: make([]types.Hash256, 10),
-		}
-
-		var buf bytes.Buffer
-		(&Session{
-			conn: struct {
-				io.Writer
-				io.ReadCloser
-			}{&buf, nil},
-		}).writeMessage(resp)
-
-		var rwc struct {
-			bytes.Reader
-			io.WriteCloser
-		}
-		s := &Session{
-			conn: &rwc,
-		}
-
-		b.ResetTimer()
-		b.ReportAllocs()
-		b.SetBytes(int64(buf.Len()))
-		var resp2 RPCReadResponse
-		for i := 0; i < b.N; i++ {
-			rwc.Reset(buf.Bytes())
-			if err := s.readMessage(&resp2, SectorSize); err != nil {
-				b.Fatal(err)
+			s := &Session{
+				conn: &rwc,
 			}
-		}
+
+			b.ResetTimer()
+			b.ReportAllocs()
+			b.SetBytes(int64(buf.Len()))
+			for i := 0; i < b.N; i++ {
+				rwc.Reader.Reset(buf.Bytes())
+				if err := s.readMessage(obj, uint64(buf.Len())); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+
+	bench(new(Specifier))
+	bench(&RPCSettingsResponse{Settings: make([]byte, 4096)})
+	bench(&RPCReadResponse{
+		Data:        make([]byte, SectorSize),
+		MerkleProof: make([]types.Hash256, 10),
 	})
 }
