@@ -1,6 +1,5 @@
-// Package renterhost implements the handshake and transport for the Sia
-// renter-host protocol.
-package renterhost
+// Package rhp implements the Sia renter-host protocol.
+package rhp
 
 import (
 	"crypto/ed25519"

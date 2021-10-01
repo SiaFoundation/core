@@ -1,4 +1,4 @@
-package renterhost
+package rhp
 
 import (
 	"bytes"
