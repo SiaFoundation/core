@@ -3,104 +3,49 @@ package rhp
 import (
 	"bytes"
 	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"reflect"
 	"strings"
 	"testing"
+	"testing/quick"
+
+	"lukechampine.com/frand"
 
 	"go.sia.tech/core/types"
 )
 
 var ErrInvalidName = errors.New("invalid name")
 
-func randBytes(n int) []byte {
-	buf := make([]byte, 8)
-	rand.Read(buf)
-	return buf
-}
-
-func entropy256() (e [32]byte) {
-	rand.Read(e[:])
-	return
-}
-
-func randUint64n(n uint64) uint64 {
-	r := binary.LittleEndian.Uint64(randBytes(8))
-	return r % n
-}
-
 var randomTxn = func() types.Transaction {
-	txn := types.Transaction{
-		SiacoinInputs: []types.SiacoinInput{
-			{
-				SpendPolicy: types.AnyoneCanSpend(),
-				Signatures:  make([]types.InputSignature, 1),
-			},
-		},
-		// SiacoinOutputs: []types.Beneficiary{{
-		// 	Address: entropy256(),
-		// 	Value:   types.Siacoins(uint32(randUint64n(100))),
-		// }},
-		// FileContracts: []types.FileContractState{{
-		// 	Filesize:       randUint64n(100),
-		// 	FileMerkleRoot: entropy256(),
-		// 	WindowStart:    randUint64n(100),
-		// 	WindowEnd:      randUint64n(100),
-		// 	Payout:         types.Siacoins(uint32(randUint64n(100))),
-		// 	ValidProofOutputs: []types.SiacoinOutput{{
-		// 		Value: types.Siacoins(uint32(randUint64n(100))),
-		// 	}},
-		// 	MissedProofOutputs: []types.SiacoinOutput{{
-		// 		Value: types.Siacoins(uint32(randUint64n(100))),
-		// 	}},
-		// 	RevisionNumber: randUint64n(100),
-		// 	UnlockHash:     entropy256(),
-		// }},
-		FileContractRevisions: []types.FileContractRevision{{
-			Parent: types.FileContract{},
-			NewState: types.FileContractState{
-				RevisionNumber: randUint64n(100),
-				Filesize:       randUint64n(100),
-				FileMerkleRoot: entropy256(),
-				WindowStart:    randUint64n(100),
-				WindowEnd:      randUint64n(100),
-				// ValidProofOutputs: []types.SiacoinOutput{{
-				// 	Value: types.Siacoins(uint32(randUint64n(100))),
-				// }},
-				// MissedProofOutputs: []types.SiacoinOutput{{
-				// 	Value: types.Siacoins(uint32(randUint64n(100))),
-				// }},
-				// UnlockHash: entropy256(),
-			},
-		}},
-		// StorageProofs: []types.StorageProof{{
-		// 	ParentID: entropy256(),
-		// 	HashSet:  []types.Hash256{entropy256(), entropy256()},
-		// }},
-		// SiafundInputs: []types.SiafundInput{{
-		// 	ClaimStart: types.Siacoins(uint32(randUint64n(100))),
-		// }},
-		// SiafundOutputs: []types.Beneficiary{{
-		// 	Address: entropy256(),
-		// 	Value:   types.Siacoins(uint32(randUint64n(100))),
-		// }},
-		// MinerFees:     []types.Currency{types.Siacoins(uint32(randUint64n(100)))},
-		// ArbitraryData: []byte{randBytes(100)},
-		// TransactionSignatures: []types.TransactionSignature{{
-		// 	ParentID:       entropy256(),
-		// 	CoveredFields:  types.CoveredFields{MinerFees: []uint64{1, 2, 3}},
-		// 	PublicKeyIndex: randUint64n(10),
-		// 	Timelock:       randUint64n(10),
-		// 	Signature: randBytes(64),
-		// }},
+	var valueFn func(t reflect.Type, r *rand.Rand) reflect.Value
+	valueFn = func(t reflect.Type, r *rand.Rand) reflect.Value {
+		if t.String() == "types.SpendPolicy" {
+			return reflect.ValueOf(types.AnyoneCanSpend())
+		}
+		v := reflect.New(t).Elem()
+		switch t.Kind() {
+		default:
+			v, _ = quick.Value(t, r)
+		case reflect.Slice:
+			// 3 elements per slice to prevent generating giant objects
+			v.Set(reflect.MakeSlice(t, 3, 3))
+			for i := 0; i < v.Len(); i++ {
+				v.Index(i).Set(valueFn(t.Elem(), r))
+			}
+		case reflect.Struct:
+			for i := 0; i < v.NumField(); i++ {
+				v.Field(i).Set(valueFn(t.Field(i).Type, r))
+			}
+		}
+		return v
 	}
-	//frand.Read(txn.StorageProofs[0].Segment[:])
-	return txn
+	r := rand.New(frand.NewSource())
+	txn := valueFn(reflect.TypeOf(types.Transaction{}), r)
+	return txn.Interface().(types.Transaction)
 }()
 
 func deepEqual(a, b ProtocolObject) bool {
@@ -211,9 +156,11 @@ func TestSession(t *testing.T) {
 }
 
 func TestFormContract(t *testing.T) {
+	const msgSize = 1 << 15
+
 	renterReq := &RPCFormContractRequest{
 		Transactions: []types.Transaction{randomTxn, randomTxn},
-		RenterKey:    entropy256(),
+		RenterKey:    frand.Entropy256(),
 	}
 	hostAdditions := &RPCFormContractAdditions{
 		Parents: []types.Transaction{randomTxn, randomTxn},
@@ -222,11 +169,11 @@ func TestFormContract(t *testing.T) {
 	}
 	renterSigs := &RPCFormContractSignatures{
 		ContractSignatures: randomTxn.SiacoinInputs[0].Signatures,
-		// RevisionSignature:  randomTxn.SiacoinInputs[0].Signatures[0],
+		RevisionSignature:  types.Signature(randomTxn.SiacoinInputs[0].Signatures[0]),
 	}
 	hostSigs := &RPCFormContractSignatures{
 		ContractSignatures: randomTxn.SiacoinInputs[0].Signatures,
-		// RevisionSignature:  randomTxn.SiacoinInputs[0].Signatures[0],
+		RevisionSignature:  types.Signature(randomTxn.SiacoinInputs[0].Signatures[0]),
 	}
 
 	renter, host := newFakeConns()
@@ -248,7 +195,7 @@ func TestFormContract(t *testing.T) {
 				switch id {
 				case RPCFormContractID:
 					var req RPCFormContractRequest
-					if err := hs.ReadRequest(&req, 4096); err != nil {
+					if err := hs.ReadRequest(&req, msgSize); err != nil {
 						return err
 					} else if !deepEqual(&req, renterReq) {
 						return errors.New("received request does not match sent request")
@@ -258,7 +205,7 @@ func TestFormContract(t *testing.T) {
 						return err
 					}
 					var recvSigs RPCFormContractSignatures
-					if err := hs.ReadResponse(&recvSigs, 4096); err != nil {
+					if err := hs.ReadResponse(&recvSigs, msgSize); err != nil {
 						return err
 					} else if !deepEqual(&recvSigs, renterSigs) {
 						return errors.New("received sigs do not match sent sigs")
@@ -281,7 +228,7 @@ func TestFormContract(t *testing.T) {
 	var recvAdditions RPCFormContractAdditions
 	if err := rs.WriteRequest(RPCFormContractID, renterReq); err != nil {
 		t.Fatal(err)
-	} else if err := rs.ReadResponse(&recvAdditions, 4096); err != nil {
+	} else if err := rs.ReadResponse(&recvAdditions, msgSize); err != nil {
 		t.Fatal(err)
 	} else if !deepEqual(&recvAdditions, hostAdditions) {
 		t.Fatal("received additions do not match sent additions")
@@ -289,7 +236,7 @@ func TestFormContract(t *testing.T) {
 	var recvSigs RPCFormContractSignatures
 	if err := rs.WriteResponse(renterSigs, nil); err != nil {
 		t.Fatal(err)
-	} else if err := rs.ReadResponse(&recvSigs, 4096); err != nil {
+	} else if err := rs.ReadResponse(&recvSigs, msgSize); err != nil {
 		t.Fatal(err)
 	} else if !deepEqual(&recvSigs, hostSigs) {
 		t.Fatal("received sigs do not match sent sigs")
@@ -304,7 +251,7 @@ func TestFormContract(t *testing.T) {
 
 func TestChallenge(t *testing.T) {
 	s := Session{}
-	rand.Read(s.challenge[:])
+	frand.Read(s.challenge[:])
 	pubkey, privkey, _ := ed25519.GenerateKey(nil)
 	sig := s.SignChallenge(privkey)
 	if !s.VerifyChallenge(sig, pubkey) {
@@ -313,6 +260,10 @@ func TestChallenge(t *testing.T) {
 }
 
 func TestEncoding(t *testing.T) {
+	randSignature := func() (s types.Signature) {
+		frand.Read(s[:])
+		return
+	}
 	objs := []ProtocolObject{
 		&Specifier{'f', 'o', 'o'},
 		&RPCFormContractRequest{
@@ -326,50 +277,44 @@ func TestEncoding(t *testing.T) {
 		},
 		&RPCFormContractSignatures{
 			ContractSignatures: randomTxn.SiacoinInputs[0].Signatures,
-			// RevisionSignature:  randomTxn.SiacoinInputs[0].Signatures[0],
+			RevisionSignature:  types.Signature(randomTxn.SiacoinInputs[0].Signatures[0]),
 		},
 		&RPCLockRequest{
 			ContractID: randomTxn.FileContractRevisions[0].Parent.ID,
-			// Signature:  randBytes(64),
-			Timeout: randUint64n(100),
+			Signature:  types.InputSignature(randSignature()),
+			Timeout:    frand.Uint64n(100),
 		},
 		&RPCLockResponse{
-			Revision: randomTxn.FileContractRevisions[0],
-			// Signatures: randomTxn.SiacoinInputs[0].Signatures,
+			Revision:   randomTxn.FileContractRevisions[0],
+			Signatures: [2]types.Signature{types.Signature(randomTxn.SiacoinInputs[1].Signatures[0]), types.Signature(randomTxn.SiacoinInputs[1].Signatures[1])},
 		},
 		&RPCReadRequest{
 			Sections:          []RPCReadRequestSection{{}},
-			NewRevisionNumber: randUint64n(100),
-			//NewValidProofValues:  randomTxn.MinerFees,
-			//NewMissedProofValues: randomTxn.MinerFees,
-			// Signature: randBytes(64),
+			NewRevisionNumber: frand.Uint64n(100),
+			Signature:         randSignature(),
 		},
 		&RPCReadResponse{
-			// Signature:   randBytes(64),
-			Data:        randBytes(1024),
+			Signature:   randSignature(),
+			Data:        frand.Bytes(8),
 			MerkleProof: randomTxn.SiacoinInputs[0].Parent.MerkleProof,
 		},
 		&RPCSectorRootsRequest{
-			RootOffset:        randUint64n(100),
-			NumRoots:          randUint64n(100),
-			NewRevisionNumber: randUint64n(100),
-			//NewValidProofValues:  randomTxn.MinerFees,
-			//NewMissedProofValues: randomTxn.MinerFees,
-			// Signature: randBytes(64),
+			RootOffset:        frand.Uint64n(100),
+			NumRoots:          frand.Uint64n(100),
+			NewRevisionNumber: frand.Uint64n(100),
+			Signature:         randSignature(),
 		},
 		&RPCSectorRootsResponse{
 			SectorRoots: randomTxn.SiacoinInputs[0].Parent.MerkleProof,
 			MerkleProof: randomTxn.SiacoinInputs[0].Parent.MerkleProof,
-			// Signature:   randBytes(64),
+			Signature:   randSignature(),
 		},
 		&RPCSettingsResponse{
-			Settings: randBytes(100),
+			Settings: frand.Bytes(8),
 		},
 		&RPCWriteRequest{
-			Actions:           []RPCWriteAction{{Data: randBytes(1024)}},
-			NewRevisionNumber: randUint64n(100),
-			//NewValidProofValues:  randomTxn.MinerFees,
-			//NewMissedProofValues: randomTxn.MinerFees,
+			Actions:           []RPCWriteAction{{Data: frand.Bytes(8)}},
+			NewRevisionNumber: frand.Uint64n(100),
 		},
 		&RPCWriteMerkleProof{
 			OldSubtreeHashes: randomTxn.SiacoinInputs[0].Parent.MerkleProof,
@@ -377,7 +322,7 @@ func TestEncoding(t *testing.T) {
 			NewMerkleRoot:    types.Hash256{4, 5, 6},
 		},
 		&RPCWriteResponse{
-			// Signature: randBytes(64),
+			Signature: randSignature(),
 		},
 	}
 	for _, o := range objs {

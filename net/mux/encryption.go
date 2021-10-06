@@ -3,7 +3,6 @@ package mux
 import (
 	"crypto/cipher"
 	"crypto/ed25519"
-	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -13,6 +12,7 @@ import (
 	"golang.org/x/crypto/blake2b"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/curve25519"
+	"lukechampine.com/frand"
 )
 
 const (
@@ -23,7 +23,7 @@ const (
 )
 
 func generateX25519KeyPair() (xsk, xpk [32]byte) {
-	rand.Read(xsk[:])
+	frand.Read(xsk[:])
 	curve25519.ScalarBaseMult(&xpk, &xsk)
 	return
 }
@@ -45,7 +45,7 @@ func deriveSharedSecret(xsk, xpk [32]byte) ([32]byte, error) {
 
 func encryptInPlace(buf []byte, aead cipher.AEAD) {
 	nonce, plaintext := buf[:chachaPoly1305NonceSize], buf[chachaPoly1305NonceSize:len(buf)-chachaPoly1305TagSize]
-	rand.Read(nonce)
+	frand.Read(nonce)
 	aead.Seal(plaintext[:0], nonce, plaintext, nil)
 }
 

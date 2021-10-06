@@ -2,13 +2,13 @@ package consensus
 
 import (
 	"crypto/ed25519"
-	"crypto/rand"
 	"encoding/binary"
 	"math"
 	"testing"
 	"time"
 
 	"go.sia.tech/core/types"
+	"lukechampine.com/frand"
 )
 
 var (
@@ -127,8 +127,7 @@ func TestValidateTransaction(t *testing.T) {
 	pubkey, privkey := testingKeypair(0)
 	renterPubkey, renterPrivkey := testingKeypair(1)
 	hostPubkey, hostPrivkey := testingKeypair(2)
-	data := make([]byte, 64*2)
-	rand.Read(data)
+	data := frand.Bytes(64 * 2)
 	dataRoot := merkleNodeHash(
 		storageProofLeafHash(data[:64]),
 		storageProofLeafHash(data[64:]),

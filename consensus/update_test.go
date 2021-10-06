@@ -1,11 +1,11 @@
 package consensus
 
 import (
-	"crypto/rand"
 	"testing"
 	"time"
 
 	"go.sia.tech/core/types"
+	"lukechampine.com/frand"
 )
 
 func TestSiafunds(t *testing.T) {
@@ -279,8 +279,7 @@ func TestFileContracts(t *testing.T) {
 		copy(buf[1:], segment)
 		return types.HashBytes(buf)
 	}
-	data := make([]byte, 64*2)
-	rand.Read(data)
+	data := frand.Bytes(64 * 2)
 	finalRev := types.FileContractRevision{
 		Parent:   fc,
 		NewState: fc.State,

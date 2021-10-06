@@ -3,10 +3,10 @@ package rhp
 
 import (
 	"crypto/ed25519"
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
+	"lukechampine.com/frand"
 	"net"
 	"sync"
 
@@ -195,7 +195,7 @@ func NewHostSession(conn io.ReadWriteCloser) (_ *Session, err error) {
 		conn:     conn,
 		isRenter: false,
 	}
-	rand.Read(s.challenge[:])
+	frand.Read(s.challenge[:])
 	// hack: cast challenge to Specifier to make it a ProtocolObject
 	if err := s.writeMessage((*Specifier)(&s.challenge)); err != nil {
 		return nil, fmt.Errorf("couldn't write challenge: %w", err)
