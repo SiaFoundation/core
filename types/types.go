@@ -277,10 +277,13 @@ func (h BlockHeader) ParentIndex() ChainIndex {
 
 // ID returns a hash that uniquely identifies a block.
 func (h BlockHeader) ID() BlockID {
-	buf := make([]byte, 8+8+32)
-	copy(buf[:], h.Nonce[:])
-	binary.LittleEndian.PutUint64(buf[8:], uint64(h.Timestamp.Unix()))
-	copy(buf[16:], h.Commitment[:])
+	// NOTE: although in principle we only need to hash 48 bytes of data, we
+	// must ensure compatibility with existing Sia mining hardware, which
+	// expects an 80-byte buffer with the nonce at [32:40].
+	buf := make([]byte, 32+8+8+32)
+	copy(buf[32:], h.Nonce[:])
+	binary.LittleEndian.PutUint64(buf[40:], uint64(h.Timestamp.Unix()))
+	copy(buf[48:], h.Commitment[:])
 	return BlockID(HashBytes(buf))
 }
 
