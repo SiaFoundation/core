@@ -12,8 +12,11 @@ import (
 // copied from testutil (can't import due to cycle)
 func findBlockNonce(h *types.BlockHeader, target types.BlockID) {
 	frand.Read(h.Nonce[:])
-	for !h.ID().MeetsTarget(target) {
+	for binary.LittleEndian.Uint64(h.Nonce[:])%NonceFactor != 0 {
 		binary.LittleEndian.PutUint64(h.Nonce[:], binary.LittleEndian.Uint64(h.Nonce[:])+1)
+	}
+	for !h.ID().MeetsTarget(target) {
+		binary.LittleEndian.PutUint64(h.Nonce[:], binary.LittleEndian.Uint64(h.Nonce[:])+NonceFactor)
 	}
 }
 

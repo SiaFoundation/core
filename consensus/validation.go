@@ -20,6 +20,9 @@ const (
 
 	foundationHardforkHeight   = 300000
 	foundationSubsidyFrequency = blocksPerYear / 12
+
+	// NonceFactor is the factor by which all block nonces must be divisible.
+	NonceFactor = 1009
 )
 
 var (
@@ -251,6 +254,8 @@ func (vc *ValidationContext) validateHeader(h types.BlockHeader) error {
 		return ErrFutureBlock
 	} else if h.Timestamp.Before(vc.medianTimestamp()) {
 		return errors.New("timestamp is too far in the past")
+	} else if binary.LittleEndian.Uint64(h.Nonce[:])%NonceFactor != 0 {
+		return errors.New("nonce is not divisible by required factor")
 	} else if types.WorkRequiredForHash(h.ID()).Cmp(vc.Difficulty) < 0 {
 		return errors.New("insufficient work")
 	}

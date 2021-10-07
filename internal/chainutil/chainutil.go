@@ -11,8 +11,12 @@ import (
 
 // FindBlockNonce finds a block nonce meeting the target.
 func FindBlockNonce(h *types.BlockHeader, target types.BlockID) {
-	for !h.ID().MeetsTarget(target) {
+	// ensure nonce has required factor
+	for binary.LittleEndian.Uint64(h.Nonce[:])%consensus.NonceFactor != 0 {
 		binary.LittleEndian.PutUint64(h.Nonce[:], binary.LittleEndian.Uint64(h.Nonce[:])+1)
+	}
+	for !h.ID().MeetsTarget(target) {
+		binary.LittleEndian.PutUint64(h.Nonce[:], binary.LittleEndian.Uint64(h.Nonce[:])+consensus.NonceFactor)
 	}
 }
 
