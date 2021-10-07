@@ -1,7 +1,7 @@
 package consensus
 
 import (
-	"encoding/binary"
+	"math"
 	"testing"
 	"time"
 
@@ -11,12 +11,9 @@ import (
 
 // copied from testutil (can't import due to cycle)
 func findBlockNonce(h *types.BlockHeader, target types.BlockID) {
-	frand.Read(h.Nonce[:])
-	for binary.LittleEndian.Uint64(h.Nonce[:])%NonceFactor != 0 {
-		binary.LittleEndian.PutUint64(h.Nonce[:], binary.LittleEndian.Uint64(h.Nonce[:])+1)
-	}
+	h.Nonce = frand.Uint64n(math.MaxUint32) * NonceFactor
 	for !h.ID().MeetsTarget(target) {
-		binary.LittleEndian.PutUint64(h.Nonce[:], binary.LittleEndian.Uint64(h.Nonce[:])+NonceFactor)
+		h.Nonce += NonceFactor
 	}
 }
 
@@ -184,7 +181,7 @@ func TestScratchChainDifficultyAdjustment(t *testing.T) {
 	// mine a block with less than the minimum work; it should be rejected
 	b = mineBlock(vc, b)
 	for types.WorkRequiredForHash(b.ID()).Cmp(currentDifficulty) >= 0 {
-		frand.Read(b.Header.Nonce[:])
+		b.Header.Nonce = frand.Uint64n(math.MaxUint32) * NonceFactor
 	}
 	if err := sc.AppendHeader(b.Header); err == nil {
 		t.Fatal("expected block to be rejected")

@@ -2,7 +2,6 @@ package chainutil
 
 import (
 	"crypto/ed25519"
-	"encoding/binary"
 	"time"
 
 	"go.sia.tech/core/consensus"
@@ -11,12 +10,12 @@ import (
 
 // FindBlockNonce finds a block nonce meeting the target.
 func FindBlockNonce(h *types.BlockHeader, target types.BlockID) {
-	// ensure nonce has required factor
-	for binary.LittleEndian.Uint64(h.Nonce[:])%consensus.NonceFactor != 0 {
-		binary.LittleEndian.PutUint64(h.Nonce[:], binary.LittleEndian.Uint64(h.Nonce[:])+1)
+	// ensure nonce meets factor requirement
+	for h.Nonce%consensus.NonceFactor != 0 {
+		h.Nonce++
 	}
 	for !h.ID().MeetsTarget(target) {
-		binary.LittleEndian.PutUint64(h.Nonce[:], binary.LittleEndian.Uint64(h.Nonce[:])+consensus.NonceFactor)
+		h.Nonce += consensus.NonceFactor
 	}
 }
 
@@ -65,7 +64,7 @@ type ChainSim struct {
 	Chain   []types.Block
 	Context consensus.ValidationContext
 
-	nonce [8]byte // for distinguishing forks
+	nonce uint64 // for distinguishing forks
 
 	// for simulating transactions
 	pubkey  types.PublicKey
@@ -78,9 +77,7 @@ func (cs *ChainSim) Fork() *ChainSim {
 	cs2 := *cs
 	cs2.Chain = append([]types.Block(nil), cs2.Chain...)
 	cs2.outputs = append([]types.SiacoinOutput(nil), cs2.outputs...)
-	if cs.nonce[7]++; cs.nonce[7] == 0 {
-		cs.nonce[6]++
-	}
+	cs.nonce += 1 << 48
 	return &cs2
 }
 
@@ -177,7 +174,7 @@ func (cs *ChainSim) MineBlock() types.Block {
 			}},
 			SiacoinOutputs: []types.Beneficiary{
 				{Address: types.StandardAddress(cs.pubkey), Value: out.Value.Sub(types.NewCurrency64(cs.Context.Index.Height + 1))},
-				{Address: types.Address{cs.nonce[6], cs.nonce[7], 1, 2, 3}, Value: types.NewCurrency64(1)},
+				{Address: types.Address{byte(cs.nonce >> 48), byte(cs.nonce >> 56), 1, 2, 3}, Value: types.NewCurrency64(1)},
 			},
 			MinerFee: types.NewCurrency64(cs.Context.Index.Height),
 		}

@@ -253,7 +253,7 @@ func (txn *Transaction) DeepCopy() Transaction {
 type BlockHeader struct {
 	Height       uint64
 	ParentID     BlockID
-	Nonce        [8]byte
+	Nonce        uint64
 	Timestamp    time.Time
 	MinerAddress Address
 	Commitment   Hash256
@@ -281,7 +281,7 @@ func (h BlockHeader) ID() BlockID {
 	// must ensure compatibility with existing Sia mining hardware, which
 	// expects an 80-byte buffer with the nonce at [32:40].
 	buf := make([]byte, 32+8+8+32)
-	copy(buf[32:], h.Nonce[:])
+	binary.LittleEndian.PutUint64(buf[32:], h.Nonce)
 	binary.LittleEndian.PutUint64(buf[40:], uint64(h.Timestamp.Unix()))
 	copy(buf[48:], h.Commitment[:])
 	return BlockID(HashBytes(buf))

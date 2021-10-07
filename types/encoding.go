@@ -262,7 +262,7 @@ func (index ChainIndex) EncodeTo(e *Encoder) {
 func (h BlockHeader) EncodeTo(e *Encoder) {
 	e.WriteUint64(h.Height)
 	h.ParentID.EncodeTo(e)
-	e.Write(h.Nonce[:])
+	e.WriteUint64(h.Nonce)
 	e.WriteTime(h.Timestamp)
 	h.MinerAddress.EncodeTo(e)
 	h.Commitment.EncodeTo(e)
@@ -495,7 +495,7 @@ func (index *ChainIndex) DecodeFrom(d *Decoder) {
 func (h *BlockHeader) DecodeFrom(d *Decoder) {
 	h.Height = d.ReadUint64()
 	h.ParentID.DecodeFrom(d)
-	d.Read(h.Nonce[:])
+	h.Nonce = d.ReadUint64()
 	h.Timestamp = d.ReadTime()
 	h.MinerAddress.DecodeFrom(d)
 	h.Commitment.DecodeFrom(d)
