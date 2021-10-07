@@ -76,7 +76,6 @@ linters-settings:
       - builtinShadow
       - emptyFallthrough
       - hexLiteral
-      - ptrToRefParam
       - underef
       - equalFold
 
