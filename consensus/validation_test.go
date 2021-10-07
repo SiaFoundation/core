@@ -2,13 +2,13 @@ package consensus
 
 import (
 	"crypto/ed25519"
-	"crypto/rand"
 	"encoding/binary"
 	"math"
 	"testing"
 	"time"
 
 	"go.sia.tech/core/types"
+	"lukechampine.com/frand"
 )
 
 var (
@@ -35,10 +35,10 @@ func genesisWithBeneficiaries(beneficiaries ...types.Beneficiary) types.Block {
 func signAllInputs(txn *types.Transaction, vc ValidationContext, priv ed25519.PrivateKey) {
 	sigHash := vc.SigHash(*txn)
 	for i := range txn.SiacoinInputs {
-		txn.SiacoinInputs[i].Signatures = []types.InputSignature{types.SignTransaction(priv, sigHash)}
+		txn.SiacoinInputs[i].Signatures = []types.InputSignature{types.InputSignature(types.SignHash(priv, sigHash))}
 	}
 	for i := range txn.SiafundInputs {
-		txn.SiafundInputs[i].Signatures = []types.InputSignature{types.SignTransaction(priv, sigHash)}
+		txn.SiafundInputs[i].Signatures = []types.InputSignature{types.InputSignature(types.SignHash(priv, sigHash))}
 	}
 }
 
@@ -127,8 +127,7 @@ func TestValidateTransaction(t *testing.T) {
 	pubkey, privkey := testingKeypair(0)
 	renterPubkey, renterPrivkey := testingKeypair(1)
 	hostPubkey, hostPrivkey := testingKeypair(2)
-	data := make([]byte, 64*2)
-	rand.Read(data)
+	data := frand.Bytes(64 * 2)
 	dataRoot := merkleNodeHash(
 		storageProofLeafHash(data[:64]),
 		storageProofLeafHash(data[64:]),
@@ -360,8 +359,8 @@ func TestValidateTransaction(t *testing.T) {
 	signAllInputs(&txn, vc, privkey)
 	rev := &txn.FileContractRevisions[0]
 	contractHash := vc.ContractSigHash(rev.NewState)
-	rev.RenterSignature = types.SignTransaction(renterPrivkey, contractHash)
-	rev.HostSignature = types.SignTransaction(hostPrivkey, contractHash)
+	rev.RenterSignature = types.SignHash(renterPrivkey, contractHash)
+	rev.HostSignature = types.SignHash(hostPrivkey, contractHash)
 
 	if err := vc.ValidateTransaction(txn); err != nil {
 		t.Fatal(err)
@@ -672,7 +671,7 @@ func TestValidateSpendPolicy(t *testing.T) {
 				},
 			},
 			sign: func(sigHash types.Hash256) []types.InputSignature {
-				return []types.InputSignature{types.SignTransaction(privkey(0), sigHash)}
+				return []types.InputSignature{types.InputSignature(types.SignHash(privkey(0), sigHash))}
 			},
 			wantErr: true,
 		},
@@ -700,9 +699,9 @@ func TestValidateSpendPolicy(t *testing.T) {
 			},
 			sign: func(sigHash types.Hash256) []types.InputSignature {
 				return []types.InputSignature{
-					types.SignTransaction(privkey(0), sigHash),
-					types.SignTransaction(privkey(1), sigHash),
-					types.SignTransaction(privkey(2), sigHash),
+					types.InputSignature(types.SignHash(privkey(0), sigHash)),
+					types.InputSignature(types.SignHash(privkey(1), sigHash)),
+					types.InputSignature(types.SignHash(privkey(2), sigHash)),
 				}
 			},
 			wantErr: false,
@@ -731,7 +730,7 @@ func TestValidateSpendPolicy(t *testing.T) {
 				},
 			},
 			sign: func(sigHash types.Hash256) []types.InputSignature {
-				return []types.InputSignature{types.SignTransaction(privkey(3), sigHash)}
+				return []types.InputSignature{types.InputSignature(types.SignHash(privkey(3), sigHash))}
 			},
 			wantErr: true,
 		},
@@ -760,8 +759,8 @@ func TestValidateSpendPolicy(t *testing.T) {
 			},
 			sign: func(sigHash types.Hash256) []types.InputSignature {
 				return []types.InputSignature{
-					types.SignTransaction(privkey(1), sigHash),
-					types.SignTransaction(privkey(2), sigHash),
+					types.InputSignature(types.SignHash(privkey(1), sigHash)),
+					types.InputSignature(types.SignHash(privkey(2), sigHash)),
 				}
 			},
 			wantErr: false,
@@ -790,7 +789,7 @@ func TestValidateSpendPolicy(t *testing.T) {
 				},
 			},
 			sign: func(sigHash types.Hash256) []types.InputSignature {
-				return []types.InputSignature{types.SignTransaction(privkey(3), sigHash)}
+				return []types.InputSignature{types.InputSignature(types.SignHash(privkey(3), sigHash))}
 			},
 			wantErr: false,
 		},
@@ -806,7 +805,7 @@ func TestValidateSpendPolicy(t *testing.T) {
 			},
 			sign: func(sigHash types.Hash256) []types.InputSignature {
 				return []types.InputSignature{
-					types.SignTransaction(privkey(0), sigHash),
+					types.InputSignature(types.SignHash(privkey(0), sigHash)),
 				}
 			},
 			wantErr: true,
@@ -822,7 +821,7 @@ func TestValidateSpendPolicy(t *testing.T) {
 			},
 			sign: func(sigHash types.Hash256) []types.InputSignature {
 				return []types.InputSignature{
-					types.SignTransaction(privkey(0), sigHash),
+					types.InputSignature(types.SignHash(privkey(0), sigHash)),
 				}
 			},
 			wantErr: true,
@@ -839,8 +838,8 @@ func TestValidateSpendPolicy(t *testing.T) {
 			},
 			sign: func(sigHash types.Hash256) []types.InputSignature {
 				return []types.InputSignature{
-					types.SignTransaction(privkey(0), sigHash),
-					types.SignTransaction(privkey(1), sigHash),
+					types.InputSignature(types.SignHash(privkey(0), sigHash)),
+					types.InputSignature(types.SignHash(privkey(1), sigHash)),
 				}
 			},
 			wantErr: false,
@@ -856,7 +855,7 @@ func TestValidateSpendPolicy(t *testing.T) {
 			},
 			sign: func(sigHash types.Hash256) []types.InputSignature {
 				return []types.InputSignature{
-					types.SignTransaction(privkey(0), sigHash),
+					types.InputSignature(types.SignHash(privkey(0), sigHash)),
 				}
 			},
 			wantErr: false,

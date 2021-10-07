@@ -2,11 +2,13 @@ package types
 
 import (
 	"bytes"
+	"math"
 	"math/rand"
 	"reflect"
 	"testing"
 	"testing/quick"
-	"time"
+
+	"lukechampine.com/frand"
 )
 
 func TestEncoderRoundtrip(t *testing.T) {
@@ -108,7 +110,7 @@ func TestEncoderCompleteness(t *testing.T) {
 		return v
 	}
 
-	seed := time.Now().Unix()
+	seed := int64(frand.Uint64n(math.MaxInt64))
 	cfg := &quick.Config{
 		Rand: rand.New(rand.NewSource(seed)),
 		Values: func(v []reflect.Value, r *rand.Rand) {

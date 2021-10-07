@@ -44,6 +44,15 @@ func (e *Encoder) Write(p []byte) (int, error) {
 	return lenp, e.err
 }
 
+// WriteBool writes a bool value to the underlying stream.
+func (e *Encoder) WriteBool(b bool) {
+	var buf [1]byte
+	if b {
+		buf[0] = 1
+	}
+	e.Write(buf[:])
+}
+
 // WriteUint64 writes a uint64 value to the underlying stream.
 func (e *Encoder) WriteUint64(u uint64) {
 	var buf [8]byte
@@ -77,6 +86,8 @@ func EncodedLen(v interface{}) int {
 		et.EncodeTo(e)
 	} else {
 		switch v := v.(type) {
+		case bool:
+			e.WriteBool(v)
 		case uint64:
 			e.WriteUint64(v)
 		case time.Time:
@@ -129,6 +140,20 @@ func (d *Decoder) Read(p []byte) (int, error) {
 		n += copy(p, d.buf[:read])
 	}
 	return n, d.err
+}
+
+// ReadBool reads a bool value from the underlying stream.
+func (d *Decoder) ReadBool() bool {
+	d.Read(d.buf[:1])
+	switch d.buf[0] {
+	case 0:
+		return false
+	case 1:
+		return true
+	default:
+		d.SetErr(fmt.Errorf("invalid bool value (%v)", d.buf[0]))
+		return false
+	}
 }
 
 // ReadUint64 reads a uint64 value from the underlying stream.
@@ -211,6 +236,9 @@ func (a Address) EncodeTo(e *Encoder) { e.Write(a[:]) }
 
 // EncodeTo implements types.EncoderTo.
 func (pk PublicKey) EncodeTo(e *Encoder) { e.Write(pk[:]) }
+
+// EncodeTo implements types.EncoderTo.
+func (s Signature) EncodeTo(e *Encoder) { e.Write(s[:]) }
 
 // EncodeTo implements types.EncoderTo.
 func (is InputSignature) EncodeTo(e *Encoder) { e.Write(is[:]) }
@@ -441,6 +469,9 @@ func (a *Address) DecodeFrom(d *Decoder) { d.Read(a[:]) }
 
 // DecodeFrom implements types.DecoderFrom.
 func (pk *PublicKey) DecodeFrom(d *Decoder) { d.Read(pk[:]) }
+
+// DecodeFrom implements types.DecoderFrom.
+func (s *Signature) DecodeFrom(d *Decoder) { d.Read(s[:]) }
 
 // DecodeFrom implements types.DecoderFrom.
 func (is *InputSignature) DecodeFrom(d *Decoder) { d.Read(is[:]) }

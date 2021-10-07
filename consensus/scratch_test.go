@@ -1,17 +1,17 @@
 package consensus
 
 import (
-	"crypto/rand"
 	"encoding/binary"
 	"testing"
 	"time"
 
 	"go.sia.tech/core/types"
+	"lukechampine.com/frand"
 )
 
 // copied from testutil (can't import due to cycle)
 func findBlockNonce(h *types.BlockHeader, target types.BlockID) {
-	rand.Read(h.Nonce[:])
+	frand.Read(h.Nonce[:])
 	for !h.ID().MeetsTarget(target) {
 		binary.LittleEndian.PutUint64(h.Nonce[:], binary.LittleEndian.Uint64(h.Nonce[:])+1)
 	}
@@ -181,7 +181,7 @@ func TestScratchChainDifficultyAdjustment(t *testing.T) {
 	// mine a block with less than the minimum work; it should be rejected
 	b = mineBlock(vc, b)
 	for types.WorkRequiredForHash(b.ID()).Cmp(currentDifficulty) >= 0 {
-		rand.Read(b.Header.Nonce[:])
+		frand.Read(b.Header.Nonce[:])
 	}
 	if err := sc.AppendHeader(b.Header); err == nil {
 		t.Fatal("expected block to be rejected")

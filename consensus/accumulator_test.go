@@ -1,14 +1,24 @@
 package consensus
 
 import (
-	"crypto/rand"
-	"encoding/binary"
-	mrand "math/rand"
+	"math"
 	"reflect"
 	"testing"
 
 	"go.sia.tech/core/types"
+	"lukechampine.com/frand"
 )
+
+func randAddr() types.Address {
+	return frand.Entropy256()
+}
+
+func randAmount() types.Currency {
+	return types.NewCurrency(
+		frand.Uint64n(math.MaxUint64),
+		frand.Uint64n(math.MaxUint64),
+	)
+}
 
 func TestBlockRewardValue(t *testing.T) {
 	reward := func(height uint64) types.Currency {
@@ -36,18 +46,6 @@ func TestBlockRewardValue(t *testing.T) {
 }
 
 func TestAccumulator(t *testing.T) {
-	randAddr := func() (addr types.Address) {
-		rand.Read(addr[:])
-		return
-	}
-	randAmount := func() types.Currency {
-		var b [16]byte
-		rand.Read(b[:])
-		return types.NewCurrency(
-			binary.LittleEndian.Uint64(b[:8]),
-			binary.LittleEndian.Uint64(b[8:]),
-		)
-	}
 	containsOutput := func(sa StateAccumulator, o types.SiacoinOutput, flags uint64) bool {
 		return sa.containsObject(siacoinOutputStateObject(o, flags))
 	}
@@ -225,18 +223,6 @@ func TestAccumulator(t *testing.T) {
 }
 
 func TestAccumulatorRevert(t *testing.T) {
-	randAddr := func() (addr types.Address) {
-		rand.Read(addr[:])
-		return
-	}
-	randAmount := func() types.Currency {
-		var b [16]byte
-		rand.Read(b[:])
-		return types.NewCurrency(
-			binary.LittleEndian.Uint64(b[:8]),
-			binary.LittleEndian.Uint64(b[8:]),
-		)
-	}
 	containsOutput := func(sa StateAccumulator, o types.SiacoinOutput, flags uint64) bool {
 		return sa.containsObject(siacoinOutputStateObject(o, flags))
 	}
@@ -466,7 +452,7 @@ func BenchmarkUpdateExistingObjects(b *testing.B) {
 	for i := range proofs {
 		proofs[i] = append([]types.Hash256(nil), outputs[i].MerkleProof...)
 	}
-	indices := mrand.Perm(len(outputs))[:len(outputs)/2]
+	indices := frand.Perm(len(outputs))[:len(outputs)/2]
 	updated := make([]stateObject, len(indices))
 	for i, j := range indices {
 		updated[i] = siacoinOutputStateObject(outputs[j], flagSpent)
