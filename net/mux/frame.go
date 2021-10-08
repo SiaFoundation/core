@@ -47,7 +47,7 @@ func decodeFrameHeader(buf []byte) (h frameHeader) {
 func readFrame(r io.Reader, buf []byte) (frameHeader, []byte, error) {
 	// read and decode header
 	if _, err := io.ReadFull(r, buf[:frameHeaderSize]); err != nil {
-		return frameHeader{}, nil, err
+		return frameHeader{}, nil, fmt.Errorf("unable to read frame header: %w", err)
 	}
 	h := decodeFrameHeader(buf)
 	if h.length > uint32(len(buf)) {
@@ -56,7 +56,7 @@ func readFrame(r io.Reader, buf []byte) (frameHeader, []byte, error) {
 	// read payload
 	payload := buf[:h.length]
 	if _, err := io.ReadFull(r, payload); err != nil {
-		return frameHeader{}, nil, err
+		return frameHeader{}, nil, fmt.Errorf("unable to read frame payload: %w", err)
 	}
 	if h.flags&flagError != 0 {
 		return h, nil, errors.New(string(payload))
@@ -135,7 +135,7 @@ func initiateSettingsHandshake(conn net.Conn, ours connSettings, aead cipher.AEA
 		length: uint32(len(payload)),
 	}, payload, ours.RequestedPacketSize, aead)
 	if _, err := conn.Write(frame); err != nil {
-		return connSettings{}, err
+		return connSettings{}, fmt.Errorf("write settings frame: %w", err)
 	}
 	// read + decode response
 	h, payload, err := readEncryptedFrame(conn, frameBuf, ours.RequestedPacketSize, aead)
@@ -170,7 +170,7 @@ func acceptSettingsHandshake(conn net.Conn, ours connSettings, aead cipher.AEAD)
 		length: uint32(len(payload)),
 	}, payload, ours.RequestedPacketSize, aead)
 	if _, err := conn.Write(frame); err != nil {
-		return connSettings{}, err
+		return connSettings{}, fmt.Errorf("write settings frame: %w", err)
 	}
 	return mergeSettings(ours, theirs)
 }

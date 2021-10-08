@@ -123,7 +123,7 @@ func (m *Manager) History() ([]types.ChainIndex, error) {
 	for {
 		index, err := m.store.BestIndex(histHeight(len(history)))
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to get best index at %v: %w", histHeight(len(history)), err)
 		}
 		history = append(history, index)
 		if index.Height == baseHeight {
@@ -344,7 +344,7 @@ func (m *Manager) AddTipBlock(b types.Block) error {
 	}
 	sau := consensus.ApplyBlock(m.vc, b)
 	if err := m.store.AddCheckpoint(consensus.Checkpoint{Block: b, Context: sau.Context}); err != nil {
-		return err
+		return fmt.Errorf("failed to add checkpoint: %w", err)
 	} else if err := m.store.ExtendBest(b.Index()); err != nil {
 		return fmt.Errorf("couldn't update tip: %w", err)
 	}
@@ -373,12 +373,12 @@ func (m *Manager) AddTipBlock(b types.Block) error {
 func (m *Manager) revertTip() error {
 	c, err := m.store.Checkpoint(m.vc.Index)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get checkpoint for index %v: %w", m.vc.Index, err)
 	}
 	b := c.Block
 	c, err = m.store.Checkpoint(b.Header.ParentIndex())
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get checkpoint for parent %v: %w", b.Header.ParentIndex(), err)
 	}
 	vc := c.Context
 
@@ -390,7 +390,7 @@ func (m *Manager) revertTip() error {
 		}
 	}
 	if err := m.store.RewindBest(); err != nil {
-		return err
+		return fmt.Errorf("unable to rewind: %w", err)
 	}
 
 	m.vc = vc
@@ -442,7 +442,7 @@ func (m *Manager) reorgTo(sc *consensus.ScratchChain) error {
 	}
 	for {
 		if index, err := m.store.BestIndex(base.Height); err != nil && !errors.Is(err, ErrUnknownIndex) {
-			return err
+			return fmt.Errorf("unable to get index for %v: %w", base.Height, err)
 		} else if index == base.Index() {
 			break
 		}
@@ -496,11 +496,11 @@ func (m *Manager) AddSubscriber(s Subscriber, tip types.ChainIndex) error {
 		// current best chain
 		h, err := m.store.Header(tip)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to get header %v: %w", tip, err)
 		}
 		for {
 			if index, err := m.store.BestIndex(h.Height); err != nil && !errors.Is(err, ErrUnknownIndex) {
-				return err
+				return fmt.Errorf("failed to get index at %v: %w", h.Height, err)
 			} else if index == h.Index() {
 				break
 			}
@@ -508,44 +508,44 @@ func (m *Manager) AddSubscriber(s Subscriber, tip types.ChainIndex) error {
 			// construct and send update
 			c, err := m.store.Checkpoint(h.Index())
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to get revert checkpoint %v: %w", h.Index(), err)
 			}
 			b := c.Block
 			c, err = m.store.Checkpoint(h.ParentIndex())
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to get revert parent checkpoint %v: %w", h.ParentIndex(), err)
 			}
 			sru := consensus.RevertBlock(c.Context, b)
 			if err := s.ProcessChainRevertUpdate(&RevertUpdate{sru, b}); err != nil {
-				return err
+				return fmt.Errorf("failed to process revert update: %w", err)
 			}
 
 			// load parent
 			h, err = m.store.Header(h.ParentIndex())
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to get header %v: %w", h.ParentIndex(), err)
 			}
 		}
 
 		// apply to m.Tip
 		c, err := m.store.Checkpoint(h.Index())
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to get current checkpoint %v: %w", h.Index(), err)
 		}
 		vc := c.Context
 		for vc.Index != m.vc.Index {
 			index, err := m.store.BestIndex(vc.Index.Height + 1)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to get apply index %v: %w", vc.Index.Height+1, err)
 			}
 			c, err := m.store.Checkpoint(index)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to get apply checkpoint %v: %w", index, err)
 			}
 			sau := consensus.ApplyBlock(vc, c.Block)
 			shouldCommit := index == m.vc.Index
 			if err := s.ProcessChainApplyUpdate(&ApplyUpdate{sau, c.Block}, shouldCommit); err != nil {
-				return err
+				return fmt.Errorf("failed to process apply update: %w", err)
 			}
 			vc = sau.Context
 		}
