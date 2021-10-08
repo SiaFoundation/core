@@ -66,7 +66,7 @@ func TestMux(t *testing.T) {
 	if _, err := s.Write([]byte("hello, world!")); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Close(); err != nil {
+	if err := s.Close(); err != nil && err != ErrPeerClosedConn {
 		t.Fatal(err)
 	}
 
