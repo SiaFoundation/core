@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math/rand"
 	"reflect"
 	"strings"
@@ -357,7 +356,7 @@ func BenchmarkWriteMessage(b *testing.B) {
 				conn: struct {
 					io.Writer
 					io.ReadCloser
-				}{ioutil.Discard, nil},
+				}{io.Discard, nil},
 			}
 
 			b.ResetTimer()
