@@ -78,7 +78,7 @@ func decryptFrameHeader(buf []byte, aead cipher.AEAD) (frameHeader, error) {
 func readEncryptedFrame(r io.Reader, buf []byte, packetSize int, aead cipher.AEAD) (frameHeader, []byte, error) {
 	// read, decrypt, and decode header
 	if _, err := io.ReadFull(r, buf[:encryptedHeaderSize]); err != nil {
-		return frameHeader{}, nil, err
+		return frameHeader{}, nil, fmt.Errorf("could not read frame header: %w", err)
 	}
 	h, err := decryptFrameHeader(buf[:encryptedHeaderSize], aead)
 	if err != nil {
@@ -91,7 +91,7 @@ func readEncryptedFrame(r io.Reader, buf []byte, packetSize int, aead cipher.AEA
 	}
 	// read (padded) payload
 	if _, err := io.ReadFull(r, buf[:paddedSize]); err != nil {
-		return frameHeader{}, nil, err
+		return frameHeader{}, nil, fmt.Errorf("could not read frame payload: %w", err)
 	}
 	// decrypt payload
 	payload, err := decryptInPlace(buf[:paddedSize], aead)
@@ -116,7 +116,7 @@ func initiateEncryptionHandshake(conn net.Conn, theirKey ed25519.PublicKey) (cip
 	binary.LittleEndian.PutUint64(payload[32:], 1) // number of ciphers we're offering
 	copy(payload[40:], cipherChaCha20Poly1305)
 	if _, err := conn.Write(frameBuf); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not write establish encryption frame: %w", err)
 	}
 
 	// read response
@@ -143,9 +143,13 @@ func initiateEncryptionHandshake(conn net.Conn, theirKey ed25519.PublicKey) (cip
 	// derive encryption key
 	cipherKey, err := deriveSharedSecret(xsk, rxpk)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to derive shared secret: %w", err)
 	}
-	return chacha20poly1305.New(cipherKey[:])
+	cipher, err := chacha20poly1305.New(cipherKey[:])
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cipher: %w", err)
+	}
+	return cipher, nil
 }
 
 func acceptEncryptionHandshake(conn net.Conn, ourKey ed25519.PrivateKey) (cipher.AEAD, error) {
@@ -155,7 +159,7 @@ func acceptEncryptionHandshake(conn net.Conn, ourKey ed25519.PrivateKey) (cipher
 	buf := make([]byte, 1024) // large enough to hold many ciphers
 	h, payload, err := readFrame(conn, buf)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read handshake frame: %w", err)
 	} else if h.id != idEstablishEncryption {
 		return nil, errors.New("invalid handshake ID")
 	} else if h.length < 8+32+16 {
@@ -191,13 +195,18 @@ func acceptEncryptionHandshake(conn net.Conn, ourKey ed25519.PrivateKey) (cipher
 	copy(payload[32:96], sig)
 	copy(payload[96:], cipherChaCha20Poly1305)
 	if _, err := conn.Write(frameBuf); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to write accept handshake frame: %w", err)
 	}
 
 	// derive encryption key
 	cipherKey, err := deriveSharedSecret(xsk, rxpk)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to derive secret: %w", err)
 	}
-	return chacha20poly1305.New(cipherKey[:])
+	cipher, err := chacha20poly1305.New(cipherKey[:])
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cipher: %w", err)
+	}
+
+	return cipher, nil
 }

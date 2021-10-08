@@ -41,7 +41,7 @@ func TestFlatStoreRecovery(t *testing.T) {
 
 	// compare tips
 	if fs.meta.tip != sim.Context.Index {
-		t.Fatal("tip mismatch", fs.meta.tip, sim.Context.Index)
+		t.Fatal("meta tip mismatch", fs.meta.tip, sim.Context.Index)
 	} else if index, err := fs.BestIndex(fs.meta.tip.Height); err != nil || index != fs.meta.tip {
 		t.Fatal("tip mismatch", index, fs.meta.tip)
 	}

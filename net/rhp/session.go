@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"lukechampine.com/frand"
 	"net"
 	"sync"
 
 	"go.sia.tech/core/types"
 	"golang.org/x/crypto/blake2b"
+	"lukechampine.com/frand"
 )
 
 // SectorSize is the size of one sector in bytes.
@@ -20,12 +20,6 @@ const SectorSize = 1 << 22 // 4 MiB
 // ErrRenterClosed is returned by (*Session).ReadID when the renter sends the
 // session termination signal.
 var ErrRenterClosed = errors.New("renter has terminated session")
-
-func wrapErr(err *error, fnName string) {
-	if *err != nil {
-		*err = fmt.Errorf("%s: %w", fnName, *err)
-	}
-}
 
 // A Session is an ongoing exchange of RPCs via the renter-host protocol.
 type Session struct {
@@ -133,48 +127,52 @@ func (s *Session) WriteRequest(rpcID Specifier, req ProtocolObject) error {
 // ReadID reads an RPC request ID. If the renter sends the session termination
 // signal, ReadID returns ErrRenterClosed.
 func (s *Session) ReadID() (rpcID Specifier, err error) {
-	defer wrapErr(&err, "ReadID")
 	err = s.readMessage(&rpcID, 16)
 	if rpcID == loopExit {
 		err = ErrRenterClosed
+	} else if err != nil {
+		err = fmt.Errorf("ReadID: %w", err)
 	}
 	return
 }
 
 // ReadRequest reads an RPC request using the new loop protocol.
-func (s *Session) ReadRequest(req ProtocolObject, maxLen uint64) (err error) {
-	defer wrapErr(&err, "ReadRequest")
-	return s.readMessage(req, maxLen)
+func (s *Session) ReadRequest(req ProtocolObject, maxLen uint64) error {
+	if err := s.readMessage(req, maxLen); err != nil {
+		return fmt.Errorf("ReadRequest: %w", err)
+	}
+	return nil
 }
 
 // WriteResponse writes an RPC response object or error. Either resp or err must
 // be nil. If err is an *RPCError, it is sent directly; otherwise, a generic
 // RPCError is created from err's Error string.
-func (s *Session) WriteResponse(resp ProtocolObject, err error) (e error) {
-	defer wrapErr(&e, "WriteResponse")
+func (s *Session) WriteResponse(resp ProtocolObject, err error) error {
 	re, ok := err.(*RPCError)
 	if err != nil && !ok {
 		re = &RPCError{Description: err.Error()}
 	}
-	return s.writeMessage(&rpcResponse{re, resp})
+
+	if err := s.writeMessage(&rpcResponse{re, resp}); err != nil {
+		return fmt.Errorf("WriteResponse: %w", err)
+	}
+	return nil
 }
 
 // ReadResponse reads an RPC response. If the response is an error, it is
 // returned directly.
-func (s *Session) ReadResponse(resp ProtocolObject, maxLen uint64) (err error) {
-	defer wrapErr(&err, "ReadResponse")
+func (s *Session) ReadResponse(resp ProtocolObject, maxLen uint64) error {
 	rr := rpcResponse{nil, resp}
 	if err := s.readMessage(&rr, maxLen); err != nil {
-		return err
+		return fmt.Errorf("failed to read message: %w", err)
 	} else if rr.err != nil {
-		return rr.err
+		return fmt.Errorf("response error: %w", rr.err)
 	}
 	return nil
 }
 
 // Close gracefully terminates the RPC loop and closes the connection.
-func (s *Session) Close() (err error) {
-	defer wrapErr(&err, "Close")
+func (s *Session) Close() error {
 	if s.IsClosed() {
 		return nil
 	}
@@ -189,8 +187,7 @@ func (s *Session) Close() (err error) {
 
 // NewHostSession conducts the hosts's half of the renter-host protocol
 // handshake, returning a Session that can be used to handle RPC requests.
-func NewHostSession(conn io.ReadWriteCloser) (_ *Session, err error) {
-	defer wrapErr(&err, "NewHostSession")
+func NewHostSession(conn io.ReadWriteCloser) (*Session, error) {
 	s := &Session{
 		conn:     conn,
 		isRenter: false,
@@ -205,8 +202,7 @@ func NewHostSession(conn io.ReadWriteCloser) (_ *Session, err error) {
 
 // NewRenterSession conducts the renter's half of the renter-host protocol
 // handshake, returning a Session that can be used to make RPC requests.
-func NewRenterSession(conn io.ReadWriteCloser) (_ *Session, err error) {
-	defer wrapErr(&err, "NewRenterSession")
+func NewRenterSession(conn io.ReadWriteCloser) (*Session, error) {
 	s := &Session{
 		conn:     conn,
 		isRenter: true,
