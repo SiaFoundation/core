@@ -950,9 +950,10 @@ func TestValidateTransactionSet(t *testing.T) {
 	}
 
 	// overfill set with copies of txn
-	var txns []types.Transaction
-	for sau.Context.BlockWeight(txns) < sau.Context.MaxBlockWeight() {
-		txns = append(txns, txn)
+	w := sau.Context.TransactionWeight(txn)
+	txns := make([]types.Transaction, (sau.Context.MaxBlockWeight()/w)+1)
+	for i := range txns {
+		txns[i] = txn
 	}
 	if err := sau.Context.ValidateTransactionSet(txns); err == nil {
 		t.Fatal("accepted overweight transaction set")
