@@ -426,6 +426,7 @@ func BenchmarkApplyBlock(b *testing.B) {
 				Parent: types.SiacoinOutput{
 					LeafIndex: types.EphemeralLeafIndex,
 				},
+				SpendPolicy: types.AnyoneCanSpend(),
 			}},
 			SiacoinOutputs: make([]types.Beneficiary, 1000),
 		}},
