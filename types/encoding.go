@@ -33,7 +33,7 @@ func (e *Encoder) Flush() error {
 // Write implements io.Writer.
 func (e *Encoder) Write(p []byte) (int, error) {
 	lenp := len(p)
-	for len(p) > 0 {
+	for e.err == nil && len(p) > 0 {
 		if e.n == len(e.buf) {
 			e.Flush()
 		}
