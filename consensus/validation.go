@@ -171,6 +171,7 @@ func (vc *ValidationContext) Commitment(minerAddr types.Address, txns []types.Tr
 
 	// hash the transactions
 	h.Reset()
+	h.E.WritePrefix(len(txns))
 	for _, txn := range txns {
 		txn.ID().EncodeTo(h.E)
 	}
