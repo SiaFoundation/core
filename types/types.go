@@ -70,6 +70,11 @@ func SignHash(privateKey ed25519.PrivateKey, h Hash256) (s Signature) {
 	return
 }
 
+// VerifyHash verifies that s is a valid signature of h by pk.
+func (pk PublicKey) VerifyHash(h Hash256, s Signature) bool {
+	return ed25519.Verify(pk[:], h[:], s[:])
+}
+
 // An InputSignature signs a transaction input.
 type InputSignature Signature
 

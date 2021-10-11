@@ -2,7 +2,6 @@
 package consensus
 
 import (
-	"crypto/ed25519"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -324,10 +323,10 @@ func (vc *ValidationContext) validFileContractRevisions(txn types.Transaction) e
 		//
 		// NOTE: very important that we verify with the *current* keys!
 		contractHash := vc.ContractSigHash(rev)
-		if !ed25519.Verify(cur.RenterPublicKey[:], contractHash[:], fcr.RenterSignature[:]) {
+		if !cur.RenterPublicKey.VerifyHash(contractHash, fcr.RenterSignature) {
 			return fmt.Errorf("file contract revision %v has invalid renter signature", i)
 		}
-		if !ed25519.Verify(cur.HostPublicKey[:], contractHash[:], fcr.HostSignature[:]) {
+		if !cur.HostPublicKey.VerifyHash(contractHash, fcr.HostSignature) {
 			return fmt.Errorf("file contract revision %v has invalid host signature", i)
 		}
 	}
@@ -504,7 +503,7 @@ func (vc *ValidationContext) validSpendPolicies(txn types.Transaction) error {
 				return fmt.Errorf("height not above %v", uint64(p))
 			case types.PolicyPublicKey:
 				for i := range sigs {
-					if ed25519.Verify(p[:], sigHash[:], sigs[i][:]) {
+					if types.PublicKey(p).VerifyHash(sigHash, types.Signature(sigs[i])) {
 						sigs = sigs[i+1:]
 						return nil
 					}
