@@ -88,10 +88,10 @@ func applyHeader(vc ValidationContext, h types.BlockHeader) ValidationContext {
 	return vc
 }
 
-func updatedInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinOutput, sfos []types.SiafundOutput, fcs []types.FileContract, objects []stateObject) {
+func updatedInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinElement, sfos []types.SiafundElement, fcs []types.FileContractElement, objects []stateObject) {
 	addObject := func(so stateObject) {
 		// copy proofs so we don't mutate transaction data
-		so.proof = append([]types.Hash256(nil), so.proof...)
+		so.MerkleProof = append([]types.Hash256(nil), so.MerkleProof...)
 		objects = append(objects, so)
 	}
 
@@ -99,33 +99,33 @@ func updatedInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinOu
 		for _, in := range txn.SiacoinInputs {
 			scos = append(scos, in.Parent)
 			if in.Parent.LeafIndex != types.EphemeralLeafIndex {
-				addObject(siacoinOutputStateObject(in.Parent, flagSpent))
+				addObject(siacoinElementStateObject(in.Parent, flagSpent))
 			}
 		}
 		for _, in := range txn.SiafundInputs {
 			sfos = append(sfos, in.Parent)
-			addObject(siafundOutputStateObject(in.Parent, flagSpent))
+			addObject(siafundElementStateObject(in.Parent, flagSpent))
 		}
 		for _, fcr := range txn.FileContractRevisions {
 			fc := fcr.Parent
-			fc.State = fcr.NewState
+			fc.FileContract = fcr.Revision
 			fcs = append(fcs, fc)
-			addObject(fileContractStateObject(fc, 0))
+			addObject(fileContractElementStateObject(fc, 0))
 		}
 		for _, fcr := range txn.FileContractResolutions {
 			var flags uint64 = flagSpent
 			if !fcr.HasStorageProof() {
 				flags |= flagExpired // TODO: do we need this?
 			}
-			addObject(fileContractStateObject(fcr.Parent, flags))
+			addObject(fileContractElementStateObject(fcr.Parent, flags))
 		}
 	}
 
 	return
 }
 
-func createdInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinOutput, sfos []types.SiafundOutput, fcs []types.FileContract, objects []stateObject) {
-	flags := make(map[types.OutputID]uint64)
+func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinElement, sfes []types.SiafundElement, fces []types.FileContractElement, objects []stateObject) {
+	flags := make(map[types.ElementID]uint64)
 	for _, txn := range b.Transactions {
 		for _, in := range txn.SiacoinInputs {
 			if in.Parent.LeafIndex == types.EphemeralLeafIndex {
@@ -133,97 +133,103 @@ func createdInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinOu
 			}
 		}
 	}
-	addSiacoinOutput := func(o types.SiacoinOutput) {
-		scos = append(scos, o)
-		objects = append(objects, siacoinOutputStateObject(o, flags[o.ID]))
+	addSiacoinElement := func(sce types.SiacoinElement) {
+		sces = append(sces, sce)
+		objects = append(objects, siacoinElementStateObject(sce, flags[sce.ID]))
 	}
-	addSiafundOutput := func(o types.SiafundOutput) {
-		sfos = append(sfos, o)
-		objects = append(objects, siafundOutputStateObject(o, flags[o.ID]))
+	addSiafundElement := func(sfe types.SiafundElement) {
+		sfes = append(sfes, sfe)
+		objects = append(objects, siafundElementStateObject(sfe, flags[sfe.ID]))
 	}
-	addFileContract := func(fc types.FileContract) {
-		fcs = append(fcs, fc)
-		objects = append(objects, fileContractStateObject(fc, flags[fc.ID]))
+	addFileContract := func(fce types.FileContractElement) {
+		fces = append(fces, fce)
+		objects = append(objects, fileContractElementStateObject(fce, flags[fce.ID]))
 	}
 
-	addSiacoinOutput(types.SiacoinOutput{
-		ID: types.OutputID{
-			TransactionID: types.TransactionID(b.ID()),
-			Index:         0,
+	addSiacoinElement(types.SiacoinElement{
+		StateElement: types.StateElement{
+			ID: types.ElementID{
+				Source: types.Hash256(b.ID()),
+				Index:  0,
+			},
 		},
-		Value:    vc.BlockReward(),
-		Address:  b.Header.MinerAddress,
+		SiacoinOutput: types.SiacoinOutput{
+			Value:   vc.BlockReward(),
+			Address: b.Header.MinerAddress,
+		},
 		Timelock: vc.BlockRewardTimelock(),
 	})
 	if subsidy := vc.FoundationSubsidy(); !subsidy.IsZero() {
-		addSiacoinOutput(types.SiacoinOutput{
-			ID: types.OutputID{
-				TransactionID: types.TransactionID(b.ID()),
-				Index:         1,
+		addSiacoinElement(types.SiacoinElement{
+			StateElement: types.StateElement{
+				ID: types.ElementID{
+					Source: types.Hash256(b.ID()),
+					Index:  1,
+				},
 			},
-			Value:    subsidy,
-			Address:  vc.FoundationAddress,
+			SiacoinOutput: types.SiacoinOutput{
+				Value:   subsidy,
+				Address: vc.FoundationAddress,
+			},
 			Timelock: vc.BlockRewardTimelock(),
 		})
 	}
 	for _, txn := range b.Transactions {
 		txid := txn.ID()
 		var index uint64
-		nextID := func() types.OutputID {
-			id := types.OutputID{
-				TransactionID: txid,
-				Index:         index,
-			}
+		nextElement := func() types.StateElement {
 			index++
-			return id
+			return types.StateElement{
+				ID: types.ElementID{
+					Source: types.Hash256(txid),
+					Index:  index - 1,
+				},
+			}
 		}
 
 		for _, out := range txn.SiacoinOutputs {
-			addSiacoinOutput(types.SiacoinOutput{
-				ID:       nextID(),
-				Value:    out.Value,
-				Address:  out.Address,
-				Timelock: 0,
+			addSiacoinElement(types.SiacoinElement{
+				StateElement:  nextElement(),
+				SiacoinOutput: out,
 			})
 		}
 		for _, in := range txn.SiafundInputs {
-			addSiacoinOutput(types.SiacoinOutput{
-				ID: nextID(),
-				// TODO: don't create zero-valued claim outputs?
-				Value:    vc.SiafundPool.Sub(in.Parent.ClaimStart).Div64(SiafundCount).Mul64(in.Parent.Value.Lo),
-				Address:  in.ClaimAddress,
+			// TODO: don't create zero-valued claim outputs?
+			addSiacoinElement(types.SiacoinElement{
+				StateElement: nextElement(),
+				SiacoinOutput: types.SiacoinOutput{
+					Value:   vc.SiafundPool.Sub(in.Parent.ClaimStart).Div64(SiafundCount).Mul64(in.Parent.Value),
+					Address: in.ClaimAddress,
+				},
 				Timelock: vc.BlockRewardTimelock(), // TODO: define a separate method for this?
 			})
 		}
 		for _, out := range txn.SiafundOutputs {
-			addSiafundOutput(types.SiafundOutput{
-				ID:         nextID(),
-				Value:      out.Value,
-				Address:    out.Address,
-				ClaimStart: vc.SiafundPool,
+			addSiafundElement(types.SiafundElement{
+				StateElement:  nextElement(),
+				SiafundOutput: out,
+				ClaimStart:    vc.SiafundPool,
 			})
 		}
 		for _, fc := range txn.FileContracts {
-			addFileContract(types.FileContract{
-				ID:    nextID(),
-				State: fc,
+			addFileContract(types.FileContractElement{
+				StateElement: nextElement(),
+				FileContract: fc,
 			})
 		}
 		for _, fcr := range txn.FileContractResolutions {
-			fc := fcr.Parent
-			renter, host := fc.State.ValidRenterOutput, fc.State.ValidRenterOutput
+			fce := fcr.Parent
+			renter, host := fce.ValidRenterOutput, fce.ValidRenterOutput
 			if fcr.HasStorageProof() {
-				renter, host = fc.State.MissedRenterOutput, fc.State.MissedRenterOutput
+				renter, host = fce.MissedRenterOutput, fce.MissedRenterOutput
 			}
-			addSiacoinOutput(types.SiacoinOutput{
-				ID:      nextID(),
-				Value:   renter.Value,
-				Address: renter.Address,
+			addSiacoinElement(types.SiacoinElement{
+				StateElement:  nextElement(),
+				SiacoinOutput: renter,
 			})
-			addSiacoinOutput(types.SiacoinOutput{
-				ID:      nextID(),
-				Value:   host.Value,
-				Address: host.Address,
+			addSiacoinElement(types.SiacoinElement{
+				StateElement:  nextElement(),
+				SiacoinOutput: host,
 			})
 		}
 	}
@@ -235,41 +241,44 @@ func createdInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinOu
 // application of a block.
 type StateApplyUpdate struct {
 	Context              ValidationContext
-	SpentSiacoinOutputs  []types.SiacoinOutput
-	NewSiacoinOutputs    []types.SiacoinOutput
-	SpentSiafundOutputs  []types.SiafundOutput
-	NewSiafundOutputs    []types.SiafundOutput
-	RevisedFileContracts []types.FileContract
-	NewFileContracts     []types.FileContract
-	updatedObjects       [64][]stateObject
+	SpentSiacoinElements []types.SiacoinElement
+	NewSiacoinElements   []types.SiacoinElement
+	SpentSiafundElements []types.SiafundElement
+	NewSiafundElements   []types.SiafundElement
+	RevisedFileContracts []types.FileContractElement
+	NewFileContracts     []types.FileContractElement
+	updatedElements      [64][]stateObject
 	treeGrowth           [64][]types.Hash256
 	historyProof         []types.Hash256
 	historyGrowth        []types.Hash256
 }
 
-// SiacoinOutputWasSpent returns true if the given SiacoinOutput was spent.
-func (sau *StateApplyUpdate) SiacoinOutputWasSpent(o types.SiacoinOutput) bool {
-	for i := range sau.SpentSiacoinOutputs {
-		if sau.SpentSiacoinOutputs[i].LeafIndex == o.LeafIndex {
+// SiacoinElementWasSpent returns true if the given SiacoinElement was spent.
+func (sau *StateApplyUpdate) SiacoinElementWasSpent(sce types.SiacoinElement) bool {
+	for i := range sau.SpentSiacoinElements {
+		if sau.SpentSiacoinElements[i].LeafIndex == sce.LeafIndex {
 			return true
 		}
 	}
 	return false
 }
 
-// SiafundOutputWasSpent returns true if the given SiafundOutput was spent.
-func (sau *StateApplyUpdate) SiafundOutputWasSpent(o types.SiafundOutput) bool {
-	for i := range sau.SpentSiafundOutputs {
-		if sau.SpentSiafundOutputs[i].LeafIndex == o.LeafIndex {
+// SiafundElementWasSpent returns true if the given SiafundElement was spent.
+func (sau *StateApplyUpdate) SiafundElementWasSpent(sfe types.SiafundElement) bool {
+	for i := range sau.SpentSiafundElements {
+		if sau.SpentSiafundElements[i].LeafIndex == sfe.LeafIndex {
 			return true
 		}
 	}
 	return false
 }
 
-func (sau *StateApplyUpdate) updateStateProof(proof []types.Hash256, leafIndex uint64) []types.Hash256 {
-	updateProof(proof, leafIndex, &sau.updatedObjects)
-	return append(proof, sau.treeGrowth[len(proof)]...)
+// UpdateElementProof updates the Merkle proof of the supplied element to
+// incorporate the changes made to the state tree. The element's proof must be
+// up-to-date; if it is not, UpdateElementProof may panic.
+func (sau *StateApplyUpdate) UpdateElementProof(se *types.StateElement) {
+	updateProof(se.MerkleProof, se.LeafIndex, &sau.updatedElements)
+	se.MerkleProof = append(se.MerkleProof, sau.treeGrowth[len(se.MerkleProof)]...)
 }
 
 func (sau *StateApplyUpdate) updateHistoryProof(proof []types.Hash256, leafIndex uint64) []types.Hash256 {
@@ -278,27 +287,6 @@ func (sau *StateApplyUpdate) updateHistoryProof(proof []types.Hash256, leafIndex
 		proof = append(proof, sau.historyProof[len(proof):]...)
 	}
 	return proof
-}
-
-// UpdateSiacoinOutputProof updates the Merkle proof of the supplied output to
-// incorporate the changes made to the state tree. The output's proof must be
-// up-to-date; if it is not, UpdateSiacoinOutputProof may panic.
-func (sau *StateApplyUpdate) UpdateSiacoinOutputProof(o *types.SiacoinOutput) {
-	o.MerkleProof = sau.updateStateProof(o.MerkleProof, o.LeafIndex)
-}
-
-// UpdateSiafundOutputProof updates the Merkle proof of the supplied output to
-// incorporate the changes made to the state tree. The output's proof must be
-// up-to-date; if it is not, UpdateSiafundOutputProof may panic.
-func (sau *StateApplyUpdate) UpdateSiafundOutputProof(o *types.SiafundOutput) {
-	o.MerkleProof = sau.updateStateProof(o.MerkleProof, o.LeafIndex)
-}
-
-// UpdateFileContractProof updates the Merkle proof of the supplied file
-// contract to incorporate the changes made to the state tree. The contract's
-// proof must be up-to-date; if it is not, UpdateFileContractProof may panic.
-func (sau *StateApplyUpdate) UpdateFileContractProof(fc *types.FileContract) {
-	fc.MerkleProof = sau.updateStateProof(fc.MerkleProof, fc.LeafIndex)
 }
 
 // UpdateWindowProof updates the history proof of the supplied storage proof
@@ -320,24 +308,21 @@ func ApplyBlock(vc ValidationContext, b types.Block) (sau StateApplyUpdate) {
 	sau.Context = applyHeader(vc, b.Header)
 
 	var updated, created []stateObject
-	sau.SpentSiacoinOutputs, sau.SpentSiafundOutputs, sau.RevisedFileContracts, updated = updatedInBlock(vc, b)
-	sau.NewSiacoinOutputs, sau.NewSiafundOutputs, sau.NewFileContracts, created = createdInBlock(vc, b)
+	sau.SpentSiacoinElements, sau.SpentSiafundElements, sau.RevisedFileContracts, updated = updatedInBlock(vc, b)
+	sau.NewSiacoinElements, sau.NewSiafundElements, sau.NewFileContracts, created = createdInBlock(vc, b)
 
-	sau.updatedObjects = sau.Context.State.updateExistingObjects(updated)
+	sau.updatedElements = sau.Context.State.updateExistingObjects(updated)
 	sau.treeGrowth = sau.Context.State.addNewObjects(created)
-	for i := range sau.NewSiacoinOutputs {
-		sau.NewSiacoinOutputs[i].LeafIndex = created[0].leafIndex
-		sau.NewSiacoinOutputs[i].MerkleProof = created[0].proof
+	for i := range sau.NewSiacoinElements {
+		sau.NewSiacoinElements[i].StateElement = created[0].StateElement
 		created = created[1:]
 	}
-	for i := range sau.NewSiafundOutputs {
-		sau.NewSiafundOutputs[i].LeafIndex = created[0].leafIndex
-		sau.NewSiafundOutputs[i].MerkleProof = created[0].proof
+	for i := range sau.NewSiafundElements {
+		sau.NewSiafundElements[i].StateElement = created[0].StateElement
 		created = created[1:]
 	}
 	for i := range sau.NewFileContracts {
-		sau.NewFileContracts[i].LeafIndex = created[0].leafIndex
-		sau.NewFileContracts[i].MerkleProof = created[0].proof
+		sau.NewFileContracts[i].StateElement = created[0].StateElement
 		created = created[1:]
 	}
 
@@ -370,33 +355,35 @@ func GenesisUpdate(b types.Block, initialDifficulty types.Work) StateApplyUpdate
 // removal of a block.
 type StateRevertUpdate struct {
 	Context              ValidationContext
-	SpentSiacoinOutputs  []types.SiacoinOutput
-	NewSiacoinOutputs    []types.SiacoinOutput
-	SpentSiafundOutputs  []types.SiafundOutput
-	NewSiafundOutputs    []types.SiafundOutput
-	RevisedFileContracts []types.FileContract
-	NewFileContracts     []types.FileContract
-	updatedObjects       [64][]stateObject
+	SpentSiacoinElements []types.SiacoinElement
+	NewSiacoinElements   []types.SiacoinElement
+	SpentSiafundElements []types.SiafundElement
+	NewSiafundElements   []types.SiafundElement
+	RevisedFileContracts []types.FileContractElement
+	NewFileContracts     []types.FileContractElement
+	updatedElements      [64][]stateObject
 }
 
-// SiacoinOutputWasRemoved returns true if the specified SiacoinOutput was
+// SiacoinElementWasRemoved returns true if the specified SiacoinElement was
 // reverted.
-func (sru *StateRevertUpdate) SiacoinOutputWasRemoved(o types.SiacoinOutput) bool {
+func (sru *StateRevertUpdate) SiacoinElementWasRemoved(o types.SiacoinElement) bool {
 	return o.LeafIndex >= sru.Context.State.NumLeaves
 }
 
-// SiafundOutputWasRemoved returns true if the specified SiafundOutput was
+// SiafundElementWasRemoved returns true if the specified SiafundElement was
 // reverted.
-func (sru *StateRevertUpdate) SiafundOutputWasRemoved(o types.SiafundOutput) bool {
+func (sru *StateRevertUpdate) SiafundElementWasRemoved(o types.SiafundElement) bool {
 	return o.LeafIndex >= sru.Context.State.NumLeaves
 }
 
-func (sru *StateRevertUpdate) updateStateProof(proof []types.Hash256, leafIndex uint64) []types.Hash256 {
-	if mh := mergeHeight(sru.Context.State.NumLeaves, leafIndex); mh <= len(proof) {
-		proof = proof[:mh-1]
+// UpdateElementProof updates the Merkle proof of the supplied element to
+// incorporate the changes made to the state tree. The element's proof must be
+// up-to-date; if it is not, UpdateElementProof may panic.
+func (sru *StateRevertUpdate) UpdateElementProof(se *types.StateElement) {
+	if mh := mergeHeight(sru.Context.State.NumLeaves, se.LeafIndex); mh <= len(se.MerkleProof) {
+		se.MerkleProof = se.MerkleProof[:mh-1]
 	}
-	updateProof(proof, leafIndex, &sru.updatedObjects)
-	return proof
+	updateProof(se.MerkleProof, se.LeafIndex, &sru.updatedElements)
 }
 
 func (sru *StateRevertUpdate) updateHistoryProof(proof []types.Hash256, leafIndex uint64) []types.Hash256 {
@@ -404,27 +391,6 @@ func (sru *StateRevertUpdate) updateHistoryProof(proof []types.Hash256, leafInde
 		proof = proof[:mh-1]
 	}
 	return proof
-}
-
-// UpdateSiacoinOutputProof updates the Merkle proof of the supplied output to
-// incorporate the changes made to the state tree. The output's proof must be
-// up-to-date; if it is not, UpdateSiacoinOutputProof may panic.
-func (sru *StateRevertUpdate) UpdateSiacoinOutputProof(o *types.SiacoinOutput) {
-	o.MerkleProof = sru.updateStateProof(o.MerkleProof, o.LeafIndex)
-}
-
-// UpdateSiafundOutputProof updates the Merkle proof of the supplied output to
-// incorporate the changes made to the state tree. The output's proof must be
-// up-to-date; if it is not, UpdateSiafundOutputProof may panic.
-func (sru *StateRevertUpdate) UpdateSiafundOutputProof(o *types.SiafundOutput) {
-	o.MerkleProof = sru.updateStateProof(o.MerkleProof, o.LeafIndex)
-}
-
-// UpdateFileContractProof updates the Merkle proof of the supplied file contract to
-// incorporate the changes made to the state tree. The contract's proof must be
-// up-to-date; if it is not, UpdateFileContractProof may panic.
-func (sru *StateRevertUpdate) UpdateFileContractProof(fc *types.FileContract) {
-	fc.MerkleProof = sru.updateStateProof(fc.MerkleProof, fc.LeafIndex)
 }
 
 // UpdateWindowProof updates the history proof of the supplied storage proof
@@ -438,8 +404,8 @@ func (sru *StateRevertUpdate) UpdateWindowProof(sp *types.StorageProof) {
 // ValidationContext prior to that block.
 func RevertBlock(vc ValidationContext, b types.Block) (sru StateRevertUpdate) {
 	sru.Context = vc
-	sru.SpentSiacoinOutputs, sru.SpentSiafundOutputs, sru.RevisedFileContracts, _ = updatedInBlock(vc, b)
-	sru.NewSiacoinOutputs, sru.NewSiafundOutputs, sru.NewFileContracts, _ = createdInBlock(vc, b)
-	sru.updatedObjects = objectsByTree(b.Transactions)
+	sru.SpentSiacoinElements, sru.SpentSiafundElements, sru.RevisedFileContracts, _ = updatedInBlock(vc, b)
+	sru.NewSiacoinElements, sru.NewSiafundElements, sru.NewFileContracts, _ = createdInBlock(vc, b)
+	sru.updatedElements = objectsByTree(b.Transactions)
 	return
 }

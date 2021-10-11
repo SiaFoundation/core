@@ -35,7 +35,7 @@ func TestScratchChain(t *testing.T) {
 	pubkey, privkey := testingKeypair(0)
 	ourAddr := types.StandardAddress(pubkey)
 
-	b := genesisWithBeneficiaries([]types.Beneficiary{
+	b := genesisWithSiacoinOutputs([]types.SiacoinOutput{
 		{Value: types.Siacoins(1), Address: ourAddr},
 		{Value: types.Siacoins(2), Address: ourAddr},
 		{Value: types.Siacoins(3), Address: ourAddr},
@@ -54,14 +54,14 @@ func TestScratchChain(t *testing.T) {
 
 	sc := NewScratchChain(sau.Context)
 	var blocks []types.Block
-	origOutputs := sau.NewSiacoinOutputs
+	origOutputs := sau.NewSiacoinElements
 	toSpend := origOutputs[5:10]
 	var spendTotal types.Currency
 	for _, o := range toSpend {
 		spendTotal = spendTotal.Add(o.Value)
 	}
 	txn := types.Transaction{
-		SiacoinOutputs: []types.Beneficiary{{
+		SiacoinOutputs: []types.SiacoinOutput{{
 			Value:   spendTotal.Sub(types.Siacoins(1)),
 			Address: ourAddr,
 		}},
@@ -82,15 +82,15 @@ func TestScratchChain(t *testing.T) {
 	blocks = append(blocks, b)
 
 	sau = ApplyBlock(sau.Context, b)
-	sau.UpdateSiacoinOutputProof(&origOutputs[2])
-	newOutputs := sau.NewSiacoinOutputs
+	sau.UpdateElementProof(&origOutputs[2].StateElement)
+	newOutputs := sau.NewSiacoinElements
 
 	txn = types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
 			Parent:      newOutputs[1],
 			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
-		SiacoinOutputs: []types.Beneficiary{{
+		SiacoinOutputs: []types.SiacoinOutput{{
 			Value:   newOutputs[1].Value.Sub(types.Siacoins(1)),
 			Address: ourAddr,
 		}},
@@ -105,7 +105,7 @@ func TestScratchChain(t *testing.T) {
 	blocks = append(blocks, b)
 	sau = ApplyBlock(sau.Context, b)
 	for i := range origOutputs {
-		sau.UpdateSiacoinOutputProof(&origOutputs[i])
+		sau.UpdateElementProof(&origOutputs[i].StateElement)
 	}
 	toSpend = origOutputs[2:3]
 	spendTotal = types.ZeroCurrency
@@ -117,7 +117,7 @@ func TestScratchChain(t *testing.T) {
 			Parent:      toSpend[0],
 			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
-		SiacoinOutputs: []types.Beneficiary{{
+		SiacoinOutputs: []types.SiacoinOutput{{
 			Value:   spendTotal,
 			Address: ourAddr,
 		}},
@@ -125,18 +125,22 @@ func TestScratchChain(t *testing.T) {
 	signAllInputs(&parentTxn, sau.Context, privkey)
 	childTxn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
-			Parent: types.SiacoinOutput{
-				ID: types.OutputID{
-					TransactionID: parentTxn.ID(),
-					Index:         0,
+			Parent: types.SiacoinElement{
+				StateElement: types.StateElement{
+					ID: types.ElementID{
+						Source: types.Hash256(parentTxn.ID()),
+						Index:  0,
+					},
+					LeafIndex: types.EphemeralLeafIndex,
 				},
-				Value:     spendTotal,
-				Address:   ourAddr,
-				LeafIndex: types.EphemeralLeafIndex,
+				SiacoinOutput: types.SiacoinOutput{
+					Value:   spendTotal,
+					Address: ourAddr,
+				},
 			},
 			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
-		SiacoinOutputs: []types.Beneficiary{{
+		SiacoinOutputs: []types.SiacoinOutput{{
 			Value:   spendTotal.Sub(types.Siacoins(1)),
 			Address: ourAddr,
 		}},
@@ -159,7 +163,7 @@ func TestScratchChain(t *testing.T) {
 }
 
 func TestScratchChainDifficultyAdjustment(t *testing.T) {
-	b := genesisWithBeneficiaries()
+	b := genesisWithSiacoinOutputs()
 	vc := GenesisUpdate(b, testingDifficulty).Context
 
 	// mine a block, triggering adjustment

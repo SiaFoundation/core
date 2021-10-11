@@ -52,10 +52,9 @@ type rpcResponse struct {
 	data ProtocolObject
 }
 
-// ContractOutputs contains the output values for a FileContractState.
-// Because the revisions negotiated by the renter and host typically do not
-// modify the output recipients, we can save some space by only sending the
-// new values.
+// ContractOutputs contains the output values for a FileContract. Because the
+// revisions negotiated by the renter and host typically do not modify the
+// output recipients, we can save some space by only sending the new values.
 type ContractOutputs struct {
 	ValidRenterValue  types.Currency
 	ValidHostValue    types.Currency
@@ -64,7 +63,7 @@ type ContractOutputs struct {
 }
 
 // Apply sets the output values of fc according to co.
-func (co ContractOutputs) Apply(fc *types.FileContractState) {
+func (co ContractOutputs) Apply(fc *types.FileContract) {
 	fc.ValidRenterOutput.Value = co.ValidRenterValue
 	fc.ValidHostOutput.Value = co.ValidHostValue
 	fc.MissedRenterOutput.Value = co.MissedRenterValue
@@ -122,7 +121,7 @@ type (
 	RPCFormContractAdditions struct {
 		Parents []types.Transaction
 		Inputs  []types.SiacoinInput
-		Outputs []types.Beneficiary
+		Outputs []types.SiacoinOutput
 	}
 
 	// RPCFormContractSignatures contains the signatures for a contract
@@ -145,7 +144,7 @@ type (
 
 	// RPCLockRequest contains the request parameters for the Lock RPC.
 	RPCLockRequest struct {
-		ContractID types.OutputID
+		ContractID types.ElementID
 		Signature  types.InputSignature
 		Timeout    uint64
 	}
@@ -350,7 +349,7 @@ func (r *RPCFormContractAdditions) decodeFrom(d *types.Decoder) {
 	for i := range r.Inputs {
 		r.Inputs[i].DecodeFrom(d)
 	}
-	r.Outputs = make([]types.Beneficiary, d.ReadPrefix())
+	r.Outputs = make([]types.SiacoinOutput, d.ReadPrefix())
 	for i := range r.Outputs {
 		r.Outputs[i].DecodeFrom(d)
 	}

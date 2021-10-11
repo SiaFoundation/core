@@ -25,10 +25,10 @@ func testingKeypair(seed uint64) (types.PublicKey, ed25519.PrivateKey) {
 	return pubkey, privkey
 }
 
-func genesisWithBeneficiaries(beneficiaries ...types.Beneficiary) types.Block {
+func genesisWithSiacoinOutputs(scos ...types.SiacoinOutput) types.Block {
 	return types.Block{
 		Header:       types.BlockHeader{Timestamp: time.Unix(734600000, 0)},
-		Transactions: []types.Transaction{{SiacoinOutputs: beneficiaries}},
+		Transactions: []types.Transaction{{SiacoinOutputs: scos}},
 	}
 }
 
@@ -44,7 +44,7 @@ func signAllInputs(txn *types.Transaction, vc ValidationContext, priv ed25519.Pr
 
 func TestEphemeralOutputs(t *testing.T) {
 	pubkey, privkey := testingKeypair(0)
-	sau := GenesisUpdate(genesisWithBeneficiaries(types.Beneficiary{
+	sau := GenesisUpdate(genesisWithSiacoinOutputs(types.SiacoinOutput{
 		Address: types.StandardAddress(pubkey),
 		Value:   types.Siacoins(1),
 	}), testingDifficulty)
@@ -52,23 +52,27 @@ func TestEphemeralOutputs(t *testing.T) {
 	// create an ephemeral output
 	parentTxn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
-			Parent:      sau.NewSiacoinOutputs[1],
+			Parent:      sau.NewSiacoinElements[1],
 			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
-		SiacoinOutputs: []types.Beneficiary{{
+		SiacoinOutputs: []types.SiacoinOutput{{
 			Address: types.StandardAddress(pubkey),
 			Value:   types.Siacoins(1),
 		}},
 	}
 	signAllInputs(&parentTxn, sau.Context, privkey)
-	ephemeralOutput := types.SiacoinOutput{
-		ID: types.OutputID{
-			TransactionID: parentTxn.ID(),
-			Index:         0,
+	ephemeralOutput := types.SiacoinElement{
+		StateElement: types.StateElement{
+			ID: types.ElementID{
+				Source: types.Hash256(parentTxn.ID()),
+				Index:  0,
+			},
+			LeafIndex: types.EphemeralLeafIndex,
 		},
-		Value:     parentTxn.SiacoinOutputs[0].Value,
-		Address:   types.StandardAddress(pubkey),
-		LeafIndex: types.EphemeralLeafIndex,
+		SiacoinOutput: types.SiacoinOutput{
+			Value:   parentTxn.SiacoinOutputs[0].Value,
+			Address: types.StandardAddress(pubkey),
+		},
 	}
 
 	// create a transaction that spends the ephemeral output
@@ -77,7 +81,7 @@ func TestEphemeralOutputs(t *testing.T) {
 			Parent:      ephemeralOutput,
 			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
-		SiacoinOutputs: []types.Beneficiary{{
+		SiacoinOutputs: []types.SiacoinOutput{{
 			Address: types.StandardAddress(pubkey),
 			Value:   ephemeralOutput.Value,
 		}},
@@ -135,7 +139,7 @@ func TestValidateTransaction(t *testing.T) {
 	genesisBlock := types.Block{
 		Header: types.BlockHeader{Timestamp: time.Unix(734600000, 0)},
 		Transactions: []types.Transaction{{
-			SiacoinOutputs: []types.Beneficiary{
+			SiacoinOutputs: []types.SiacoinOutput{
 				{
 					Address: types.StandardAddress(pubkey),
 					Value:   types.Siacoins(11),
@@ -149,38 +153,38 @@ func TestValidateTransaction(t *testing.T) {
 					Value:   maxCurrency,
 				},
 			},
-			SiafundOutputs: []types.Beneficiary{
+			SiafundOutputs: []types.SiafundOutput{
 				{
 					Address: types.StandardAddress(pubkey),
-					Value:   types.Siafunds(100),
+					Value:   100,
 				},
 				{
 					Address: types.StandardAddress(pubkey),
-					Value:   types.Siafunds(100),
+					Value:   100,
 				},
 				{
 					Address: types.StandardAddress(pubkey),
-					Value:   maxCurrency,
+					Value:   math.MaxUint64,
 				},
 			},
-			FileContracts: []types.FileContractState{
+			FileContracts: []types.FileContract{
 				// unresolved open contract
 				{
 					WindowStart: 5,
 					WindowEnd:   10,
-					ValidRenterOutput: types.Beneficiary{
+					ValidRenterOutput: types.SiacoinOutput{
 						Address: types.StandardAddress(renterPubkey),
 						Value:   types.Siacoins(58),
 					},
-					ValidHostOutput: types.Beneficiary{
+					ValidHostOutput: types.SiacoinOutput{
 						Address: types.StandardAddress(renterPubkey),
 						Value:   types.Siacoins(19),
 					},
-					MissedRenterOutput: types.Beneficiary{
+					MissedRenterOutput: types.SiacoinOutput{
 						Address: types.StandardAddress(renterPubkey),
 						Value:   types.Siacoins(58),
 					},
-					MissedHostOutput: types.Beneficiary{
+					MissedHostOutput: types.SiacoinOutput{
 						Address: types.StandardAddress(renterPubkey),
 						Value:   types.Siacoins(19),
 					},
@@ -216,12 +220,12 @@ func TestValidateTransaction(t *testing.T) {
 		}},
 	}
 	sau := GenesisUpdate(genesisBlock, testingDifficulty)
-	spentSC := sau.NewSiacoinOutputs[1]
-	unspentSC := sau.NewSiacoinOutputs[2]
-	overflowSC := sau.NewSiacoinOutputs[3]
-	spentSF := sau.NewSiafundOutputs[0]
-	unspentSF := sau.NewSiafundOutputs[1]
-	overflowSF := sau.NewSiafundOutputs[2]
+	spentSC := sau.NewSiacoinElements[1]
+	unspentSC := sau.NewSiacoinElements[2]
+	overflowSC := sau.NewSiacoinElements[3]
+	spentSF := sau.NewSiafundElements[0]
+	unspentSF := sau.NewSiafundElements[1]
+	overflowSF := sau.NewSiafundElements[2]
 	openContract := sau.NewFileContracts[0]
 	closedContract := sau.NewFileContracts[1]
 	resolvedValidContract := sau.NewFileContracts[2]
@@ -230,7 +234,7 @@ func TestValidateTransaction(t *testing.T) {
 		WindowStart: sau.Context.Index,
 		WindowProof: sau.HistoryProof(),
 	}
-	proofIndex := sau.Context.StorageProofSegmentIndex(closedContract.State.Filesize, closedProof.WindowStart, closedContract.ID)
+	proofIndex := sau.Context.StorageProofSegmentIndex(closedContract.Filesize, closedProof.WindowStart, closedContract.ID)
 	copy(closedProof.DataSegment[:], data[64*proofIndex:])
 	if proofIndex == 0 {
 		closedProof.SegmentProof = append(closedProof.SegmentProof, storageProofLeafHash(data[64:]))
@@ -241,7 +245,7 @@ func TestValidateTransaction(t *testing.T) {
 		WindowStart: sau.Context.Index,
 		WindowProof: sau.HistoryProof(),
 	}
-	proofIndex = sau.Context.StorageProofSegmentIndex(resolvedValidContract.State.Filesize, resolvedValidProof.WindowStart, resolvedValidContract.ID)
+	proofIndex = sau.Context.StorageProofSegmentIndex(resolvedValidContract.Filesize, resolvedValidProof.WindowStart, resolvedValidContract.ID)
 	copy(resolvedValidProof.DataSegment[:], data[64*proofIndex:])
 	if proofIndex == 0 {
 		resolvedValidProof.SegmentProof = append(resolvedValidProof.SegmentProof, storageProofLeafHash(data[64:]))
@@ -257,14 +261,14 @@ func TestValidateTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	sau = ApplyBlock(sau.Context, b)
-	sau.UpdateSiacoinOutputProof(&spentSC)
-	sau.UpdateSiacoinOutputProof(&unspentSC)
-	sau.UpdateSiafundOutputProof(&spentSF)
-	sau.UpdateSiafundOutputProof(&unspentSF)
-	sau.UpdateFileContractProof(&openContract)
-	sau.UpdateFileContractProof(&closedContract)
-	sau.UpdateFileContractProof(&resolvedValidContract)
-	sau.UpdateFileContractProof(&resolvedMissedContract)
+	sau.UpdateElementProof(&spentSC.StateElement)
+	sau.UpdateElementProof(&unspentSC.StateElement)
+	sau.UpdateElementProof(&spentSF.StateElement)
+	sau.UpdateElementProof(&unspentSF.StateElement)
+	sau.UpdateElementProof(&openContract.StateElement)
+	sau.UpdateElementProof(&closedContract.StateElement)
+	sau.UpdateElementProof(&resolvedValidContract.StateElement)
+	sau.UpdateElementProof(&resolvedMissedContract.StateElement)
 	sau.UpdateWindowProof(&closedProof)
 	sau.UpdateWindowProof(&resolvedValidProof)
 	resolveTxn := types.Transaction{
@@ -276,11 +280,11 @@ func TestValidateTransaction(t *testing.T) {
 			Parent:      spentSF,
 			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
-		SiacoinOutputs: []types.Beneficiary{{
+		SiacoinOutputs: []types.SiacoinOutput{{
 			Address: types.VoidAddress,
 			Value:   spentSC.Value,
 		}},
-		SiafundOutputs: []types.Beneficiary{{
+		SiafundOutputs: []types.SiafundOutput{{
 			Address: types.VoidAddress,
 			Value:   spentSF.Value,
 		}},
@@ -300,14 +304,14 @@ func TestValidateTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	sau = ApplyBlock(sau.Context, b)
-	sau.UpdateSiacoinOutputProof(&spentSC)
-	sau.UpdateSiacoinOutputProof(&unspentSC)
-	sau.UpdateSiafundOutputProof(&spentSF)
-	sau.UpdateSiafundOutputProof(&unspentSF)
-	sau.UpdateFileContractProof(&openContract)
-	sau.UpdateFileContractProof(&closedContract)
-	sau.UpdateFileContractProof(&resolvedValidContract)
-	sau.UpdateFileContractProof(&resolvedMissedContract)
+	sau.UpdateElementProof(&spentSC.StateElement)
+	sau.UpdateElementProof(&unspentSC.StateElement)
+	sau.UpdateElementProof(&spentSF.StateElement)
+	sau.UpdateElementProof(&unspentSF.StateElement)
+	sau.UpdateElementProof(&openContract.StateElement)
+	sau.UpdateElementProof(&closedContract.StateElement)
+	sau.UpdateElementProof(&resolvedValidContract.StateElement)
+	sau.UpdateElementProof(&resolvedMissedContract.StateElement)
 	sau.UpdateWindowProof(&closedProof)
 	vc := sau.Context
 
@@ -318,7 +322,7 @@ func TestValidateTransaction(t *testing.T) {
 			Parent:      unspentSC,
 			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
-		SiacoinOutputs: []types.Beneficiary{{
+		SiacoinOutputs: []types.SiacoinOutput{{
 			Address: types.VoidAddress,
 			Value:   types.Siacoins(1),
 		}},
@@ -326,27 +330,27 @@ func TestValidateTransaction(t *testing.T) {
 			Parent:      unspentSF,
 			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
-		SiafundOutputs: []types.Beneficiary{{
+		SiafundOutputs: []types.SiafundOutput{{
 			Address: types.VoidAddress,
 			Value:   unspentSF.Value,
 		}},
-		FileContracts: []types.FileContractState{{
+		FileContracts: []types.FileContract{{
 			WindowStart:        100,
 			WindowEnd:          105,
-			ValidRenterOutput:  types.Beneficiary{Value: types.Siacoins(1)},
-			ValidHostOutput:    types.Beneficiary{Value: types.Siacoins(4)},
-			MissedRenterOutput: types.Beneficiary{Value: types.Siacoins(2)},
-			MissedHostOutput:   types.Beneficiary{Value: types.Siacoins(3)},
+			ValidRenterOutput:  types.SiacoinOutput{Value: types.Siacoins(1)},
+			ValidHostOutput:    types.SiacoinOutput{Value: types.Siacoins(4)},
+			MissedRenterOutput: types.SiacoinOutput{Value: types.Siacoins(2)},
+			MissedHostOutput:   types.SiacoinOutput{Value: types.Siacoins(3)},
 		}},
 		FileContractRevisions: []types.FileContractRevision{{
 			Parent: openContract,
-			NewState: types.FileContractState{
+			Revision: types.FileContract{
 				WindowStart:        200,
 				WindowEnd:          205,
-				ValidRenterOutput:  types.Beneficiary{Value: types.Siacoins(77)},
-				ValidHostOutput:    types.Beneficiary{Value: types.Siacoins(0)},
-				MissedRenterOutput: types.Beneficiary{Value: types.Siacoins(55)},
-				MissedHostOutput:   types.Beneficiary{Value: types.Siacoins(0)},
+				ValidRenterOutput:  types.SiacoinOutput{Value: types.Siacoins(77)},
+				ValidHostOutput:    types.SiacoinOutput{Value: types.Siacoins(0)},
+				MissedRenterOutput: types.SiacoinOutput{Value: types.Siacoins(55)},
+				MissedHostOutput:   types.SiacoinOutput{Value: types.Siacoins(0)},
 				RevisionNumber:     1,
 			},
 		}},
@@ -358,7 +362,7 @@ func TestValidateTransaction(t *testing.T) {
 	}
 	signAllInputs(&txn, vc, privkey)
 	rev := &txn.FileContractRevisions[0]
-	contractHash := vc.ContractSigHash(rev.NewState)
+	contractHash := vc.ContractSigHash(rev.Revision)
 	rev.RenterSignature = types.SignHash(renterPrivkey, contractHash)
 	rev.HostSignature = types.SignHash(hostPrivkey, contractHash)
 
@@ -380,7 +384,7 @@ func TestValidateTransaction(t *testing.T) {
 		{
 			"zero-valued SiafundOutput",
 			func(txn *types.Transaction) {
-				txn.SiafundOutputs[0].Value = types.ZeroCurrency
+				txn.SiafundOutputs[0].Value = 0
 			},
 		},
 		{
@@ -414,7 +418,7 @@ func TestValidateTransaction(t *testing.T) {
 		{
 			"siacoin outputs that overflow",
 			func(txn *types.Transaction) {
-				txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.Beneficiary{
+				txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
 					Value: maxCurrency,
 				})
 			},
@@ -422,7 +426,7 @@ func TestValidateTransaction(t *testing.T) {
 		{
 			"siafund outputs that do not equal inputs",
 			func(txn *types.Transaction) {
-				txn.SiafundOutputs[0].Value = txn.SiafundOutputs[0].Value.Div64(2)
+				txn.SiafundOutputs[0].Value /= 2
 			},
 		},
 		{
@@ -438,15 +442,15 @@ func TestValidateTransaction(t *testing.T) {
 		{
 			"siafund outputs that overflow",
 			func(txn *types.Transaction) {
-				txn.SiafundOutputs = append(txn.SiafundOutputs, types.Beneficiary{
-					Value: maxCurrency,
+				txn.SiafundOutputs = append(txn.SiafundOutputs, types.SiafundOutput{
+					Value: math.MaxUint64,
 				})
 			},
 		},
 		{
 			"file contract renter output overflows",
 			func(txn *types.Transaction) {
-				txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.Beneficiary{
+				txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
 					Value: maxCurrency.Sub(types.Siacoins(2)),
 				})
 				txn.FileContracts[0].ValidRenterOutput.Value = types.Siacoins(2)
@@ -455,7 +459,7 @@ func TestValidateTransaction(t *testing.T) {
 		{
 			"file contract host output overflows",
 			func(txn *types.Transaction) {
-				txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.Beneficiary{
+				txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
 					Value: maxCurrency.Sub(types.Siacoins(2)),
 				})
 				txn.FileContracts[0].ValidRenterOutput.Value = types.ZeroCurrency
@@ -465,7 +469,7 @@ func TestValidateTransaction(t *testing.T) {
 		{
 			"file contract tax overflow",
 			func(txn *types.Transaction) {
-				txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.Beneficiary{
+				txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
 					Value: maxCurrency.Sub(types.Siacoins(2)),
 				})
 				txn.FileContracts[0].ValidRenterOutput.Value = types.Siacoins(1)
@@ -481,7 +485,7 @@ func TestValidateTransaction(t *testing.T) {
 		{
 			"non-existent siacoin output",
 			func(txn *types.Transaction) {
-				txn.SiacoinInputs[0].Parent.ID = types.OutputID{}
+				txn.SiacoinInputs[0].Parent.ID = types.ElementID{}
 			},
 		},
 		{
@@ -499,7 +503,7 @@ func TestValidateTransaction(t *testing.T) {
 		{
 			"non-existent siafund output",
 			func(txn *types.Transaction) {
-				txn.SiafundInputs[0].Parent.ID = types.OutputID{}
+				txn.SiafundInputs[0].Parent.ID = types.ElementID{}
 			},
 		},
 		{
@@ -542,7 +546,7 @@ func TestValidateTransaction(t *testing.T) {
 		{
 			"revision of non-existent file contract",
 			func(txn *types.Transaction) {
-				txn.FileContractRevisions[0].Parent.ID = types.OutputID{}
+				txn.FileContractRevisions[0].Parent.ID = types.ElementID{}
 			},
 		},
 		{
@@ -560,35 +564,35 @@ func TestValidateTransaction(t *testing.T) {
 		{
 			"file contract revision that does not increase revision number",
 			func(txn *types.Transaction) {
-				rev := &txn.FileContractRevisions[0].NewState
+				rev := &txn.FileContractRevisions[0].Revision
 				rev.RevisionNumber = 0
 			},
 		},
 		{
 			"file contract revision that modifies valid output sum",
 			func(txn *types.Transaction) {
-				rev := &txn.FileContractRevisions[0].NewState
+				rev := &txn.FileContractRevisions[0].Revision
 				rev.ValidRenterOutput.Value = rev.ValidRenterOutput.Value.Mul64(2)
 			},
 		},
 		{
 			"file contract revision whose missed output sum exceeds its valid output sum",
 			func(txn *types.Transaction) {
-				rev := &txn.FileContractRevisions[0].NewState
+				rev := &txn.FileContractRevisions[0].Revision
 				rev.MissedRenterOutput.Value = rev.MissedRenterOutput.Value.Mul64(2)
 			},
 		},
 		{
 			"file contract revision whose window ends before it begins",
 			func(txn *types.Transaction) {
-				rev := &txn.FileContractRevisions[0].NewState
+				rev := &txn.FileContractRevisions[0].Revision
 				rev.WindowEnd = rev.WindowStart - 1
 			},
 		},
 		{
 			"resolution of non-existent file contract",
 			func(txn *types.Transaction) {
-				txn.FileContractResolutions[0].Parent.ID = types.OutputID{}
+				txn.FileContractResolutions[0].Parent.ID = types.ElementID{}
 			},
 		},
 		{
@@ -865,8 +869,10 @@ func TestValidateSpendPolicy(t *testing.T) {
 	for _, tt := range tests {
 		txn := types.Transaction{
 			SiacoinInputs: []types.SiacoinInput{{
-				Parent: types.SiacoinOutput{
-					Address: types.PolicyAddress(tt.policy),
+				Parent: types.SiacoinElement{
+					SiacoinOutput: types.SiacoinOutput{
+						Address: types.PolicyAddress(tt.policy),
+					},
 				},
 				SpendPolicy: tt.policy,
 			}},
@@ -881,34 +887,34 @@ func TestValidateSpendPolicy(t *testing.T) {
 
 func TestValidateTransactionSet(t *testing.T) {
 	pubkey, privkey := testingKeypair(0)
-	genesisBlock := genesisWithBeneficiaries(types.Beneficiary{
+	genesisBlock := genesisWithSiacoinOutputs(types.SiacoinOutput{
 		Address: types.StandardAddress(pubkey),
 		Value:   types.Siacoins(1),
 	})
 	// also add some SF
-	genesisBlock.Transactions[0].SiafundOutputs = []types.Beneficiary{{
+	genesisBlock.Transactions[0].SiafundOutputs = []types.SiafundOutput{{
 		Address: types.StandardAddress(pubkey),
-		Value:   types.Siafunds(100),
+		Value:   100,
 	}}
 	sau := GenesisUpdate(genesisBlock, testingDifficulty)
 	vc := sau.Context
 
 	txn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
-			Parent:      sau.NewSiacoinOutputs[1],
+			Parent:      sau.NewSiacoinElements[1],
 			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
-		SiacoinOutputs: []types.Beneficiary{{
+		SiacoinOutputs: []types.SiacoinOutput{{
 			Address: types.StandardAddress(pubkey),
-			Value:   sau.NewSiacoinOutputs[1].Value,
+			Value:   sau.NewSiacoinElements[1].Value,
 		}},
 		SiafundInputs: []types.SiafundInput{{
-			Parent:      sau.NewSiafundOutputs[0],
+			Parent:      sau.NewSiafundElements[0],
 			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
-		SiafundOutputs: []types.Beneficiary{{
+		SiafundOutputs: []types.SiafundOutput{{
 			Address: types.StandardAddress(pubkey),
-			Value:   sau.NewSiafundOutputs[0].Value,
+			Value:   sau.NewSiafundElements[0].Value,
 		}},
 	}
 	signAllInputs(&txn, vc, privkey)
@@ -919,12 +925,12 @@ func TestValidateTransactionSet(t *testing.T) {
 
 	doubleSpendSCTxn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
-			Parent:      sau.NewSiacoinOutputs[1],
+			Parent:      sau.NewSiacoinElements[1],
 			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
-		SiacoinOutputs: []types.Beneficiary{{
+		SiacoinOutputs: []types.SiacoinOutput{{
 			Address: types.StandardAddress(pubkey),
-			Value:   sau.NewSiacoinOutputs[1].Value,
+			Value:   sau.NewSiacoinElements[1].Value,
 		}},
 	}
 	signAllInputs(&doubleSpendSCTxn, vc, privkey)
@@ -935,12 +941,12 @@ func TestValidateTransactionSet(t *testing.T) {
 
 	doubleSpendSFTxn := types.Transaction{
 		SiafundInputs: []types.SiafundInput{{
-			Parent:      sau.NewSiafundOutputs[0],
+			Parent:      sau.NewSiafundElements[0],
 			SpendPolicy: types.PolicyPublicKey(pubkey),
 		}},
-		SiafundOutputs: []types.Beneficiary{{
+		SiafundOutputs: []types.SiafundOutput{{
 			Address: types.StandardAddress(pubkey),
-			Value:   sau.NewSiafundOutputs[0].Value,
+			Value:   sau.NewSiafundElements[0].Value,
 		}},
 	}
 	signAllInputs(&doubleSpendSFTxn, vc, privkey)
@@ -962,10 +968,10 @@ func TestValidateTransactionSet(t *testing.T) {
 
 func TestValidateBlock(t *testing.T) {
 	pubkey, privkey := testingKeypair(0)
-	genesis := genesisWithBeneficiaries(types.Beneficiary{
+	genesis := genesisWithSiacoinOutputs(types.SiacoinOutput{
 		Address: types.StandardAddress(pubkey),
 		Value:   types.Siacoins(1),
-	}, types.Beneficiary{
+	}, types.SiacoinOutput{
 		Address: types.StandardAddress(pubkey),
 		Value:   types.Siacoins(1),
 	})
@@ -977,20 +983,20 @@ func TestValidateBlock(t *testing.T) {
 	txns := []types.Transaction{
 		{
 			SiacoinInputs: []types.SiacoinInput{{
-				Parent:      sau.NewSiacoinOutputs[1],
+				Parent:      sau.NewSiacoinElements[1],
 				SpendPolicy: types.PolicyPublicKey(pubkey),
 			}},
-			SiacoinOutputs: []types.Beneficiary{{
+			SiacoinOutputs: []types.SiacoinOutput{{
 				Address: types.VoidAddress,
-				Value:   sau.NewSiacoinOutputs[1].Value,
+				Value:   sau.NewSiacoinElements[1].Value,
 			}},
 		},
 		{
 			SiacoinInputs: []types.SiacoinInput{{
-				Parent:      sau.NewSiacoinOutputs[2],
+				Parent:      sau.NewSiacoinElements[2],
 				SpendPolicy: types.PolicyPublicKey(pubkey),
 			}},
-			MinerFee: sau.NewSiacoinOutputs[2].Value,
+			MinerFee: sau.NewSiacoinElements[2].Value,
 		},
 	}
 	signAllInputs(&txns[0], vc, privkey)

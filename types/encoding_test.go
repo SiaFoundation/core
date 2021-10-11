@@ -76,15 +76,15 @@ func TestEncoderRoundtrip(t *testing.T) {
 			Height: 555,
 			ID:     BlockID{0: 0xAA, 31: 0xBB},
 		},
-		OutputID{
-			TransactionID: TransactionID{0: 0xAA, 31: 0xBB},
-			Index:         5000,
+		ElementID{
+			Source: Hash256{0: 0xAA, 31: 0xBB},
+			Index:  5000,
 		},
-		Beneficiary{
+		SiacoinOutput{
 			Value:   NewCurrency(1000, 1000),
 			Address: Address{0: 0xAA, 31: 0xBB},
 		},
-		FileContractState{
+		FileContract{
 			Filesize:       1000,
 			FileMerkleRoot: Hash256{0: 0xAA, 31: 0xBB},
 			WindowStart:    5000,

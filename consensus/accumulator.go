@@ -48,107 +48,101 @@ func merkleProofRoot(leafHash types.Hash256, leafIndex uint64, proof []types.Has
 }
 
 type stateObject struct {
-	objHash   types.Hash256
-	leafIndex uint64
-	flags     uint64
-	proof     []types.Hash256
+	types.StateElement
+	objHash types.Hash256
+	flags   uint64
 }
 
 func (so stateObject) leafHash() types.Hash256 {
 	buf := make([]byte, 1+32+8+8)
 	buf[0] = leafHashPrefix
 	copy(buf[1:], so.objHash[:])
-	binary.LittleEndian.PutUint64(buf[33:], so.leafIndex)
+	binary.LittleEndian.PutUint64(buf[33:], so.LeafIndex)
 	binary.LittleEndian.PutUint64(buf[41:], so.flags)
 	return types.HashBytes(buf)
 }
 
 func (so stateObject) proofRoot() types.Hash256 {
-	return merkleProofRoot(so.leafHash(), so.leafIndex, so.proof)
+	return merkleProofRoot(so.leafHash(), so.LeafIndex, so.MerkleProof)
 }
 
 func (so stateObject) truncatedProofRoot(n int) types.Hash256 {
-	return merkleProofRoot(so.leafHash(), so.leafIndex, so.proof[:n])
+	return merkleProofRoot(so.leafHash(), so.LeafIndex, so.MerkleProof[:n])
 }
 
-func siacoinOutputStateObject(o types.SiacoinOutput, flags uint64) stateObject {
+func siacoinElementStateObject(e types.SiacoinElement, flags uint64) stateObject {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
 
-	o.ID.EncodeTo(h.E)
-	o.Value.EncodeTo(h.E)
-	o.Address.EncodeTo(h.E)
-	h.E.WriteUint64(o.Timelock)
+	e.ID.EncodeTo(h.E)
+	e.SiacoinOutput.EncodeTo(h.E)
+	h.E.WriteUint64(e.Timelock)
 	return stateObject{
-		objHash:   h.Sum(),
-		leafIndex: o.LeafIndex,
-		flags:     flags,
-		proof:     o.MerkleProof,
+		StateElement: e.StateElement,
+		flags:        flags,
+		objHash:      h.Sum(),
 	}
 }
 
-func siafundOutputStateObject(o types.SiafundOutput, flags uint64) stateObject {
+func siafundElementStateObject(e types.SiafundElement, flags uint64) stateObject {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
 
-	o.ID.EncodeTo(h.E)
-	o.Value.EncodeTo(h.E)
-	o.Address.EncodeTo(h.E)
-	o.ClaimStart.EncodeTo(h.E)
+	e.ID.EncodeTo(h.E)
+	e.SiafundOutput.EncodeTo(h.E)
+	e.ClaimStart.EncodeTo(h.E)
 	return stateObject{
-		objHash:   h.Sum(),
-		leafIndex: o.LeafIndex,
-		flags:     flags,
-		proof:     o.MerkleProof,
+		StateElement: e.StateElement,
+		flags:        flags,
+		objHash:      h.Sum(),
 	}
 }
 
-func fileContractStateObject(fc types.FileContract, flags uint64) stateObject {
+func fileContractElementStateObject(e types.FileContractElement, flags uint64) stateObject {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
 
-	fc.ID.EncodeTo(h.E)
-	fc.State.EncodeTo(h.E)
+	e.ID.EncodeTo(h.E)
+	e.FileContract.EncodeTo(h.E)
 	return stateObject{
-		objHash:   h.Sum(),
-		leafIndex: fc.LeafIndex,
-		flags:     flags,
-		proof:     fc.MerkleProof,
+		StateElement: e.StateElement,
+		flags:        flags,
+		objHash:      h.Sum(),
 	}
 }
 
 func splitObjects(os []stateObject, mid uint64) (left, right []stateObject) {
-	split := sort.Search(len(os), func(i int) bool { return os[i].leafIndex >= mid })
+	split := sort.Search(len(os), func(i int) bool { return os[i].LeafIndex >= mid })
 	return os[:split], os[split:]
 }
 
 func objectsByTree(txns []types.Transaction) [64][]stateObject {
 	var trees [64][]stateObject
 	addObject := func(so stateObject) {
-		trees[len(so.proof)] = append(trees[len(so.proof)], so)
+		trees[len(so.MerkleProof)] = append(trees[len(so.MerkleProof)], so)
 	}
 	for _, txn := range txns {
 		for _, in := range txn.SiacoinInputs {
 			if in.Parent.LeafIndex != types.EphemeralLeafIndex {
-				addObject(siacoinOutputStateObject(in.Parent, 0))
+				addObject(siacoinElementStateObject(in.Parent, 0))
 			}
 		}
 		for _, in := range txn.SiafundInputs {
-			addObject(siafundOutputStateObject(in.Parent, 0))
+			addObject(siafundElementStateObject(in.Parent, 0))
 		}
 		for _, rev := range txn.FileContractRevisions {
-			addObject(fileContractStateObject(rev.Parent, 0))
+			addObject(fileContractElementStateObject(rev.Parent, 0))
 		}
 		for _, res := range txn.FileContractResolutions {
-			addObject(fileContractStateObject(res.Parent, 0))
+			addObject(fileContractElementStateObject(res.Parent, 0))
 		}
 	}
 	for _, objects := range trees {
 		sort.Slice(objects, func(i, j int) bool {
-			return objects[i].leafIndex < objects[j].leafIndex
+			return objects[i].LeafIndex < objects[j].LeafIndex
 		})
 	}
 	return trees
@@ -162,18 +156,18 @@ func updateProof(proof []types.Hash256, leafIndex uint64, updated *[64][]stateOb
 	}
 	best := updatedInTree[0]
 	for _, so := range updatedInTree[1:] {
-		if mergeHeight(leafIndex, so.leafIndex) < mergeHeight(leafIndex, best.leafIndex) {
+		if mergeHeight(leafIndex, so.LeafIndex) < mergeHeight(leafIndex, best.LeafIndex) {
 			best = so
 		}
 	}
 
-	if best.leafIndex == leafIndex {
+	if best.LeafIndex == leafIndex {
 		// copy over the updated proof in its entirety
-		copy(proof, best.proof)
+		copy(proof, best.MerkleProof)
 	} else {
 		// copy over the updated proof above the mergeHeight
-		mh := mergeHeight(leafIndex, best.leafIndex)
-		copy(proof[mh:], best.proof[mh:])
+		mh := mergeHeight(leafIndex, best.LeafIndex)
+		copy(proof[mh:], best.MerkleProof[mh:])
 		// at the merge point itself, compute the updated sibling hash
 		proof[mh-1] = best.truncatedProofRoot(mh - 1)
 	}
@@ -194,49 +188,49 @@ func (sa *StateAccumulator) HasTreeAtHeight(height int) bool {
 }
 
 func (sa *StateAccumulator) containsObject(so stateObject) bool {
-	return sa.HasTreeAtHeight(len(so.proof)) && sa.Trees[len(so.proof)] == so.proofRoot()
+	return sa.HasTreeAtHeight(len(so.MerkleProof)) && sa.Trees[len(so.MerkleProof)] == so.proofRoot()
 }
 
-// ContainsUnspentSiacoinOutput returns true if the accumulator contains o as an
+// ContainsUnspentSiacoinElement returns true if the accumulator contains sce as an
 // unspent output.
-func (sa *StateAccumulator) ContainsUnspentSiacoinOutput(o types.SiacoinOutput) bool {
-	return sa.containsObject(siacoinOutputStateObject(o, 0))
+func (sa *StateAccumulator) ContainsUnspentSiacoinElement(sce types.SiacoinElement) bool {
+	return sa.containsObject(siacoinElementStateObject(sce, 0))
 }
 
-// ContainsSpentSiacoinOutput returns true if the accumulator contains o as a
+// ContainsSpentSiacoinElement returns true if the accumulator contains sce as a
 // spent output.
-func (sa *StateAccumulator) ContainsSpentSiacoinOutput(o types.SiacoinOutput) bool {
-	return sa.containsObject(siacoinOutputStateObject(o, flagSpent))
+func (sa *StateAccumulator) ContainsSpentSiacoinElement(sce types.SiacoinElement) bool {
+	return sa.containsObject(siacoinElementStateObject(sce, flagSpent))
 }
 
-// ContainsUnspentSiafundOutput returns true if the accumulator contains o as an
+// ContainsUnspentSiafundElement returns true if the accumulator contains e as an
 // unspent output.
-func (sa *StateAccumulator) ContainsUnspentSiafundOutput(o types.SiafundOutput) bool {
-	return sa.containsObject(siafundOutputStateObject(o, 0))
+func (sa *StateAccumulator) ContainsUnspentSiafundElement(sfe types.SiafundElement) bool {
+	return sa.containsObject(siafundElementStateObject(sfe, 0))
 }
 
-// ContainsSpentSiafundOutput returns true if the accumulator contains o as a
+// ContainsSpentSiafundElement returns true if the accumulator contains o as a
 // spent output.
-func (sa *StateAccumulator) ContainsSpentSiafundOutput(o types.SiafundOutput) bool {
-	return sa.containsObject(siafundOutputStateObject(o, flagSpent))
+func (sa *StateAccumulator) ContainsSpentSiafundElement(sfe types.SiafundElement) bool {
+	return sa.containsObject(siafundElementStateObject(sfe, flagSpent))
 }
 
-// ContainsUnresolvedFileContract returns true if the accumulator contains fc as an
-// unresolved file contract.
-func (sa *StateAccumulator) ContainsUnresolvedFileContract(fc types.FileContract) bool {
-	return sa.containsObject(fileContractStateObject(fc, 0))
+// ContainsUnresolvedFileContractElement returns true if the accumulator
+// contains fce as an unresolved file contract.
+func (sa *StateAccumulator) ContainsUnresolvedFileContractElement(fce types.FileContractElement) bool {
+	return sa.containsObject(fileContractElementStateObject(fce, 0))
 }
 
-// ContainsValidFileContract returns true if the accumulator contains fc as a
-// resolved-valid file contract.
-func (sa *StateAccumulator) ContainsValidFileContract(fc types.FileContract) bool {
-	return sa.containsObject(fileContractStateObject(fc, flagSpent))
+// ContainsValidFileContractElement returns true if the accumulator contains fce
+// as a resolved-valid file contract.
+func (sa *StateAccumulator) ContainsValidFileContractElement(fce types.FileContractElement) bool {
+	return sa.containsObject(fileContractElementStateObject(fce, flagSpent))
 }
 
-// ContainsMissedFileContract returns true if the accumulator contains fc as a
-// resolved-missed file contract.
-func (sa *StateAccumulator) ContainsMissedFileContract(fc types.FileContract) bool {
-	return sa.containsObject(fileContractStateObject(fc, flagSpent|flagExpired))
+// ContainsMissedFileContractElement returns true if the accumulator contains
+// fce as a resolved-missed file contract.
+func (sa *StateAccumulator) ContainsMissedFileContractElement(fce types.FileContractElement) bool {
+	return sa.containsObject(fileContractElementStateObject(fce, flagSpent|flagExpired))
 }
 
 // addNewObjects adds the supplied objects to the accumulator, filling in their
@@ -246,9 +240,9 @@ func (sa *StateAccumulator) addNewObjects(objects []stateObject) [64][]types.Has
 	initialLeaves := sa.NumLeaves
 	var treeGrowth [64][]types.Hash256
 	for i := range objects {
-		objects[i].leafIndex = sa.NumLeaves
+		objects[i].LeafIndex = sa.NumLeaves
 		// TODO: preallocate this more accurately
-		objects[i].proof = make([]types.Hash256, 0, trailingOnes(sa.NumLeaves))
+		objects[i].MerkleProof = make([]types.Hash256, 0, trailingOnes(sa.NumLeaves))
 
 		// Walk "up" the Forest, merging trees of the same height, but before
 		// merging two trees, append each of their roots to the proofs under the
@@ -272,10 +266,10 @@ func (sa *StateAccumulator) addNewObjects(objects []stateObject) [64][]types.Has
 			startOfOldTree := i - 1<<(height+1)
 			j := i
 			for ; j > startOfNewTree && j >= 0; j-- {
-				objects[j].proof = append(objects[j].proof, oldRoot)
+				objects[j].MerkleProof = append(objects[j].MerkleProof, oldRoot)
 			}
 			for ; j > startOfOldTree && j >= 0; j-- {
-				objects[j].proof = append(objects[j].proof, h)
+				objects[j].MerkleProof = append(objects[j].MerkleProof, h)
 			}
 			// Record the left- and right-hand roots in treeGrowth, where
 			// applicable.
@@ -315,19 +309,19 @@ func (sa *StateAccumulator) updateExistingObjects(objects []stateObject) [64][]s
 		left, right := splitObjects(objects, mid)
 		var leftRoot, rightRoot types.Hash256
 		if len(left) == 0 {
-			leftRoot = right[0].proof[height-1]
+			leftRoot = right[0].MerkleProof[height-1]
 		} else {
 			leftRoot = recompute(i, mid, left)
 			for i := range right {
-				right[i].proof[height-1] = leftRoot
+				right[i].MerkleProof[height-1] = leftRoot
 			}
 		}
 		if len(right) == 0 {
-			rightRoot = left[0].proof[height-1]
+			rightRoot = left[0].MerkleProof[height-1]
 		} else {
 			rightRoot = recompute(mid, j, right)
 			for i := range left {
-				left[i].proof[height-1] = rightRoot
+				left[i].MerkleProof[height-1] = rightRoot
 			}
 		}
 		return merkleNodeHash(leftRoot, rightRoot)
@@ -336,17 +330,17 @@ func (sa *StateAccumulator) updateExistingObjects(objects []stateObject) [64][]s
 	// Group objects by tree, and sort them by leaf index.
 	var trees [64][]stateObject
 	sort.Slice(objects, func(i, j int) bool {
-		if len(objects[i].proof) != len(objects[j].proof) {
-			return len(objects[i].proof) < len(objects[j].proof)
+		if len(objects[i].MerkleProof) != len(objects[j].MerkleProof) {
+			return len(objects[i].MerkleProof) < len(objects[j].MerkleProof)
 		}
-		return objects[i].leafIndex < objects[j].leafIndex
+		return objects[i].LeafIndex < objects[j].LeafIndex
 	})
 	for len(objects) > 0 {
 		i := 0
-		for i < len(objects) && len(objects[i].proof) == len(objects[0].proof) {
+		for i < len(objects) && len(objects[i].MerkleProof) == len(objects[0].MerkleProof) {
 			i++
 		}
-		trees[len(objects[0].proof)] = objects[:i]
+		trees[len(objects[0].MerkleProof)] = objects[:i]
 		objects = objects[i:]
 	}
 
@@ -387,7 +381,7 @@ func MultiproofSize(txns []types.Transaction) int {
 		if len(objects) == 0 {
 			continue
 		}
-		start := clearBits(objects[0].leafIndex, height+1)
+		start := clearBits(objects[0].LeafIndex, height+1)
 		end := start + 1<<height
 		size += proofSize(start, end, objects)
 	}
@@ -405,12 +399,12 @@ func ComputeMultiproof(txns []types.Transaction) (proof []types.Hash256) {
 		mid := (i + j) / 2
 		left, right := splitObjects(objects, mid)
 		if len(left) == 0 {
-			proof = append(proof, right[0].proof[height-1])
+			proof = append(proof, right[0].MerkleProof[height-1])
 		} else {
 			visit(i, mid, left)
 		}
 		if len(right) == 0 {
-			proof = append(proof, left[0].proof[height-1])
+			proof = append(proof, left[0].MerkleProof[height-1])
 		} else {
 			visit(mid, j, right)
 		}
@@ -420,7 +414,7 @@ func ComputeMultiproof(txns []types.Transaction) (proof []types.Hash256) {
 		if len(objects) == 0 {
 			continue
 		}
-		start := clearBits(objects[0].leafIndex, height+1)
+		start := clearBits(objects[0].LeafIndex, height+1)
 		end := start + 1<<height
 		visit(start, end, objects)
 	}
@@ -447,10 +441,10 @@ func ExpandMultiproof(txns []types.Transaction, proof []types.Hash256) {
 		leftRoot := expand(i, mid, left)
 		rightRoot := expand(mid, j, right)
 		for i := range right {
-			right[i].proof[height-1] = leftRoot
+			right[i].MerkleProof[height-1] = leftRoot
 		}
 		for i := range left {
-			left[i].proof[height-1] = rightRoot
+			left[i].MerkleProof[height-1] = rightRoot
 		}
 		return merkleNodeHash(leftRoot, rightRoot)
 	}
@@ -459,7 +453,7 @@ func ExpandMultiproof(txns []types.Transaction, proof []types.Hash256) {
 		if len(objects) == 0 {
 			continue
 		}
-		start := clearBits(objects[0].leafIndex, height+1)
+		start := clearBits(objects[0].LeafIndex, height+1)
 		end := start + 1<<height
 		expand(start, end, objects)
 	}

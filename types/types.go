@@ -25,8 +25,8 @@ var (
 	ErrInvalidFormat = errors.New("invalid format")
 )
 
-// EphemeralLeafIndex is used as the LeafIndex of Outputs that are created and
-// spent within the same block. Such outputs do not require a proof of
+// EphemeralLeafIndex is used as the LeafIndex of StateElements that are created
+// and spent within the same block. Such elements do not require a proof of
 // existence. They are, however, assigned a proper index and are incorporated
 // into the state accumulator when the block is processed.
 const EphemeralLeafIndex = math.MaxUint64
@@ -49,6 +49,9 @@ func (bid BlockID) MeetsTarget(t BlockID) bool {
 	return bytes.Compare(bid[:], t[:]) <= 0
 }
 
+// A TransactionID uniquely identifies a transaction.
+type TransactionID Hash256
+
 // A ChainIndex pairs a block's height with its ID.
 type ChainIndex struct {
 	Height uint64
@@ -67,60 +70,20 @@ func SignHash(privateKey ed25519.PrivateKey, h Hash256) (s Signature) {
 	return
 }
 
-// A TransactionID uniquely identifies a transaction.
-type TransactionID Hash256
-
-// An OutputID uniquely identifies an output.
-type OutputID struct {
-	TransactionID TransactionID
-	Index         uint64
-}
-
-// A SiacoinOutput is a volume of siacoins that is created and spent as an
-// atomic unit.
-type SiacoinOutput struct {
-	ID          OutputID
-	Value       Currency
-	Address     Address
-	Timelock    uint64
-	MerkleProof []Hash256
-	LeafIndex   uint64
-}
-
-// A SiafundOutput is a volume of siafunds that is created and spent as an
-// atomic unit.
-type SiafundOutput struct {
-	ID          OutputID
-	Value       Currency
-	Address     Address
-	ClaimStart  Currency // value of SiafundPool when output was created
-	MerkleProof []Hash256
-	LeafIndex   uint64
-}
-
 // An InputSignature signs a transaction input.
 type InputSignature Signature
 
-// A SiacoinInput spends its parent Output by revealing its public key and signing the
+// A SiacoinOutput is the recipient of some of the siacoins spent in a
 // transaction.
-type SiacoinInput struct {
-	Parent      SiacoinOutput
-	SpendPolicy SpendPolicy
-	Signatures  []InputSignature
-}
-
-// A SiafundInput spends its parent Output by revealing its public key and signing the
-// transaction.
-type SiafundInput struct {
-	Parent       SiafundOutput
-	ClaimAddress Address
-	SpendPolicy  SpendPolicy
-	Signatures   []InputSignature
-}
-
-// A Beneficiary is the recipient of some of the value spent in a transaction.
-type Beneficiary struct {
+type SiacoinOutput struct {
 	Value   Currency
+	Address Address
+}
+
+// A SiafundOutput is the recipient of some of the siafunds spent in a
+// transaction.
+type SiafundOutput struct {
+	Value   uint64
 	Address Address
 }
 
@@ -129,31 +92,42 @@ type Beneficiary struct {
 // or "missed" depending on whether a valid StorageProof is submitted for the
 // contract.
 type FileContract struct {
-	ID          OutputID
-	State       FileContractState
-	MerkleProof []Hash256
-	LeafIndex   uint64
-}
-
-// A FileContractState represents the current state of a file contract.
-type FileContractState struct {
 	Filesize           uint64
 	FileMerkleRoot     Hash256
 	WindowStart        uint64
 	WindowEnd          uint64
-	ValidRenterOutput  Beneficiary
-	ValidHostOutput    Beneficiary
-	MissedRenterOutput Beneficiary
-	MissedHostOutput   Beneficiary
+	ValidRenterOutput  SiacoinOutput
+	ValidHostOutput    SiacoinOutput
+	MissedRenterOutput SiacoinOutput
+	MissedHostOutput   SiacoinOutput
 	RenterPublicKey    PublicKey
 	HostPublicKey      PublicKey
 	RevisionNumber     uint64
 }
 
+// A SiacoinInput spends an unspent SiacoinElement in the state accumulator by
+// revealing its public key and signing the transaction.
+type SiacoinInput struct {
+	Parent      SiacoinElement
+	SpendPolicy SpendPolicy
+	Signatures  []InputSignature
+}
+
+// A SiafundInput spends an unspent SiafundElement in the state accumulator by
+// revealing its public key and signing the transaction. Inputs also include a
+// ClaimAddress, specifying the recipient of the siacoins that were earned by
+// the SiafundElement.
+type SiafundInput struct {
+	Parent       SiafundElement
+	ClaimAddress Address
+	SpendPolicy  SpendPolicy
+	Signatures   []InputSignature
+}
+
 // A FileContractRevision updates the state of an existing file contract.
 type FileContractRevision struct {
-	Parent          FileContract
-	NewState        FileContractState
+	Parent          FileContractElement
+	Revision        FileContract
 	RenterSignature Signature
 	HostSignature   Signature
 }
@@ -164,7 +138,7 @@ type FileContractRevision struct {
 // resolution (omitting the storage proof), which will cause the contract to
 // resolve as "missed."
 type FileContractResolution struct {
-	Parent       FileContract
+	Parent       FileContractElement
 	StorageProof StorageProof
 }
 
@@ -195,14 +169,49 @@ type StorageProof struct {
 	SegmentProof []Hash256
 }
 
+// An ElementID uniquely identifies a StateElement.
+type ElementID struct {
+	Source Hash256 // BlockID or TransactionID
+	Index  uint64
+}
+
+// A StateElement is a generic element within the state accumulator.
+type StateElement struct {
+	ID          ElementID
+	LeafIndex   uint64
+	MerkleProof []Hash256
+}
+
+// A SiacoinElement is a volume of siacoins that is created and spent as an
+// atomic unit.
+type SiacoinElement struct {
+	StateElement
+	SiacoinOutput
+	Timelock uint64
+}
+
+// A SiafundElement is a volume of siafunds that is created and spent as an
+// atomic unit.
+type SiafundElement struct {
+	StateElement
+	SiafundOutput
+	ClaimStart Currency // value of SiafundPool when element was created
+}
+
+// A FileContractElement is a storage agreement between a renter and a host.
+type FileContractElement struct {
+	StateElement
+	FileContract
+}
+
 // A Transaction transfers value by consuming existing Outputs and creating new
 // Outputs.
 type Transaction struct {
 	SiacoinInputs           []SiacoinInput
-	SiacoinOutputs          []Beneficiary
+	SiacoinOutputs          []SiacoinOutput
 	SiafundInputs           []SiafundInput
-	SiafundOutputs          []Beneficiary
-	FileContracts           []FileContractState
+	SiafundOutputs          []SiafundOutput
+	FileContracts           []FileContract
 	FileContractRevisions   []FileContractRevision
 	FileContractResolutions []FileContractResolution
 	ArbitraryData           []byte
@@ -227,14 +236,14 @@ func (txn *Transaction) DeepCopy() Transaction {
 		c.SiacoinInputs[i].Parent.MerkleProof = append([]Hash256(nil), c.SiacoinInputs[i].Parent.MerkleProof...)
 		c.SiacoinInputs[i].Signatures = append([]InputSignature(nil), c.SiacoinInputs[i].Signatures...)
 	}
-	c.SiacoinOutputs = append([]Beneficiary(nil), c.SiacoinOutputs...)
+	c.SiacoinOutputs = append([]SiacoinOutput(nil), c.SiacoinOutputs...)
 	c.SiafundInputs = append([]SiafundInput(nil), c.SiafundInputs...)
 	for i := range c.SiafundInputs {
 		c.SiafundInputs[i].Parent.MerkleProof = append([]Hash256(nil), c.SiafundInputs[i].Parent.MerkleProof...)
 		c.SiafundInputs[i].Signatures = append([]InputSignature(nil), c.SiafundInputs[i].Signatures...)
 	}
-	c.SiafundOutputs = append([]Beneficiary(nil), c.SiafundOutputs...)
-	c.FileContracts = append([]FileContractState(nil), c.FileContracts...)
+	c.SiafundOutputs = append([]SiafundOutput(nil), c.SiafundOutputs...)
+	c.FileContracts = append([]FileContract(nil), c.FileContracts...)
 	c.FileContractRevisions = append([]FileContractRevision(nil), c.FileContractRevisions...)
 	for i := range c.FileContractRevisions {
 		c.FileContractRevisions[i].Parent.MerkleProof = append([]Hash256(nil), c.FileContractRevisions[i].Parent.MerkleProof...)
@@ -469,8 +478,8 @@ func (ci ChainIndex) String() string {
 }
 
 // String implements fmt.Stringer.
-func (oid OutputID) String() string {
-	return fmt.Sprintf("%v:%v", oid.TransactionID, oid.Index)
+func (eid ElementID) String() string {
+	return fmt.Sprintf("%v:%v", eid.Source, eid.Index)
 }
 
 // String implements fmt.Stringer.

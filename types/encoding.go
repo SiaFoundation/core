@@ -269,15 +269,21 @@ func (h BlockHeader) EncodeTo(e *Encoder) {
 }
 
 // EncodeTo implements types.EncoderTo.
-func (id OutputID) EncodeTo(e *Encoder) {
-	id.TransactionID.EncodeTo(e)
+func (id ElementID) EncodeTo(e *Encoder) {
+	id.Source.EncodeTo(e)
 	e.WriteUint64(id.Index)
 }
 
 // EncodeTo implements types.EncoderTo.
-func (b Beneficiary) EncodeTo(e *Encoder) {
-	b.Value.EncodeTo(e)
-	b.Address.EncodeTo(e)
+func (sco SiacoinOutput) EncodeTo(e *Encoder) {
+	sco.Value.EncodeTo(e)
+	sco.Address.EncodeTo(e)
+}
+
+// EncodeTo implements types.EncoderTo.
+func (sfo SiafundOutput) EncodeTo(e *Encoder) {
+	e.WriteUint64(sfo.Value)
+	sfo.Address.EncodeTo(e)
 }
 
 func (e *Encoder) writeMerkleProof(proof []Hash256) {
@@ -287,7 +293,14 @@ func (e *Encoder) writeMerkleProof(proof []Hash256) {
 	}
 }
 
-// EncodeTo implements types.EncoderTo
+// EncodeTo implements types.EncoderTo.
+func (se StateElement) EncodeTo(e *Encoder) {
+	se.ID.EncodeTo(e)
+	e.WriteUint64(se.LeafIndex)
+	e.writeMerkleProof(se.MerkleProof)
+}
+
+// EncodeTo implements types.EncoderTo.
 func (in SiacoinInput) EncodeTo(e *Encoder) {
 	in.Parent.EncodeTo(e)
 	e.WritePolicy(in.SpendPolicy)
@@ -297,17 +310,14 @@ func (in SiacoinInput) EncodeTo(e *Encoder) {
 	}
 }
 
-// EncodeTo implements types.EncoderTo
-func (out SiacoinOutput) EncodeTo(e *Encoder) {
-	out.ID.EncodeTo(e)
-	out.Value.EncodeTo(e)
-	out.Address.EncodeTo(e)
-	e.WriteUint64(out.Timelock)
-	e.writeMerkleProof(out.MerkleProof)
-	e.WriteUint64(out.LeafIndex)
+// EncodeTo implements types.EncoderTo.
+func (sce SiacoinElement) EncodeTo(e *Encoder) {
+	sce.StateElement.EncodeTo(e)
+	sce.SiacoinOutput.EncodeTo(e)
+	e.WriteUint64(sce.Timelock)
 }
 
-// EncodeTo implements types.EncoderTo
+// EncodeTo implements types.EncoderTo.
 func (in SiafundInput) EncodeTo(e *Encoder) {
 	in.Parent.EncodeTo(e)
 	in.ClaimAddress.EncodeTo(e)
@@ -318,18 +328,15 @@ func (in SiafundInput) EncodeTo(e *Encoder) {
 	}
 }
 
-// EncodeTo implements types.EncoderTo
-func (out SiafundOutput) EncodeTo(e *Encoder) {
-	out.ID.EncodeTo(e)
-	out.Value.EncodeTo(e)
-	out.Address.EncodeTo(e)
-	out.ClaimStart.EncodeTo(e)
-	e.writeMerkleProof(out.MerkleProof)
-	e.WriteUint64(out.LeafIndex)
+// EncodeTo implements types.EncoderTo.
+func (sfe SiafundElement) EncodeTo(e *Encoder) {
+	sfe.StateElement.EncodeTo(e)
+	sfe.SiafundOutput.EncodeTo(e)
+	sfe.ClaimStart.EncodeTo(e)
 }
 
-// EncodeTo implements types.EncoderTo
-func (fc FileContractState) EncodeTo(e *Encoder) {
+// EncodeTo implements types.EncoderTo.
+func (fc FileContract) EncodeTo(e *Encoder) {
 	e.WriteUint64(fc.Filesize)
 	fc.FileMerkleRoot.EncodeTo(e)
 	e.WriteUint64(fc.WindowStart)
@@ -343,23 +350,21 @@ func (fc FileContractState) EncodeTo(e *Encoder) {
 	e.WriteUint64(fc.RevisionNumber)
 }
 
-// EncodeTo implements types.EncoderTo
-func (fc FileContract) EncodeTo(e *Encoder) {
-	fc.ID.EncodeTo(e)
-	fc.State.EncodeTo(e)
-	e.writeMerkleProof(fc.MerkleProof)
-	e.WriteUint64(fc.LeafIndex)
+// EncodeTo implements types.EncoderTo.
+func (fce FileContractElement) EncodeTo(e *Encoder) {
+	fce.StateElement.EncodeTo(e)
+	fce.FileContract.EncodeTo(e)
 }
 
-// EncodeTo implements types.EncoderTo
+// EncodeTo implements types.EncoderTo.
 func (rev FileContractRevision) EncodeTo(e *Encoder) {
 	rev.Parent.EncodeTo(e)
-	rev.NewState.EncodeTo(e)
+	rev.Revision.EncodeTo(e)
 	rev.RenterSignature.EncodeTo(e)
 	rev.HostSignature.EncodeTo(e)
 }
 
-// EncodeTo implements types.EncoderTo
+// EncodeTo implements types.EncoderTo.
 func (sp StorageProof) EncodeTo(e *Encoder) {
 	sp.WindowStart.EncodeTo(e)
 	e.writeMerkleProof(sp.WindowProof)
@@ -367,7 +372,7 @@ func (sp StorageProof) EncodeTo(e *Encoder) {
 	e.writeMerkleProof(sp.SegmentProof)
 }
 
-// EncodeTo implements types.EncoderTo
+// EncodeTo implements types.EncoderTo.
 func (res FileContractResolution) EncodeTo(e *Encoder) {
 	res.Parent.EncodeTo(e)
 	res.StorageProof.EncodeTo(e)
@@ -502,15 +507,21 @@ func (h *BlockHeader) DecodeFrom(d *Decoder) {
 }
 
 // DecodeFrom implements types.DecoderFrom.
-func (id *OutputID) DecodeFrom(d *Decoder) {
-	id.TransactionID.DecodeFrom(d)
+func (id *ElementID) DecodeFrom(d *Decoder) {
+	id.Source.DecodeFrom(d)
 	id.Index = d.ReadUint64()
 }
 
 // DecodeFrom implements types.DecoderFrom.
-func (b *Beneficiary) DecodeFrom(d *Decoder) {
-	b.Value.DecodeFrom(d)
-	b.Address.DecodeFrom(d)
+func (sco *SiacoinOutput) DecodeFrom(d *Decoder) {
+	sco.Value.DecodeFrom(d)
+	sco.Address.DecodeFrom(d)
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (sfo *SiafundOutput) DecodeFrom(d *Decoder) {
+	sfo.Value = d.ReadUint64()
+	sfo.Address.DecodeFrom(d)
 }
 
 // ReadPolicy reads a SpendPolicy from the underlying stream.
@@ -582,6 +593,13 @@ func (d *Decoder) readMerkleProof() []Hash256 {
 }
 
 // DecodeFrom implements types.DecoderFrom.
+func (se *StateElement) DecodeFrom(d *Decoder) {
+	se.ID.DecodeFrom(d)
+	se.LeafIndex = d.ReadUint64()
+	se.MerkleProof = d.readMerkleProof()
+}
+
+// DecodeFrom implements types.DecoderFrom.
 func (in *SiacoinInput) DecodeFrom(d *Decoder) {
 	in.Parent.DecodeFrom(d)
 	in.SpendPolicy = d.ReadPolicy()
@@ -592,13 +610,10 @@ func (in *SiacoinInput) DecodeFrom(d *Decoder) {
 }
 
 // DecodeFrom implements types.DecoderFrom.
-func (out *SiacoinOutput) DecodeFrom(d *Decoder) {
-	out.ID.DecodeFrom(d)
-	out.Value.DecodeFrom(d)
-	out.Address.DecodeFrom(d)
-	out.Timelock = d.ReadUint64()
-	out.MerkleProof = d.readMerkleProof()
-	out.LeafIndex = d.ReadUint64()
+func (sce *SiacoinElement) DecodeFrom(d *Decoder) {
+	sce.StateElement.DecodeFrom(d)
+	sce.SiacoinOutput.DecodeFrom(d)
+	sce.Timelock = d.ReadUint64()
 }
 
 // DecodeFrom implements types.DecoderFrom.
@@ -613,17 +628,14 @@ func (in *SiafundInput) DecodeFrom(d *Decoder) {
 }
 
 // DecodeFrom implements types.DecoderFrom.
-func (out *SiafundOutput) DecodeFrom(d *Decoder) {
-	out.ID.DecodeFrom(d)
-	out.Value.DecodeFrom(d)
-	out.Address.DecodeFrom(d)
-	out.ClaimStart.DecodeFrom(d)
-	out.MerkleProof = d.readMerkleProof()
-	out.LeafIndex = d.ReadUint64()
+func (sfe *SiafundElement) DecodeFrom(d *Decoder) {
+	sfe.StateElement.DecodeFrom(d)
+	sfe.SiafundOutput.DecodeFrom(d)
+	sfe.ClaimStart.DecodeFrom(d)
 }
 
 // DecodeFrom implements types.DecoderFrom.
-func (fc *FileContractState) DecodeFrom(d *Decoder) {
+func (fc *FileContract) DecodeFrom(d *Decoder) {
 	fc.Filesize = d.ReadUint64()
 	fc.FileMerkleRoot.DecodeFrom(d)
 	fc.WindowStart = d.ReadUint64()
@@ -638,17 +650,15 @@ func (fc *FileContractState) DecodeFrom(d *Decoder) {
 }
 
 // DecodeFrom implements types.DecoderFrom.
-func (fc *FileContract) DecodeFrom(d *Decoder) {
-	fc.ID.DecodeFrom(d)
-	fc.State.DecodeFrom(d)
-	fc.MerkleProof = d.readMerkleProof()
-	fc.LeafIndex = d.ReadUint64()
+func (fce *FileContractElement) DecodeFrom(d *Decoder) {
+	fce.StateElement.DecodeFrom(d)
+	fce.FileContract.DecodeFrom(d)
 }
 
 // DecodeFrom implements types.DecoderFrom.
 func (rev *FileContractRevision) DecodeFrom(d *Decoder) {
 	rev.Parent.DecodeFrom(d)
-	rev.NewState.DecodeFrom(d)
+	rev.Revision.DecodeFrom(d)
 	rev.RenterSignature.DecodeFrom(d)
 	rev.HostSignature.DecodeFrom(d)
 }
@@ -673,7 +683,7 @@ func (txn *Transaction) DecodeFrom(d *Decoder) {
 	for i := range txn.SiacoinInputs {
 		txn.SiacoinInputs[i].DecodeFrom(d)
 	}
-	txn.SiacoinOutputs = make([]Beneficiary, d.ReadPrefix())
+	txn.SiacoinOutputs = make([]SiacoinOutput, d.ReadPrefix())
 	for i := range txn.SiacoinOutputs {
 		txn.SiacoinOutputs[i].DecodeFrom(d)
 	}
@@ -681,11 +691,11 @@ func (txn *Transaction) DecodeFrom(d *Decoder) {
 	for i := range txn.SiafundInputs {
 		txn.SiafundInputs[i].DecodeFrom(d)
 	}
-	txn.SiafundOutputs = make([]Beneficiary, d.ReadPrefix())
+	txn.SiafundOutputs = make([]SiafundOutput, d.ReadPrefix())
 	for i := range txn.SiafundOutputs {
 		txn.SiafundOutputs[i].DecodeFrom(d)
 	}
-	txn.FileContracts = make([]FileContractState, d.ReadPrefix())
+	txn.FileContracts = make([]FileContract, d.ReadPrefix())
 	for i := range txn.FileContracts {
 		txn.FileContracts[i].DecodeFrom(d)
 	}
