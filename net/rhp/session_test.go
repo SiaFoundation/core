@@ -251,7 +251,9 @@ func TestFormContract(t *testing.T) {
 func TestChallenge(t *testing.T) {
 	s := Session{}
 	frand.Read(s.challenge[:])
-	pubkey, privkey, _ := ed25519.GenerateKey(nil)
+	privkey := ed25519.NewKeyFromSeed(frand.Bytes(32))
+	var pubkey types.PublicKey
+	copy(pubkey[:], privkey[32:])
 	sig := s.SignChallenge(privkey)
 	if !s.VerifyChallenge(sig, pubkey) {
 		t.Fatal("challenge was not signed/verified correctly")

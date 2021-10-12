@@ -69,14 +69,14 @@ type ChainSim struct {
 	// for simulating transactions
 	pubkey  types.PublicKey
 	privkey ed25519.PrivateKey
-	outputs []types.SiacoinOutput
+	outputs []types.SiacoinElement
 }
 
 // Fork forks the current chain.
 func (cs *ChainSim) Fork() *ChainSim {
 	cs2 := *cs
 	cs2.Chain = append([]types.Block(nil), cs2.Chain...)
-	cs2.outputs = append([]types.SiacoinOutput(nil), cs2.outputs...)
+	cs2.outputs = append([]types.SiacoinElement(nil), cs2.outputs...)
 	cs.nonce += 1 << 48
 	return &cs2
 }
@@ -106,9 +106,9 @@ func (cs *ChainSim) MineBlockWithTxns(txns ...types.Transaction) types.Block {
 
 	// update our outputs
 	for i := range cs.outputs {
-		sau.UpdateSiacoinOutputProof(&cs.outputs[i])
+		sau.UpdateElementProof(&cs.outputs[i].StateElement)
 	}
-	for _, out := range sau.NewSiacoinOutputs {
+	for _, out := range sau.NewSiacoinElements {
 		if out.Address == types.StandardAddress(cs.pubkey) {
 			cs.outputs = append(cs.outputs, out)
 		}
@@ -117,16 +117,17 @@ func (cs *ChainSim) MineBlockWithTxns(txns ...types.Transaction) types.Block {
 	return b
 }
 
-// MineBlockWithBeneficiaries mine a block with a transaction sending siacoin
-// to each beneficiary. Requires enough funds to cover the siacoin outputs.
-func (cs *ChainSim) MineBlockWithBeneficiaries(bs ...types.Beneficiary) types.Block {
+// MineBlockWithSiacoinOutputs mines a block with a transaction containing the
+// specified siacoin outputs. The ChainSim must have funds equal to or exceeding
+// the sum of the outputs.
+func (cs *ChainSim) MineBlockWithSiacoinOutputs(scos ...types.SiacoinOutput) types.Block {
 	txn := types.Transaction{
-		SiacoinOutputs: bs,
+		SiacoinOutputs: scos,
 		MinerFee:       types.NewCurrency64(cs.Context.Index.Height),
 	}
 
 	totalOut := txn.MinerFee
-	for _, b := range bs {
+	for _, b := range scos {
 		totalOut = totalOut.Add(b.Value)
 	}
 
@@ -148,7 +149,7 @@ func (cs *ChainSim) MineBlockWithBeneficiaries(bs ...types.Beneficiary) types.Bl
 		panic("insufficient funds")
 	} else if totalIn.Cmp(totalOut) > 0 {
 		// add change output
-		txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.Beneficiary{
+		txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
 			Address: types.StandardAddress(cs.pubkey),
 			Value:   totalIn.Sub(totalOut),
 		})
@@ -172,7 +173,7 @@ func (cs *ChainSim) MineBlock() types.Block {
 				Parent:      out,
 				SpendPolicy: types.PolicyPublicKey(cs.pubkey),
 			}},
-			SiacoinOutputs: []types.Beneficiary{
+			SiacoinOutputs: []types.SiacoinOutput{
 				{Address: types.StandardAddress(cs.pubkey), Value: out.Value.Sub(types.NewCurrency64(cs.Context.Index.Height + 1))},
 				{Address: types.Address{byte(cs.nonce >> 48), byte(cs.nonce >> 56), 1, 2, 3}, Value: types.NewCurrency64(1)},
 			},
@@ -205,9 +206,9 @@ func NewChainSim() *ChainSim {
 	var pubkey types.PublicKey
 	copy(pubkey[:], privkey[32:])
 	ourAddr := types.StandardAddress(pubkey)
-	gift := make([]types.Beneficiary, 10)
+	gift := make([]types.SiacoinOutput, 10)
 	for i := range gift {
-		gift[i] = types.Beneficiary{
+		gift[i] = types.SiacoinOutput{
 			Address: ourAddr,
 			Value:   types.Siacoins(10 * uint32(i+1)),
 		}
@@ -220,8 +221,8 @@ func NewChainSim() *ChainSim {
 		Transactions: genesisTxns,
 	}
 	sau := consensus.GenesisUpdate(genesis, types.Work{NumHashes: [32]byte{31: 4}})
-	var outputs []types.SiacoinOutput
-	for _, out := range sau.NewSiacoinOutputs {
+	var outputs []types.SiacoinElement
+	for _, out := range sau.NewSiacoinElements {
 		if out.Address == types.StandardAddress(pubkey) {
 			outputs = append(outputs, out)
 		}

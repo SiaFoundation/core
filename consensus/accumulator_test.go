@@ -46,11 +46,11 @@ func TestBlockRewardValue(t *testing.T) {
 }
 
 func TestAccumulator(t *testing.T) {
-	containsOutput := func(sa StateAccumulator, o types.SiacoinOutput, flags uint64) bool {
-		return sa.containsObject(siacoinOutputStateObject(o, flags))
+	containsOutput := func(sa StateAccumulator, sce types.SiacoinElement, flags uint64) bool {
+		return sa.containsObject(siacoinElementStateObject(sce, flags))
 	}
 
-	b := genesisWithBeneficiaries([]types.Beneficiary{
+	b := genesisWithSiacoinOutputs([]types.SiacoinOutput{
 		{Value: randAmount(), Address: randAddr()},
 		{Value: randAmount(), Address: randAddr()},
 		{Value: randAmount(), Address: randAddr()},
@@ -66,13 +66,13 @@ func TestAccumulator(t *testing.T) {
 		{Value: randAmount(), Address: randAddr()},
 	}...)
 	update1 := GenesisUpdate(b, testingDifficulty)
-	origOutputs := update1.NewSiacoinOutputs
+	origOutputs := update1.NewSiacoinElements
 	if len(origOutputs) != len(b.Transactions[0].SiacoinOutputs)+1 {
 		t.Fatalf("expected %v new outputs, got %v", len(b.Transactions[0].SiacoinOutputs)+1, len(origOutputs))
 	}
 	// none of the outputs should be marked as spent
 	for _, o := range origOutputs {
-		if update1.SiacoinOutputWasSpent(o) {
+		if update1.SiacoinElementWasSpent(o) {
 			t.Error("update should not mark output as spent:", o)
 		}
 		if containsOutput(update1.Context.State, o, flagSpent) || !containsOutput(update1.Context.State, o, 0) {
@@ -88,7 +88,7 @@ func TestAccumulator(t *testing.T) {
 			{Parent: origOutputs[8], SpendPolicy: types.AnyoneCanSpend()},
 			{Parent: origOutputs[9], SpendPolicy: types.AnyoneCanSpend()},
 		},
-		SiacoinOutputs: []types.Beneficiary{{
+		SiacoinOutputs: []types.SiacoinOutput{{
 			Value:   randAmount(),
 			Address: randAddr(),
 		}},
@@ -105,18 +105,18 @@ func TestAccumulator(t *testing.T) {
 
 	update2 := ApplyBlock(update1.Context, b)
 	for i := range origOutputs {
-		update2.UpdateSiacoinOutputProof(&origOutputs[i])
+		update2.UpdateElementProof(&origOutputs[i].StateElement)
 	}
 
 	// the update should mark each input as spent
 	for _, in := range txn.SiacoinInputs {
-		if !update2.SiacoinOutputWasSpent(in.Parent) {
+		if !update2.SiacoinElementWasSpent(in.Parent) {
 			t.Error("update should mark input as spent:", in)
 		}
 	}
 	// the new accumulator should contain both the spent and unspent outputs
 	for _, o := range origOutputs {
-		if update2.SiacoinOutputWasSpent(o) {
+		if update2.SiacoinElementWasSpent(o) {
 			if containsOutput(update2.Context.State, o, 0) || !containsOutput(update2.Context.State, o, flagSpent) {
 				t.Error("accumulator should contain spent output:", o)
 			}
@@ -130,23 +130,23 @@ func TestAccumulator(t *testing.T) {
 	// if we reverted that block, we should see the inputs being "created" again
 	// and the outputs being destroyed
 	revertUpdate := RevertBlock(update1.Context, b)
-	if len(revertUpdate.SpentSiacoinOutputs) != len(txn.SiacoinInputs) {
+	if len(revertUpdate.SpentSiacoinElements) != len(txn.SiacoinInputs) {
 		t.Error("number of spent outputs after revert should equal number of inputs")
 	}
-	for _, o := range update2.NewSiacoinOutputs {
-		if !revertUpdate.SiacoinOutputWasRemoved(o) {
+	for _, o := range update2.NewSiacoinElements {
+		if !revertUpdate.SiacoinElementWasRemoved(o) {
 			t.Error("output created in reverted block should be marked as removed")
 		}
 	}
 	// update (a copy of) the proofs to reflect the revert
-	outputsWithRevert := append([]types.SiacoinOutput(nil), origOutputs...)
+	outputsWithRevert := append([]types.SiacoinElement(nil), origOutputs...)
 	for i := range outputsWithRevert {
 		outputsWithRevert[i].MerkleProof = append([]types.Hash256(nil), outputsWithRevert[i].MerkleProof...)
-		revertUpdate.UpdateSiacoinOutputProof(&outputsWithRevert[i])
+		revertUpdate.UpdateElementProof(&outputsWithRevert[i].StateElement)
 	}
 	// the reverted proofs should be identical to the proofs prior to b
 	for _, o := range outputsWithRevert {
-		if update1.SiacoinOutputWasSpent(o) {
+		if update1.SiacoinElementWasSpent(o) {
 			t.Error("update should not mark output as spent:", o)
 		}
 		if containsOutput(update1.Context.State, o, flagSpent) {
@@ -160,25 +160,29 @@ func TestAccumulator(t *testing.T) {
 		SiacoinInputs: []types.SiacoinInput{
 			{Parent: origOutputs[2], SpendPolicy: types.AnyoneCanSpend()},
 		},
-		SiacoinOutputs: []types.Beneficiary{{
+		SiacoinOutputs: []types.SiacoinOutput{{
 			Value:   randAmount(),
 			Address: randAddr(),
 		}},
 	}
 	childTxn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
-			Parent: types.SiacoinOutput{
-				ID: types.OutputID{
-					TransactionID: parentTxn.ID(),
-					Index:         0,
+			Parent: types.SiacoinElement{
+				StateElement: types.StateElement{
+					ID: types.ElementID{
+						Source: types.Hash256(parentTxn.ID()),
+						Index:  0,
+					},
+					LeafIndex: types.EphemeralLeafIndex,
 				},
-				Value:     randAmount(),
-				Address:   randAddr(),
-				LeafIndex: types.EphemeralLeafIndex,
+				SiacoinOutput: types.SiacoinOutput{
+					Value:   randAmount(),
+					Address: randAddr(),
+				},
 			},
 			SpendPolicy: types.AnyoneCanSpend(),
 		}},
-		SiacoinOutputs: []types.Beneficiary{{
+		SiacoinOutputs: []types.SiacoinOutput{{
 			Value:   randAmount(),
 			Address: randAddr(),
 		}},
@@ -196,18 +200,18 @@ func TestAccumulator(t *testing.T) {
 
 	update3 := ApplyBlock(update2.Context, b)
 	for i := range origOutputs {
-		update3.UpdateSiacoinOutputProof(&origOutputs[i])
+		update3.UpdateElementProof(&origOutputs[i].StateElement)
 	}
 
 	// the update should mark each input as spent
 	for _, in := range parentTxn.SiacoinInputs {
-		if !update3.SiacoinOutputWasSpent(in.Parent) {
+		if !update3.SiacoinElementWasSpent(in.Parent) {
 			t.Error("update should mark input as spent:", in)
 		}
 	}
 	// the new accumulator should contain both the spent and unspent outputs
 	for _, o := range origOutputs {
-		if update2.SiacoinOutputWasSpent(o) || update3.SiacoinOutputWasSpent(o) {
+		if update2.SiacoinElementWasSpent(o) || update3.SiacoinElementWasSpent(o) {
 			if containsOutput(update3.Context.State, o, 0) || !containsOutput(update3.Context.State, o, flagSpent) {
 				t.Error("accumulator should contain spent output:", o)
 			}
@@ -223,10 +227,10 @@ func TestAccumulator(t *testing.T) {
 }
 
 func TestAccumulatorRevert(t *testing.T) {
-	containsOutput := func(sa StateAccumulator, o types.SiacoinOutput, flags uint64) bool {
-		return sa.containsObject(siacoinOutputStateObject(o, flags))
+	containsOutput := func(sa StateAccumulator, o types.SiacoinElement, flags uint64) bool {
+		return sa.containsObject(siacoinElementStateObject(o, flags))
 	}
-	b := genesisWithBeneficiaries([]types.Beneficiary{
+	b := genesisWithSiacoinOutputs([]types.SiacoinOutput{
 		{Value: randAmount(), Address: randAddr()},
 		{Value: randAmount(), Address: randAddr()},
 		{Value: randAmount(), Address: randAddr()},
@@ -234,7 +238,7 @@ func TestAccumulatorRevert(t *testing.T) {
 		{Value: randAmount(), Address: randAddr()},
 	}...)
 	update1 := GenesisUpdate(b, testingDifficulty)
-	origOutputs := update1.NewSiacoinOutputs
+	origOutputs := update1.NewSiacoinElements
 	if len(origOutputs) != len(b.Transactions[0].SiacoinOutputs)+1 {
 		t.Fatalf("expected %v new outputs, got %v", len(b.Transactions[0].SiacoinOutputs)+1, len(origOutputs))
 	}
@@ -243,7 +247,7 @@ func TestAccumulatorRevert(t *testing.T) {
 		SiacoinInputs: []types.SiacoinInput{
 			{Parent: origOutputs[5], SpendPolicy: types.AnyoneCanSpend()},
 		},
-		SiacoinOutputs: []types.Beneficiary{{
+		SiacoinOutputs: []types.SiacoinOutput{{
 			Value:   randAmount(),
 			Address: randAddr(),
 		}},
@@ -260,27 +264,27 @@ func TestAccumulatorRevert(t *testing.T) {
 
 	update2 := ApplyBlock(update1.Context, b)
 	for i := range origOutputs {
-		update2.UpdateSiacoinOutputProof(&origOutputs[i])
+		update2.UpdateElementProof(&origOutputs[i].StateElement)
 	}
 
 	// revert the block. We should see the inputs being "created" again
 	// and the outputs being destroyed
 	revertUpdate := RevertBlock(update1.Context, b)
-	if len(revertUpdate.SpentSiacoinOutputs) != len(txn.SiacoinInputs) {
+	if len(revertUpdate.SpentSiacoinElements) != len(txn.SiacoinInputs) {
 		t.Error("number of spent outputs after revert should equal number of inputs")
 	}
-	for _, o := range update2.NewSiacoinOutputs {
-		if !revertUpdate.SiacoinOutputWasRemoved(o) {
+	for _, o := range update2.NewSiacoinElements {
+		if !revertUpdate.SiacoinElementWasRemoved(o) {
 			t.Error("output created in reverted block should be marked as removed")
 		}
 	}
 	// update the proofs to reflect the revert
 	for i := range origOutputs {
-		revertUpdate.UpdateSiacoinOutputProof(&origOutputs[i])
+		revertUpdate.UpdateElementProof(&origOutputs[i].StateElement)
 	}
 	// the reverted proofs should be identical to the proofs prior to b
 	for _, o := range origOutputs {
-		if update1.SiacoinOutputWasSpent(o) {
+		if update1.SiacoinElementWasSpent(o) {
 			t.Error("update should not mark output as spent:", o)
 		}
 		if !containsOutput(update1.Context.State, o, 0) {
@@ -290,32 +294,31 @@ func TestAccumulatorRevert(t *testing.T) {
 }
 
 func TestUpdateExistingObjects(t *testing.T) {
-	outputs := make([]types.SiacoinOutput, 8)
+	outputs := make([]types.SiacoinElement, 8)
 	objects := make([]stateObject, len(outputs))
 	for i := range outputs {
-		objects[i] = siacoinOutputStateObject(outputs[i], 0)
+		objects[i] = siacoinElementStateObject(outputs[i], 0)
 	}
 	var acc StateAccumulator
 	acc.addNewObjects(objects)
 	for i := range outputs {
-		outputs[i].LeafIndex = objects[i].leafIndex
-		outputs[i].MerkleProof = objects[i].proof
+		outputs[i].StateElement = objects[i].StateElement
 	}
 
 	updated := []stateObject{
-		siacoinOutputStateObject(outputs[0], flagSpent),
-		siacoinOutputStateObject(outputs[2], flagSpent),
-		siacoinOutputStateObject(outputs[3], flagSpent),
-		siacoinOutputStateObject(outputs[5], flagSpent),
-		siacoinOutputStateObject(outputs[6], flagSpent),
+		siacoinElementStateObject(outputs[0], flagSpent),
+		siacoinElementStateObject(outputs[2], flagSpent),
+		siacoinElementStateObject(outputs[3], flagSpent),
+		siacoinElementStateObject(outputs[5], flagSpent),
+		siacoinElementStateObject(outputs[6], flagSpent),
 	}
 
 	acc.updateExistingObjects(updated)
 
 	var acc2 StateAccumulator
-	addOutput := func(o types.SiacoinOutput, flags uint64) {
+	addOutput := func(o types.SiacoinElement, flags uint64) {
 		// seek to first open slot, merging nodes as we go
-		root := siacoinOutputStateObject(o, flags).leafHash()
+		root := siacoinElementStateObject(o, flags).leafHash()
 		i := 0
 		for ; acc2.HasTreeAtHeight(i); i++ {
 			root = merkleNodeHash(acc2.Trees[i], root)
@@ -344,12 +347,12 @@ func TestUpdateExistingObjects(t *testing.T) {
 }
 
 func TestMultiproof(t *testing.T) {
-	outputs := make([]types.SiacoinOutput, 8)
+	outputs := make([]types.SiacoinElement, 8)
 	leaves := make([]types.Hash256, len(outputs))
 	for i := range outputs {
 		outputs[i].LeafIndex = uint64(i)
 		outputs[i].ID.Index = uint64(i)
-		leaves[i] = siacoinOutputStateObject(outputs[i], 0).leafHash()
+		leaves[i] = siacoinElementStateObject(outputs[i], 0).leafHash()
 	}
 	node01 := merkleNodeHash(leaves[0], leaves[1])
 	node23 := merkleNodeHash(leaves[2], leaves[3])
@@ -413,9 +416,9 @@ func TestMultiproof(t *testing.T) {
 }
 
 func BenchmarkOutputLeafHash(b *testing.B) {
-	var o types.SiacoinOutput
+	var o types.SiacoinElement
 	for i := 0; i < b.N; i++ {
-		siacoinOutputStateObject(o, 0).leafHash()
+		siacoinElementStateObject(o, 0).leafHash()
 	}
 }
 
@@ -423,12 +426,14 @@ func BenchmarkApplyBlock(b *testing.B) {
 	block := types.Block{
 		Transactions: []types.Transaction{{
 			SiacoinInputs: []types.SiacoinInput{{
-				Parent: types.SiacoinOutput{
-					LeafIndex: types.EphemeralLeafIndex,
+				Parent: types.SiacoinElement{
+					StateElement: types.StateElement{
+						LeafIndex: types.EphemeralLeafIndex,
+					},
 				},
 				SpendPolicy: types.AnyoneCanSpend(),
 			}},
-			SiacoinOutputs: make([]types.Beneficiary, 1000),
+			SiacoinOutputs: make([]types.SiacoinOutput, 1000),
 		}},
 	}
 	for i := 0; i < b.N; i++ {
@@ -437,16 +442,15 @@ func BenchmarkApplyBlock(b *testing.B) {
 }
 
 func BenchmarkUpdateExistingObjects(b *testing.B) {
-	outputs := make([]types.SiacoinOutput, 1000)
+	outputs := make([]types.SiacoinElement, 1000)
 	objects := make([]stateObject, len(outputs))
 	for i := range outputs {
-		objects[i] = siacoinOutputStateObject(outputs[i], 0)
+		objects[i] = siacoinElementStateObject(outputs[i], 0)
 	}
 	var acc StateAccumulator
 	acc.addNewObjects(objects)
 	for i := range outputs {
-		outputs[i].LeafIndex = objects[i].leafIndex
-		outputs[i].MerkleProof = objects[i].proof
+		outputs[i].StateElement = objects[i].StateElement
 	}
 
 	proofs := make([][]types.Hash256, len(outputs))
@@ -456,7 +460,7 @@ func BenchmarkUpdateExistingObjects(b *testing.B) {
 	indices := frand.Perm(len(outputs))[:len(outputs)/2]
 	updated := make([]stateObject, len(indices))
 	for i, j := range indices {
-		updated[i] = siacoinOutputStateObject(outputs[j], flagSpent)
+		updated[i] = siacoinElementStateObject(outputs[j], flagSpent)
 	}
 
 	b.ResetTimer()
@@ -466,7 +470,7 @@ func BenchmarkUpdateExistingObjects(b *testing.B) {
 		b.StopTimer()
 		acc2 := acc
 		for i, j := range indices {
-			copy(updated[i].proof, proofs[j])
+			copy(updated[i].MerkleProof, proofs[j])
 		}
 		b.StartTimer()
 

@@ -70,9 +70,9 @@ func BenchmarkWork(b *testing.B) {
 func BenchmarkTransactionID(b *testing.B) {
 	txn := Transaction{
 		SiacoinInputs:  make([]SiacoinInput, 10),
-		SiacoinOutputs: make([]Beneficiary, 10),
+		SiacoinOutputs: make([]SiacoinOutput, 10),
 		SiafundInputs:  make([]SiafundInput, 10),
-		SiafundOutputs: make([]Beneficiary, 10),
+		SiafundOutputs: make([]SiafundOutput, 10),
 	}
 	for i := range txn.SiacoinInputs {
 		txn.SiacoinInputs[i].SpendPolicy = AnyoneCanSpend()

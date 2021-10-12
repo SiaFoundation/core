@@ -12,9 +12,9 @@ func TestSiafunds(t *testing.T) {
 	pubkey, privkey := testingKeypair(0)
 	b := types.Block{
 		Header: types.BlockHeader{Timestamp: time.Unix(734600000, 0)},
-		Transactions: []types.Transaction{{SiafundOutputs: []types.Beneficiary{{
+		Transactions: []types.Transaction{{SiafundOutputs: []types.SiafundOutput{{
 			Address: types.StandardAddress(pubkey),
-			Value:   types.NewCurrency64(100),
+			Value:   100,
 		}}}},
 	}
 	sau := GenesisUpdate(b, testingDifficulty)
@@ -23,13 +23,13 @@ func TestSiafunds(t *testing.T) {
 	claimPubkey, claimPrivkey := testingKeypair(1)
 	txn := types.Transaction{
 		SiafundInputs: []types.SiafundInput{{
-			Parent:       sau.NewSiafundOutputs[0],
+			Parent:       sau.NewSiafundElements[0],
 			SpendPolicy:  types.PolicyPublicKey(pubkey),
 			ClaimAddress: types.StandardAddress(claimPubkey),
 		}},
-		SiafundOutputs: []types.Beneficiary{{
+		SiafundOutputs: []types.SiafundOutput{{
 			Address: types.StandardAddress(claimPubkey),
-			Value:   types.NewCurrency64(100),
+			Value:   100,
 		}},
 	}
 	signAllInputs(&txn, sau.Context, privkey)
@@ -40,19 +40,19 @@ func TestSiafunds(t *testing.T) {
 	sau = ApplyBlock(sau.Context, b)
 
 	// should have created a siafund output, a block reward, and a claim output
-	if len(sau.NewSiafundOutputs) != 1 || sau.NewSiafundOutputs[0].Value != types.NewCurrency64(100) {
+	if len(sau.NewSiafundElements) != 1 || sau.NewSiafundElements[0].Value != 100 {
 		t.Fatal("expected one new siafund output")
-	} else if len(sau.NewSiacoinOutputs) != 2 {
+	} else if len(sau.NewSiacoinElements) != 2 {
 		t.Fatal("expected one block reward and one claim output")
 	}
 
 	// attempt to spend the claim output; it should be timelocked
 	txn = types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
-			Parent:      sau.NewSiacoinOutputs[1],
+			Parent:      sau.NewSiacoinElements[1],
 			SpendPolicy: types.PolicyPublicKey(claimPubkey),
 		}},
-		MinerFee: sau.NewSiacoinOutputs[1].Value,
+		MinerFee: sau.NewSiacoinElements[1].Value,
 	}
 	signAllInputs(&txn, sau.Context, claimPrivkey)
 	b = mineBlock(sau.Context, b, txn)
@@ -61,7 +61,7 @@ func TestSiafunds(t *testing.T) {
 	}
 
 	// skip to timelock height and try again
-	sau.Context.Index.Height = sau.NewSiacoinOutputs[1].Timelock + 1
+	sau.Context.Index.Height = sau.NewSiacoinElements[1].Timelock + 1
 	sau.Context.Index.ID = b.ID()
 	for i := range sau.Context.PrevTimestamps {
 		sau.Context.PrevTimestamps[i] = b.Header.Timestamp
@@ -77,7 +77,7 @@ func TestSiafunds(t *testing.T) {
 func TestFoundationSubsidy(t *testing.T) {
 	// mine genesis block with initial Foundation address
 	pubkey, privkey := testingKeypair(0)
-	b := genesisWithBeneficiaries(types.Beneficiary{
+	b := genesisWithSiacoinOutputs(types.SiacoinOutput{
 		Address: types.StandardAddress(pubkey),
 		Value:   types.NewCurrency64(100),
 	})
@@ -86,7 +86,7 @@ func TestFoundationSubsidy(t *testing.T) {
 	if sau.Context.FoundationAddress != types.StandardAddress(pubkey) {
 		t.Fatal("Foundation address not updated")
 	}
-	initialOutput := sau.NewSiacoinOutputs[1]
+	initialOutput := sau.NewSiacoinElements[1]
 
 	// skip to Foundation hardfork height; we should receive the initial subsidy
 	b.Header.Height = foundationHardforkHeight - 1
@@ -99,13 +99,13 @@ func TestFoundationSubsidy(t *testing.T) {
 		t.Fatal(err)
 	}
 	sau = ApplyBlock(sau.Context, b)
-	sau.UpdateSiacoinOutputProof(&initialOutput)
-	subsidyID := types.OutputID{
-		TransactionID: types.TransactionID(b.ID()),
-		Index:         1,
+	sau.UpdateElementProof(&initialOutput.StateElement)
+	subsidyID := types.ElementID{
+		Source: types.Hash256(b.ID()),
+		Index:  1,
 	}
-	var subsidyOutput types.SiacoinOutput
-	for _, o := range sau.NewSiacoinOutputs {
+	var subsidyOutput types.SiacoinElement
+	for _, o := range sau.NewSiacoinElements {
 		if o.ID == subsidyID {
 			subsidyOutput = o
 			break
@@ -131,7 +131,7 @@ func TestFoundationSubsidy(t *testing.T) {
 		t.Fatal(err)
 	}
 	sau = ApplyBlock(sau.Context, b)
-	sau.UpdateSiacoinOutputProof(&subsidyOutput)
+	sau.UpdateElementProof(&subsidyOutput.StateElement)
 	if sau.Context.FoundationAddress != newAddress {
 		t.Fatal("Foundation address not updated")
 	}
@@ -159,11 +159,11 @@ func TestFoundationSubsidy(t *testing.T) {
 		t.Fatal(err)
 	}
 	sau = ApplyBlock(sau.Context, b)
-	subsidyID = types.OutputID{
-		TransactionID: types.TransactionID(b.ID()),
-		Index:         1,
+	subsidyID = types.ElementID{
+		Source: types.Hash256(b.ID()),
+		Index:  1,
 	}
-	for _, o := range sau.NewSiacoinOutputs {
+	for _, o := range sau.NewSiacoinElements {
 		if o.ID == subsidyID {
 			subsidyOutput = o
 			break
@@ -182,7 +182,7 @@ func TestFoundationSubsidy(t *testing.T) {
 func TestUpdateWindowProof(t *testing.T) {
 	for before := 0; before < 10; before++ {
 		for after := 0; after < 10; after++ {
-			b := genesisWithBeneficiaries()
+			b := genesisWithSiacoinOutputs()
 			sau := GenesisUpdate(b, testingDifficulty)
 			for i := 0; i < before; i++ {
 				b = mineBlock(sau.Context, b)
@@ -207,34 +207,34 @@ func TestUpdateWindowProof(t *testing.T) {
 func TestFileContracts(t *testing.T) {
 	renterPubkey, renterPrivkey := testingKeypair(0)
 	hostPubkey, hostPrivkey := testingKeypair(1)
-	b := genesisWithBeneficiaries(types.Beneficiary{
+	b := genesisWithSiacoinOutputs(types.SiacoinOutput{
 		Address: types.StandardAddress(renterPubkey),
 		Value:   types.Siacoins(100),
-	}, types.Beneficiary{
+	}, types.SiacoinOutput{
 		Address: types.StandardAddress(hostPubkey),
 		Value:   types.Siacoins(7),
 	})
 	sau := GenesisUpdate(b, testingDifficulty)
-	renterOutput := sau.NewSiacoinOutputs[1]
-	hostOutput := sau.NewSiacoinOutputs[2]
+	renterOutput := sau.NewSiacoinElements[1]
+	hostOutput := sau.NewSiacoinElements[2]
 
 	// form initial contract
-	initialRev := types.FileContractState{
+	initialRev := types.FileContract{
 		WindowStart: 5,
 		WindowEnd:   10,
-		ValidRenterOutput: types.Beneficiary{
+		ValidRenterOutput: types.SiacoinOutput{
 			Address: types.StandardAddress(renterPubkey),
 			Value:   types.Siacoins(58),
 		},
-		ValidHostOutput: types.Beneficiary{
+		ValidHostOutput: types.SiacoinOutput{
 			Address: types.StandardAddress(renterPubkey),
 			Value:   types.Siacoins(19),
 		},
-		MissedRenterOutput: types.Beneficiary{
+		MissedRenterOutput: types.SiacoinOutput{
 			Address: types.StandardAddress(renterPubkey),
 			Value:   types.Siacoins(58),
 		},
-		MissedHostOutput: types.Beneficiary{
+		MissedHostOutput: types.SiacoinOutput{
 			Address: types.StandardAddress(renterPubkey),
 			Value:   types.Siacoins(19),
 		},
@@ -247,7 +247,7 @@ func TestFileContracts(t *testing.T) {
 			{Parent: renterOutput, SpendPolicy: types.PolicyPublicKey(renterPubkey)},
 			{Parent: hostOutput, SpendPolicy: types.PolicyPublicKey(hostPubkey)},
 		},
-		FileContracts: []types.FileContractState{initialRev},
+		FileContracts: []types.FileContract{initialRev},
 		MinerFee:      renterOutput.Value.Add(hostOutput.Value).Sub(outputSum),
 	}
 	sigHash := sau.Context.SigHash(txn)
@@ -264,7 +264,7 @@ func TestFileContracts(t *testing.T) {
 		t.Fatal("expected one new file contract")
 	}
 	fc := sau.NewFileContracts[0]
-	if !sau.Context.State.ContainsUnresolvedFileContract(fc) {
+	if !sau.Context.State.ContainsUnresolvedFileContractElement(fc) {
 		t.Fatal("accumulator should contain unresolved contract")
 	}
 	if sau.Context.SiafundPool != sau.Context.FileContractTax(initialRev) {
@@ -282,14 +282,14 @@ func TestFileContracts(t *testing.T) {
 	data := frand.Bytes(64 * 2)
 	finalRev := types.FileContractRevision{
 		Parent:   fc,
-		NewState: fc.State,
+		Revision: fc.FileContract,
 	}
-	finalRev.NewState.FileMerkleRoot = merkleNodeHash(
+	finalRev.Revision.FileMerkleRoot = merkleNodeHash(
 		segmentLeafHash(data[:64]),
 		segmentLeafHash(data[64:]),
 	)
-	finalRev.NewState.RevisionNumber++
-	contractHash := sau.Context.ContractSigHash(finalRev.NewState)
+	finalRev.Revision.RevisionNumber++
+	contractHash := sau.Context.ContractSigHash(finalRev.Revision)
 	finalRev.RenterSignature = types.SignHash(renterPrivkey, contractHash)
 	finalRev.HostSignature = types.SignHash(hostPrivkey, contractHash)
 	txn = types.Transaction{
@@ -305,22 +305,22 @@ func TestFileContracts(t *testing.T) {
 		t.Fatal("expected one revised file contract")
 	}
 	fc = sau.RevisedFileContracts[0]
-	sau.UpdateFileContractProof(&fc)
+	sau.UpdateElementProof(&fc.StateElement)
 
 	// mine until we enter the proof window
 	//
 	// NOTE: unlike other tests, we can't "cheat" here by fast-forwarding,
 	// because we need to maintain a history proof
-	for sau.Context.Index.Height < fc.State.WindowStart {
+	for sau.Context.Index.Height < fc.WindowStart {
 		b = mineBlock(sau.Context, b)
 		sau = ApplyBlock(sau.Context, b)
-		sau.UpdateFileContractProof(&fc)
+		sau.UpdateElementProof(&fc.StateElement)
 	}
 	sp := types.StorageProof{
 		WindowStart: sau.Context.Index,
 		WindowProof: sau.HistoryProof(),
 	}
-	proofIndex := sau.Context.StorageProofSegmentIndex(fc.State.Filesize, sp.WindowStart, fc.ID)
+	proofIndex := sau.Context.StorageProofSegmentIndex(fc.Filesize, sp.WindowStart, fc.ID)
 	copy(sp.DataSegment[:], data[64*proofIndex:])
 	if proofIndex == 0 {
 		sp.SegmentProof = append(sp.SegmentProof, segmentLeafHash(data[64:]))
@@ -341,15 +341,15 @@ func TestFileContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 	validSAU := ApplyBlock(sau.Context, validBlock)
-	if len(validSAU.NewSiacoinOutputs) != 3 {
+	if len(validSAU.NewSiacoinElements) != 3 {
 		t.Fatal("expected three new siacoin outputs")
 	}
 
 	// revert the block and instead mine past the proof window
-	for sau.Context.Index.Height <= fc.State.WindowEnd {
+	for sau.Context.Index.Height <= fc.WindowEnd {
 		b = mineBlock(sau.Context, b)
 		sau = ApplyBlock(sau.Context, b)
-		sau.UpdateFileContractProof(&txn.FileContractResolutions[0].Parent)
+		sau.UpdateElementProof(&txn.FileContractResolutions[0].Parent.StateElement)
 		sau.UpdateWindowProof(&txn.FileContractResolutions[0].StorageProof)
 	}
 	// storage proof resolution should now be rejected
@@ -364,7 +364,7 @@ func TestFileContracts(t *testing.T) {
 	}
 	sau = ApplyBlock(sau.Context, b)
 
-	if len(sau.NewSiacoinOutputs) != 3 {
+	if len(sau.NewSiacoinElements) != 3 {
 		t.Fatal("expected three new siacoin outputs")
 	}
 }

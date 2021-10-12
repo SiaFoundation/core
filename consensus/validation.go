@@ -2,7 +2,6 @@
 package consensus
 
 import (
-	"crypto/ed25519"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -124,7 +123,7 @@ func (vc *ValidationContext) BlockWeight(txns []types.Transaction) uint64 {
 }
 
 // FileContractTax computes the tax levied on a given contract.
-func (vc *ValidationContext) FileContractTax(fc types.FileContractState) types.Currency {
+func (vc *ValidationContext) FileContractTax(fc types.FileContract) types.Currency {
 	sum := fc.ValidRenterOutput.Value.Add(fc.ValidHostOutput.Value)
 	tax := sum.Div64(25) // 4%
 	// round down to SiafundCount
@@ -135,7 +134,7 @@ func (vc *ValidationContext) FileContractTax(fc types.FileContractState) types.C
 
 // StorageProofSegmentIndex returns the segment index used when computing or
 // validating a storage proof.
-func (vc *ValidationContext) StorageProofSegmentIndex(filesize uint64, windowStart types.ChainIndex, fcid types.OutputID) uint64 {
+func (vc *ValidationContext) StorageProofSegmentIndex(filesize uint64, windowStart types.ChainIndex, fcid types.ElementID) uint64 {
 	const segmentSize = uint64(len(types.StorageProof{}.DataSegment))
 	if filesize <= segmentSize {
 		return 0
@@ -171,6 +170,7 @@ func (vc *ValidationContext) Commitment(minerAddr types.Address, txns []types.Tr
 
 	// hash the transactions
 	h.Reset()
+	h.E.WritePrefix(len(txns))
 	for _, txn := range txns {
 		txn.ID().EncodeTo(h.E)
 	}
@@ -206,7 +206,7 @@ func (vc *ValidationContext) SigHash(txn types.Transaction) types.Hash256 {
 	}
 	for _, fcr := range txn.FileContractRevisions {
 		fcr.Parent.ID.EncodeTo(h.E)
-		fcr.NewState.EncodeTo(h.E)
+		fcr.Revision.EncodeTo(h.E)
 	}
 	for _, fcr := range txn.FileContractResolutions {
 		fcr.Parent.ID.EncodeTo(h.E)
@@ -219,7 +219,7 @@ func (vc *ValidationContext) SigHash(txn types.Transaction) types.Hash256 {
 }
 
 // ContractSigHash returns the hash that must be signed for a file contract revision.
-func (vc *ValidationContext) ContractSigHash(fc types.FileContractState) types.Hash256 {
+func (vc *ValidationContext) ContractSigHash(fc types.FileContract) types.Hash256 {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
@@ -269,7 +269,7 @@ func (vc *ValidationContext) containsZeroValuedOutputs(txn types.Transaction) er
 		}
 	}
 	for i, out := range txn.SiafundOutputs {
-		if out.Value.IsZero() {
+		if out.Value == 0 {
 			return fmt.Errorf("siafund output %v has zero value", i)
 		}
 	}
@@ -301,32 +301,32 @@ func (vc *ValidationContext) validFileContracts(txn types.Transaction) error {
 
 func (vc *ValidationContext) validFileContractRevisions(txn types.Transaction) error {
 	for i, fcr := range txn.FileContractRevisions {
-		oldState, newState := fcr.Parent.State, fcr.NewState
-		if vc.Index.Height > oldState.WindowStart {
-			return fmt.Errorf("file contract revision %v cannot be applied to contract whose proof window (%v - %v) has already begun", i, oldState.WindowStart, oldState.WindowEnd)
+		cur, rev := fcr.Parent.FileContract, fcr.Revision
+		if vc.Index.Height > cur.WindowStart {
+			return fmt.Errorf("file contract revision %v cannot be applied to contract whose proof window (%v - %v) has already begun", i, cur.WindowStart, cur.WindowEnd)
 		}
-		oldValidSum := oldState.ValidRenterOutput.Value.Add(oldState.ValidHostOutput.Value)
-		newValidSum := newState.ValidRenterOutput.Value.Add(newState.ValidHostOutput.Value)
-		newMissedSum := newState.MissedRenterOutput.Value.Add(newState.MissedHostOutput.Value)
+		curValidSum := cur.ValidRenterOutput.Value.Add(cur.ValidHostOutput.Value)
+		revValidSum := rev.ValidRenterOutput.Value.Add(rev.ValidHostOutput.Value)
+		revMissedSum := rev.MissedRenterOutput.Value.Add(rev.MissedHostOutput.Value)
 		switch {
-		case newState.RevisionNumber <= oldState.RevisionNumber:
-			return fmt.Errorf("file contract revision %v does not increase revision number (%v -> %v)", i, oldState.RevisionNumber, newState.RevisionNumber)
-		case !newValidSum.Equals(oldValidSum):
-			return fmt.Errorf("file contract revision %v modifies valid output sum (%v -> %v)", i, oldValidSum, newValidSum)
-		case newMissedSum.Cmp(newValidSum) > 0:
-			return fmt.Errorf("file contract revision %v has missed output sum (%v) exceeding valid output sum (%v)", i, newMissedSum, newValidSum)
-		case newState.WindowEnd <= newState.WindowStart:
-			return fmt.Errorf("file contract revision %v has proof window (%v - %v) that ends before it begins", i, newState.WindowStart, newState.WindowEnd)
+		case rev.RevisionNumber <= cur.RevisionNumber:
+			return fmt.Errorf("file contract revision %v does not increase revision number (%v -> %v)", i, cur.RevisionNumber, rev.RevisionNumber)
+		case !revValidSum.Equals(curValidSum):
+			return fmt.Errorf("file contract revision %v modifies valid output sum (%v -> %v)", i, curValidSum, revValidSum)
+		case revMissedSum.Cmp(revValidSum) > 0:
+			return fmt.Errorf("file contract revision %v has missed output sum (%v) exceeding valid output sum (%v)", i, revMissedSum, revValidSum)
+		case rev.WindowEnd <= rev.WindowStart:
+			return fmt.Errorf("file contract revision %v has proof window (%v - %v) that ends before it begins", i, rev.WindowStart, rev.WindowEnd)
 		}
 
 		// verify signatures
 		//
-		// NOTE: very important that we verify with the *old* keys!
-		contractHash := vc.ContractSigHash(newState)
-		if !ed25519.Verify(oldState.RenterPublicKey[:], contractHash[:], fcr.RenterSignature[:]) {
+		// NOTE: very important that we verify with the *current* keys!
+		contractHash := vc.ContractSigHash(rev)
+		if !cur.RenterPublicKey.VerifyHash(contractHash, fcr.RenterSignature) {
 			return fmt.Errorf("file contract revision %v has invalid renter signature", i)
 		}
-		if !ed25519.Verify(oldState.HostPublicKey[:], contractHash[:], fcr.HostSignature[:]) {
+		if !cur.HostPublicKey.VerifyHash(contractHash, fcr.HostSignature) {
 			return fmt.Errorf("file contract revision %v has invalid host signature", i)
 		}
 	}
@@ -335,25 +335,25 @@ func (vc *ValidationContext) validFileContractRevisions(txn types.Transaction) e
 
 func (vc *ValidationContext) validFileContractResolutions(txn types.Transaction) error {
 	for i, fcr := range txn.FileContractResolutions {
-		rev := fcr.Parent.State
+		fc := fcr.Parent.FileContract
 		if fcr.HasStorageProof() {
 			// we must be within the proof window
-			if vc.Index.Height < rev.WindowStart || rev.WindowEnd < vc.Index.Height {
-				return fmt.Errorf("file contract resolution %v attempts to claim valid outputs, but proof window (%v - %v) has expired", i, rev.WindowStart, rev.WindowEnd)
+			if vc.Index.Height < fc.WindowStart || fc.WindowEnd < vc.Index.Height {
+				return fmt.Errorf("file contract resolution %v attempts to claim valid outputs, but proof window (%v - %v) has expired", i, fc.WindowStart, fc.WindowEnd)
 			}
 			// validate storage proof
-			if fcr.StorageProof.WindowStart.Height != rev.WindowStart {
+			if fcr.StorageProof.WindowStart.Height != fc.WindowStart {
 				// see note on this field in types.StorageProof
-				return fmt.Errorf("file contract resolution %v has storage proof with WindowStart (%v) that does not match final revision WindowStart (%v)", i, fcr.StorageProof.WindowStart.Height, rev.WindowStart)
+				return fmt.Errorf("file contract resolution %v has storage proof with WindowStart (%v) that does not match contract WindowStart (%v)", i, fcr.StorageProof.WindowStart.Height, fc.WindowStart)
 			}
-			segmentIndex := vc.StorageProofSegmentIndex(rev.Filesize, fcr.StorageProof.WindowStart, fcr.Parent.ID)
-			if storageProofRoot(fcr.StorageProof, segmentIndex) != rev.FileMerkleRoot {
-				return fmt.Errorf("file contract resolution %v has storage proof root that does not match final Merkle root", i)
+			segmentIndex := vc.StorageProofSegmentIndex(fc.Filesize, fcr.StorageProof.WindowStart, fcr.Parent.ID)
+			if storageProofRoot(fcr.StorageProof, segmentIndex) != fc.FileMerkleRoot {
+				return fmt.Errorf("file contract resolution %v has storage proof root that does not match contract Merkle root", i)
 			}
 		} else {
 			// contract must have expired
-			if vc.Index.Height <= rev.WindowEnd {
-				return fmt.Errorf("file contract resolution %v attempts to claim missed outputs, but proof window (%v - %v) has not expired", i, rev.WindowStart, rev.WindowEnd)
+			if vc.Index.Height <= fc.WindowEnd {
+				return fmt.Errorf("file contract resolution %v attempts to claim missed outputs, but proof window (%v - %v) has not expired", i, fc.WindowStart, fc.WindowEnd)
 			}
 		}
 	}
@@ -397,16 +397,16 @@ func (vc *ValidationContext) outputsEqualInputs(txn types.Transaction) error {
 		return fmt.Errorf("siacoin inputs (%v SC) do not equal siacoin outputs (%v SC)", inputSC, outputSC)
 	}
 
-	var inputSF, outputSF types.Currency
+	var inputSF, outputSF, carry uint64
 	for _, in := range txn.SiafundInputs {
-		inputSF, overflowed = inputSF.AddWithOverflow(in.Parent.Value)
-		if overflowed {
+		inputSF, carry = bits.Add64(inputSF, in.Parent.Value, 0)
+		if carry > 0 {
 			return ErrOverflow
 		}
 	}
 	for _, out := range txn.SiafundOutputs {
-		outputSF, overflowed = outputSF.AddWithOverflow(out.Value)
-		if overflowed {
+		outputSF, carry = bits.Add64(outputSF, out.Value, 0)
+		if carry > 0 {
 			return ErrOverflow
 		}
 	}
@@ -422,9 +422,9 @@ func (vc *ValidationContext) validStateProofs(txn types.Transaction) error {
 		switch {
 		case in.Parent.LeafIndex == types.EphemeralLeafIndex:
 			continue
-		case vc.State.ContainsUnspentSiacoinOutput(in.Parent):
+		case vc.State.ContainsUnspentSiacoinElement(in.Parent):
 			continue
-		case vc.State.ContainsSpentSiacoinOutput(in.Parent):
+		case vc.State.ContainsSpentSiacoinElement(in.Parent):
 			return fmt.Errorf("siacoin input %v double-spends output %v", i, in.Parent.ID)
 		default:
 			return fmt.Errorf("siacoin input %v spends output (%v) not present in the accumulator", i, in.Parent.ID)
@@ -432,35 +432,35 @@ func (vc *ValidationContext) validStateProofs(txn types.Transaction) error {
 	}
 	for i, in := range txn.SiafundInputs {
 		switch {
-		case vc.State.ContainsUnspentSiafundOutput(in.Parent):
+		case vc.State.ContainsUnspentSiafundElement(in.Parent):
 			continue
-		case vc.State.ContainsSpentSiafundOutput(in.Parent):
+		case vc.State.ContainsSpentSiafundElement(in.Parent):
 			return fmt.Errorf("siafund input %v double-spends output %v", i, in.Parent.ID)
 		default:
 			return fmt.Errorf("siafund input %v spends output (%v) not present in the accumulator", i, in.Parent.ID)
 		}
 	}
 	for i, fcr := range txn.FileContractRevisions {
-		if vc.State.ContainsUnresolvedFileContract(fcr.Parent) {
+		if vc.State.ContainsUnresolvedFileContractElement(fcr.Parent) {
 			continue
 		}
 		switch {
-		case vc.State.ContainsValidFileContract(fcr.Parent):
+		case vc.State.ContainsValidFileContractElement(fcr.Parent):
 			return fmt.Errorf("file contract revision %v revises a contract (%v) that has already resolved valid", i, fcr.Parent.ID)
-		case vc.State.ContainsMissedFileContract(fcr.Parent):
+		case vc.State.ContainsMissedFileContractElement(fcr.Parent):
 			return fmt.Errorf("file contract revision %v revises a contract (%v) that has already resolved missed", i, fcr.Parent.ID)
 		default:
 			return fmt.Errorf("file contract revision %v revises a contract (%v) not present in the accumulator", i, fcr.Parent.ID)
 		}
 	}
 	for i, fcr := range txn.FileContractResolutions {
-		if vc.State.ContainsUnresolvedFileContract(fcr.Parent) {
+		if vc.State.ContainsUnresolvedFileContractElement(fcr.Parent) {
 			continue
 		}
 		switch {
-		case vc.State.ContainsValidFileContract(fcr.Parent):
+		case vc.State.ContainsValidFileContractElement(fcr.Parent):
 			return fmt.Errorf("file contract resolution %v resolves a contract (%v) that has already resolved valid", i, fcr.Parent.ID)
-		case vc.State.ContainsMissedFileContract(fcr.Parent):
+		case vc.State.ContainsMissedFileContractElement(fcr.Parent):
 			return fmt.Errorf("file contract resolution %v resolves a contract (%v) that has already resolved missed", i, fcr.Parent.ID)
 		default:
 			return fmt.Errorf("file contract resolution %v resolves a contract (%v) not present in the accumulator", i, fcr.Parent.ID)
@@ -503,7 +503,7 @@ func (vc *ValidationContext) validSpendPolicies(txn types.Transaction) error {
 				return fmt.Errorf("height not above %v", uint64(p))
 			case types.PolicyPublicKey:
 				for i := range sigs {
-					if ed25519.Verify(p[:], sigHash[:], sigs[i][:]) {
+					if types.PublicKey(p).VerifyHash(sigHash, types.Signature(sigs[i])) {
 						sigs = sigs[i+1:]
 						return nil
 					}
@@ -593,14 +593,14 @@ func (vc *ValidationContext) validEphemeralOutputs(txns []types.Transaction) err
 	return nil
 
 validate:
-	available := make(map[types.OutputID]types.Beneficiary)
+	available := make(map[types.ElementID]types.SiacoinOutput)
 	for txnIndex, txn := range txns {
 		txid := txn.ID()
 		var index uint64
-		nextID := func() types.OutputID {
-			id := types.OutputID{
-				TransactionID: txid,
-				Index:         index,
+		nextID := func() types.ElementID {
+			id := types.ElementID{
+				Source: types.Hash256(txid),
+				Index:  index,
 			}
 			index++
 			return id
@@ -609,11 +609,11 @@ validate:
 		for _, in := range txn.SiacoinInputs {
 			if in.Parent.LeafIndex == types.EphemeralLeafIndex {
 				if out, ok := available[in.Parent.ID]; !ok {
-					return fmt.Errorf("transaction set is invalid: transaction %v claims a non-existent ephemeral output", txnIndex)
+					return fmt.Errorf("transaction set is invalid: transaction %v claims non-existent ephemeral output %v", txnIndex, in.Parent.ID)
 				} else if in.Parent.Value != out.Value {
-					return fmt.Errorf("transaction set is invalid: transaction %v claims wrong value for ephemeral output", txnIndex)
+					return fmt.Errorf("transaction set is invalid: transaction %v claims wrong value for ephemeral output %v", txnIndex, in.Parent.ID)
 				} else if in.Parent.Address != out.Address {
-					return fmt.Errorf("transaction set is invalid: transaction %v claims wrong address for ephemeral output", txnIndex)
+					return fmt.Errorf("transaction set is invalid: transaction %v claims wrong address for ephemeral output %v", txnIndex, in.Parent.ID)
 				}
 				delete(available, in.Parent.ID)
 			}
@@ -626,7 +626,7 @@ validate:
 }
 
 func (vc *ValidationContext) noDoubleSpends(txns []types.Transaction) error {
-	spent := make(map[types.OutputID]int)
+	spent := make(map[types.ElementID]int)
 	for i, txn := range txns {
 		for _, in := range txn.SiacoinInputs {
 			if prev, ok := spent[in.Parent.ID]; ok {

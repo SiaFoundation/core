@@ -59,7 +59,9 @@ func (s *Session) IsClosed() bool {
 	return s.closed || s.err != nil
 }
 
-// SetChallenge sets the current session challenge.
+// SetChallenge sets the current session challenge. Challenges allow the host to
+// verify that a renter controls the contract signing key before allowing them
+// to lock the contract.
 func (s *Session) SetChallenge(challenge [16]byte) {
 	s.challenge = challenge
 }
@@ -73,15 +75,12 @@ func hashChallenge(challenge [16]byte) [32]byte {
 
 // SignChallenge signs the current session challenge.
 func (s *Session) SignChallenge(priv ed25519.PrivateKey) (sig types.Signature) {
-	h := hashChallenge(s.challenge)
-	copy(sig[:], ed25519.Sign(priv, h[:]))
-	return
+	return types.SignHash(priv, hashChallenge(s.challenge))
 }
 
 // VerifyChallenge verifies a signature of the current session challenge.
-func (s *Session) VerifyChallenge(sig types.Signature, pub ed25519.PublicKey) bool {
-	h := hashChallenge(s.challenge)
-	return ed25519.Verify(pub, h[:], sig[:])
+func (s *Session) VerifyChallenge(sig types.Signature, pub types.PublicKey) bool {
+	return pub.VerifyHash(hashChallenge(s.challenge), sig)
 }
 
 // Write implements io.Writer.
