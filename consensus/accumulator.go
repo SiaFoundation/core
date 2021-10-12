@@ -12,12 +12,6 @@ import (
 const leafHashPrefix = 0x00
 const nodeHashPrefix = 0x01
 
-// flags for state objects
-const (
-	flagSpent = 1 << iota
-	flagExpired
-)
-
 // mergeHeight returns the height at which the proof paths of x and y merge.
 func mergeHeight(x, y uint64) int { return bits.Len64(x ^ y) }
 
@@ -50,15 +44,17 @@ func merkleProofRoot(leafHash types.Hash256, leafIndex uint64, proof []types.Has
 type stateObject struct {
 	types.StateElement
 	objHash types.Hash256
-	flags   uint64
+	spent   bool
 }
 
 func (so stateObject) leafHash() types.Hash256 {
-	buf := make([]byte, 1+32+8+8)
+	buf := make([]byte, 1+32+8+1)
 	buf[0] = leafHashPrefix
 	copy(buf[1:], so.objHash[:])
 	binary.LittleEndian.PutUint64(buf[33:], so.LeafIndex)
-	binary.LittleEndian.PutUint64(buf[41:], so.flags)
+	if so.spent {
+		buf[41] = 1
+	}
 	return types.HashBytes(buf)
 }
 
@@ -70,7 +66,7 @@ func (so stateObject) truncatedProofRoot(n int) types.Hash256 {
 	return merkleProofRoot(so.leafHash(), so.LeafIndex, so.MerkleProof[:n])
 }
 
-func siacoinElementStateObject(e types.SiacoinElement, flags uint64) stateObject {
+func siacoinElementStateObject(e types.SiacoinElement, spent bool) stateObject {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
@@ -80,12 +76,12 @@ func siacoinElementStateObject(e types.SiacoinElement, flags uint64) stateObject
 	h.E.WriteUint64(e.Timelock)
 	return stateObject{
 		StateElement: e.StateElement,
-		flags:        flags,
+		spent:        spent,
 		objHash:      h.Sum(),
 	}
 }
 
-func siafundElementStateObject(e types.SiafundElement, flags uint64) stateObject {
+func siafundElementStateObject(e types.SiafundElement, spent bool) stateObject {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
@@ -95,12 +91,12 @@ func siafundElementStateObject(e types.SiafundElement, flags uint64) stateObject
 	e.ClaimStart.EncodeTo(h.E)
 	return stateObject{
 		StateElement: e.StateElement,
-		flags:        flags,
+		spent:        spent,
 		objHash:      h.Sum(),
 	}
 }
 
-func fileContractElementStateObject(e types.FileContractElement, flags uint64) stateObject {
+func fileContractElementStateObject(e types.FileContractElement, spent bool) stateObject {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
@@ -109,7 +105,7 @@ func fileContractElementStateObject(e types.FileContractElement, flags uint64) s
 	e.FileContract.EncodeTo(h.E)
 	return stateObject{
 		StateElement: e.StateElement,
-		flags:        flags,
+		spent:        spent,
 		objHash:      h.Sum(),
 	}
 }
@@ -127,17 +123,17 @@ func objectsByTree(txns []types.Transaction) [64][]stateObject {
 	for _, txn := range txns {
 		for _, in := range txn.SiacoinInputs {
 			if in.Parent.LeafIndex != types.EphemeralLeafIndex {
-				addObject(siacoinElementStateObject(in.Parent, 0))
+				addObject(siacoinElementStateObject(in.Parent, false))
 			}
 		}
 		for _, in := range txn.SiafundInputs {
-			addObject(siafundElementStateObject(in.Parent, 0))
+			addObject(siafundElementStateObject(in.Parent, false))
 		}
 		for _, rev := range txn.FileContractRevisions {
-			addObject(fileContractElementStateObject(rev.Parent, 0))
+			addObject(fileContractElementStateObject(rev.Parent, false))
 		}
 		for _, res := range txn.FileContractResolutions {
-			addObject(fileContractElementStateObject(res.Parent, 0))
+			addObject(fileContractElementStateObject(res.Parent, false))
 		}
 	}
 	for _, objects := range trees {
@@ -194,43 +190,37 @@ func (sa *StateAccumulator) containsObject(so stateObject) bool {
 // ContainsUnspentSiacoinElement returns true if the accumulator contains sce as an
 // unspent output.
 func (sa *StateAccumulator) ContainsUnspentSiacoinElement(sce types.SiacoinElement) bool {
-	return sa.containsObject(siacoinElementStateObject(sce, 0))
+	return sa.containsObject(siacoinElementStateObject(sce, false))
 }
 
 // ContainsSpentSiacoinElement returns true if the accumulator contains sce as a
 // spent output.
 func (sa *StateAccumulator) ContainsSpentSiacoinElement(sce types.SiacoinElement) bool {
-	return sa.containsObject(siacoinElementStateObject(sce, flagSpent))
+	return sa.containsObject(siacoinElementStateObject(sce, true))
 }
 
 // ContainsUnspentSiafundElement returns true if the accumulator contains e as an
 // unspent output.
 func (sa *StateAccumulator) ContainsUnspentSiafundElement(sfe types.SiafundElement) bool {
-	return sa.containsObject(siafundElementStateObject(sfe, 0))
+	return sa.containsObject(siafundElementStateObject(sfe, false))
 }
 
 // ContainsSpentSiafundElement returns true if the accumulator contains o as a
 // spent output.
 func (sa *StateAccumulator) ContainsSpentSiafundElement(sfe types.SiafundElement) bool {
-	return sa.containsObject(siafundElementStateObject(sfe, flagSpent))
+	return sa.containsObject(siafundElementStateObject(sfe, true))
 }
 
 // ContainsUnresolvedFileContractElement returns true if the accumulator
 // contains fce as an unresolved file contract.
 func (sa *StateAccumulator) ContainsUnresolvedFileContractElement(fce types.FileContractElement) bool {
-	return sa.containsObject(fileContractElementStateObject(fce, 0))
+	return sa.containsObject(fileContractElementStateObject(fce, false))
 }
 
-// ContainsValidFileContractElement returns true if the accumulator contains fce
-// as a resolved-valid file contract.
-func (sa *StateAccumulator) ContainsValidFileContractElement(fce types.FileContractElement) bool {
-	return sa.containsObject(fileContractElementStateObject(fce, flagSpent))
-}
-
-// ContainsMissedFileContractElement returns true if the accumulator contains
-// fce as a resolved-missed file contract.
-func (sa *StateAccumulator) ContainsMissedFileContractElement(fce types.FileContractElement) bool {
-	return sa.containsObject(fileContractElementStateObject(fce, flagSpent|flagExpired))
+// ContainsResolvedFileContractElement returns true if the accumulator contains
+// fce as a resolved file contract.
+func (sa *StateAccumulator) ContainsResolvedFileContractElement(fce types.FileContractElement) bool {
+	return sa.containsObject(fileContractElementStateObject(fce, true))
 }
 
 // addNewObjects adds the supplied objects to the accumulator, filling in their

@@ -441,27 +441,21 @@ func (vc *ValidationContext) validStateProofs(txn types.Transaction) error {
 		}
 	}
 	for i, fcr := range txn.FileContractRevisions {
-		if vc.State.ContainsUnresolvedFileContractElement(fcr.Parent) {
-			continue
-		}
 		switch {
-		case vc.State.ContainsValidFileContractElement(fcr.Parent):
-			return fmt.Errorf("file contract revision %v revises a contract (%v) that has already resolved valid", i, fcr.Parent.ID)
-		case vc.State.ContainsMissedFileContractElement(fcr.Parent):
-			return fmt.Errorf("file contract revision %v revises a contract (%v) that has already resolved missed", i, fcr.Parent.ID)
+		case vc.State.ContainsUnresolvedFileContractElement(fcr.Parent):
+			continue
+		case vc.State.ContainsResolvedFileContractElement(fcr.Parent):
+			return fmt.Errorf("file contract revision %v revises a contract (%v) that has already resolved", i, fcr.Parent.ID)
 		default:
 			return fmt.Errorf("file contract revision %v revises a contract (%v) not present in the accumulator", i, fcr.Parent.ID)
 		}
 	}
 	for i, fcr := range txn.FileContractResolutions {
-		if vc.State.ContainsUnresolvedFileContractElement(fcr.Parent) {
-			continue
-		}
 		switch {
-		case vc.State.ContainsValidFileContractElement(fcr.Parent):
-			return fmt.Errorf("file contract resolution %v resolves a contract (%v) that has already resolved valid", i, fcr.Parent.ID)
-		case vc.State.ContainsMissedFileContractElement(fcr.Parent):
-			return fmt.Errorf("file contract resolution %v resolves a contract (%v) that has already resolved missed", i, fcr.Parent.ID)
+		case vc.State.ContainsUnresolvedFileContractElement(fcr.Parent):
+			continue
+		case vc.State.ContainsResolvedFileContractElement(fcr.Parent):
+			return fmt.Errorf("file contract resolution %v resolves a contract (%v) that has already resolved", i, fcr.Parent.ID)
 		default:
 			return fmt.Errorf("file contract resolution %v resolves a contract (%v) not present in the accumulator", i, fcr.Parent.ID)
 		}

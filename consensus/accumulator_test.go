@@ -46,8 +46,8 @@ func TestBlockRewardValue(t *testing.T) {
 }
 
 func TestAccumulator(t *testing.T) {
-	containsOutput := func(sa StateAccumulator, sce types.SiacoinElement, flags uint64) bool {
-		return sa.containsObject(siacoinElementStateObject(sce, flags))
+	containsOutput := func(sa StateAccumulator, sce types.SiacoinElement, spent bool) bool {
+		return sa.containsObject(siacoinElementStateObject(sce, spent))
 	}
 
 	b := genesisWithSiacoinOutputs([]types.SiacoinOutput{
@@ -75,7 +75,7 @@ func TestAccumulator(t *testing.T) {
 		if update1.SiacoinElementWasSpent(o) {
 			t.Error("update should not mark output as spent:", o)
 		}
-		if containsOutput(update1.Context.State, o, flagSpent) || !containsOutput(update1.Context.State, o, 0) {
+		if containsOutput(update1.Context.State, o, true) || !containsOutput(update1.Context.State, o, false) {
 			t.Error("accumulator should contain unspent output:", o)
 		}
 	}
@@ -117,11 +117,11 @@ func TestAccumulator(t *testing.T) {
 	// the new accumulator should contain both the spent and unspent outputs
 	for _, o := range origOutputs {
 		if update2.SiacoinElementWasSpent(o) {
-			if containsOutput(update2.Context.State, o, 0) || !containsOutput(update2.Context.State, o, flagSpent) {
+			if containsOutput(update2.Context.State, o, false) || !containsOutput(update2.Context.State, o, true) {
 				t.Error("accumulator should contain spent output:", o)
 			}
 		} else {
-			if containsOutput(update2.Context.State, o, flagSpent) || !containsOutput(update2.Context.State, o, 0) {
+			if containsOutput(update2.Context.State, o, true) || !containsOutput(update2.Context.State, o, false) {
 				t.Error("accumulator should contain unspent output:", o)
 			}
 		}
@@ -149,7 +149,7 @@ func TestAccumulator(t *testing.T) {
 		if update1.SiacoinElementWasSpent(o) {
 			t.Error("update should not mark output as spent:", o)
 		}
-		if containsOutput(update1.Context.State, o, flagSpent) {
+		if containsOutput(update1.Context.State, o, true) {
 			t.Error("output should not be marked as spent:", o)
 		}
 	}
@@ -212,11 +212,11 @@ func TestAccumulator(t *testing.T) {
 	// the new accumulator should contain both the spent and unspent outputs
 	for _, o := range origOutputs {
 		if update2.SiacoinElementWasSpent(o) || update3.SiacoinElementWasSpent(o) {
-			if containsOutput(update3.Context.State, o, 0) || !containsOutput(update3.Context.State, o, flagSpent) {
+			if containsOutput(update3.Context.State, o, false) || !containsOutput(update3.Context.State, o, true) {
 				t.Error("accumulator should contain spent output:", o)
 			}
 		} else {
-			if containsOutput(update3.Context.State, o, flagSpent) || !containsOutput(update3.Context.State, o, 0) {
+			if containsOutput(update3.Context.State, o, true) || !containsOutput(update3.Context.State, o, false) {
 				t.Error("accumulator should contain unspent output:", o)
 			}
 		}
@@ -227,8 +227,8 @@ func TestAccumulator(t *testing.T) {
 }
 
 func TestAccumulatorRevert(t *testing.T) {
-	containsOutput := func(sa StateAccumulator, o types.SiacoinElement, flags uint64) bool {
-		return sa.containsObject(siacoinElementStateObject(o, flags))
+	containsOutput := func(sa StateAccumulator, o types.SiacoinElement, spent bool) bool {
+		return sa.containsObject(siacoinElementStateObject(o, spent))
 	}
 	b := genesisWithSiacoinOutputs([]types.SiacoinOutput{
 		{Value: randAmount(), Address: randAddr()},
@@ -287,7 +287,7 @@ func TestAccumulatorRevert(t *testing.T) {
 		if update1.SiacoinElementWasSpent(o) {
 			t.Error("update should not mark output as spent:", o)
 		}
-		if !containsOutput(update1.Context.State, o, 0) {
+		if !containsOutput(update1.Context.State, o, false) {
 			t.Error("output should be in the accumulator, marked as unspent:", o)
 		}
 	}
@@ -297,7 +297,7 @@ func TestUpdateExistingObjects(t *testing.T) {
 	outputs := make([]types.SiacoinElement, 8)
 	objects := make([]stateObject, len(outputs))
 	for i := range outputs {
-		objects[i] = siacoinElementStateObject(outputs[i], 0)
+		objects[i] = siacoinElementStateObject(outputs[i], false)
 	}
 	var acc StateAccumulator
 	acc.addNewObjects(objects)
@@ -306,19 +306,19 @@ func TestUpdateExistingObjects(t *testing.T) {
 	}
 
 	updated := []stateObject{
-		siacoinElementStateObject(outputs[0], flagSpent),
-		siacoinElementStateObject(outputs[2], flagSpent),
-		siacoinElementStateObject(outputs[3], flagSpent),
-		siacoinElementStateObject(outputs[5], flagSpent),
-		siacoinElementStateObject(outputs[6], flagSpent),
+		siacoinElementStateObject(outputs[0], true),
+		siacoinElementStateObject(outputs[2], true),
+		siacoinElementStateObject(outputs[3], true),
+		siacoinElementStateObject(outputs[5], true),
+		siacoinElementStateObject(outputs[6], true),
 	}
 
 	acc.updateExistingObjects(updated)
 
 	var acc2 StateAccumulator
-	addOutput := func(o types.SiacoinElement, flags uint64) {
+	addOutput := func(o types.SiacoinElement, spent bool) {
 		// seek to first open slot, merging nodes as we go
-		root := siacoinElementStateObject(o, flags).leafHash()
+		root := siacoinElementStateObject(o, spent).leafHash()
 		i := 0
 		for ; acc2.HasTreeAtHeight(i); i++ {
 			root = merkleNodeHash(acc2.Trees[i], root)
@@ -329,9 +329,9 @@ func TestUpdateExistingObjects(t *testing.T) {
 	for i, o := range outputs {
 		switch i {
 		case 0, 2, 3, 5, 6:
-			addOutput(o, flagSpent)
+			addOutput(o, true)
 		default:
-			addOutput(o, 0)
+			addOutput(o, false)
 		}
 	}
 	for i := range acc2.Trees {
@@ -352,7 +352,7 @@ func TestMultiproof(t *testing.T) {
 	for i := range outputs {
 		outputs[i].LeafIndex = uint64(i)
 		outputs[i].ID.Index = uint64(i)
-		leaves[i] = siacoinElementStateObject(outputs[i], 0).leafHash()
+		leaves[i] = siacoinElementStateObject(outputs[i], false).leafHash()
 	}
 	node01 := merkleNodeHash(leaves[0], leaves[1])
 	node23 := merkleNodeHash(leaves[2], leaves[3])
@@ -418,7 +418,7 @@ func TestMultiproof(t *testing.T) {
 func BenchmarkOutputLeafHash(b *testing.B) {
 	var o types.SiacoinElement
 	for i := 0; i < b.N; i++ {
-		siacoinElementStateObject(o, 0).leafHash()
+		siacoinElementStateObject(o, false).leafHash()
 	}
 }
 
@@ -445,7 +445,7 @@ func BenchmarkUpdateExistingObjects(b *testing.B) {
 	outputs := make([]types.SiacoinElement, 1000)
 	objects := make([]stateObject, len(outputs))
 	for i := range outputs {
-		objects[i] = siacoinElementStateObject(outputs[i], 0)
+		objects[i] = siacoinElementStateObject(outputs[i], false)
 	}
 	var acc StateAccumulator
 	acc.addNewObjects(objects)
@@ -460,7 +460,7 @@ func BenchmarkUpdateExistingObjects(b *testing.B) {
 	indices := frand.Perm(len(outputs))[:len(outputs)/2]
 	updated := make([]stateObject, len(indices))
 	for i, j := range indices {
-		updated[i] = siacoinElementStateObject(outputs[j], flagSpent)
+		updated[i] = siacoinElementStateObject(outputs[j], true)
 	}
 
 	b.ResetTimer()

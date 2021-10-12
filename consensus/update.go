@@ -99,25 +99,21 @@ func updatedInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinEl
 		for _, in := range txn.SiacoinInputs {
 			scos = append(scos, in.Parent)
 			if in.Parent.LeafIndex != types.EphemeralLeafIndex {
-				addObject(siacoinElementStateObject(in.Parent, flagSpent))
+				addObject(siacoinElementStateObject(in.Parent, true))
 			}
 		}
 		for _, in := range txn.SiafundInputs {
 			sfos = append(sfos, in.Parent)
-			addObject(siafundElementStateObject(in.Parent, flagSpent))
+			addObject(siafundElementStateObject(in.Parent, true))
 		}
 		for _, fcr := range txn.FileContractRevisions {
 			fc := fcr.Parent
 			fc.FileContract = fcr.Revision
 			fcs = append(fcs, fc)
-			addObject(fileContractElementStateObject(fc, 0))
+			addObject(fileContractElementStateObject(fc, false))
 		}
 		for _, fcr := range txn.FileContractResolutions {
-			var flags uint64 = flagSpent
-			if !fcr.HasStorageProof() {
-				flags |= flagExpired // TODO: do we need this?
-			}
-			addObject(fileContractElementStateObject(fcr.Parent, flags))
+			addObject(fileContractElementStateObject(fcr.Parent, true))
 		}
 	}
 
@@ -125,25 +121,25 @@ func updatedInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinEl
 }
 
 func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinElement, sfes []types.SiafundElement, fces []types.FileContractElement, objects []stateObject) {
-	flags := make(map[types.ElementID]uint64)
+	spent := make(map[types.ElementID]bool)
 	for _, txn := range b.Transactions {
 		for _, in := range txn.SiacoinInputs {
 			if in.Parent.LeafIndex == types.EphemeralLeafIndex {
-				flags[in.Parent.ID] = flagSpent
+				spent[in.Parent.ID] = true
 			}
 		}
 	}
 	addSiacoinElement := func(sce types.SiacoinElement) {
 		sces = append(sces, sce)
-		objects = append(objects, siacoinElementStateObject(sce, flags[sce.ID]))
+		objects = append(objects, siacoinElementStateObject(sce, spent[sce.ID]))
 	}
 	addSiafundElement := func(sfe types.SiafundElement) {
 		sfes = append(sfes, sfe)
-		objects = append(objects, siafundElementStateObject(sfe, flags[sfe.ID]))
+		objects = append(objects, siafundElementStateObject(sfe, spent[sfe.ID]))
 	}
 	addFileContract := func(fce types.FileContractElement) {
 		fces = append(fces, fce)
-		objects = append(objects, fileContractElementStateObject(fce, flags[fce.ID]))
+		objects = append(objects, fileContractElementStateObject(fce, spent[fce.ID]))
 	}
 
 	addSiacoinElement(types.SiacoinElement{
