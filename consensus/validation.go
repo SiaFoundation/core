@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"go.sia.tech/core/merkle"
 	"go.sia.tech/core/types"
 )
 
@@ -47,8 +48,8 @@ var hasherPool = &sync.Pool{New: func() interface{} { return types.NewHasher() }
 type ValidationContext struct {
 	Index types.ChainIndex
 
-	State          StateAccumulator
-	History        HistoryAccumulator
+	State          merkle.ElementAccumulator
+	History        merkle.HistoryAccumulator
 	PrevTimestamps [11]time.Time
 
 	TotalWork        types.Work
@@ -59,6 +60,40 @@ type ValidationContext struct {
 
 	SiafundPool       types.Currency
 	FoundationAddress types.Address
+}
+
+// EncodeTo implements types.EncoderTo.
+func (vc ValidationContext) EncodeTo(e *types.Encoder) {
+	vc.Index.EncodeTo(e)
+	vc.State.EncodeTo(e)
+	vc.History.EncodeTo(e)
+	for _, ts := range vc.PrevTimestamps {
+		e.WriteTime(ts)
+	}
+	vc.TotalWork.EncodeTo(e)
+	vc.Difficulty.EncodeTo(e)
+	vc.OakWork.EncodeTo(e)
+	e.WriteUint64(uint64(vc.OakTime))
+	e.WriteTime(vc.GenesisTimestamp)
+	vc.SiafundPool.EncodeTo(e)
+	vc.FoundationAddress.EncodeTo(e)
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (vc *ValidationContext) DecodeFrom(d *types.Decoder) {
+	vc.Index.DecodeFrom(d)
+	vc.State.DecodeFrom(d)
+	vc.History.DecodeFrom(d)
+	for i := range vc.PrevTimestamps {
+		vc.PrevTimestamps[i] = d.ReadTime()
+	}
+	vc.TotalWork.DecodeFrom(d)
+	vc.Difficulty.DecodeFrom(d)
+	vc.OakWork.DecodeFrom(d)
+	vc.OakTime = time.Duration(d.ReadUint64())
+	vc.GenesisTimestamp = d.ReadTime()
+	vc.SiafundPool.DecodeFrom(d)
+	vc.FoundationAddress.DecodeFrom(d)
 }
 
 // BlockReward returns the reward for mining a child block.
@@ -347,7 +382,7 @@ func (vc *ValidationContext) validFileContractResolutions(txn types.Transaction)
 				return fmt.Errorf("file contract resolution %v has storage proof with WindowStart (%v) that does not match contract WindowStart (%v)", i, fcr.StorageProof.WindowStart.Height, fc.WindowStart)
 			}
 			segmentIndex := vc.StorageProofSegmentIndex(fc.Filesize, fcr.StorageProof.WindowStart, fcr.Parent.ID)
-			if storageProofRoot(fcr.StorageProof, segmentIndex) != fc.FileMerkleRoot {
+			if merkle.StorageProofRoot(fcr.StorageProof, segmentIndex) != fc.FileMerkleRoot {
 				return fmt.Errorf("file contract resolution %v has storage proof root that does not match contract Merkle root", i)
 			}
 		} else {

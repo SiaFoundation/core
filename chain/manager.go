@@ -26,14 +26,14 @@ var (
 // An ApplyUpdate reflects the changes to the blockchain resulting from the
 // addition of a block.
 type ApplyUpdate struct {
-	consensus.StateApplyUpdate
+	consensus.ApplyUpdate
 	Block types.Block
 }
 
 // A RevertUpdate reflects the changes to the blockchain resulting from the
 // removal of a block.
 type RevertUpdate struct {
-	consensus.StateRevertUpdate
+	consensus.RevertUpdate
 	Block types.Block
 }
 

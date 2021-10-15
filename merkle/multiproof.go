@@ -1,73 +1,142 @@
-package consensus
+package merkle
 
 import (
-	"time"
+	"math/bits"
+	"sort"
 
 	"go.sia.tech/core/types"
 )
 
-// EncodeTo implements types.EncoderTo.
-func (sa StateAccumulator) EncodeTo(e *types.Encoder) {
-	e.WriteUint64(sa.NumLeaves)
-	for i, root := range sa.Trees {
-		if sa.HasTreeAtHeight(i) {
-			root.EncodeTo(e)
+func splitLeaves(ls []ElementLeaf, mid uint64) (left, right []ElementLeaf) {
+	split := sort.Search(len(ls), func(i int) bool { return ls[i].LeafIndex >= mid })
+	return ls[:split], ls[split:]
+}
+
+func leavesByTree(txns []types.Transaction) [64][]ElementLeaf {
+	var trees [64][]ElementLeaf
+	addLeaf := func(l ElementLeaf) {
+		trees[len(l.MerkleProof)] = append(trees[len(l.MerkleProof)], l)
+	}
+	for _, txn := range txns {
+		for _, in := range txn.SiacoinInputs {
+			if in.Parent.LeafIndex != types.EphemeralLeafIndex {
+				addLeaf(SiacoinLeaf(in.Parent, false))
+			}
+		}
+		for _, in := range txn.SiafundInputs {
+			addLeaf(SiafundLeaf(in.Parent, false))
+		}
+		for _, rev := range txn.FileContractRevisions {
+			addLeaf(FileContractLeaf(rev.Parent, false))
+		}
+		for _, res := range txn.FileContractResolutions {
+			addLeaf(FileContractLeaf(res.Parent, false))
 		}
 	}
+	for _, leaves := range trees {
+		sort.Slice(leaves, func(i, j int) bool {
+			return leaves[i].LeafIndex < leaves[j].LeafIndex
+		})
+	}
+	return trees
 }
 
-// DecodeFrom implements types.DecoderFrom.
-func (sa *StateAccumulator) DecodeFrom(d *types.Decoder) {
-	sa.NumLeaves = d.ReadUint64()
-	for i := range sa.Trees {
-		if sa.HasTreeAtHeight(i) {
-			sa.Trees[i].DecodeFrom(d)
+// MultiproofSize computes the size of a multiproof for the given transactions.
+func MultiproofSize(txns []types.Transaction) int {
+	var proofSize func(i, j uint64, leaves []ElementLeaf) int
+	proofSize = func(i, j uint64, leaves []ElementLeaf) int {
+		height := bits.TrailingZeros64(j - i)
+		if len(leaves) == 0 {
+			return 1
+		} else if height == 0 {
+			return 0
+		}
+		mid := (i + j) / 2
+		left, right := splitLeaves(leaves, mid)
+		return proofSize(i, mid, left) + proofSize(mid, j, right)
+	}
+
+	size := 0
+	for height, leaves := range leavesByTree(txns) {
+		if len(leaves) == 0 {
+			continue
+		}
+		start := clearBits(leaves[0].LeafIndex, height+1)
+		end := start + 1<<height
+		size += proofSize(start, end, leaves)
+	}
+	return size
+}
+
+// ComputeMultiproof computes a single Merkle proof for all inputs in txns.
+func ComputeMultiproof(txns []types.Transaction) (proof []types.Hash256) {
+	var visit func(i, j uint64, leaves []ElementLeaf)
+	visit = func(i, j uint64, leaves []ElementLeaf) {
+		height := bits.TrailingZeros64(j - i)
+		if height == 0 {
+			return // fully consumed
+		}
+		mid := (i + j) / 2
+		left, right := splitLeaves(leaves, mid)
+		if len(left) == 0 {
+			proof = append(proof, right[0].MerkleProof[height-1])
+		} else {
+			visit(i, mid, left)
+		}
+		if len(right) == 0 {
+			proof = append(proof, left[0].MerkleProof[height-1])
+		} else {
+			visit(mid, j, right)
 		}
 	}
-}
 
-// EncodeTo implements types.EncoderTo.
-func (ha HistoryAccumulator) EncodeTo(e *types.Encoder) {
-	(StateAccumulator)(ha).EncodeTo(e)
-}
-
-// DecodeFrom implements types.DecoderFrom.
-func (ha *HistoryAccumulator) DecodeFrom(d *types.Decoder) {
-	(*StateAccumulator)(ha).DecodeFrom(d)
-}
-
-// EncodeTo implements types.EncoderTo.
-func (vc ValidationContext) EncodeTo(e *types.Encoder) {
-	vc.Index.EncodeTo(e)
-	vc.State.EncodeTo(e)
-	vc.History.EncodeTo(e)
-	for _, ts := range vc.PrevTimestamps {
-		e.WriteTime(ts)
+	for height, leaves := range leavesByTree(txns) {
+		if len(leaves) == 0 {
+			continue
+		}
+		start := clearBits(leaves[0].LeafIndex, height+1)
+		end := start + 1<<height
+		visit(start, end, leaves)
 	}
-	vc.TotalWork.EncodeTo(e)
-	vc.Difficulty.EncodeTo(e)
-	vc.OakWork.EncodeTo(e)
-	e.WriteUint64(uint64(vc.OakTime))
-	e.WriteTime(vc.GenesisTimestamp)
-	vc.SiafundPool.EncodeTo(e)
-	vc.FoundationAddress.EncodeTo(e)
+	return
 }
 
-// DecodeFrom implements types.DecoderFrom.
-func (vc *ValidationContext) DecodeFrom(d *types.Decoder) {
-	vc.Index.DecodeFrom(d)
-	vc.State.DecodeFrom(d)
-	vc.History.DecodeFrom(d)
-	for i := range vc.PrevTimestamps {
-		vc.PrevTimestamps[i] = d.ReadTime()
+// ExpandMultiproof restores all of the proofs with txns using the supplied
+// multiproof, which must be valid. The len of each proof must be the correct
+// size.
+func ExpandMultiproof(txns []types.Transaction, proof []types.Hash256) {
+	var expand func(i, j uint64, leaves []ElementLeaf) types.Hash256
+	expand = func(i, j uint64, leaves []ElementLeaf) types.Hash256 {
+		height := bits.TrailingZeros64(j - i)
+		if len(leaves) == 0 {
+			// no leaves in this subtree; must have a proof root
+			h := proof[0]
+			proof = proof[1:]
+			return h
+		} else if height == 0 {
+			return leaves[0].Hash()
+		}
+		mid := (i + j) / 2
+		left, right := splitLeaves(leaves, mid)
+		leftRoot := expand(i, mid, left)
+		rightRoot := expand(mid, j, right)
+		for i := range right {
+			right[i].MerkleProof[height-1] = leftRoot
+		}
+		for i := range left {
+			left[i].MerkleProof[height-1] = rightRoot
+		}
+		return NodeHash(leftRoot, rightRoot)
 	}
-	vc.TotalWork.DecodeFrom(d)
-	vc.Difficulty.DecodeFrom(d)
-	vc.OakWork.DecodeFrom(d)
-	vc.OakTime = time.Duration(d.ReadUint64())
-	vc.GenesisTimestamp = d.ReadTime()
-	vc.SiafundPool.DecodeFrom(d)
-	vc.FoundationAddress.DecodeFrom(d)
+
+	for height, leaves := range leavesByTree(txns) {
+		if len(leaves) == 0 {
+			continue
+		}
+		start := clearBits(leaves[0].LeafIndex, height+1)
+		end := start + 1<<height
+		expand(start, end, leaves)
+	}
 }
 
 // A CompressedBlock encodes a block in compressed form by merging its

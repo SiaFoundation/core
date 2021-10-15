@@ -1,12 +1,270 @@
 package consensus
 
 import (
+	"math"
 	"testing"
 	"time"
 
+	"go.sia.tech/core/merkle"
 	"go.sia.tech/core/types"
 	"lukechampine.com/frand"
 )
+
+func randAddr() types.Address {
+	return frand.Entropy256()
+}
+
+func randAmount() types.Currency {
+	return types.NewCurrency(
+		frand.Uint64n(math.MaxUint64),
+		frand.Uint64n(math.MaxUint64),
+	)
+}
+
+func TestApplyBlock(t *testing.T) {
+	b := genesisWithSiacoinOutputs([]types.SiacoinOutput{
+		{Value: randAmount(), Address: randAddr()},
+		{Value: randAmount(), Address: randAddr()},
+		{Value: randAmount(), Address: randAddr()},
+		{Value: randAmount(), Address: randAddr()},
+		{Value: randAmount(), Address: randAddr()},
+		{Value: randAmount(), Address: randAddr()},
+		{Value: randAmount(), Address: randAddr()},
+		{Value: randAmount(), Address: randAddr()},
+		{Value: randAmount(), Address: randAddr()},
+		{Value: randAmount(), Address: randAddr()},
+		{Value: randAmount(), Address: randAddr()},
+		{Value: randAmount(), Address: randAddr()},
+		{Value: randAmount(), Address: randAddr()},
+	}...)
+	update1 := GenesisUpdate(b, testingDifficulty)
+	acc1 := update1.Context.State
+	origOutputs := update1.NewSiacoinElements
+	if len(origOutputs) != len(b.Transactions[0].SiacoinOutputs)+1 {
+		t.Fatalf("expected %v new outputs, got %v", len(b.Transactions[0].SiacoinOutputs)+1, len(origOutputs))
+	}
+	// none of the outputs should be marked as spent
+	for _, o := range origOutputs {
+		if update1.SiacoinElementWasSpent(o) {
+			t.Error("update should not mark output as spent:", o)
+		}
+		if acc1.ContainsSpentSiacoinElement(o) || !acc1.ContainsUnspentSiacoinElement(o) {
+			t.Error("accumulator should contain unspent output:", o)
+		}
+	}
+
+	// apply a block that spends some outputs
+	txn := types.Transaction{
+		SiacoinInputs: []types.SiacoinInput{
+			{Parent: origOutputs[6], SpendPolicy: types.AnyoneCanSpend()},
+			{Parent: origOutputs[7], SpendPolicy: types.AnyoneCanSpend()},
+			{Parent: origOutputs[8], SpendPolicy: types.AnyoneCanSpend()},
+			{Parent: origOutputs[9], SpendPolicy: types.AnyoneCanSpend()},
+		},
+		SiacoinOutputs: []types.SiacoinOutput{{
+			Value:   randAmount(),
+			Address: randAddr(),
+		}},
+		MinerFee: randAmount(),
+	}
+	b = types.Block{
+		Header: types.BlockHeader{
+			Height:       b.Header.Height + 1,
+			ParentID:     b.ID(),
+			MinerAddress: randAddr(),
+		},
+		Transactions: []types.Transaction{txn},
+	}
+
+	update2 := ApplyBlock(update1.Context, b)
+	acc2 := update2.Context.State
+	for i := range origOutputs {
+		update2.UpdateElementProof(&origOutputs[i].StateElement)
+	}
+
+	// the update should mark each input as spent
+	for _, in := range txn.SiacoinInputs {
+		if !update2.SiacoinElementWasSpent(in.Parent) {
+			t.Error("update should mark input as spent:", in)
+		}
+	}
+	// the new accumulator should contain both the spent and unspent outputs
+	for _, o := range origOutputs {
+		if update2.SiacoinElementWasSpent(o) {
+			if acc2.ContainsUnspentSiacoinElement(o) || !acc2.ContainsSpentSiacoinElement(o) {
+				t.Error("accumulator should contain spent output:", o)
+			}
+		} else {
+			if acc2.ContainsSpentSiacoinElement(o) || !acc2.ContainsUnspentSiacoinElement(o) {
+				t.Error("accumulator should contain unspent output:", o)
+			}
+		}
+	}
+
+	// if we instead revert that block, we should see the inputs being "created"
+	// again and the outputs being destroyed
+	revertUpdate := RevertBlock(update1.Context, b)
+	revertAcc := revertUpdate.Context.State
+	if len(revertUpdate.SpentSiacoins) != len(txn.SiacoinInputs) {
+		t.Error("number of spent outputs after revert should equal number of inputs")
+	}
+	for _, o := range update2.NewSiacoinElements {
+		if !revertUpdate.SiacoinElementWasRemoved(o) {
+			t.Error("output created in reverted block should be marked as removed")
+		}
+	}
+	// update (a copy of) the proofs to reflect the revert
+	outputsWithRevert := append([]types.SiacoinElement(nil), origOutputs...)
+	for i := range outputsWithRevert {
+		outputsWithRevert[i].MerkleProof = append([]types.Hash256(nil), outputsWithRevert[i].MerkleProof...)
+		revertUpdate.UpdateElementProof(&outputsWithRevert[i].StateElement)
+	}
+	// the reverted proofs should be identical to the proofs prior to b
+	for _, o := range outputsWithRevert {
+		if update1.SiacoinElementWasSpent(o) {
+			t.Error("update should not mark output as spent:", o)
+		}
+		if revertAcc.ContainsSpentSiacoinElement(o) {
+			t.Error("output should not be marked as spent:", o)
+		}
+	}
+
+	// spend one of the outputs whose proof we've been maintaining,
+	// using an intermediary transaction to test "ephemeral" outputs
+	parentTxn := types.Transaction{
+		SiacoinInputs: []types.SiacoinInput{
+			{Parent: origOutputs[2], SpendPolicy: types.AnyoneCanSpend()},
+		},
+		SiacoinOutputs: []types.SiacoinOutput{{
+			Value:   randAmount(),
+			Address: randAddr(),
+		}},
+	}
+	childTxn := types.Transaction{
+		SiacoinInputs: []types.SiacoinInput{{
+			Parent: types.SiacoinElement{
+				StateElement: types.StateElement{
+					ID: types.ElementID{
+						Source: types.Hash256(parentTxn.ID()),
+						Index:  0,
+					},
+					LeafIndex: types.EphemeralLeafIndex,
+				},
+				SiacoinOutput: types.SiacoinOutput{
+					Value:   randAmount(),
+					Address: randAddr(),
+				},
+			},
+			SpendPolicy: types.AnyoneCanSpend(),
+		}},
+		SiacoinOutputs: []types.SiacoinOutput{{
+			Value:   randAmount(),
+			Address: randAddr(),
+		}},
+		MinerFee: randAmount(),
+	}
+
+	b = types.Block{
+		Header: types.BlockHeader{
+			Height:       b.Header.Height + 1,
+			ParentID:     b.ID(),
+			MinerAddress: randAddr(),
+		},
+		Transactions: []types.Transaction{parentTxn, childTxn},
+	}
+
+	update3 := ApplyBlock(update2.Context, b)
+	acc3 := update3.Context.State
+	for i := range origOutputs {
+		update3.UpdateElementProof(&origOutputs[i].StateElement)
+	}
+
+	// the update should mark each input as spent
+	for _, in := range parentTxn.SiacoinInputs {
+		if !update3.SiacoinElementWasSpent(in.Parent) {
+			t.Error("update should mark input as spent:", in)
+		}
+	}
+	// the new accumulator should contain both the spent and unspent outputs
+	for _, o := range origOutputs {
+		if update2.SiacoinElementWasSpent(o) || update3.SiacoinElementWasSpent(o) {
+			if acc3.ContainsUnspentSiacoinElement(o) || !acc3.ContainsSpentSiacoinElement(o) {
+				t.Error("accumulator should contain spent output:", o)
+			}
+		} else {
+			if acc3.ContainsSpentSiacoinElement(o) || !acc3.ContainsUnspentSiacoinElement(o) {
+				t.Error("accumulator should contain unspent output:", o)
+			}
+		}
+	}
+
+	// TODO: we should also be checking childTxn, but we can't check the
+	// ephemeral output without knowing its index
+}
+
+func TestRevertBlock(t *testing.T) {
+	b := genesisWithSiacoinOutputs([]types.SiacoinOutput{
+		{Value: randAmount(), Address: randAddr()},
+		{Value: randAmount(), Address: randAddr()},
+		{Value: randAmount(), Address: randAddr()},
+		{Value: randAmount(), Address: randAddr()},
+		{Value: randAmount(), Address: randAddr()},
+	}...)
+	update1 := GenesisUpdate(b, testingDifficulty)
+	origOutputs := update1.NewSiacoinElements
+	if len(origOutputs) != len(b.Transactions[0].SiacoinOutputs)+1 {
+		t.Fatalf("expected %v new outputs, got %v", len(b.Transactions[0].SiacoinOutputs)+1, len(origOutputs))
+	}
+
+	txn := types.Transaction{
+		SiacoinInputs: []types.SiacoinInput{
+			{Parent: origOutputs[5], SpendPolicy: types.AnyoneCanSpend()},
+		},
+		SiacoinOutputs: []types.SiacoinOutput{{
+			Value:   randAmount(),
+			Address: randAddr(),
+		}},
+		MinerFee: randAmount(),
+	}
+	b = types.Block{
+		Header: types.BlockHeader{
+			Height:       b.Header.Height + 1,
+			ParentID:     b.ID(),
+			MinerAddress: randAddr(),
+		},
+		Transactions: []types.Transaction{txn},
+	}
+
+	update2 := ApplyBlock(update1.Context, b)
+	for i := range origOutputs {
+		update2.UpdateElementProof(&origOutputs[i].StateElement)
+	}
+
+	// revert the block. We should see the inputs being "created" again
+	// and the outputs being destroyed
+	revertUpdate := RevertBlock(update1.Context, b)
+	if len(revertUpdate.SpentSiacoins) != len(txn.SiacoinInputs) {
+		t.Error("number of spent outputs after revert should equal number of inputs")
+	}
+	for _, o := range update2.NewSiacoinElements {
+		if !revertUpdate.SiacoinElementWasRemoved(o) {
+			t.Error("output created in reverted block should be marked as removed")
+		}
+	}
+	// update the proofs to reflect the revert
+	for i := range origOutputs {
+		revertUpdate.UpdateElementProof(&origOutputs[i].StateElement)
+	}
+	// the reverted proofs should be identical to the proofs prior to b
+	for _, o := range origOutputs {
+		if update1.SiacoinElementWasSpent(o) {
+			t.Error("update should not mark output as spent:", o)
+		}
+		if !update1.Context.State.ContainsUnspentSiacoinElement(o) {
+			t.Error("output should be in the accumulator, marked as unspent:", o)
+		}
+	}
+}
 
 func TestSiafunds(t *testing.T) {
 	pubkey, privkey := testingKeypair(0)
@@ -273,20 +531,14 @@ func TestFileContracts(t *testing.T) {
 
 	// renter and host now exchange data + revisions out-of-band; we simulate
 	// the final revision
-	segmentLeafHash := func(segment []byte) types.Hash256 {
-		buf := make([]byte, 1+64)
-		buf[0] = leafHashPrefix
-		copy(buf[1:], segment)
-		return types.HashBytes(buf)
-	}
 	data := frand.Bytes(64 * 2)
 	finalRev := types.FileContractRevision{
 		Parent:   fc,
 		Revision: fc.FileContract,
 	}
-	finalRev.Revision.FileMerkleRoot = merkleNodeHash(
-		segmentLeafHash(data[:64]),
-		segmentLeafHash(data[64:]),
+	finalRev.Revision.FileMerkleRoot = merkle.NodeHash(
+		merkle.StorageProofLeafHash(data[:64]),
+		merkle.StorageProofLeafHash(data[64:]),
 	)
 	finalRev.Revision.RevisionNumber++
 	contractHash := sau.Context.ContractSigHash(finalRev.Revision)
@@ -323,9 +575,9 @@ func TestFileContracts(t *testing.T) {
 	proofIndex := sau.Context.StorageProofSegmentIndex(fc.Filesize, sp.WindowStart, fc.ID)
 	copy(sp.DataSegment[:], data[64*proofIndex:])
 	if proofIndex == 0 {
-		sp.SegmentProof = append(sp.SegmentProof, segmentLeafHash(data[64:]))
+		sp.SegmentProof = append(sp.SegmentProof, merkle.StorageProofLeafHash(data[64:]))
 	} else {
-		sp.SegmentProof = append(sp.SegmentProof, segmentLeafHash(data[:64]))
+		sp.SegmentProof = append(sp.SegmentProof, merkle.StorageProofLeafHash(data[:64]))
 	}
 
 	// create valid contract resolution
@@ -366,5 +618,24 @@ func TestFileContracts(t *testing.T) {
 
 	if len(sau.NewSiacoinElements) != 3 {
 		t.Fatal("expected three new siacoin outputs")
+	}
+}
+
+func BenchmarkApplyBlock(b *testing.B) {
+	block := types.Block{
+		Transactions: []types.Transaction{{
+			SiacoinInputs: []types.SiacoinInput{{
+				Parent: types.SiacoinElement{
+					StateElement: types.StateElement{
+						LeafIndex: types.EphemeralLeafIndex,
+					},
+				},
+				SpendPolicy: types.AnyoneCanSpend(),
+			}},
+			SiacoinOutputs: make([]types.SiacoinOutput, 1000),
+		}},
+	}
+	for i := 0; i < b.N; i++ {
+		ApplyBlock(ValidationContext{}, block)
 	}
 }

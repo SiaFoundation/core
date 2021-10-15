@@ -24,7 +24,7 @@ func (sc *ScratchChain) AppendHeader(h types.BlockHeader) error {
 	if err := sc.hvc.validateHeader(h); err != nil {
 		return err
 	}
-	sc.hvc = applyHeader(sc.hvc, h)
+	applyHeader(&sc.hvc, h)
 	sc.headers = append(sc.headers, h)
 	return nil
 }
