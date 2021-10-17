@@ -14,10 +14,11 @@ import (
 
 	"lukechampine.com/frand"
 
+	"go.sia.tech/core/net/rpc"
 	"go.sia.tech/core/types"
 )
 
-var ErrInvalidName = errors.New("invalid name")
+var errInvalidName = errors.New("invalid name")
 
 var randomTxn = func() types.Transaction {
 	var valueFn func(t reflect.Type, r *rand.Rand) reflect.Value
@@ -47,14 +48,14 @@ var randomTxn = func() types.Transaction {
 	return txn.Interface().(types.Transaction)
 }()
 
-func deepEqual(a, b ProtocolObject) bool {
+func deepEqual(a, b rpc.ProtocolObject) bool {
 	var abuf bytes.Buffer
 	e := types.NewEncoder(&abuf)
-	a.encodeTo(e)
+	a.EncodeTo(e)
 	e.Flush()
 	var bbuf bytes.Buffer
 	e = types.NewEncoder(&bbuf)
-	b.encodeTo(e)
+	b.EncodeTo(e)
 	e.Flush()
 	return bytes.Equal(abuf.Bytes(), bbuf.Bytes())
 }
@@ -85,8 +86,8 @@ func newFakeConns() (io.ReadWriteCloser, io.ReadWriteCloser) {
 
 type objString string
 
-func (s *objString) encodeTo(e *types.Encoder)   { writePrefixedBytes(e, []byte(*s)) }
-func (s *objString) decodeFrom(d *types.Decoder) { *s = objString(readPrefixedBytes(d)) }
+func (s *objString) EncodeTo(e *types.Encoder)   { writePrefixedBytes(e, []byte(*s)) }
+func (s *objString) DecodeFrom(d *types.Decoder) { *s = objString(readPrefixedBytes(d)) }
 
 func TestSession(t *testing.T) {
 	renter, host := newFakeConns()
@@ -106,13 +107,13 @@ func TestSession(t *testing.T) {
 					return err
 				}
 				switch id {
-				case newSpecifier("Greet"):
+				case rpc.NewSpecifier("Greet"):
 					var name objString
 					if err := hs.ReadRequest(&name, 4096); err != nil {
 						return err
 					}
 					if name == "" {
-						err = hs.WriteResponse(nil, ErrInvalidName)
+						err = hs.WriteResponse(nil, errInvalidName)
 					} else {
 						resp := objString("Hello, " + name)
 						err = hs.WriteResponse(&resp, nil)
@@ -133,7 +134,7 @@ func TestSession(t *testing.T) {
 	}
 	req := objString("Foo")
 	var resp objString
-	if err := rs.WriteRequest(newSpecifier("Greet"), &req); err != nil {
+	if err := rs.WriteRequest(rpc.NewSpecifier("Greet"), &req); err != nil {
 		t.Fatal(err)
 	} else if err := rs.ReadResponse(&resp, 4096); err != nil {
 		t.Fatal(err)
@@ -141,9 +142,9 @@ func TestSession(t *testing.T) {
 		t.Fatal("unexpected response:", resp)
 	}
 	req = objString("")
-	if err := rs.WriteRequest(newSpecifier("Greet"), &req); err != nil {
+	if err := rs.WriteRequest(rpc.NewSpecifier("Greet"), &req); err != nil {
 		t.Fatal(err)
-	} else if err := rs.ReadResponse(&resp, 4096); !errors.Is(err, ErrInvalidName) {
+	} else if err := rs.ReadResponse(&resp, 4096); !errors.Is(err, errInvalidName) {
 		t.Fatal(err)
 	}
 	if err := rs.Close(); err != nil {
@@ -265,8 +266,8 @@ func TestEncoding(t *testing.T) {
 		frand.Read(s[:])
 		return
 	}
-	objs := []ProtocolObject{
-		&Specifier{'f', 'o', 'o'},
+	objs := []rpc.ProtocolObject{
+		&rpc.Specifier{'f', 'o', 'o'},
 		&RPCFormContractRequest{
 			Transactions: []types.Transaction{randomTxn},
 			RenterKey:    types.PublicKey{1, 2, 3},
@@ -329,11 +330,11 @@ func TestEncoding(t *testing.T) {
 	for _, o := range objs {
 		var b bytes.Buffer
 		e := types.NewEncoder(&b)
-		o.encodeTo(e)
+		o.EncodeTo(e)
 		e.Flush()
-		dup := reflect.New(reflect.TypeOf(o).Elem()).Interface().(ProtocolObject)
+		dup := reflect.New(reflect.TypeOf(o).Elem()).Interface().(rpc.ProtocolObject)
 		d := types.NewBufDecoder(b.Bytes())
-		dup.decodeFrom(d)
+		dup.DecodeFrom(d)
 		if d.Err() != nil {
 			t.Errorf("error decoding %T: %v", o, d.Err())
 		} else if !deepEqual(o, dup) {
@@ -342,16 +343,16 @@ func TestEncoding(t *testing.T) {
 	}
 }
 
-func encodedLen(o ProtocolObject) int {
+func encodedLen(o rpc.ProtocolObject) int {
 	var b bytes.Buffer
 	e := types.NewEncoder(&b)
-	o.encodeTo(e)
+	o.EncodeTo(e)
 	e.Flush()
 	return b.Len()
 }
 
 func BenchmarkWriteMessage(b *testing.B) {
-	bench := func(obj ProtocolObject) {
+	bench := func(obj rpc.ProtocolObject) {
 		name := strings.TrimPrefix(fmt.Sprintf("%T", obj), "*rhp.")
 		b.Run(name, func(b *testing.B) {
 			s := &Session{
@@ -372,7 +373,7 @@ func BenchmarkWriteMessage(b *testing.B) {
 		})
 	}
 
-	bench(new(Specifier))
+	bench(new(rpc.Specifier))
 	bench(&RPCSettingsResponse{Settings: make([]byte, 4096)})
 	bench(&RPCReadResponse{
 		Data:        make([]byte, SectorSize),
@@ -381,7 +382,7 @@ func BenchmarkWriteMessage(b *testing.B) {
 }
 
 func BenchmarkReadMessage(b *testing.B) {
-	bench := func(obj ProtocolObject) {
+	bench := func(obj rpc.ProtocolObject) {
 		name := strings.TrimPrefix(fmt.Sprintf("%T", obj), "*rhp.")
 		b.Run(name, func(b *testing.B) {
 			var buf bytes.Buffer
@@ -412,7 +413,7 @@ func BenchmarkReadMessage(b *testing.B) {
 		})
 	}
 
-	bench(new(Specifier))
+	bench(new(rpc.Specifier))
 	bench(&RPCSettingsResponse{Settings: make([]byte, 4096)})
 	bench(&RPCReadResponse{
 		Data:        make([]byte, SectorSize),

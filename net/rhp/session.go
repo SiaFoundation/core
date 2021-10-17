@@ -9,6 +9,7 @@ import (
 	"net"
 	"sync"
 
+	"go.sia.tech/core/net/rpc"
 	"go.sia.tech/core/types"
 	"golang.org/x/crypto/blake2b"
 	"lukechampine.com/frand"
@@ -89,29 +90,29 @@ func (s *Session) Write(p []byte) (int, error) { return s.conn.Write(p) }
 // Read implements io.Reader.
 func (s *Session) Read(p []byte) (int, error) { return s.conn.Read(p) }
 
-func (s *Session) writeMessage(obj ProtocolObject) error {
+func (s *Session) writeMessage(obj rpc.ProtocolObject) error {
 	if err := s.PrematureCloseErr(); err != nil {
 		return err
 	}
 	e := types.NewEncoder(s.conn)
-	obj.encodeTo(e)
+	obj.EncodeTo(e)
 	err := e.Flush()
 	s.setErr(err)
 	return err
 }
 
-func (s *Session) readMessage(obj ProtocolObject, maxLen uint64) error {
+func (s *Session) readMessage(obj rpc.ProtocolObject, maxLen uint64) error {
 	if err := s.PrematureCloseErr(); err != nil {
 		return err
 	}
 	d := types.NewDecoder(io.LimitedReader{R: s.conn, N: int64(maxLen)})
-	obj.decodeFrom(d)
+	obj.DecodeFrom(d)
 	s.setErr(d.Err())
 	return d.Err()
 }
 
 // WriteRequest sends an RPC request, comprising an RPC ID and a request object.
-func (s *Session) WriteRequest(rpcID Specifier, req ProtocolObject) error {
+func (s *Session) WriteRequest(rpcID rpc.Specifier, req rpc.ProtocolObject) error {
 	if err := s.writeMessage(&rpcID); err != nil {
 		return fmt.Errorf("WriteRequestID: %w", err)
 	}
@@ -125,7 +126,7 @@ func (s *Session) WriteRequest(rpcID Specifier, req ProtocolObject) error {
 
 // ReadID reads an RPC request ID. If the renter sends the session termination
 // signal, ReadID returns ErrRenterClosed.
-func (s *Session) ReadID() (rpcID Specifier, err error) {
+func (s *Session) ReadID() (rpcID rpc.Specifier, err error) {
 	err = s.readMessage(&rpcID, 16)
 	if rpcID == loopExit {
 		err = ErrRenterClosed
@@ -136,7 +137,7 @@ func (s *Session) ReadID() (rpcID Specifier, err error) {
 }
 
 // ReadRequest reads an RPC request using the new loop protocol.
-func (s *Session) ReadRequest(req ProtocolObject, maxLen uint64) error {
+func (s *Session) ReadRequest(req rpc.ProtocolObject, maxLen uint64) error {
 	if err := s.readMessage(req, maxLen); err != nil {
 		return fmt.Errorf("ReadRequest: %w", err)
 	}
@@ -146,13 +147,13 @@ func (s *Session) ReadRequest(req ProtocolObject, maxLen uint64) error {
 // WriteResponse writes an RPC response object or error. Either resp or err must
 // be nil. If err is an *RPCError, it is sent directly; otherwise, a generic
 // RPCError is created from err's Error string.
-func (s *Session) WriteResponse(resp ProtocolObject, err error) error {
-	re, ok := err.(*RPCError)
+func (s *Session) WriteResponse(resp rpc.ProtocolObject, err error) error {
+	re, ok := err.(*rpc.Error)
 	if err != nil && !ok {
-		re = &RPCError{Description: err.Error()}
+		re = &rpc.Error{Description: err.Error()}
 	}
 
-	if err := s.writeMessage(&rpcResponse{re, resp}); err != nil {
+	if err := s.writeMessage(&rpc.Response{re, resp}); err != nil {
 		return fmt.Errorf("WriteResponse: %w", err)
 	}
 	return nil
@@ -160,12 +161,12 @@ func (s *Session) WriteResponse(resp ProtocolObject, err error) error {
 
 // ReadResponse reads an RPC response. If the response is an error, it is
 // returned directly.
-func (s *Session) ReadResponse(resp ProtocolObject, maxLen uint64) error {
-	rr := rpcResponse{nil, resp}
+func (s *Session) ReadResponse(resp rpc.ProtocolObject, maxLen uint64) error {
+	rr := rpc.Response{nil, resp}
 	if err := s.readMessage(&rr, maxLen); err != nil {
 		return fmt.Errorf("failed to read message: %w", err)
-	} else if rr.err != nil {
-		return fmt.Errorf("response error: %w", rr.err)
+	} else if rr.Err != nil {
+		return fmt.Errorf("response error: %w", rr.Err)
 	}
 	return nil
 }
@@ -192,8 +193,8 @@ func NewHostSession(conn io.ReadWriteCloser) (*Session, error) {
 		isRenter: false,
 	}
 	frand.Read(s.challenge[:])
-	// hack: cast challenge to Specifier to make it a ProtocolObject
-	if err := s.writeMessage((*Specifier)(&s.challenge)); err != nil {
+	// hack: cast challenge to rpc.Specifier to make it a rpc.ProtocolObject
+	if err := s.writeMessage((*rpc.Specifier)(&s.challenge)); err != nil {
 		return nil, fmt.Errorf("couldn't write challenge: %w", err)
 	}
 	return s, nil
@@ -206,8 +207,8 @@ func NewRenterSession(conn io.ReadWriteCloser) (*Session, error) {
 		conn:     conn,
 		isRenter: true,
 	}
-	// hack: cast challenge to Specifier to make it a ProtocolObject
-	if err := s.readMessage((*Specifier)(&s.challenge), 16); err != nil {
+	// hack: cast challenge to rpc.Specifier to make it a rpc.ProtocolObject
+	if err := s.readMessage((*rpc.Specifier)(&s.challenge), 16); err != nil {
 		return nil, fmt.Errorf("couldn't read host's challenge: %w", err)
 	}
 	return s, nil
