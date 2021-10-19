@@ -10,6 +10,7 @@ import (
 
 	"go.sia.tech/core/chain"
 	"go.sia.tech/core/consensus"
+	"go.sia.tech/core/merkle"
 	"go.sia.tech/core/types"
 )
 
@@ -440,7 +441,7 @@ func readIndex(r io.Reader) (index types.ChainIndex, offset int64, err error) {
 
 func writeCheckpoint(w io.Writer, c consensus.Checkpoint) error {
 	e := types.NewEncoder(w)
-	(consensus.CompressedBlock)(c.Block).EncodeTo(e)
+	(merkle.CompressedBlock)(c.Block).EncodeTo(e)
 	c.Context.EncodeTo(e)
 	return e.Flush()
 }
@@ -450,7 +451,7 @@ func readCheckpoint(r io.Reader, c *consensus.Checkpoint) error {
 		R: r,
 		N: 10e6, // a checkpoint should never be anywhere near this large
 	})
-	(*consensus.CompressedBlock)(&c.Block).DecodeFrom(d)
+	(*merkle.CompressedBlock)(&c.Block).DecodeFrom(d)
 	c.Context.DecodeFrom(d)
 	return d.Err()
 }

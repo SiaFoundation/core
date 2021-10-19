@@ -3,6 +3,7 @@ package consensus
 import (
 	"time"
 
+	"go.sia.tech/core/merkle"
 	"go.sia.tech/core/types"
 )
 
@@ -66,12 +67,12 @@ func adjustDifficulty(difficulty types.Work, height uint64, actualTime time.Dura
 	return newDifficulty
 }
 
-func applyHeader(vc ValidationContext, h types.BlockHeader) ValidationContext {
+func applyHeader(vc *ValidationContext, h types.BlockHeader) {
 	if h.Height == 0 {
 		// special handling for GenesisUpdate
 		vc.PrevTimestamps[0] = h.Timestamp
 		vc.Index = h.Index()
-		return vc
+		return
 	}
 	blockWork := types.WorkRequiredForHash(h.ID())
 	vc.TotalWork = vc.TotalWork.Add(blockWork)
@@ -85,42 +86,43 @@ func applyHeader(vc ValidationContext, h types.BlockHeader) ValidationContext {
 		vc.PrevTimestamps[len(vc.PrevTimestamps)-1] = h.Timestamp
 	}
 	vc.Index = h.Index()
-	return vc
 }
 
-func updatedInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinElement, sfos []types.SiafundElement, fcs []types.FileContractElement, objects []stateObject) {
-	addObject := func(so stateObject) {
+func updatedInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinElement, sfos []types.SiafundElement, revised, resolved []types.FileContractElement, leaves []merkle.ElementLeaf) {
+	addLeaf := func(l merkle.ElementLeaf) {
 		// copy proofs so we don't mutate transaction data
-		so.MerkleProof = append([]types.Hash256(nil), so.MerkleProof...)
-		objects = append(objects, so)
+		l.MerkleProof = append([]types.Hash256(nil), l.MerkleProof...)
+		leaves = append(leaves, l)
 	}
 
 	for _, txn := range b.Transactions {
 		for _, in := range txn.SiacoinInputs {
-			scos = append(scos, in.Parent)
 			if in.Parent.LeafIndex != types.EphemeralLeafIndex {
-				addObject(siacoinElementStateObject(in.Parent, true))
+				scos = append(scos, in.Parent)
+				addLeaf(merkle.SiacoinLeaf(in.Parent, true))
 			}
 		}
 		for _, in := range txn.SiafundInputs {
 			sfos = append(sfos, in.Parent)
-			addObject(siafundElementStateObject(in.Parent, true))
+			addLeaf(merkle.SiafundLeaf(in.Parent, true))
 		}
 		for _, fcr := range txn.FileContractRevisions {
 			fc := fcr.Parent
 			fc.FileContract = fcr.Revision
-			fcs = append(fcs, fc)
-			addObject(fileContractElementStateObject(fc, false))
+			revised = append(revised, fc)
+			addLeaf(merkle.FileContractLeaf(fc, false))
 		}
 		for _, fcr := range txn.FileContractResolutions {
-			addObject(fileContractElementStateObject(fcr.Parent, true))
+			fc := fcr.Parent
+			resolved = append(resolved, fc)
+			addLeaf(merkle.FileContractLeaf(fc, true))
 		}
 	}
 
 	return
 }
 
-func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinElement, sfes []types.SiafundElement, fces []types.FileContractElement, objects []stateObject) {
+func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinElement, sfes []types.SiafundElement, fces []types.FileContractElement, leaves []merkle.ElementLeaf) {
 	spent := make(map[types.ElementID]bool)
 	for _, txn := range b.Transactions {
 		for _, in := range txn.SiacoinInputs {
@@ -131,15 +133,15 @@ func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinEl
 	}
 	addSiacoinElement := func(sce types.SiacoinElement) {
 		sces = append(sces, sce)
-		objects = append(objects, siacoinElementStateObject(sce, spent[sce.ID]))
+		leaves = append(leaves, merkle.SiacoinLeaf(sce, spent[sce.ID]))
 	}
 	addSiafundElement := func(sfe types.SiafundElement) {
 		sfes = append(sfes, sfe)
-		objects = append(objects, siafundElementStateObject(sfe, spent[sfe.ID]))
+		leaves = append(leaves, merkle.SiafundLeaf(sfe, spent[sfe.ID]))
 	}
 	addFileContract := func(fce types.FileContractElement) {
 		fces = append(fces, fce)
-		objects = append(objects, fileContractElementStateObject(fce, spent[fce.ID]))
+		leaves = append(leaves, merkle.FileContractLeaf(fce, spent[fce.ID]))
 	}
 
 	addSiacoinElement(types.SiacoinElement{
@@ -233,26 +235,26 @@ func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinEl
 	return
 }
 
-// A StateApplyUpdate reflects the changes to consensus state resulting from the
+// A ApplyUpdate reflects the changes to consensus state resulting from the
 // application of a block.
-type StateApplyUpdate struct {
-	Context              ValidationContext
-	SpentSiacoinElements []types.SiacoinElement
-	NewSiacoinElements   []types.SiacoinElement
-	SpentSiafundElements []types.SiafundElement
-	NewSiafundElements   []types.SiafundElement
-	RevisedFileContracts []types.FileContractElement
-	NewFileContracts     []types.FileContractElement
-	updatedElements      [64][]stateObject
-	treeGrowth           [64][]types.Hash256
-	historyProof         []types.Hash256
-	historyGrowth        []types.Hash256
+type ApplyUpdate struct {
+	merkle.ElementApplyUpdate
+	merkle.HistoryApplyUpdate
+
+	Context               ValidationContext
+	SpentSiacoins         []types.SiacoinElement
+	SpentSiafunds         []types.SiafundElement
+	RevisedFileContracts  []types.FileContractElement
+	ResolvedFileContracts []types.FileContractElement
+	NewSiacoinElements    []types.SiacoinElement
+	NewSiafundElements    []types.SiafundElement
+	NewFileContracts      []types.FileContractElement
 }
 
 // SiacoinElementWasSpent returns true if the given SiacoinElement was spent.
-func (sau *StateApplyUpdate) SiacoinElementWasSpent(sce types.SiacoinElement) bool {
-	for i := range sau.SpentSiacoinElements {
-		if sau.SpentSiacoinElements[i].LeafIndex == sce.LeafIndex {
+func (au *ApplyUpdate) SiacoinElementWasSpent(sce types.SiacoinElement) bool {
+	for i := range au.SpentSiacoins {
+		if au.SpentSiacoins[i].LeafIndex == sce.LeafIndex {
 			return true
 		}
 	}
@@ -260,148 +262,115 @@ func (sau *StateApplyUpdate) SiacoinElementWasSpent(sce types.SiacoinElement) bo
 }
 
 // SiafundElementWasSpent returns true if the given SiafundElement was spent.
-func (sau *StateApplyUpdate) SiafundElementWasSpent(sfe types.SiafundElement) bool {
-	for i := range sau.SpentSiafundElements {
-		if sau.SpentSiafundElements[i].LeafIndex == sfe.LeafIndex {
+func (au *ApplyUpdate) SiafundElementWasSpent(sfe types.SiafundElement) bool {
+	for i := range au.SpentSiafunds {
+		if au.SpentSiafunds[i].LeafIndex == sfe.LeafIndex {
 			return true
 		}
 	}
 	return false
 }
 
-// UpdateElementProof updates the Merkle proof of the supplied element to
-// incorporate the changes made to the state tree. The element's proof must be
-// up-to-date; if it is not, UpdateElementProof may panic.
-func (sau *StateApplyUpdate) UpdateElementProof(se *types.StateElement) {
-	updateProof(se.MerkleProof, se.LeafIndex, &sau.updatedElements)
-	se.MerkleProof = append(se.MerkleProof, sau.treeGrowth[len(se.MerkleProof)]...)
-}
-
-func (sau *StateApplyUpdate) updateHistoryProof(proof []types.Hash256, leafIndex uint64) []types.Hash256 {
-	if len(sau.historyGrowth) > len(proof) {
-		proof = append(proof, sau.historyGrowth[len(proof)])
-		proof = append(proof, sau.historyProof[len(proof):]...)
+// FileContractElementWasResolved returns true if the given FileContractElement was resolved.
+func (au *ApplyUpdate) FileContractElementWasResolved(fce types.FileContractElement) bool {
+	for i := range au.ResolvedFileContracts {
+		if au.ResolvedFileContracts[i].LeafIndex == fce.LeafIndex {
+			return true
+		}
 	}
-	return proof
+	return false
 }
 
-// UpdateWindowProof updates the history proof of the supplied storage proof
-// contract to incorporate the changes made to the state tree. The contract's
-// proof must be up-to-date; if it is not, UpdateWindowProof may panic.
-func (sau *StateApplyUpdate) UpdateWindowProof(sp *types.StorageProof) {
-	sp.WindowProof = sau.updateHistoryProof(sp.WindowProof, sp.WindowStart.Height)
-}
-
-// HistoryProof returns a history proof for the current block.
-func (sau *StateApplyUpdate) HistoryProof() []types.Hash256 {
-	return append([]types.Hash256(nil), sau.historyProof...)
-}
-
-// ApplyBlock integrates a block into the current consensus state, producing
-// a StateApplyUpdate detailing the resulting changes. The block is assumed to
-// be fully validated.
-func ApplyBlock(vc ValidationContext, b types.Block) (sau StateApplyUpdate) {
-	sau.Context = applyHeader(vc, b.Header)
-
-	var updated, created []stateObject
-	sau.SpentSiacoinElements, sau.SpentSiafundElements, sau.RevisedFileContracts, updated = updatedInBlock(vc, b)
-	sau.NewSiacoinElements, sau.NewSiafundElements, sau.NewFileContracts, created = createdInBlock(vc, b)
-
-	sau.updatedElements = sau.Context.State.updateExistingObjects(updated)
-	sau.treeGrowth = sau.Context.State.addNewObjects(created)
-	for i := range sau.NewSiacoinElements {
-		sau.NewSiacoinElements[i].StateElement = created[0].StateElement
+// ApplyBlock integrates a block into the current consensus state, producing an
+// ApplyUpdate detailing the resulting changes. The block is assumed to be fully
+// validated.
+func ApplyBlock(vc ValidationContext, b types.Block) (au ApplyUpdate) {
+	// update elements
+	var updated, created []merkle.ElementLeaf
+	au.SpentSiacoins, au.SpentSiafunds, au.RevisedFileContracts, au.ResolvedFileContracts, updated = updatedInBlock(vc, b)
+	au.NewSiacoinElements, au.NewSiafundElements, au.NewFileContracts, created = createdInBlock(vc, b)
+	au.ElementApplyUpdate = vc.State.ApplyBlock(updated, created)
+	for i := range au.NewSiacoinElements {
+		au.NewSiacoinElements[i].StateElement = created[0].StateElement
 		created = created[1:]
 	}
-	for i := range sau.NewSiafundElements {
-		sau.NewSiafundElements[i].StateElement = created[0].StateElement
+	for i := range au.NewSiafundElements {
+		au.NewSiafundElements[i].StateElement = created[0].StateElement
 		created = created[1:]
 	}
-	for i := range sau.NewFileContracts {
-		sau.NewFileContracts[i].StateElement = created[0].StateElement
+	for i := range au.NewFileContracts {
+		au.NewFileContracts[i].StateElement = created[0].StateElement
 		created = created[1:]
 	}
 
-	sau.historyProof = sau.Context.History.appendLeaf(b.Index())
-	sau.historyGrowth = historyGrowth(b.Index(), sau.historyProof)
+	// update history
+	au.HistoryApplyUpdate = vc.History.ApplyBlock(b.Index())
 
+	// update context
+	applyHeader(&vc, b.Header)
 	for _, txn := range b.Transactions {
-		// update SiafundPool
 		for _, fc := range txn.FileContracts {
-			sau.Context.SiafundPool = sau.Context.SiafundPool.Add(sau.Context.FileContractTax(fc))
+			vc.SiafundPool = vc.SiafundPool.Add(vc.FileContractTax(fc))
 		}
-		// update Foundation address
 		if txn.NewFoundationAddress != types.VoidAddress {
-			sau.Context.FoundationAddress = txn.NewFoundationAddress
+			vc.FoundationAddress = txn.NewFoundationAddress
 		}
 	}
+	au.Context = vc
 
 	return
 }
 
-// GenesisUpdate returns the StateApplyUpdate for the genesis block b.
-func GenesisUpdate(b types.Block, initialDifficulty types.Work) StateApplyUpdate {
+// GenesisUpdate returns the ApplyUpdate for the genesis block b.
+func GenesisUpdate(b types.Block, initialDifficulty types.Work) ApplyUpdate {
 	return ApplyBlock(ValidationContext{
 		Difficulty:       initialDifficulty,
 		GenesisTimestamp: b.Header.Timestamp,
 	}, b)
 }
 
-// A StateRevertUpdate reflects the changes to consensus state resulting from the
+// A RevertUpdate reflects the changes to consensus state resulting from the
 // removal of a block.
-type StateRevertUpdate struct {
-	Context              ValidationContext
-	SpentSiacoinElements []types.SiacoinElement
-	NewSiacoinElements   []types.SiacoinElement
-	SpentSiafundElements []types.SiafundElement
-	NewSiafundElements   []types.SiafundElement
-	RevisedFileContracts []types.FileContractElement
-	NewFileContracts     []types.FileContractElement
-	updatedElements      [64][]stateObject
+type RevertUpdate struct {
+	merkle.ElementRevertUpdate
+	merkle.HistoryRevertUpdate
+
+	Context               ValidationContext
+	SpentSiacoins         []types.SiacoinElement
+	SpentSiafunds         []types.SiafundElement
+	RevisedFileContracts  []types.FileContractElement
+	ResolvedFileContracts []types.FileContractElement
+	NewSiacoinElements    []types.SiacoinElement
+	NewSiafundElements    []types.SiafundElement
+	NewFileContracts      []types.FileContractElement
 }
 
 // SiacoinElementWasRemoved returns true if the specified SiacoinElement was
 // reverted.
-func (sru *StateRevertUpdate) SiacoinElementWasRemoved(o types.SiacoinElement) bool {
-	return o.LeafIndex >= sru.Context.State.NumLeaves
+func (ru *RevertUpdate) SiacoinElementWasRemoved(sce types.SiacoinElement) bool {
+	return sce.LeafIndex >= ru.Context.State.NumLeaves
 }
 
 // SiafundElementWasRemoved returns true if the specified SiafundElement was
 // reverted.
-func (sru *StateRevertUpdate) SiafundElementWasRemoved(o types.SiafundElement) bool {
-	return o.LeafIndex >= sru.Context.State.NumLeaves
+func (ru *RevertUpdate) SiafundElementWasRemoved(sfe types.SiafundElement) bool {
+	return sfe.LeafIndex >= ru.Context.State.NumLeaves
 }
 
-// UpdateElementProof updates the Merkle proof of the supplied element to
-// incorporate the changes made to the state tree. The element's proof must be
-// up-to-date; if it is not, UpdateElementProof may panic.
-func (sru *StateRevertUpdate) UpdateElementProof(se *types.StateElement) {
-	if mh := mergeHeight(sru.Context.State.NumLeaves, se.LeafIndex); mh <= len(se.MerkleProof) {
-		se.MerkleProof = se.MerkleProof[:mh-1]
-	}
-	updateProof(se.MerkleProof, se.LeafIndex, &sru.updatedElements)
+// FileContractElementWasRemoved returns true if the specified
+// FileContractElement was reverted.
+func (ru *RevertUpdate) FileContractElementWasRemoved(o types.FileContractElement) bool {
+	return o.LeafIndex >= ru.Context.State.NumLeaves
 }
 
-func (sru *StateRevertUpdate) updateHistoryProof(proof []types.Hash256, leafIndex uint64) []types.Hash256 {
-	if mh := mergeHeight(sru.Context.Index.Height, leafIndex); mh <= len(proof) {
-		proof = proof[:mh-1]
-	}
-	return proof
-}
-
-// UpdateWindowProof updates the history proof of the supplied storage proof
-// contract to incorporate the changes made to the state tree. The contract's
-// proof must be up-to-date; if it is not, UpdateWindowProof may panic.
-func (sru *StateRevertUpdate) UpdateWindowProof(sp *types.StorageProof) {
-	sp.WindowProof = sru.updateHistoryProof(sp.WindowProof, sp.WindowStart.Height)
-}
-
-// RevertBlock produces a StateRevertUpdate from a block and the
-// ValidationContext prior to that block.
-func RevertBlock(vc ValidationContext, b types.Block) (sru StateRevertUpdate) {
-	sru.Context = vc
-	sru.SpentSiacoinElements, sru.SpentSiafundElements, sru.RevisedFileContracts, _ = updatedInBlock(vc, b)
-	sru.NewSiacoinElements, sru.NewSiafundElements, sru.NewFileContracts, _ = createdInBlock(vc, b)
-	sru.updatedElements = objectsByTree(b.Transactions)
+// RevertBlock produces a RevertUpdate from a block and the ValidationContext
+// prior to that block.
+func RevertBlock(vc ValidationContext, b types.Block) (ru RevertUpdate) {
+	ru.Context = vc
+	ru.HistoryRevertUpdate = ru.Context.History.RevertBlock(b.Index())
+	var updated []merkle.ElementLeaf
+	ru.SpentSiacoins, ru.SpentSiafunds, ru.RevisedFileContracts, ru.ResolvedFileContracts, updated = updatedInBlock(vc, b)
+	ru.NewSiacoinElements, ru.NewSiafundElements, ru.NewFileContracts, _ = createdInBlock(vc, b)
+	ru.ElementRevertUpdate = ru.Context.State.RevertBlock(updated)
 	return
 }

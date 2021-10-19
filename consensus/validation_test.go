@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"go.sia.tech/core/merkle"
 	"go.sia.tech/core/types"
 	"lukechampine.com/frand"
 )
@@ -39,6 +40,31 @@ func signAllInputs(txn *types.Transaction, vc ValidationContext, priv ed25519.Pr
 	}
 	for i := range txn.SiafundInputs {
 		txn.SiafundInputs[i].Signatures = []types.InputSignature{types.InputSignature(types.SignHash(priv, sigHash))}
+	}
+}
+
+func TestBlockRewardValue(t *testing.T) {
+	reward := func(height uint64) types.Currency {
+		return (&ValidationContext{Index: types.ChainIndex{Height: height - 1}}).BlockReward()
+	}
+
+	tests := []struct {
+		height uint64
+		exp    string
+	}{
+		{0, "300000"},
+		{1, "299999"},
+		{100000, "200000"},
+		{269999, "30001"},
+		{270000, "30000"},
+		{270001, "30000"},
+		{1e6, "30000"},
+	}
+	for _, test := range tests {
+		got := reward(test.height)
+		if got.String() != test.exp {
+			t.Errorf("expected %v, got %v", test.exp, got)
+		}
 	}
 }
 
@@ -132,9 +158,9 @@ func TestValidateTransaction(t *testing.T) {
 	renterPubkey, renterPrivkey := testingKeypair(1)
 	hostPubkey, hostPrivkey := testingKeypair(2)
 	data := frand.Bytes(64 * 2)
-	dataRoot := merkleNodeHash(
-		storageProofLeafHash(data[:64]),
-		storageProofLeafHash(data[64:]),
+	dataRoot := merkle.NodeHash(
+		merkle.StorageProofLeafHash(data[:64]),
+		merkle.StorageProofLeafHash(data[64:]),
 	)
 	genesisBlock := types.Block{
 		Header: types.BlockHeader{Timestamp: time.Unix(734600000, 0)},
@@ -237,9 +263,9 @@ func TestValidateTransaction(t *testing.T) {
 	proofIndex := sau.Context.StorageProofSegmentIndex(closedContract.Filesize, closedProof.WindowStart, closedContract.ID)
 	copy(closedProof.DataSegment[:], data[64*proofIndex:])
 	if proofIndex == 0 {
-		closedProof.SegmentProof = append(closedProof.SegmentProof, storageProofLeafHash(data[64:]))
+		closedProof.SegmentProof = append(closedProof.SegmentProof, merkle.StorageProofLeafHash(data[64:]))
 	} else {
-		closedProof.SegmentProof = append(closedProof.SegmentProof, storageProofLeafHash(data[:64]))
+		closedProof.SegmentProof = append(closedProof.SegmentProof, merkle.StorageProofLeafHash(data[:64]))
 	}
 	resolvedValidProof := types.StorageProof{
 		WindowStart: sau.Context.Index,
@@ -248,9 +274,9 @@ func TestValidateTransaction(t *testing.T) {
 	proofIndex = sau.Context.StorageProofSegmentIndex(resolvedValidContract.Filesize, resolvedValidProof.WindowStart, resolvedValidContract.ID)
 	copy(resolvedValidProof.DataSegment[:], data[64*proofIndex:])
 	if proofIndex == 0 {
-		resolvedValidProof.SegmentProof = append(resolvedValidProof.SegmentProof, storageProofLeafHash(data[64:]))
+		resolvedValidProof.SegmentProof = append(resolvedValidProof.SegmentProof, merkle.StorageProofLeafHash(data[64:]))
 	} else {
-		resolvedValidProof.SegmentProof = append(resolvedValidProof.SegmentProof, storageProofLeafHash(data[:64]))
+		resolvedValidProof.SegmentProof = append(resolvedValidProof.SegmentProof, merkle.StorageProofLeafHash(data[:64]))
 	}
 
 	// mine a block so that resolvedMissedContract's proof window expires, then
