@@ -71,10 +71,15 @@ func (e *Encoder) WritePrefix(i int) { e.WriteUint64(uint64(i)) }
 // WriteTime writes a time.Time value to the underlying stream.
 func (e *Encoder) WriteTime(t time.Time) { e.WriteUint64(uint64(t.Unix())) }
 
-// WriteString writes a string value to the underlying stream.
+// WriteBytes writes a length-prefixed []byte to the underlying stream.
+func (e *Encoder) WriteBytes(b []byte) {
+	e.WritePrefix(len(b))
+	e.Write(b)
+}
+
+// WriteString writes a length-prefixed string to the underlying stream.
 func (e *Encoder) WriteString(s string) {
-	e.WritePrefix(len(s))
-	e.Write([]byte(s))
+	e.WriteBytes([]byte(s))
 }
 
 // NewEncoder returns an Encoder that wraps the provided stream.
@@ -194,11 +199,16 @@ func (d *Decoder) ReadPrefix() int {
 // ReadTime reads a time.Time from the underlying stream.
 func (d *Decoder) ReadTime() time.Time { return time.Unix(int64(d.ReadUint64()), 0) }
 
-// ReadString reads a string from the underlying stream.
-func (d *Decoder) ReadString() string {
+// ReadBytes reads a length-prefixed []byte from the underlying stream.
+func (d *Decoder) ReadBytes() []byte {
 	b := make([]byte, d.ReadPrefix())
 	d.Read(b)
-	return string(b)
+	return b
+}
+
+// ReadString reads a length-prefixed string from the underlying stream.
+func (d *Decoder) ReadString() string {
+	return string(d.ReadBytes())
 }
 
 // NewDecoder returns a Decoder that wraps the provided stream.
@@ -478,8 +488,7 @@ func (txn Transaction) EncodeTo(e *Encoder) {
 	for _, res := range txn.FileContractResolutions {
 		res.EncodeTo(e)
 	}
-	e.WritePrefix(len(txn.ArbitraryData))
-	e.Write(txn.ArbitraryData)
+	e.WriteBytes(txn.ArbitraryData)
 	txn.NewFoundationAddress.EncodeTo(e)
 	txn.MinerFee.EncodeTo(e)
 }
@@ -731,8 +740,7 @@ func (txn *Transaction) DecodeFrom(d *Decoder) {
 	for i := range txn.FileContractResolutions {
 		txn.FileContractResolutions[i].DecodeFrom(d)
 	}
-	txn.ArbitraryData = make([]byte, d.ReadPrefix())
-	d.Read(txn.ArbitraryData)
+	txn.ArbitraryData = d.ReadBytes()
 	txn.NewFoundationAddress.DecodeFrom(d)
 	txn.MinerFee.DecodeFrom(d)
 }

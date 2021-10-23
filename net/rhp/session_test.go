@@ -4,11 +4,10 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"errors"
-	"fmt"
 	"io"
 	"math/rand"
+	"net"
 	"reflect"
-	"strings"
 	"testing"
 	"testing/quick"
 
@@ -48,7 +47,7 @@ var randomTxn = func() types.Transaction {
 	return txn.Interface().(types.Transaction)
 }()
 
-func deepEqual(a, b rpc.ProtocolObject) bool {
+func deepEqual(a, b types.EncoderTo) bool {
 	var abuf bytes.Buffer
 	e := types.NewEncoder(&abuf)
 	a.EncodeTo(e)
@@ -90,161 +89,71 @@ func (s *objString) EncodeTo(e *types.Encoder)   { writePrefixedBytes(e, []byte(
 func (s *objString) DecodeFrom(d *types.Decoder) { *s = objString(readPrefixedBytes(d)) }
 
 func TestSession(t *testing.T) {
-	renter, host := newFakeConns()
-	hostErr := make(chan error, 1)
-	go func() {
-		hostErr <- func() error {
-			hs, err := NewHostSession(host)
-			if err != nil {
-				return err
-			}
-			defer hs.Close()
-			for {
-				id, err := hs.ReadID()
-				if errors.Is(err, ErrRenterClosed) {
-					return nil
-				} else if err != nil {
-					return err
-				}
-				switch id {
-				case rpc.NewSpecifier("Greet"):
-					var name objString
-					if err := hs.ReadRequest(&name, 4096); err != nil {
-						return err
-					}
-					if name == "" {
-						err = hs.WriteResponse(nil, errInvalidName)
-					} else {
-						resp := objString("Hello, " + name)
-						err = hs.WriteResponse(&resp, nil)
-					}
-					if err != nil {
-						return err
-					}
-				default:
-					return errors.New("unknown specifier")
-				}
-			}
-		}()
-	}()
-
-	rs, err := NewRenterSession(renter)
+	// initialize host
+	hostPrivKey := ed25519.NewKeyFromSeed(frand.Bytes(32))
+	hostPubKey := hostPrivKey.Public().(ed25519.PublicKey)
+	contractPrivKey := ed25519.NewKeyFromSeed(frand.Bytes(32))
+	var contractPubKey types.PublicKey
+	copy(contractPubKey[:], contractPrivKey[32:])
+	l, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := objString("Foo")
-	var resp objString
-	if err := rs.WriteRequest(rpc.NewSpecifier("Greet"), &req); err != nil {
-		t.Fatal(err)
-	} else if err := rs.ReadResponse(&resp, 4096); err != nil {
-		t.Fatal(err)
-	} else if resp != "Hello, Foo" {
-		t.Fatal("unexpected response:", resp)
-	}
-	req = objString("")
-	if err := rs.WriteRequest(rpc.NewSpecifier("Greet"), &req); err != nil {
-		t.Fatal(err)
-	} else if err := rs.ReadResponse(&resp, 4096); !errors.Is(err, errInvalidName) {
-		t.Fatal(err)
-	}
-	if err := rs.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := <-hostErr; err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestFormContract(t *testing.T) {
-	const msgSize = 1 << 15
-
-	renterReq := &RPCFormContractRequest{
-		Transactions: []types.Transaction{randomTxn, randomTxn},
-		RenterKey:    frand.Entropy256(),
-	}
-	hostAdditions := &RPCFormContractAdditions{
-		Parents: []types.Transaction{randomTxn, randomTxn},
-		Inputs:  randomTxn.SiacoinInputs,
-		Outputs: randomTxn.SiacoinOutputs,
-	}
-	renterSigs := &RPCFormContractSignatures{
-		ContractSignatures: randomTxn.SiacoinInputs[0].Signatures,
-		RevisionSignature:  types.Signature(randomTxn.SiacoinInputs[0].Signatures[0]),
-	}
-	hostSigs := &RPCFormContractSignatures{
-		ContractSignatures: randomTxn.SiacoinInputs[0].Signatures,
-		RevisionSignature:  types.Signature(randomTxn.SiacoinInputs[0].Signatures[0]),
-	}
-
-	renter, host := newFakeConns()
-	hostErr := make(chan error, 1)
+	defer l.Close()
+	peerErr := make(chan error, 1)
 	go func() {
-		hostErr <- func() error {
-			hs, err := NewHostSession(host)
+		peerErr <- func() error {
+			conn, err := l.Accept()
 			if err != nil {
 				return err
 			}
-			defer hs.Close()
-			for {
-				id, err := hs.ReadID()
-				if errors.Is(err, ErrRenterClosed) {
-					return nil
-				} else if err != nil {
-					return err
-				}
-				switch id {
-				case RPCFormContractID:
-					var req RPCFormContractRequest
-					if err := hs.ReadRequest(&req, msgSize); err != nil {
-						return err
-					} else if !deepEqual(&req, renterReq) {
-						return errors.New("received request does not match sent request")
-					}
-					err = hs.WriteResponse(hostAdditions, nil)
-					if err != nil {
-						return err
-					}
-					var recvSigs RPCFormContractSignatures
-					if err := hs.ReadResponse(&recvSigs, msgSize); err != nil {
-						return err
-					} else if !deepEqual(&recvSigs, renterSigs) {
-						return errors.New("received sigs do not match sent sigs")
-					}
-					err = hs.WriteResponse(hostSigs, nil)
-					if err != nil {
-						return err
-					}
-				default:
-					return errors.New("unknown specifier")
-				}
+			defer conn.Close()
+			sess, err := AcceptSession(conn, hostPrivKey)
+			if err != nil {
+				return err
 			}
+			defer sess.Close()
+
+			// receive+verify signed challenge
+			stream, err := sess.AcceptStream()
+			if err != nil {
+				return err
+			}
+			defer stream.Close()
+			var sig types.Signature
+			if _, err := io.ReadFull(stream, sig[:]); err != nil {
+				return err
+			}
+			if !sess.VerifyChallenge(sig, contractPubKey) {
+				return errors.New("invalid challenge signature")
+			}
+			return nil
 		}()
 	}()
 
-	rs, err := NewRenterSession(renter)
+	// connect to host
+	conn, err := net.Dial("tcp", l.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
-	var recvAdditions RPCFormContractAdditions
-	if err := rs.WriteRequest(RPCFormContractID, renterReq); err != nil {
-		t.Fatal(err)
-	} else if err := rs.ReadResponse(&recvAdditions, msgSize); err != nil {
-		t.Fatal(err)
-	} else if !deepEqual(&recvAdditions, hostAdditions) {
-		t.Fatal("received additions do not match sent additions")
-	}
-	var recvSigs RPCFormContractSignatures
-	if err := rs.WriteResponse(renterSigs, nil); err != nil {
-		t.Fatal(err)
-	} else if err := rs.ReadResponse(&recvSigs, msgSize); err != nil {
-		t.Fatal(err)
-	} else if !deepEqual(&recvSigs, hostSigs) {
-		t.Fatal("received sigs do not match sent sigs")
-	}
-	if err := rs.Close(); err != nil {
+	defer conn.Close()
+	sess, err := DialSession(conn, hostPubKey)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := <-hostErr; err != nil {
+	defer sess.Close()
+	stream, err := sess.DialStream()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+
+	// sign and send challenge
+	sig := sess.SignChallenge(contractPrivKey)
+	if _, err := stream.Write(sig[:]); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-peerErr; err != nil {
 		t.Fatal(err)
 	}
 }
@@ -262,11 +171,15 @@ func TestChallenge(t *testing.T) {
 }
 
 func TestEncoding(t *testing.T) {
+	type codec interface {
+		types.EncoderTo
+		types.DecoderFrom
+	}
 	randSignature := func() (s types.Signature) {
 		frand.Read(s[:])
 		return
 	}
-	objs := []rpc.ProtocolObject{
+	objs := []codec{
 		&rpc.Specifier{'f', 'o', 'o'},
 		&RPCFormContractRequest{
 			Transactions: []types.Transaction{randomTxn},
@@ -332,7 +245,7 @@ func TestEncoding(t *testing.T) {
 		e := types.NewEncoder(&b)
 		o.EncodeTo(e)
 		e.Flush()
-		dup := reflect.New(reflect.TypeOf(o).Elem()).Interface().(rpc.ProtocolObject)
+		dup := reflect.New(reflect.TypeOf(o).Elem()).Interface().(codec)
 		d := types.NewBufDecoder(b.Bytes())
 		dup.DecodeFrom(d)
 		if d.Err() != nil {
@@ -343,80 +256,10 @@ func TestEncoding(t *testing.T) {
 	}
 }
 
-func encodedLen(o rpc.ProtocolObject) int {
+func encodedLen(o types.EncoderTo) int {
 	var b bytes.Buffer
 	e := types.NewEncoder(&b)
 	o.EncodeTo(e)
 	e.Flush()
 	return b.Len()
-}
-
-func BenchmarkWriteMessage(b *testing.B) {
-	bench := func(obj rpc.ProtocolObject) {
-		name := strings.TrimPrefix(fmt.Sprintf("%T", obj), "*rhp.")
-		b.Run(name, func(b *testing.B) {
-			s := &Session{
-				conn: struct {
-					io.Writer
-					io.ReadCloser
-				}{io.Discard, nil},
-			}
-
-			b.ResetTimer()
-			b.ReportAllocs()
-			b.SetBytes(int64(encodedLen(obj)))
-			for i := 0; i < b.N; i++ {
-				if err := s.writeMessage(obj); err != nil {
-					b.Fatal(err)
-				}
-			}
-		})
-	}
-
-	bench(new(rpc.Specifier))
-	bench(&RPCSettingsResponse{Settings: make([]byte, 4096)})
-	bench(&RPCReadResponse{
-		Data:        make([]byte, SectorSize),
-		MerkleProof: make([]types.Hash256, 10),
-	})
-}
-
-func BenchmarkReadMessage(b *testing.B) {
-	bench := func(obj rpc.ProtocolObject) {
-		name := strings.TrimPrefix(fmt.Sprintf("%T", obj), "*rhp.")
-		b.Run(name, func(b *testing.B) {
-			var buf bytes.Buffer
-			(&Session{
-				conn: struct {
-					io.Writer
-					io.ReadCloser
-				}{&buf, nil},
-			}).writeMessage(obj)
-
-			var rwc struct {
-				bytes.Reader
-				io.WriteCloser
-			}
-			s := &Session{
-				conn: &rwc,
-			}
-
-			b.ResetTimer()
-			b.ReportAllocs()
-			b.SetBytes(int64(buf.Len()))
-			for i := 0; i < b.N; i++ {
-				rwc.Reader.Reset(buf.Bytes())
-				if err := s.readMessage(obj, uint64(buf.Len())); err != nil {
-					b.Fatal(err)
-				}
-			}
-		})
-	}
-
-	bench(new(rpc.Specifier))
-	bench(&RPCSettingsResponse{Settings: make([]byte, 4096)})
-	bench(&RPCReadResponse{
-		Data:        make([]byte, SectorSize),
-		MerkleProof: make([]types.Hash256, 10),
-	})
 }
