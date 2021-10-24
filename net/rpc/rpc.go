@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"net"
 	"strings"
 
 	"go.sia.tech/core/types"
@@ -107,28 +106,28 @@ func (resp *rpcResponse) MaxLen() int {
 	return 1 + resp.err.MaxLen() + resp.obj.MaxLen()
 }
 
-// WriteObject writes obj to conn.
-func WriteObject(conn net.Conn, obj Object) error {
-	e := types.NewEncoder(conn)
+// WriteObject writes obj to w.
+func WriteObject(w io.Writer, obj Object) error {
+	e := types.NewEncoder(w)
 	obj.EncodeTo(e)
 	return e.Flush()
 }
 
-// ReadObject reads obj from conn.
-func ReadObject(conn net.Conn, obj Object) error {
-	d := types.NewDecoder(io.LimitedReader{R: conn, N: int64(obj.MaxLen())})
+// ReadObject reads obj from r.
+func ReadObject(r io.Reader, obj Object) error {
+	d := types.NewDecoder(io.LimitedReader{R: r, N: int64(obj.MaxLen())})
 	obj.DecodeFrom(d)
 	return d.Err()
 }
 
 // WriteRequest sends an RPC request, comprising an RPC ID and an optional
 // request object.
-func WriteRequest(conn net.Conn, id Specifier, req Object) error {
-	if err := WriteObject(conn, &id); err != nil {
+func WriteRequest(w io.Writer, id Specifier, req Object) error {
+	if err := WriteObject(w, &id); err != nil {
 		return fmt.Errorf("couldn't write request ID: %w", err)
 	}
 	if req != nil {
-		if err := WriteObject(conn, req); err != nil {
+		if err := WriteObject(w, req); err != nil {
 			return fmt.Errorf("couldn't write request object: %w", err)
 		}
 	}
@@ -136,32 +135,32 @@ func WriteRequest(conn net.Conn, id Specifier, req Object) error {
 }
 
 // ReadID reads an RPC request ID.
-func ReadID(conn net.Conn) (id Specifier, err error) {
-	err = ReadObject(conn, &id)
+func ReadID(r io.Reader) (id Specifier, err error) {
+	err = ReadObject(r, &id)
 	return
 }
 
 // ReadRequest reads an RPC request.
-func ReadRequest(conn net.Conn, req Object) error {
-	return ReadObject(conn, req)
+func ReadRequest(r io.Reader, req Object) error {
+	return ReadObject(r, req)
 }
 
 // WriteResponse writes an RPC response object or an error. Either resp or err must
 // be nil. If err is an *rpc.Error, it is sent directly; otherwise, a generic
 // rpc.Error is created from err's Error string.
-func WriteResponse(conn net.Conn, resp Object, err error) error {
+func WriteResponse(w io.Writer, resp Object, err error) error {
 	re, ok := err.(*Error)
 	if err != nil && !ok {
 		re = &Error{Description: err.Error()}
 	}
-	return WriteObject(conn, &rpcResponse{obj: resp, err: re})
+	return WriteObject(w, &rpcResponse{obj: resp, err: re})
 }
 
 // ReadResponse reads an RPC response. If the response is an error, it is
 // returned directly.
-func ReadResponse(conn net.Conn, resp Object) error {
+func ReadResponse(r io.Reader, resp Object) error {
 	rr := rpcResponse{obj: resp}
-	if err := ReadObject(conn, &rr); err != nil {
+	if err := ReadObject(r, &rr); err != nil {
 		return fmt.Errorf("failed to read message: %w", err)
 	} else if rr.err != nil {
 		return fmt.Errorf("response error: %w", rr.err)
