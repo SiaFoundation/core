@@ -67,7 +67,7 @@ func AcceptSession(conn net.Conn, priv ed25519.PrivateKey) (_ *Session, err erro
 			m.Close()
 		}
 	}()
-	// read renter's version and write initial challenge
+	// exchange versions and write initial challenge
 	s, err := m.AcceptStream()
 	if err != nil {
 		return nil, err
@@ -75,12 +75,11 @@ func AcceptSession(conn net.Conn, priv ed25519.PrivateKey) (_ *Session, err erro
 	defer s.Close()
 	var buf [1]byte
 	if _, err := s.Read(buf[:]); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not read peer version: %w", err)
+	} else if _, err := s.Write([]byte{protocolVersion}); err != nil {
+		return nil, fmt.Errorf("could not write our version: %w", err)
 	} else if version := buf[0]; version != protocolVersion {
-		// incompatible version; send empty challenge to signal rejection
-		var challenge [16]byte
-		s.Write(challenge[:])
-		return nil, fmt.Errorf("renter sent incompatible version (%d)", version)
+		return nil, fmt.Errorf("incompatible versions (ours = %v, theirs = %v)", protocolVersion, version)
 	}
 	challenge := frand.Entropy128()
 	if _, err := s.Write(challenge[:]); err != nil {
@@ -104,14 +103,19 @@ func DialSession(conn net.Conn, pub ed25519.PublicKey) (_ *Session, err error) {
 			m.Close()
 		}
 	}()
-	// write our version and read host's initial challenge
+	// exchange versions and read host's initial challenge
 	s, err := m.DialStream()
 	if err != nil {
 		return nil, err
 	}
 	defer s.Close()
+	var buf [1]byte
 	if _, err := s.Write([]byte{protocolVersion}); err != nil {
-		return nil, fmt.Errorf("couldn't write our version: %w", err)
+		return nil, fmt.Errorf("could not write our version: %w", err)
+	} else if _, err := s.Read(buf[:]); err != nil {
+		return nil, fmt.Errorf("could not read peer version: %w", err)
+	} else if version := buf[0]; version != protocolVersion {
+		return nil, fmt.Errorf("incompatible versions (ours = %v, theirs = %v)", protocolVersion, version)
 	}
 	var challenge [16]byte
 	if _, err := io.ReadFull(s, challenge[:]); err != nil {

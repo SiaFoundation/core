@@ -4,10 +4,10 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 
 	"go.sia.tech/core/net/mux"
+	"go.sia.tech/core/net/rpc"
 	"go.sia.tech/core/types"
 )
 
@@ -26,18 +26,6 @@ type Header struct {
 	NetAddress string
 }
 
-func (h *Header) encodeTo(e *types.Encoder) {
-	h.GenesisID.EncodeTo(e)
-	e.Write(h.UniqueID[:])
-	e.WriteString(h.NetAddress)
-}
-
-func (h *Header) decodeFrom(d *types.Decoder) {
-	h.GenesisID.DecodeFrom(d)
-	d.Read(h.UniqueID[:])
-	h.NetAddress = d.ReadString()
-}
-
 func validateHeader(ours, theirs Header) error {
 	if theirs.GenesisID != ours.GenesisID {
 		return errors.New("peer has different genesis block")
@@ -47,6 +35,24 @@ func validateHeader(ours, theirs Header) error {
 		return fmt.Errorf("invalid remote address: %w", err)
 	}
 	return nil
+}
+
+type rpcHeader Header
+
+func (h *rpcHeader) EncodeTo(e *types.Encoder) {
+	h.GenesisID.EncodeTo(e)
+	e.Write(h.UniqueID[:])
+	e.WriteString(h.NetAddress)
+}
+
+func (h *rpcHeader) DecodeFrom(d *types.Decoder) {
+	h.GenesisID.DecodeFrom(d)
+	d.Read(h.UniqueID[:])
+	h.NetAddress = d.ReadString()
+}
+
+func (h *rpcHeader) MaxLen() int {
+	return 1024 // arbitrary
 }
 
 // NOTE: unlike e.g. the RHP, we don't care about verifying the identity of who
@@ -77,30 +83,25 @@ func DialSession(conn net.Conn, header Header) (_ *Session, err error) {
 		return nil, err
 	}
 	defer s.Close()
-	e := types.NewEncoder(s)
-	d := types.NewDecoder(io.LimitedReader{R: s, N: 1 + maxHeaderSize})
 
 	// exchange versions
-	e.WriteUint8(protocolVersion)
-	if err := e.Flush(); err != nil {
+	var buf [1]byte
+	if _, err := s.Write([]byte{protocolVersion}); err != nil {
 		return nil, fmt.Errorf("could not write our version: %w", err)
-	}
-	remoteVersion := d.ReadUint8()
-	if err := d.Err(); err != nil {
-		return nil, err
-	} else if remoteVersion == 0 {
-		return nil, errRejectedVersion
+	} else if _, err := s.Read(buf[:]); err != nil {
+		return nil, fmt.Errorf("could not read peer version: %w", err)
+	} else if version := buf[0]; version != protocolVersion {
+		return nil, fmt.Errorf("incompatible versions (ours = %v, theirs = %v)", protocolVersion, version)
 	}
 
 	// exchange headers
-	header.encodeTo(e)
-	if err := e.Flush(); err != nil {
-		return nil, fmt.Errorf("could not write our header: %w", err)
-	}
 	var peerHeader Header
-	peerHeader.decodeFrom(d)
-	if err := d.Err(); err != nil {
+	if err := rpc.WriteObject(s, (*rpcHeader)(&header)); err != nil {
+		return nil, fmt.Errorf("could not write our header: %w", err)
+	} else if err := rpc.ReadObject(s, (*rpcHeader)(&peerHeader)); err != nil {
 		return nil, fmt.Errorf("could not read peer's header: %w", err)
+	} else if err := validateHeader(header, peerHeader); err != nil {
+		return nil, fmt.Errorf("unacceptable header: %w", err)
 	}
 
 	return &Session{
@@ -126,34 +127,24 @@ func AcceptSession(conn net.Conn, header Header) (_ *Session, err error) {
 		return nil, err
 	}
 	defer s.Close()
-	e := types.NewEncoder(s)
-	d := types.NewDecoder(io.LimitedReader{R: s, N: 1 + maxHeaderSize})
 
 	// exchange versions
-	remoteVersion := d.ReadUint8()
-	if err := d.Err(); err != nil {
-		return nil, err
-	} else if remoteVersion != protocolVersion {
-		e.WriteUint8(0)
-		e.Flush()
-		return nil, errors.New("incompatible version")
-	}
-	e.WriteUint8(protocolVersion)
-	if err := e.Flush(); err != nil {
+	var buf [1]byte
+	if _, err := s.Read(buf[:]); err != nil {
+		return nil, fmt.Errorf("could not read peer version: %w", err)
+	} else if _, err := s.Write([]byte{protocolVersion}); err != nil {
 		return nil, fmt.Errorf("could not write our version: %w", err)
+	} else if version := buf[0]; version != protocolVersion {
+		return nil, fmt.Errorf("incompatible versions (ours = %v, theirs = %v)", protocolVersion, version)
 	}
 
 	// exchange headers
 	var peerHeader Header
-	peerHeader.decodeFrom(d)
-	if err := d.Err(); err != nil {
+	if err := rpc.ReadObject(s, (*rpcHeader)(&peerHeader)); err != nil {
 		return nil, fmt.Errorf("could not read peer's header: %w", err)
-	}
-	header.encodeTo(e)
-	if err := e.Flush(); err != nil {
+	} else if err := rpc.WriteObject(s, (*rpcHeader)(&header)); err != nil {
 		return nil, fmt.Errorf("could not write our header: %w", err)
-	}
-	if err := validateHeader(header, peerHeader); err != nil {
+	} else if err := validateHeader(header, peerHeader); err != nil {
 		return nil, fmt.Errorf("unacceptable header: %w", err)
 	}
 

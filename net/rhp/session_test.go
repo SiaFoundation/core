@@ -59,35 +59,6 @@ func deepEqual(a, b types.EncoderTo) bool {
 	return bytes.Equal(abuf.Bytes(), bbuf.Bytes())
 }
 
-type pipeRWC struct {
-	r *io.PipeReader
-	w *io.PipeWriter
-}
-
-func (p pipeRWC) Read(b []byte) (int, error) {
-	return p.r.Read(b)
-}
-
-func (p pipeRWC) Write(b []byte) (int, error) {
-	return p.w.Write(b)
-}
-
-func (p pipeRWC) Close() error {
-	p.r.Close()
-	return p.w.Close()
-}
-
-func newFakeConns() (io.ReadWriteCloser, io.ReadWriteCloser) {
-	r1, w1 := io.Pipe()
-	r2, w2 := io.Pipe()
-	return pipeRWC{r1, w2}, pipeRWC{r2, w1}
-}
-
-type objString string
-
-func (s *objString) EncodeTo(e *types.Encoder)   { writePrefixedBytes(e, []byte(*s)) }
-func (s *objString) DecodeFrom(d *types.Decoder) { *s = objString(readPrefixedBytes(d)) }
-
 func TestSession(t *testing.T) {
 	// initialize host
 	hostPrivKey := ed25519.NewKeyFromSeed(frand.Bytes(32))
@@ -171,15 +142,11 @@ func TestChallenge(t *testing.T) {
 }
 
 func TestEncoding(t *testing.T) {
-	type codec interface {
-		types.EncoderTo
-		types.DecoderFrom
-	}
 	randSignature := func() (s types.Signature) {
 		frand.Read(s[:])
 		return
 	}
-	objs := []codec{
+	objs := []rpc.Object{
 		&rpc.Specifier{'f', 'o', 'o'},
 		&RPCFormContractRequest{
 			Transactions: []types.Transaction{randomTxn},
@@ -200,8 +167,7 @@ func TestEncoding(t *testing.T) {
 			Timeout:    frand.Uint64n(100),
 		},
 		&RPCLockResponse{
-			Revision:   randomTxn.FileContractRevisions[0],
-			Signatures: [2]types.Signature{types.Signature(randomTxn.SiacoinInputs[1].Signatures[0]), types.Signature(randomTxn.SiacoinInputs[1].Signatures[1])},
+			Revision: randomTxn.FileContractRevisions[0],
 		},
 		&RPCReadRequest{
 			Sections:          []RPCReadRequestSection{{}},
@@ -245,7 +211,7 @@ func TestEncoding(t *testing.T) {
 		e := types.NewEncoder(&b)
 		o.EncodeTo(e)
 		e.Flush()
-		dup := reflect.New(reflect.TypeOf(o).Elem()).Interface().(codec)
+		dup := reflect.New(reflect.TypeOf(o).Elem()).Interface().(rpc.Object)
 		d := types.NewBufDecoder(b.Bytes())
 		dup.DecodeFrom(d)
 		if d.Err() != nil {
@@ -254,12 +220,4 @@ func TestEncoding(t *testing.T) {
 			t.Errorf("%T objects differ after unmarshalling", o)
 		}
 	}
-}
-
-func encodedLen(o types.EncoderTo) int {
-	var b bytes.Buffer
-	e := types.NewEncoder(&b)
-	o.EncodeTo(e)
-	e.Flush()
-	return b.Len()
 }

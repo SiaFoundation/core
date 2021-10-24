@@ -13,6 +13,7 @@ type objString string
 
 func (s *objString) EncodeTo(e *types.Encoder)   { e.WriteString(string(*s)) }
 func (s *objString) DecodeFrom(d *types.Decoder) { *s = objString(d.ReadString()) }
+func (s *objString) MaxLen() int                 { return 100 }
 
 func TestHandshake(t *testing.T) {
 	genesisID := (&types.Block{}).ID()
@@ -54,7 +55,7 @@ func TestHandshake(t *testing.T) {
 				return errors.New("unexpected RPC ID")
 			}
 			var name objString
-			if err := rpc.ReadRequest(stream, &name, 128); err != nil {
+			if err := rpc.ReadRequest(stream, &name); err != nil {
 				return err
 			}
 			greeting := "Hello, " + name
@@ -91,7 +92,7 @@ func TestHandshake(t *testing.T) {
 	var greeting objString
 	if err := rpc.WriteRequest(stream, rpcGreet, &name); err != nil {
 		t.Fatal(err)
-	} else if err := rpc.ReadResponse(stream, &greeting, 128); err != nil {
+	} else if err := rpc.ReadResponse(stream, &greeting); err != nil {
 		t.Fatal(err)
 	} else if greeting != "Hello, foo" {
 		t.Fatal("unexpected greeting:", greeting)
