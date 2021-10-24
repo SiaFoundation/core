@@ -296,6 +296,19 @@ func Accept(conn net.Conn, ourKey ed25519.PrivateKey) (*Mux, error) {
 	return m, nil
 }
 
+var anonPrivkey = ed25519.NewKeyFromSeed(make([]byte, 32))
+var anonPubkey = anonPrivkey.Public().(ed25519.PublicKey)
+
+// DialAnonymous initiates a mux protocol handshake to a party without a
+// pre-established identity. The counterparty must reciprocate the handshake with
+// AcceptAnonymous.
+func DialAnonymous(conn net.Conn) (*Mux, error) { return Dial(conn, anonPubkey) }
+
+// AcceptAnonymous reciprocates a mux protocol handshake without a
+// pre-established identity. The counterparty must initiate the handshake with
+// DialAnonymous.
+func AcceptAnonymous(conn net.Conn) (*Mux, error) { return Accept(conn, anonPrivkey) }
+
 // A Stream is a duplex connection multiplexed over a net.Conn. It implements
 // the net.Conn interface.
 type Stream struct {

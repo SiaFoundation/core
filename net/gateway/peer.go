@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"net"
@@ -55,11 +54,6 @@ func (h *rpcHeader) MaxLen() int {
 	return 1024 // arbitrary
 }
 
-// NOTE: unlike e.g. the RHP, we don't care about verifying the identity of who
-// we connect to, so we use a hard-coded keypair for the mux handshake
-var zeroPrivkey = ed25519.NewKeyFromSeed(make([]byte, 32))
-var zeroPubkey = zeroPrivkey.Public().(ed25519.PublicKey)
-
 // A Session is an ongoing exchange of RPCs via the gateway protocol.
 type Session struct {
 	*mux.Mux
@@ -69,7 +63,7 @@ type Session struct {
 // DialSession initiates the gateway handshake with a peer, establishing a
 // Session.
 func DialSession(conn net.Conn, header Header) (_ *Session, err error) {
-	m, err := mux.Dial(conn, zeroPubkey)
+	m, err := mux.DialAnonymous(conn)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +107,7 @@ func DialSession(conn net.Conn, header Header) (_ *Session, err error) {
 // AcceptSession reciprocates the gateway handshake with a peer, establishing a
 // Session.
 func AcceptSession(conn net.Conn, header Header) (_ *Session, err error) {
-	m, err := mux.Accept(conn, zeroPrivkey)
+	m, err := mux.AcceptAnonymous(conn)
 	if err != nil {
 		return nil, err
 	}
