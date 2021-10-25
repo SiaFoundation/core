@@ -210,6 +210,12 @@ func (m *Mux) readLoop() {
 
 // Close closes the underlying net.Conn.
 func (m *Mux) Close() error {
+	// if there's a buffered Write, wait for it to be sent
+	m.mu.Lock()
+	for m.write.header.id != 0 && m.err == nil {
+		m.write.cond.Wait()
+	}
+	m.mu.Unlock()
 	err := m.setErr(ErrClosedConn)
 	if err == ErrClosedConn || err == ErrPeerClosedConn {
 		err = nil
@@ -410,6 +416,10 @@ func (s *Stream) consumeFrame(h frameHeader, payload []byte) {
 func (s *Stream) Read(p []byte) (int, error) {
 	s.cond.L.Lock()
 	defer s.cond.L.Unlock()
+	if !s.established {
+		// developer error: peer doesn't know this Stream exists yet
+		panic("mux: Read called before Write on newly-Dialed Stream")
+	}
 	if !s.rd.IsZero() {
 		if !time.Now().Before(s.rd) {
 			return 0, os.ErrDeadlineExceeded
