@@ -179,13 +179,24 @@ func (m *Mux) readLoop() {
 			// look for matching Stream
 			if curStream == nil || h.id != curStream.id {
 				m.mu.Lock()
-				if curStream = m.streams[h.id]; curStream == nil {
-					// no existing stream with this ID; create a new one
+				if s := m.streams[h.id]; s != nil {
+					curStream = s
+				} else {
+					if h.flags&flagFirst == 0 {
+						// we don't recognize the frame's ID, but it's not the
+						// first frame of a new stream either; we must have
+						// already closed the stream this frame belongs to, so
+						// ignore it
+						m.mu.Unlock()
+						continue
+					}
+					// create a new stream
 					curStream = &Stream{
-						m:        m,
-						id:       h.id,
-						accepted: false,
-						cond:     sync.Cond{L: new(sync.Mutex)},
+						m:           m,
+						id:          h.id,
+						needAccept:  true,
+						cond:        sync.Cond{L: new(sync.Mutex)},
+						established: true,
 					}
 					m.streams[h.id] = curStream
 					m.cond.Broadcast() // wake (*Mux).AcceptStream
@@ -199,6 +210,12 @@ func (m *Mux) readLoop() {
 
 // Close closes the underlying net.Conn.
 func (m *Mux) Close() error {
+	// if there's a buffered Write, wait for it to be sent
+	m.mu.Lock()
+	for m.write.header.id != 0 && m.err == nil {
+		m.write.cond.Wait()
+	}
+	m.mu.Unlock()
 	err := m.setErr(ErrClosedConn)
 	if err == ErrClosedConn || err == ErrPeerClosedConn {
 		err = nil
@@ -215,8 +232,8 @@ func (m *Mux) AcceptStream() (*Stream, error) {
 			return nil, m.err
 		}
 		for _, s := range m.streams {
-			if !s.accepted {
-				s.accepted = true
+			if s.needAccept {
+				s.needAccept = false
 				return s, nil
 			}
 		}
@@ -235,10 +252,11 @@ func (m *Mux) DialStream() (*Stream, error) {
 		return nil, m.err
 	}
 	s := &Stream{
-		m:        m,
-		accepted: true,
-		cond:     sync.Cond{L: new(sync.Mutex)},
-		id:       m.nextID,
+		m:           m,
+		id:          m.nextID,
+		needAccept:  false,
+		cond:        sync.Cond{L: new(sync.Mutex)},
+		established: false,
 	}
 	m.nextID += 2
 	m.streams[s.id] = s
@@ -296,17 +314,31 @@ func Accept(conn net.Conn, ourKey ed25519.PrivateKey) (*Mux, error) {
 	return m, nil
 }
 
+var anonPrivkey = ed25519.NewKeyFromSeed(make([]byte, 32))
+var anonPubkey = anonPrivkey.Public().(ed25519.PublicKey)
+
+// DialAnonymous initiates a mux protocol handshake to a party without a
+// pre-established identity. The counterparty must reciprocate the handshake with
+// AcceptAnonymous.
+func DialAnonymous(conn net.Conn) (*Mux, error) { return Dial(conn, anonPubkey) }
+
+// AcceptAnonymous reciprocates a mux protocol handshake without a
+// pre-established identity. The counterparty must initiate the handshake with
+// DialAnonymous.
+func AcceptAnonymous(conn net.Conn) (*Mux, error) { return Accept(conn, anonPrivkey) }
+
 // A Stream is a duplex connection multiplexed over a net.Conn. It implements
 // the net.Conn interface.
 type Stream struct {
-	m        *Mux
-	id       uint32
-	accepted bool
+	m          *Mux
+	id         uint32
+	needAccept bool // managed by Mux
 
-	cond    sync.Cond // guards + synchronizes subsequent fields
-	err     error
-	readBuf []byte
-	rd, wd  time.Time // deadlines
+	cond        sync.Cond // guards + synchronizes subsequent fields
+	established bool      // has the first frame been sent?
+	err         error
+	readBuf     []byte
+	rd, wd      time.Time // deadlines
 }
 
 // LocalAddr returns the underlying connection's LocalAddr.
@@ -350,30 +382,32 @@ func (s *Stream) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
-// consumeFrame stores a frame in s.read and waits for it to be consumed by
+// consumeFrame stores a frame in s.readBuf and waits for it to be consumed by
 // (*Stream).Read calls.
 func (s *Stream) consumeFrame(h frameHeader, payload []byte) {
-	s.cond.L.Lock()
-	defer s.cond.L.Unlock()
-	if s.err != nil {
-		return
-	}
-	// handle final/error frame
-	if h.flags&flagFinal != 0 {
+	if h.flags&flagLast != 0 {
+		// stream is closing; set s.err
 		err := ErrPeerClosedStream
 		if h.flags&flagError != 0 {
 			err = errors.New(string(payload))
 		}
+		s.cond.L.Lock()
 		s.err = err
 		s.cond.Broadcast() // wake Read
-		return
-	} else if len(payload) == 0 {
+		s.cond.L.Unlock()
+
+		// delete stream from Mux
+		s.m.mu.Lock()
+		delete(s.m.streams, s.id)
+		s.m.mu.Unlock()
 		return
 	}
 	// set payload and wait for it to be consumed
+	s.cond.L.Lock()
+	defer s.cond.L.Unlock()
 	s.readBuf = payload
 	s.cond.Broadcast() // wake Read
-	for len(s.readBuf) != 0 && s.err == nil {
+	for len(s.readBuf) > 0 && s.err == nil {
 		s.cond.Wait()
 	}
 }
@@ -382,6 +416,10 @@ func (s *Stream) consumeFrame(h frameHeader, payload []byte) {
 func (s *Stream) Read(p []byte) (int, error) {
 	s.cond.L.Lock()
 	defer s.cond.L.Unlock()
+	if !s.established {
+		// developer error: peer doesn't know this Stream exists yet
+		panic("mux: Read called before Write on newly-Dialed Stream")
+	}
 	if !s.rd.IsZero() {
 		if !time.Now().Before(s.rd) {
 			return 0, os.ErrDeadlineExceeded
@@ -410,13 +448,22 @@ func (s *Stream) Write(p []byte) (int, error) {
 		// check for error
 		s.cond.L.Lock()
 		err := s.err
+		var flags uint16
+		if err == nil && !s.established {
+			flags = flagFirst
+			s.established = true
+		}
 		s.cond.L.Unlock()
 		if err != nil {
 			return len(p) - buf.Len(), err
 		}
 		// write next frame's worth of data
 		payload := buf.Next(s.m.settings.maxPayloadSize())
-		h := frameHeader{id: s.id, length: uint32(len(payload))}
+		h := frameHeader{
+			id:     s.id,
+			length: uint32(len(payload)),
+			flags:  flags,
+		}
 		if err := s.m.bufferFrame(h, payload, s.wd); err != nil {
 			return len(p) - buf.Len(), err
 		}
@@ -426,26 +473,34 @@ func (s *Stream) Write(p []byte) (int, error) {
 
 // Close closes the Stream. The underlying connection is not closed.
 func (s *Stream) Close() error {
-	h := frameHeader{
-		id:    s.id,
-		flags: flagFinal,
-	}
-	err := s.m.bufferFrame(h, nil, s.wd)
-	if err == ErrPeerClosedStream {
-		err = nil
-	}
-
 	// cancel outstanding Read/Write calls
 	//
-	// NOTE: Read calls will be interrupted immediately, but Write calls will
-	// finish sending their current frame before seeing the error. This is ok:
-	// the peer will discard any of this Stream's frames that arrive after the
-	// flagFinal frame.
+	// NOTE: Read calls will be interrupted immediately, but Write calls might
+	// send another frame before observing the Close. This is ok: the peer will
+	// discard any frames that arrive after the flagLast frame.
 	s.cond.L.Lock()
-	defer s.cond.L.Unlock()
+	if s.err == ErrClosedStream {
+		s.cond.L.Unlock()
+		return nil
+	}
 	s.err = ErrClosedStream
 	s.cond.Broadcast()
-	return err
+	s.cond.L.Unlock()
+
+	h := frameHeader{
+		id:    s.id,
+		flags: flagLast,
+	}
+	err := s.m.bufferFrame(h, nil, s.wd)
+	if err != nil && err != ErrPeerClosedStream {
+		return err
+	}
+
+	// delete stream from Mux
+	s.m.mu.Lock()
+	delete(s.m.streams, s.id)
+	s.m.mu.Unlock()
+	return nil
 }
 
 var _ net.Conn = (*Stream)(nil)

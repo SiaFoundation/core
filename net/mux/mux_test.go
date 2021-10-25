@@ -72,6 +72,14 @@ func TestMux(t *testing.T) {
 	if err := <-serverCh; err != nil && err != ErrPeerClosedStream {
 		t.Fatal(err)
 	}
+
+	// all streams should have been deleted
+	time.Sleep(time.Millisecond * 100)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.streams) != 0 {
+		t.Error("streams not closed")
+	}
 }
 
 func TestManyStreams(t *testing.T) {
@@ -156,6 +164,14 @@ func TestManyStreams(t *testing.T) {
 		t.Fatal(err)
 	} else if err := <-serverCh; err != nil && err != ErrPeerClosedConn {
 		t.Fatal(err)
+	}
+
+	// all streams should have been deleted
+	time.Sleep(time.Millisecond * 100)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.streams) != 0 {
+		t.Error("streams not closed:", len(m.streams))
 	}
 }
 

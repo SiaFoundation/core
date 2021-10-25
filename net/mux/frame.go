@@ -11,7 +11,8 @@ import (
 )
 
 const (
-	flagFinal = 1 << iota // stream is being closed gracefully
+	flagFirst = 1 << iota // first frame in stream
+	flagLast              // stream is being closed gracefully
 	flagError             // stream is being closed due to an error
 )
 
@@ -110,6 +111,7 @@ var defaultConnSettings = connSettings{
 	MaxTimeout:          20 * time.Minute,
 }
 
+const settingsFrameSize = 1024
 const connSettingsSize = 24
 
 func encodeConnSettings(buf []byte, cs connSettings) {
@@ -127,18 +129,18 @@ func decodeConnSettings(buf []byte) (cs connSettings) {
 
 func initiateSettingsHandshake(conn net.Conn, ours connSettings, aead cipher.AEAD) (connSettings, error) {
 	// encode + write request
-	frameBuf := make([]byte, ours.RequestedPacketSize)
+	frameBuf := make([]byte, settingsFrameSize)
 	payload := make([]byte, connSettingsSize)
 	encodeConnSettings(payload, ours)
 	frame := encryptFrame(frameBuf, frameHeader{
 		id:     idUpdateSettings,
 		length: uint32(len(payload)),
-	}, payload, ours.RequestedPacketSize, aead)
+	}, payload, settingsFrameSize, aead)
 	if _, err := conn.Write(frame); err != nil {
 		return connSettings{}, fmt.Errorf("write settings frame: %w", err)
 	}
 	// read + decode response
-	h, payload, err := readEncryptedFrame(conn, frameBuf, ours.RequestedPacketSize, aead)
+	h, payload, err := readEncryptedFrame(conn, frameBuf, settingsFrameSize, aead)
 	if err != nil {
 		return connSettings{}, err
 	} else if h.id != idUpdateSettings {
@@ -152,8 +154,8 @@ func initiateSettingsHandshake(conn net.Conn, ours connSettings, aead cipher.AEA
 
 func acceptSettingsHandshake(conn net.Conn, ours connSettings, aead cipher.AEAD) (connSettings, error) {
 	// read + decode request
-	frameBuf := make([]byte, ours.RequestedPacketSize)
-	h, payload, err := readEncryptedFrame(conn, frameBuf, ours.RequestedPacketSize, aead)
+	frameBuf := make([]byte, settingsFrameSize)
+	h, payload, err := readEncryptedFrame(conn, frameBuf, settingsFrameSize, aead)
 	if err != nil {
 		return connSettings{}, err
 	} else if h.id != idUpdateSettings {
@@ -168,7 +170,7 @@ func acceptSettingsHandshake(conn net.Conn, ours connSettings, aead cipher.AEAD)
 	frame := encryptFrame(frameBuf, frameHeader{
 		id:     idUpdateSettings,
 		length: uint32(len(payload)),
-	}, payload, ours.RequestedPacketSize, aead)
+	}, payload, settingsFrameSize, aead)
 	if _, err := conn.Write(frame); err != nil {
 		return connSettings{}, fmt.Errorf("write settings frame: %w", err)
 	}

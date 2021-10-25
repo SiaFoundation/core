@@ -53,6 +53,11 @@ func (e *Encoder) WriteBool(b bool) {
 	e.Write(buf[:])
 }
 
+// WriteUint8 writes a uint8 value to the underlying stream.
+func (e *Encoder) WriteUint8(u uint8) {
+	e.Write([]byte{u})
+}
+
 // WriteUint64 writes a uint64 value to the underlying stream.
 func (e *Encoder) WriteUint64(u uint64) {
 	var buf [8]byte
@@ -65,6 +70,17 @@ func (e *Encoder) WritePrefix(i int) { e.WriteUint64(uint64(i)) }
 
 // WriteTime writes a time.Time value to the underlying stream.
 func (e *Encoder) WriteTime(t time.Time) { e.WriteUint64(uint64(t.Unix())) }
+
+// WriteBytes writes a length-prefixed []byte to the underlying stream.
+func (e *Encoder) WriteBytes(b []byte) {
+	e.WritePrefix(len(b))
+	e.Write(b)
+}
+
+// WriteString writes a length-prefixed string to the underlying stream.
+func (e *Encoder) WriteString(s string) {
+	e.WriteBytes([]byte(s))
+}
 
 // NewEncoder returns an Encoder that wraps the provided stream.
 func NewEncoder(w io.Writer) *Encoder {
@@ -156,6 +172,12 @@ func (d *Decoder) ReadBool() bool {
 	}
 }
 
+// ReadUint8 reads a uint8 value from the underlying stream.
+func (d *Decoder) ReadUint8() uint8 {
+	d.Read(d.buf[:1])
+	return d.buf[0]
+}
+
 // ReadUint64 reads a uint64 value from the underlying stream.
 func (d *Decoder) ReadUint64() uint64 {
 	d.Read(d.buf[:8])
@@ -176,6 +198,18 @@ func (d *Decoder) ReadPrefix() int {
 
 // ReadTime reads a time.Time from the underlying stream.
 func (d *Decoder) ReadTime() time.Time { return time.Unix(int64(d.ReadUint64()), 0) }
+
+// ReadBytes reads a length-prefixed []byte from the underlying stream.
+func (d *Decoder) ReadBytes() []byte {
+	b := make([]byte, d.ReadPrefix())
+	d.Read(b)
+	return b
+}
+
+// ReadString reads a length-prefixed string from the underlying stream.
+func (d *Decoder) ReadString() string {
+	return string(d.ReadBytes())
+}
 
 // NewDecoder returns a Decoder that wraps the provided stream.
 func NewDecoder(lr io.LimitedReader) *Decoder {
@@ -454,8 +488,7 @@ func (txn Transaction) EncodeTo(e *Encoder) {
 	for _, res := range txn.FileContractResolutions {
 		res.EncodeTo(e)
 	}
-	e.WritePrefix(len(txn.ArbitraryData))
-	e.Write(txn.ArbitraryData)
+	e.WriteBytes(txn.ArbitraryData)
 	txn.NewFoundationAddress.EncodeTo(e)
 	txn.MinerFee.EncodeTo(e)
 }
@@ -707,8 +740,7 @@ func (txn *Transaction) DecodeFrom(d *Decoder) {
 	for i := range txn.FileContractResolutions {
 		txn.FileContractResolutions[i].DecodeFrom(d)
 	}
-	txn.ArbitraryData = make([]byte, d.ReadPrefix())
-	d.Read(txn.ArbitraryData)
+	txn.ArbitraryData = d.ReadBytes()
 	txn.NewFoundationAddress.DecodeFrom(d)
 	txn.MinerFee.DecodeFrom(d)
 }

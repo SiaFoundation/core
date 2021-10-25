@@ -1,56 +1,12 @@
 package rhp
 
 import (
-	"bytes"
-	"strings"
-
+	"go.sia.tech/core/net/rpc"
 	"go.sia.tech/core/types"
 )
 
-// A ProtocolObject is an object that can be serialized for transport in the
-// renter-host protocol.
-type ProtocolObject interface {
-	encodeTo(e *types.Encoder)
-	decodeFrom(d *types.Decoder)
-}
-
-// A Specifier is a generic identification tag.
-type Specifier [16]byte
-
-func (s Specifier) String() string { return string(bytes.Trim(s[:], "\x00")) }
-
-func newSpecifier(str string) Specifier {
-	if len(str) > 16 {
-		panic("specifier is too long")
-	}
-	var s Specifier
-	copy(s[:], str)
-	return s
-}
-
-// An RPCError may be sent instead of a response object to any RPC.
-type RPCError struct {
-	Type        Specifier
-	Data        []byte // structure depends on Type
-	Description string // human-readable error string
-}
-
-// Error implements the error interface.
-func (err *RPCError) Error() string {
-	return err.Description
-}
-
-// Is reports whether this error matches target.
-func (err *RPCError) Is(target error) bool {
-	return strings.Contains(err.Description, target.Error())
-}
-
-// rpcResponse is a helper type for encoding and decoding RPC response messages,
-// which can represent either valid data or an error.
-type rpcResponse struct {
-	err  *RPCError
-	data ProtocolObject
-}
+const defaultMaxLen = 10e3 // for revisions, proofs, etc.
+const largeMaxLen = 1e6    // for transactions
 
 // ContractOutputs contains the output values for a FileContract. Because the
 // revisions negotiated by the renter and host typically do not modify the
@@ -70,33 +26,27 @@ func (co ContractOutputs) Apply(fc *types.FileContract) {
 	fc.MissedHostOutput.Value = co.MissedHostValue
 }
 
-// Handshake specifiers
-var (
-	loopEnter = newSpecifier("LoopEnter")
-	loopExit  = newSpecifier("LoopExit")
-)
-
 // RPC IDs
 var (
-	RPCFormContractID       = newSpecifier("LoopFormContract")
-	RPCLockID               = newSpecifier("LoopLock")
-	RPCReadID               = newSpecifier("LoopRead")
-	RPCRenewContractID      = newSpecifier("LoopRenew")
-	RPCRenewClearContractID = newSpecifier("LoopRenewClear")
-	RPCSectorRootsID        = newSpecifier("LoopSectorRoots")
-	RPCSettingsID           = newSpecifier("LoopSettings")
-	RPCUnlockID             = newSpecifier("LoopUnlock")
-	RPCWriteID              = newSpecifier("LoopWrite")
+	RPCFormContractID       = rpc.NewSpecifier("FormContract")
+	RPCLockID               = rpc.NewSpecifier("Lock")
+	RPCReadID               = rpc.NewSpecifier("Read")
+	RPCRenewContractID      = rpc.NewSpecifier("Renew")
+	RPCRenewClearContractID = rpc.NewSpecifier("RenewClear")
+	RPCSectorRootsID        = rpc.NewSpecifier("SectorRoots")
+	RPCSettingsID           = rpc.NewSpecifier("Settings")
+	RPCUnlockID             = rpc.NewSpecifier("Unlock")
+	RPCWriteID              = rpc.NewSpecifier("Write")
 )
 
 // Read/Write actions
 var (
-	RPCWriteActionAppend = newSpecifier("Append")
-	RPCWriteActionTrim   = newSpecifier("Trim")
-	RPCWriteActionSwap   = newSpecifier("Swap")
-	RPCWriteActionUpdate = newSpecifier("Update")
+	RPCWriteActionAppend = rpc.NewSpecifier("Append")
+	RPCWriteActionTrim   = rpc.NewSpecifier("Trim")
+	RPCWriteActionSwap   = rpc.NewSpecifier("Swap")
+	RPCWriteActionUpdate = rpc.NewSpecifier("Update")
 
-	RPCReadStop = newSpecifier("ReadStop")
+	RPCReadStop = rpc.NewSpecifier("ReadStop")
 )
 
 // RPC request/response objects
@@ -154,7 +104,6 @@ type (
 		Acquired     bool
 		NewChallenge [16]byte
 		Revision     types.FileContractRevision
-		Signatures   [2]types.Signature
 	}
 
 	// RPCReadRequestSection is a section requested in RPCReadRequest.
@@ -215,7 +164,7 @@ type (
 	// RPCWriteAction is a generic Write action. The meaning of each field
 	// depends on the Type of the action.
 	RPCWriteAction struct {
-		Type Specifier
+		Type rpc.Specifier
 		A, B uint64
 		Data []byte
 	}
@@ -236,17 +185,6 @@ type (
 
 // ProtocolObject implementations
 
-func writePrefixedBytes(e *types.Encoder, b []byte) {
-	e.WritePrefix(len(b))
-	e.Write(b)
-}
-
-func readPrefixedBytes(d *types.Decoder) []byte {
-	b := make([]byte, d.ReadPrefix())
-	d.Read(b)
-	return b
-}
-
 func writeMerkleProof(e *types.Encoder, proof []types.Hash256) {
 	e.WritePrefix(len(proof))
 	for i := range proof {
@@ -262,9 +200,6 @@ func readMerkleProof(d *types.Decoder) (proof []types.Hash256) {
 	return
 }
 
-func (s *Specifier) encodeTo(e *types.Encoder)   { e.Write(s[:]) }
-func (s *Specifier) decodeFrom(d *types.Decoder) { d.Read(s[:]) }
-
 func (co *ContractOutputs) encodeTo(e *types.Encoder) {
 	co.ValidRenterValue.EncodeTo(e)
 	co.ValidHostValue.EncodeTo(e)
@@ -279,37 +214,12 @@ func (co *ContractOutputs) decodeFrom(d *types.Decoder) {
 	co.MissedHostValue.DecodeFrom(d)
 }
 
-func (err *RPCError) encodeTo(e *types.Encoder) {
-	err.Type.encodeTo(e)
-	writePrefixedBytes(e, err.Data)
-	writePrefixedBytes(e, []byte(err.Description))
+func (ContractOutputs) maxLen() int {
+	return 4 * 16
 }
 
-func (err *RPCError) decodeFrom(d *types.Decoder) {
-	err.Type.decodeFrom(d)
-	err.Data = readPrefixedBytes(d)
-	err.Description = string(readPrefixedBytes(d))
-}
-
-func (resp *rpcResponse) encodeTo(e *types.Encoder) {
-	e.WriteBool(resp.err != nil)
-	if resp.err != nil {
-		resp.err.encodeTo(e)
-	} else {
-		resp.data.encodeTo(e)
-	}
-}
-
-func (resp *rpcResponse) decodeFrom(d *types.Decoder) {
-	if isErr := d.ReadBool(); isErr {
-		resp.err = new(RPCError)
-		resp.err.decodeFrom(d)
-	} else {
-		resp.data.decodeFrom(d)
-	}
-}
-
-func (r *RPCFormContractRequest) encodeTo(e *types.Encoder) {
+// EncodeTo implements rpc.Object.
+func (r *RPCFormContractRequest) EncodeTo(e *types.Encoder) {
 	e.WritePrefix(len(r.Transactions))
 	for i := range r.Transactions {
 		r.Transactions[i].EncodeTo(e)
@@ -317,7 +227,8 @@ func (r *RPCFormContractRequest) encodeTo(e *types.Encoder) {
 	r.RenterKey.EncodeTo(e)
 }
 
-func (r *RPCFormContractRequest) decodeFrom(d *types.Decoder) {
+// DecodeFrom implements rpc.Object.
+func (r *RPCFormContractRequest) DecodeFrom(d *types.Decoder) {
 	r.Transactions = make([]types.Transaction, d.ReadPrefix())
 	for i := range r.Transactions {
 		r.Transactions[i].DecodeFrom(d)
@@ -325,7 +236,13 @@ func (r *RPCFormContractRequest) decodeFrom(d *types.Decoder) {
 	r.RenterKey.DecodeFrom(d)
 }
 
-func (r *RPCFormContractAdditions) encodeTo(e *types.Encoder) {
+// MaxLen implements rpc.Object.
+func (r *RPCFormContractRequest) MaxLen() int {
+	return largeMaxLen
+}
+
+// EncodeTo implements rpc.Object.
+func (r *RPCFormContractAdditions) EncodeTo(e *types.Encoder) {
 	e.WritePrefix(len(r.Parents))
 	for i := range r.Parents {
 		r.Parents[i].EncodeTo(e)
@@ -340,7 +257,8 @@ func (r *RPCFormContractAdditions) encodeTo(e *types.Encoder) {
 	}
 }
 
-func (r *RPCFormContractAdditions) decodeFrom(d *types.Decoder) {
+// DecodeFrom implements rpc.Object.
+func (r *RPCFormContractAdditions) DecodeFrom(d *types.Decoder) {
 	r.Parents = make([]types.Transaction, d.ReadPrefix())
 	for i := range r.Parents {
 		r.Parents[i].DecodeFrom(d)
@@ -355,7 +273,13 @@ func (r *RPCFormContractAdditions) decodeFrom(d *types.Decoder) {
 	}
 }
 
-func (r *RPCFormContractSignatures) encodeTo(e *types.Encoder) {
+// MaxLen implements rpc.Object.
+func (r *RPCFormContractAdditions) MaxLen() int {
+	return largeMaxLen
+}
+
+// EncodeTo implements rpc.Object.
+func (r *RPCFormContractSignatures) EncodeTo(e *types.Encoder) {
 	e.WritePrefix(len(r.ContractSignatures))
 	for i := range r.ContractSignatures {
 		r.ContractSignatures[i].EncodeTo(e)
@@ -363,7 +287,8 @@ func (r *RPCFormContractSignatures) encodeTo(e *types.Encoder) {
 	r.RevisionSignature.EncodeTo(e)
 }
 
-func (r *RPCFormContractSignatures) decodeFrom(d *types.Decoder) {
+// DecodeFrom implements rpc.Object.
+func (r *RPCFormContractSignatures) DecodeFrom(d *types.Decoder) {
 	r.ContractSignatures = make([]types.InputSignature, d.ReadPrefix())
 	for i := range r.ContractSignatures {
 		r.ContractSignatures[i].DecodeFrom(d)
@@ -371,7 +296,13 @@ func (r *RPCFormContractSignatures) decodeFrom(d *types.Decoder) {
 	r.RevisionSignature.DecodeFrom(d)
 }
 
-func (r *RPCRenewAndClearContractRequest) encodeTo(e *types.Encoder) {
+// MaxLen implements rpc.Object.
+func (r *RPCFormContractSignatures) MaxLen() int {
+	return defaultMaxLen
+}
+
+// EncodeTo implements rpc.Object.
+func (r *RPCRenewAndClearContractRequest) EncodeTo(e *types.Encoder) {
 	e.WritePrefix(len(r.Transactions))
 	for i := range r.Transactions {
 		r.Transactions[i].EncodeTo(e)
@@ -380,7 +311,8 @@ func (r *RPCRenewAndClearContractRequest) encodeTo(e *types.Encoder) {
 	r.FinalOutputs.encodeTo(e)
 }
 
-func (r *RPCRenewAndClearContractRequest) decodeFrom(d *types.Decoder) {
+// DecodeFrom implements rpc.Object.
+func (r *RPCRenewAndClearContractRequest) DecodeFrom(d *types.Decoder) {
 	r.Transactions = make([]types.Transaction, d.ReadPrefix())
 	for i := range r.Transactions {
 		r.Transactions[i].DecodeFrom(d)
@@ -389,7 +321,13 @@ func (r *RPCRenewAndClearContractRequest) decodeFrom(d *types.Decoder) {
 	r.FinalOutputs.decodeFrom(d)
 }
 
-func (r *RPCRenewAndClearContractSignatures) encodeTo(e *types.Encoder) {
+// MaxLen implements rpc.Object.
+func (r *RPCRenewAndClearContractRequest) MaxLen() int {
+	return largeMaxLen
+}
+
+// EncodeTo implements rpc.Object.
+func (r *RPCRenewAndClearContractSignatures) EncodeTo(e *types.Encoder) {
 	e.WritePrefix(len(r.ContractSignatures))
 	for i := range r.ContractSignatures {
 		r.ContractSignatures[i].EncodeTo(e)
@@ -398,7 +336,8 @@ func (r *RPCRenewAndClearContractSignatures) encodeTo(e *types.Encoder) {
 	r.FinalRevisionSignature.EncodeTo(e)
 }
 
-func (r *RPCRenewAndClearContractSignatures) decodeFrom(d *types.Decoder) {
+// DecodeFrom implements rpc.Object.
+func (r *RPCRenewAndClearContractSignatures) DecodeFrom(d *types.Decoder) {
 	r.ContractSignatures = make([]types.InputSignature, d.ReadPrefix())
 	for i := range r.ContractSignatures {
 		r.ContractSignatures[i].DecodeFrom(d)
@@ -407,35 +346,51 @@ func (r *RPCRenewAndClearContractSignatures) decodeFrom(d *types.Decoder) {
 	r.FinalRevisionSignature.DecodeFrom(d)
 }
 
-func (r *RPCLockRequest) encodeTo(e *types.Encoder) {
+// MaxLen implements rpc.Object.
+func (r *RPCRenewAndClearContractSignatures) MaxLen() int {
+	return defaultMaxLen
+}
+
+// EncodeTo implements rpc.Object.
+func (r *RPCLockRequest) EncodeTo(e *types.Encoder) {
 	r.ContractID.EncodeTo(e)
 	r.Signature.EncodeTo(e)
 	e.WriteUint64(r.Timeout)
 }
 
-func (r *RPCLockRequest) decodeFrom(d *types.Decoder) {
+// DecodeFrom implements rpc.Object.
+func (r *RPCLockRequest) DecodeFrom(d *types.Decoder) {
 	r.ContractID.DecodeFrom(d)
 	r.Signature.DecodeFrom(d)
 	r.Timeout = d.ReadUint64()
 }
 
-func (r *RPCLockResponse) encodeTo(e *types.Encoder) {
+// MaxLen implements rpc.Object.
+func (r *RPCLockRequest) MaxLen() int {
+	return len(r.ContractID.Source) + 8 + len(r.Signature) + 8
+}
+
+// EncodeTo implements rpc.Object.
+func (r *RPCLockResponse) EncodeTo(e *types.Encoder) {
 	e.WriteBool(r.Acquired)
 	e.Write(r.NewChallenge[:])
 	r.Revision.EncodeTo(e)
-	r.Signatures[0].EncodeTo(e)
-	r.Signatures[1].EncodeTo(e)
 }
 
-func (r *RPCLockResponse) decodeFrom(d *types.Decoder) {
+// DecodeFrom implements rpc.Object.
+func (r *RPCLockResponse) DecodeFrom(d *types.Decoder) {
 	r.Acquired = d.ReadBool()
 	d.Read(r.NewChallenge[:])
 	r.Revision.DecodeFrom(d)
-	r.Signatures[0].DecodeFrom(d)
-	r.Signatures[1].DecodeFrom(d)
 }
 
-func (r *RPCReadRequest) encodeTo(e *types.Encoder) {
+// MaxLen implements rpc.Object.
+func (r *RPCLockResponse) MaxLen() int {
+	return defaultMaxLen
+}
+
+// EncodeTo implements rpc.Object.
+func (r *RPCReadRequest) EncodeTo(e *types.Encoder) {
 	e.WritePrefix(len(r.Sections))
 	for i := range r.Sections {
 		r.Sections[i].MerkleRoot.EncodeTo(e)
@@ -448,7 +403,8 @@ func (r *RPCReadRequest) encodeTo(e *types.Encoder) {
 	r.Signature.EncodeTo(e)
 }
 
-func (r *RPCReadRequest) decodeFrom(d *types.Decoder) {
+// DecodeFrom implements rpc.Object.
+func (r *RPCReadRequest) DecodeFrom(d *types.Decoder) {
 	r.Sections = make([]RPCReadRequestSection, d.ReadPrefix())
 	for i := range r.Sections {
 		r.Sections[i].MerkleRoot.DecodeFrom(d)
@@ -461,13 +417,20 @@ func (r *RPCReadRequest) decodeFrom(d *types.Decoder) {
 	r.Signature.DecodeFrom(d)
 }
 
-func (r *RPCReadResponse) encodeTo(e *types.Encoder) {
+// MaxLen implements rpc.Object.
+func (r *RPCReadRequest) MaxLen() int {
+	return defaultMaxLen
+}
+
+// EncodeTo implements rpc.Object.
+func (r *RPCReadResponse) EncodeTo(e *types.Encoder) {
 	r.Signature.EncodeTo(e)
-	writePrefixedBytes(e, r.Data)
+	e.WriteBytes(r.Data)
 	writeMerkleProof(e, r.MerkleProof)
 }
 
-func (r *RPCReadResponse) decodeFrom(d *types.Decoder) {
+// DecodeFrom implements rpc.Object.
+func (r *RPCReadResponse) DecodeFrom(d *types.Decoder) {
 	r.Signature.DecodeFrom(d)
 
 	// r.Data will typically be large (4 MiB), so reuse the existing capacity if
@@ -485,7 +448,13 @@ func (r *RPCReadResponse) decodeFrom(d *types.Decoder) {
 	r.MerkleProof = readMerkleProof(d)
 }
 
-func (r *RPCSectorRootsRequest) encodeTo(e *types.Encoder) {
+// MaxLen implements rpc.Object.
+func (r *RPCReadResponse) MaxLen() int {
+	return 16 * (1 << 20) // 16 MiB
+}
+
+// EncodeTo implements rpc.Object.
+func (r *RPCSectorRootsRequest) EncodeTo(e *types.Encoder) {
 	e.WriteUint64(r.RootOffset)
 	e.WriteUint64(r.NumRoots)
 	e.WriteUint64(r.NewRevisionNumber)
@@ -493,7 +462,8 @@ func (r *RPCSectorRootsRequest) encodeTo(e *types.Encoder) {
 	r.Signature.EncodeTo(e)
 }
 
-func (r *RPCSectorRootsRequest) decodeFrom(d *types.Decoder) {
+// DecodeFrom implements rpc.Object.
+func (r *RPCSectorRootsRequest) DecodeFrom(d *types.Decoder) {
 	r.RootOffset = d.ReadUint64()
 	r.NumRoots = d.ReadUint64()
 	r.NewRevisionNumber = d.ReadUint64()
@@ -501,76 +471,118 @@ func (r *RPCSectorRootsRequest) decodeFrom(d *types.Decoder) {
 	r.Signature.DecodeFrom(d)
 }
 
-func (r *RPCSectorRootsResponse) encodeTo(e *types.Encoder) {
+// MaxLen implements rpc.Object.
+func (r *RPCSectorRootsRequest) MaxLen() int {
+	return 8 + 8 + 8 + r.NewOutputs.maxLen() + len(r.Signature)
+}
+
+// EncodeTo implements rpc.Object.
+func (r *RPCSectorRootsResponse) EncodeTo(e *types.Encoder) {
 	r.Signature.EncodeTo(e)
 	writeMerkleProof(e, r.SectorRoots)
 	writeMerkleProof(e, r.MerkleProof)
 }
 
-func (r *RPCSectorRootsResponse) decodeFrom(d *types.Decoder) {
+// DecodeFrom implements rpc.Object.
+func (r *RPCSectorRootsResponse) DecodeFrom(d *types.Decoder) {
 	r.Signature.DecodeFrom(d)
 	r.SectorRoots = readMerkleProof(d)
 	r.MerkleProof = readMerkleProof(d)
 }
 
-func (r *RPCSettingsResponse) encodeTo(e *types.Encoder) {
-	writePrefixedBytes(e, r.Settings)
+// MaxLen implements rpc.Object.
+func (r *RPCSectorRootsResponse) MaxLen() int {
+	return defaultMaxLen
 }
 
-func (r *RPCSettingsResponse) decodeFrom(d *types.Decoder) {
-	r.Settings = readPrefixedBytes(d)
+// EncodeTo implements rpc.Object.
+func (r *RPCSettingsResponse) EncodeTo(e *types.Encoder) {
+	e.WriteBytes(r.Settings)
 }
 
-func (r *RPCWriteAction) encodeTo(e *types.Encoder) {
-	r.Type.encodeTo(e)
+// DecodeFrom implements rpc.Object.
+func (r *RPCSettingsResponse) DecodeFrom(d *types.Decoder) {
+	r.Settings = d.ReadBytes()
+}
+
+// MaxLen implements rpc.Object.
+func (r *RPCSettingsResponse) MaxLen() int {
+	return defaultMaxLen
+}
+
+// EncodeTo implements rpc.Object.
+func (r *RPCWriteAction) EncodeTo(e *types.Encoder) {
+	r.Type.EncodeTo(e)
 	e.WriteUint64(r.A)
 	e.WriteUint64(r.B)
-	writePrefixedBytes(e, r.Data)
+	e.WriteBytes(r.Data)
 }
 
-func (r *RPCWriteAction) decodeFrom(d *types.Decoder) {
-	r.Type.decodeFrom(d)
+// DecodeFrom implements rpc.Object.
+func (r *RPCWriteAction) DecodeFrom(d *types.Decoder) {
+	r.Type.DecodeFrom(d)
 	r.A = d.ReadUint64()
 	r.B = d.ReadUint64()
-	r.Data = readPrefixedBytes(d)
+	r.Data = d.ReadBytes()
 }
 
-func (r *RPCWriteRequest) encodeTo(e *types.Encoder) {
+// EncodeTo implements rpc.Object.
+func (r *RPCWriteRequest) EncodeTo(e *types.Encoder) {
 	e.WritePrefix(len(r.Actions))
 	for i := range r.Actions {
-		r.Actions[i].encodeTo(e)
+		r.Actions[i].EncodeTo(e)
 	}
 	e.WriteBool(r.MerkleProof)
 	e.WriteUint64(r.NewRevisionNumber)
 	r.NewOutputs.encodeTo(e)
 }
 
-func (r *RPCWriteRequest) decodeFrom(d *types.Decoder) {
+// DecodeFrom implements rpc.Object.
+func (r *RPCWriteRequest) DecodeFrom(d *types.Decoder) {
 	r.Actions = make([]RPCWriteAction, d.ReadPrefix())
 	for i := range r.Actions {
-		r.Actions[i].decodeFrom(d)
+		r.Actions[i].DecodeFrom(d)
 	}
 	r.MerkleProof = d.ReadBool()
 	r.NewRevisionNumber = d.ReadUint64()
 	r.NewOutputs.decodeFrom(d)
 }
 
-func (r *RPCWriteMerkleProof) encodeTo(e *types.Encoder) {
+// MaxLen implements rpc.Object.
+func (r *RPCWriteRequest) MaxLen() int {
+	return defaultMaxLen
+}
+
+// EncodeTo implements rpc.Object.
+func (r *RPCWriteMerkleProof) EncodeTo(e *types.Encoder) {
 	writeMerkleProof(e, r.OldSubtreeHashes)
 	writeMerkleProof(e, r.OldLeafHashes)
 	r.NewMerkleRoot.EncodeTo(e)
 }
 
-func (r *RPCWriteMerkleProof) decodeFrom(d *types.Decoder) {
+// DecodeFrom implements rpc.Object.
+func (r *RPCWriteMerkleProof) DecodeFrom(d *types.Decoder) {
 	r.OldSubtreeHashes = readMerkleProof(d)
 	r.OldLeafHashes = readMerkleProof(d)
 	r.NewMerkleRoot.DecodeFrom(d)
 }
 
-func (r *RPCWriteResponse) encodeTo(e *types.Encoder) {
+// MaxLen implements rpc.Object.
+func (r *RPCWriteMerkleProof) MaxLen() int {
+	return defaultMaxLen
+}
+
+// EncodeTo implements rpc.Object.
+func (r *RPCWriteResponse) EncodeTo(e *types.Encoder) {
 	r.Signature.EncodeTo(e)
 }
 
-func (r *RPCWriteResponse) decodeFrom(d *types.Decoder) {
+// DecodeFrom implements rpc.Object.
+func (r *RPCWriteResponse) DecodeFrom(d *types.Decoder) {
 	r.Signature.DecodeFrom(d)
+}
+
+// MaxLen implements rpc.Object.
+func (r *RPCWriteResponse) MaxLen() int {
+	return 64
 }
