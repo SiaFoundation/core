@@ -11,7 +11,8 @@ import (
 )
 
 const (
-	flagFinal = 1 << iota // stream is being closed gracefully
+	flagFirst = 1 << iota // first frame in stream
+	flagLast              // stream is being closed gracefully
 	flagError             // stream is being closed due to an error
 )
 
