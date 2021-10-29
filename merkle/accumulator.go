@@ -427,14 +427,21 @@ func (hau *HistoryApplyUpdate) HistoryProof() []types.Hash256 {
 	return append([]types.Hash256(nil), hau.proof...)
 }
 
-// UpdateWindowProof updates the history proof of the supplied storage proof
-// contract to incorporate the changes made to the state tree. The contract's
-// proof must be up-to-date; if it is not, UpdateWindowProof may panic.
-func (hau *HistoryApplyUpdate) UpdateWindowProof(sp *types.StorageProof) {
-	if len(hau.growth) > len(sp.WindowProof) {
-		sp.WindowProof = append(sp.WindowProof, hau.growth[len(sp.WindowProof)])
-		sp.WindowProof = append(sp.WindowProof, hau.proof[len(sp.WindowProof):]...)
+// UpdateProof updates the supplied history proof to incorporate changes made to
+// the chain history. The proof must be up-to-date; if it is not, UpdateProof
+// may panic.
+func (hau *HistoryApplyUpdate) UpdateProof(proof *[]types.Hash256) {
+	if len(hau.growth) > len(*proof) {
+		*proof = append(*proof, hau.growth[len(*proof)])
+		*proof = append(*proof, hau.proof[len(*proof):]...)
 	}
+}
+
+// UpdateWindowProof updates the supplied storage proof to incorporate changes
+// made to the chain history. The proof must be up-to-date; if it is not,
+// UpdateWindowProof may panic.
+func (hau *HistoryApplyUpdate) UpdateWindowProof(sp *types.StorageProof) {
+	hau.UpdateProof(&sp.WindowProof)
 }
 
 // A HistoryRevertUpdate reflects the changes to a HistoryAccumulator resulting
@@ -443,11 +450,18 @@ type HistoryRevertUpdate struct {
 	index types.ChainIndex
 }
 
-// UpdateWindowProof updates the history proof of the supplied storage proof
-// contract to incorporate the changes made to the state tree. The contract's
-// proof must be up-to-date; if it is not, UpdateWindowProof may panic.
-func (hru *HistoryRevertUpdate) UpdateWindowProof(sp *types.StorageProof) {
-	if mh := mergeHeight(hru.index.Height, sp.WindowStart.Height); mh <= len(sp.WindowProof) {
-		sp.WindowProof = sp.WindowProof[:mh-1]
+// UpdateProof updates the supplied history proof to incorporate the changes
+// made to the chain history. The proof must be up-to-date; if it is not,
+// UpdateWindowProof may panic.
+func (hru *HistoryRevertUpdate) UpdateProof(height uint64, proof *[]types.Hash256) {
+	if mh := mergeHeight(hru.index.Height, height); mh <= len(*proof) {
+		*proof = (*proof)[:mh-1]
 	}
+}
+
+// UpdateWindowProof updates the supplied storage proof to incorporate the
+// changes made to the chain history. The proof must be up-to-date; if it is
+// not, UpdateWindowProof may panic.
+func (hru *HistoryRevertUpdate) UpdateWindowProof(sp *types.StorageProof) {
+	hru.UpdateProof(sp.WindowStart.Height, &sp.WindowProof)
 }
