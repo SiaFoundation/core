@@ -23,9 +23,8 @@ type Currency struct {
 	Lo, Hi uint64
 }
 
-// Format implements fmt.Formatter. It accepts the formats
-// 's', 'v' (Siacoin representation - rounded to 3 decimal places), or
-// 'd' (exact value, useful for outputing Siafunds or Hastings).
+// Format implements fmt.Formatter. It accepts the formats 's', 'v' (siacoins,
+// rounded to 3 decimal places), or 'd' (hastings, exact value).
 func (c Currency) Format(f fmt.State, v rune) {
 	switch v {
 	case 's', 'v':
