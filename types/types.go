@@ -301,8 +301,9 @@ func (h BlockHeader) ID() BlockID {
 	return BlockID(HashBytes(buf))
 }
 
-// CurrentTimestamp returns the current time, rounded to the nearest second.
-func CurrentTimestamp() time.Time { return time.Now().Round(time.Second) }
+// CurrentTimestamp returns the current time, rounded to the nearest second. The
+// time zone is set to UTC.
+func CurrentTimestamp() time.Time { return time.Now().Round(time.Second).UTC() }
 
 // A Block is a set of transactions grouped under a header.
 type Block struct {

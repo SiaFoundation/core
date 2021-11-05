@@ -197,7 +197,7 @@ func (d *Decoder) ReadPrefix() int {
 }
 
 // ReadTime reads a time.Time from the underlying stream.
-func (d *Decoder) ReadTime() time.Time { return time.Unix(int64(d.ReadUint64()), 0) }
+func (d *Decoder) ReadTime() time.Time { return time.Unix(int64(d.ReadUint64()), 0).UTC() }
 
 // ReadBytes reads a length-prefixed []byte from the underlying stream.
 func (d *Decoder) ReadBytes() []byte {
