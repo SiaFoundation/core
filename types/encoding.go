@@ -153,7 +153,7 @@ func (d *Decoder) Read(p []byte) (int, error) {
 		}
 		var read int
 		read, d.err = io.ReadFull(&d.lr, d.buf[:want])
-		n += copy(p, d.buf[:read])
+		n += copy(p[n:], d.buf[:read])
 	}
 	return n, d.err
 }
