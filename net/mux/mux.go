@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"sync"
@@ -431,6 +432,9 @@ func (s *Stream) Read(p []byte) (int, error) {
 		s.cond.Wait()
 	}
 	if s.err != nil {
+		if s.err == ErrPeerClosedStream {
+			return 0, io.EOF
+		}
 		return 0, s.err
 	} else if !s.rd.IsZero() && !time.Now().Before(s.rd) {
 		return 0, os.ErrDeadlineExceeded
@@ -438,7 +442,7 @@ func (s *Stream) Read(p []byte) (int, error) {
 	n := copy(p, s.readBuf)
 	s.readBuf = s.readBuf[n:]
 	s.cond.Broadcast() // wake consumeFrame
-	return n, s.err
+	return n, nil
 }
 
 // Write writes data to the Stream.
