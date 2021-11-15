@@ -96,7 +96,7 @@ func (m *Mux) bufferFrame(h frameHeader, payload []byte, deadline time.Time) err
 	// successful write() syscall doesn't mean that the peer actually received
 	// the data, just that the packets are sitting in a kernel buffer somewhere.
 	m.write.header = h
-	m.write.payload = payload
+	m.write.payload = append(m.write.payload[:0], payload...)
 	m.cond.Broadcast()
 	return nil
 }
@@ -149,7 +149,7 @@ func (m *Mux) writeLoop() {
 		// clear the payload and wake at most one bufferFrame call
 		m.mu.Lock()
 		m.write.header = frameHeader{}
-		m.write.payload = nil
+		m.write.payload = m.write.payload[:0]
 		m.write.cond.Signal()
 		m.mu.Unlock()
 	}
