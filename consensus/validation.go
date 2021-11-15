@@ -144,6 +144,7 @@ func (vc *ValidationContext) TransactionWeight(txn types.Transaction) uint64 {
 		signatures += len(in.Signatures)
 	}
 	signatures += 2 * len(txn.FileContractRevisions)
+	signatures += len(txn.Attestations)
 
 	return uint64(storage) + 100*uint64(signatures)
 }
@@ -259,6 +260,17 @@ func (vc *ValidationContext) ContractSigHash(fc types.FileContract) types.Hash25
 	defer hasherPool.Put(h)
 	h.Reset()
 	fc.EncodeTo(h.E)
+	return h.Sum()
+}
+
+// AttestationSigHash returns the hash that must be signed for an attestation.
+func (vc *ValidationContext) AttestationSigHash(a types.Attestation) types.Hash256 {
+	h := hasherPool.Get().(*types.Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	a.PublicKey.EncodeTo(h.E)
+	h.E.WriteString(a.Key)
+	h.E.WriteBytes(a.Value)
 	return h.Sum()
 }
 
@@ -390,6 +402,18 @@ func (vc *ValidationContext) validFileContractResolutions(txn types.Transaction)
 			if vc.Index.Height <= fc.WindowEnd {
 				return fmt.Errorf("file contract resolution %v attempts to claim missed outputs, but proof window (%v - %v) has not expired", i, fc.WindowStart, fc.WindowEnd)
 			}
+		}
+	}
+	return nil
+}
+
+func (vc *ValidationContext) validAttestations(txn types.Transaction) error {
+	for i, a := range txn.Attestations {
+		switch {
+		case len(a.Key) == 0:
+			return fmt.Errorf("attestation %v has empty key", i)
+		case !a.PublicKey.VerifyHash(vc.AttestationSigHash(a), a.Signature):
+			return fmt.Errorf("attestation %v has invalid signature", i)
 		}
 	}
 	return nil
@@ -603,6 +627,8 @@ func (vc *ValidationContext) ValidateTransaction(txn types.Transaction) error {
 	} else if err := vc.validFileContractRevisions(txn); err != nil {
 		return err
 	} else if err := vc.validFileContractResolutions(txn); err != nil {
+		return err
+	} else if err := vc.validAttestations(txn); err != nil {
 		return err
 	} else if err := vc.validSpendPolicies(txn); err != nil {
 		return err

@@ -412,6 +412,14 @@ func (res FileContractResolution) EncodeTo(e *Encoder) {
 	res.StorageProof.EncodeTo(e)
 }
 
+// EncodeTo implements types.EncoderTo.
+func (a Attestation) EncodeTo(e *Encoder) {
+	a.PublicKey.EncodeTo(e)
+	e.WriteString(a.Key)
+	e.WriteBytes(a.Value)
+	a.Signature.EncodeTo(e)
+}
+
 const (
 	opInvalid = iota
 	opAbove
@@ -487,6 +495,10 @@ func (txn Transaction) EncodeTo(e *Encoder) {
 	e.WritePrefix(len(txn.FileContractResolutions))
 	for _, res := range txn.FileContractResolutions {
 		res.EncodeTo(e)
+	}
+	e.WritePrefix(len(txn.Attestations))
+	for _, a := range txn.Attestations {
+		a.EncodeTo(e)
 	}
 	e.WriteBytes(txn.ArbitraryData)
 	txn.NewFoundationAddress.EncodeTo(e)
@@ -711,6 +723,14 @@ func (res *FileContractResolution) DecodeFrom(d *Decoder) {
 }
 
 // DecodeFrom implements types.DecoderFrom.
+func (a *Attestation) DecodeFrom(d *Decoder) {
+	a.PublicKey.DecodeFrom(d)
+	a.Key = d.ReadString()
+	a.Value = d.ReadBytes()
+	a.Signature.DecodeFrom(d)
+}
+
+// DecodeFrom implements types.DecoderFrom.
 func (txn *Transaction) DecodeFrom(d *Decoder) {
 	txn.SiacoinInputs = make([]SiacoinInput, d.ReadPrefix())
 	for i := range txn.SiacoinInputs {
@@ -739,6 +759,10 @@ func (txn *Transaction) DecodeFrom(d *Decoder) {
 	txn.FileContractResolutions = make([]FileContractResolution, d.ReadPrefix())
 	for i := range txn.FileContractResolutions {
 		txn.FileContractResolutions[i].DecodeFrom(d)
+	}
+	txn.Attestations = make([]Attestation, d.ReadPrefix())
+	for i := range txn.Attestations {
+		txn.Attestations[i].DecodeFrom(d)
 	}
 	txn.ArbitraryData = d.ReadBytes()
 	txn.NewFoundationAddress.DecodeFrom(d)
