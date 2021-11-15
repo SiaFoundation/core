@@ -408,7 +408,7 @@ func (s *Stream) consumeFrame(h frameHeader, payload []byte) {
 	defer s.cond.L.Unlock()
 	s.readBuf = payload
 	s.cond.Broadcast() // wake Read
-	for len(s.readBuf) > 0 && s.err == nil {
+	for len(s.readBuf) > 0 && s.err == nil && (s.rd.IsZero() || time.Now().Before(s.rd)) {
 		s.cond.Wait()
 	}
 }

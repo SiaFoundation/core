@@ -288,9 +288,8 @@ func TestDeadline(t *testing.T) {
 
 			// need to write a fairly large message; otherwise the packets just
 			// get buffered and "succeed" instantly
-			if _, err := s.Write(make([]byte, 1<<20)); err != nil {
-				return err
-			} else if _, err := io.ReadFull(s, buf[:13]); err != nil {
+			s.Write(make([]byte, 1<<20))
+			if _, err := io.ReadFull(s, buf[:13]); err != nil {
 				return err
 			} else if string(buf) != "hello, world!" {
 				return errors.New("bad echo")
