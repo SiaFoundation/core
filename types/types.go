@@ -209,6 +209,19 @@ type FileContractElement struct {
 	FileContract
 }
 
+// An Attestation associates a key-value pair with an identity. For example,
+// hosts attest to their network address by setting Key to "HostAnnouncement"
+// and Value to their address, thereby allowing renters to discover them.
+// Generally, an attestation for a particular key is considered to overwrite any
+// previous attestations with the same key. (This allows hosts to announce a new
+// network address, for example.)
+type Attestation struct {
+	PublicKey PublicKey
+	Key       string
+	Value     []byte
+	Signature Signature
+}
+
 // A Transaction transfers value by consuming existing Outputs and creating new
 // Outputs.
 type Transaction struct {
@@ -219,6 +232,7 @@ type Transaction struct {
 	FileContracts           []FileContract
 	FileContractRevisions   []FileContractRevision
 	FileContractResolutions []FileContractResolution
+	Attestations            []Attestation
 	ArbitraryData           []byte
 	NewFoundationAddress    Address
 	MinerFee                Currency
@@ -258,6 +272,9 @@ func (txn *Transaction) DeepCopy() Transaction {
 		c.FileContractResolutions[i].Parent.MerkleProof = append([]Hash256(nil), c.FileContractResolutions[i].Parent.MerkleProof...)
 		c.FileContractResolutions[i].StorageProof.WindowProof = append([]Hash256(nil), c.FileContractResolutions[i].StorageProof.WindowProof...)
 		c.FileContractResolutions[i].StorageProof.SegmentProof = append([]Hash256(nil), c.FileContractResolutions[i].StorageProof.SegmentProof...)
+	}
+	for i := range c.Attestations {
+		c.Attestations[i].Value = append([]byte(nil), c.Attestations[i].Value...)
 	}
 	c.ArbitraryData = append([]byte(nil), c.ArbitraryData...)
 	return c

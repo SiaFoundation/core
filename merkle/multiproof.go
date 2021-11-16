@@ -326,6 +326,10 @@ func (txn compressedTransaction) EncodeTo(e *types.Encoder) {
 	for _, res := range txn.FileContractResolutions {
 		(compressedFileContractResolution)(res).EncodeTo(e)
 	}
+	e.WritePrefix(len(txn.Attestations))
+	for _, a := range txn.Attestations {
+		a.EncodeTo(e)
+	}
 	e.WritePrefix(len(txn.ArbitraryData))
 	e.Write(txn.ArbitraryData)
 	txn.NewFoundationAddress.EncodeTo(e)
@@ -360,6 +364,10 @@ func (txn *compressedTransaction) DecodeFrom(d *types.Decoder) {
 	txn.FileContractResolutions = make([]types.FileContractResolution, d.ReadPrefix())
 	for i := range txn.FileContractResolutions {
 		(*compressedFileContractResolution)(&txn.FileContractResolutions[i]).DecodeFrom(d)
+	}
+	txn.Attestations = make([]types.Attestation, d.ReadPrefix())
+	for i := range txn.Attestations {
+		txn.Attestations[i].DecodeFrom(d)
 	}
 	txn.ArbitraryData = make([]byte, d.ReadPrefix())
 	d.Read(txn.ArbitraryData)

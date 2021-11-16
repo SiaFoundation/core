@@ -384,6 +384,11 @@ func TestValidateTransaction(t *testing.T) {
 			Parent:       closedContract,
 			StorageProof: closedProof,
 		}},
+		Attestations: []types.Attestation{{
+			PublicKey: pubkey,
+			Key:       "foo",
+			Value:     []byte("bar"),
+		}},
 		MinerFee: types.Siacoins(48).Div64(10),
 	}
 	signAllInputs(&txn, vc, privkey)
@@ -391,6 +396,7 @@ func TestValidateTransaction(t *testing.T) {
 	contractHash := vc.ContractSigHash(rev.Revision)
 	rev.RenterSignature = types.SignHash(renterPrivkey, contractHash)
 	rev.HostSignature = types.SignHash(hostPrivkey, contractHash)
+	txn.Attestations[0].Signature = types.SignHash(privkey, vc.AttestationSigHash(txn.Attestations[0]))
 
 	if err := vc.ValidateTransaction(txn); err != nil {
 		t.Fatal(err)
@@ -652,6 +658,12 @@ func TestValidateTransaction(t *testing.T) {
 			func(txn *types.Transaction) {
 				res := &txn.FileContractResolutions[0]
 				res.StorageProof.SegmentProof[0][0] ^= 1
+			},
+		},
+		{
+			"attestation with invalid signature",
+			func(txn *types.Transaction) {
+				txn.Attestations[0].Signature[0] ^= 1
 			},
 		},
 		{
