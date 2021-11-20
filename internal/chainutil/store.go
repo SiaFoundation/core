@@ -281,7 +281,6 @@ func (fs *FlatStore) recoverBest(tip types.ChainIndex) error {
 // Close closes the store.
 func (fs *FlatStore) Close() (err error) {
 	errs := []error{
-		fmt.Errorf("error flushing store: %w", fs.Flush()),
 		fmt.Errorf("error closing index file: %w", fs.indexFile.Close()),
 		fmt.Errorf("error closing entry file: %w", fs.entryFile.Close()),
 		fmt.Errorf("error closing best file: %w", fs.bestFile.Close()),

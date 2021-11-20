@@ -56,6 +56,7 @@ type ManagerStore interface {
 	BestIndex(height uint64) (types.ChainIndex, error)
 
 	Flush() error
+	Close() error
 }
 
 // A Manager tracks multiple blockchains and identifies the best valid
@@ -146,7 +147,7 @@ func (m *Manager) HeadersForHistory(headers []types.BlockHeader, history []types
 	var attachHeight uint64
 	for _, h := range history {
 		if index, err := m.store.BestIndex(h.Height); err != nil && !errors.Is(err, ErrUnknownIndex) && !errors.Is(err, ErrPruned) {
-			return nil, fmt.Errorf("couldn't retrieve header: %w", err)
+			return nil, fmt.Errorf("couldn't retrieve header at height %v: %w", h.Height, err)
 		} else if index == h {
 			attachHeight = h.Height
 			break
@@ -156,7 +157,7 @@ func (m *Manager) HeadersForHistory(headers []types.BlockHeader, history []types
 		if index, err := m.store.BestIndex(attachHeight + uint64(i) + 1); err != nil {
 			return headers[:i], nil
 		} else if headers[i], err = m.store.Header(index); err != nil {
-			return nil, fmt.Errorf("couldn't retrieve header: %w", err)
+			return nil, fmt.Errorf("couldn't retrieve header %v: %w", index, err)
 		}
 	}
 	return headers, nil
@@ -552,6 +553,17 @@ func (m *Manager) AddSubscriber(s Subscriber, tip types.ChainIndex) error {
 	}
 	m.subscribers = append(m.subscribers, s)
 	return nil
+}
+
+// Close flushes and closes the underlying store.
+func (m *Manager) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.store.Flush(); err != nil {
+		m.store.Close()
+		return fmt.Errorf("error flushing store: %w", err)
+	}
+	return m.store.Close()
 }
 
 // NewManager returns a Manager initialized with the provided Store and context.

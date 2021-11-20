@@ -21,7 +21,6 @@ func newTestStore(tb testing.TB, checkpoint consensus.Checkpoint) *chainutil.Fla
 	if err != nil {
 		tb.Fatal(err)
 	}
-	tb.Cleanup(func() { fs.Close() })
 	return fs
 }
 
@@ -45,6 +44,7 @@ func TestManager(t *testing.T) {
 
 	store := newTestStore(t, sim.Genesis)
 	cm := chain.NewManager(store, sim.Context)
+	defer cm.Close()
 
 	var hs historySubscriber
 	cm.AddSubscriber(&hs, cm.Tip())
