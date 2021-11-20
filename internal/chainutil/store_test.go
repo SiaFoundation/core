@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"go.sia.tech/core/chain"
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
 )
@@ -22,14 +23,21 @@ func TestFlatStoreRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	invalidIndex := types.ChainIndex{Height: 9999}
+	if _, err := fs.Checkpoint(invalidIndex); err != chain.ErrUnknownIndex {
+		t.Fatal("Checkpoint returned no error for an invalid index")
+	}
+	if _, err := fs.BestIndex(invalidIndex.Height); err != chain.ErrUnknownIndex {
+		t.Fatal("BestIndex returned no error for an invalid block height")
+	}
+
 	// add some blocks and flush meta
-	for i := 0; i < 5; i++ {
-		b := sim.MineBlock()
-		err := fs.AddCheckpoint(consensus.Checkpoint{
-			Block:   b,
+	blocks := sim.MineBlocks(5)
+	for _, block := range blocks {
+		if err := fs.AddCheckpoint(consensus.Checkpoint{
+			Block:   block,
 			Context: sim.Context,
-		})
-		if err != nil {
+		}); err != nil {
 			t.Fatal(err)
 		} else if err := fs.ExtendBest(sim.Context.Index); err != nil {
 			t.Fatal(err)
@@ -48,13 +56,12 @@ func TestFlatStoreRecovery(t *testing.T) {
 	goodTip := fs.meta.tip
 
 	// add more blocks, then close without flushing
-	for i := 0; i < 5; i++ {
-		b := sim.MineBlock()
-		err := fs.AddCheckpoint(consensus.Checkpoint{
-			Block:   b,
+	blocks = sim.MineBlocks(5)
+	for _, block := range blocks {
+		if err := fs.AddCheckpoint(consensus.Checkpoint{
+			Block:   block,
 			Context: sim.Context,
-		})
-		if err != nil {
+		}); err != nil {
 			t.Fatal(err)
 		} else if err := fs.ExtendBest(sim.Context.Index); err != nil {
 			t.Fatal(err)
@@ -86,6 +93,56 @@ func TestFlatStoreRecovery(t *testing.T) {
 		t.Fatal("tip mismatch", index, goodTip)
 	}
 	fs.Close()
+}
+
+func TestEphemeralStore(t *testing.T) {
+	dir, err := os.MkdirTemp(os.TempDir(), t.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	sim := NewChainSim()
+	es := NewEphemeralStore(sim.Genesis)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// add some blocks
+	blocks := sim.MineBlocks(5)
+	for _, block := range blocks {
+		if err := es.AddCheckpoint(consensus.Checkpoint{
+			Block:   block,
+			Context: sim.Context,
+		}); err != nil {
+			t.Fatal(err)
+		} else if err := es.ExtendBest(sim.Context.Index); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// ephemeral store flush should always return nil
+	if err := es.Flush(); err != nil {
+		t.Fatal(err)
+	}
+
+	tip, err := es.Header(sim.Context.Index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// compare tips
+	if tip.Index() != sim.Context.Index {
+		t.Fatal("tip mismatch", tip.Index(), sim.Context.Index)
+	} else if index, err := es.BestIndex(tip.Height); err != nil || index != tip.Index() {
+		t.Fatal("tip mismatch", index, tip)
+	}
+
+	invalidIndex := types.ChainIndex{Height: 9999}
+	if _, err := es.Checkpoint(invalidIndex); err != chain.ErrUnknownIndex {
+		t.Fatal("Checkpoint returned no error for an invalid index")
+	}
+	if _, err := es.BestIndex(invalidIndex.Height); err != chain.ErrUnknownIndex {
+		t.Fatal("BestIndex returned no error for an invalid block height")
+	}
 }
 
 func BenchmarkFlatStore(b *testing.B) {
