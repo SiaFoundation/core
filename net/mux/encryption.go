@@ -54,17 +54,31 @@ func decryptInPlace(buf []byte, aead cipher.AEAD) ([]byte, error) {
 	return aead.Open(ciphertext[:0], nonce, ciphertext, nil)
 }
 
-func encryptFrame(buf []byte, h frameHeader, payload []byte, packetSize int, aead cipher.AEAD) []byte {
+func encryptFrame(buf []byte, fh frameHeader, payload []byte, packetSize int, aead cipher.AEAD) []byte {
 	// pad frame to packet boundary
-	numPackets := (encryptedFrameHeaderSize + (len(payload) + chachaOverhead) + (packetSize - 1)) / packetSize
+	numPackets := (encryptedMessageHeaderSize + encryptedFrameHeaderSize + (len(payload) + chachaOverhead) + (packetSize - 1)) / packetSize
 	frame := buf[:numPackets*packetSize]
-	// encode + encrypt header
-	encodeFrameHeader(frame[chachaPoly1305NonceSize:][:frameHeaderSize], h)
-	encryptInPlace(frame[:encryptedFrameHeaderSize], aead)
+	// encode + encrypt message header
+	encodeMessageHeader(frame[chachaPoly1305NonceSize:][:messageHeaderSize], messageHeader{
+		flags:  0,
+		length: uint32(frameHeaderSize + len(payload)),
+	})
+	encryptInPlace(frame[:encryptedMessageHeaderSize], aead)
+	// encode + encrypt frame header
+	encodeFrameHeader(frame[encryptedFrameHeaderSize+chachaPoly1305NonceSize:], fh)
+	encryptInPlace(frame[encryptedMessageHeaderSize:][:encryptedFrameHeaderSize], aead)
 	// pad + encrypt payload
-	copy(frame[encryptedFrameHeaderSize+chachaPoly1305NonceSize:], payload)
-	encryptInPlace(frame[encryptedFrameHeaderSize:], aead)
+	copy(frame[encryptedMessageHeaderSize+encryptedFrameHeaderSize+chachaPoly1305NonceSize:], payload)
+	encryptInPlace(frame[encryptedMessageHeaderSize+encryptedFrameHeaderSize+chachaPoly1305NonceSize:], aead)
 	return frame
+}
+
+func decryptMessageHeader(buf []byte, aead cipher.AEAD) (messageHeader, error) {
+	buf, err := decryptInPlace(buf, aead)
+	if err != nil {
+		return messageHeader{}, err
+	}
+	return decodeMessageHeader(buf), nil
 }
 
 func decryptFrameHeader(buf []byte, aead cipher.AEAD) (frameHeader, error) {
@@ -76,17 +90,26 @@ func decryptFrameHeader(buf []byte, aead cipher.AEAD) (frameHeader, error) {
 }
 
 func readEncryptedFrame(r io.Reader, buf []byte, packetSize int, aead cipher.AEAD) (frameHeader, []byte, error) {
-	// read, decrypt, and decode header
-	if _, err := io.ReadFull(r, buf[:encryptedFrameHeaderSize]); err != nil {
-		return frameHeader{}, nil, fmt.Errorf("could not read frame header: %w", err)
+	// read, decrypt, and decode headers
+	if _, err := io.ReadFull(r, buf[:encryptedMessageHeaderSize]); err != nil {
+		return frameHeader{}, nil, fmt.Errorf("could not read message header: %w", err)
 	}
-	h, err := decryptFrameHeader(buf[:encryptedFrameHeaderSize], aead)
+	mh, err := decryptMessageHeader(buf[:encryptedMessageHeaderSize], aead)
 	if err != nil {
 		return frameHeader{}, nil, fmt.Errorf("could not decrypt header: %w", err)
 	}
-	numPackets := (encryptedFrameHeaderSize + (int(h.length) + chachaOverhead) + (packetSize - 1)) / packetSize
-	paddedSize := numPackets*packetSize - encryptedFrameHeaderSize
-	if h.length > uint32(len(buf)) || paddedSize > len(buf) {
+	_ = mh
+
+	if _, err := io.ReadFull(r, buf[:encryptedFrameHeaderSize]); err != nil {
+		return frameHeader{}, nil, fmt.Errorf("could not read frame header: %w", err)
+	}
+	fh, err := decryptFrameHeader(buf[:encryptedFrameHeaderSize], aead)
+	if err != nil {
+		return frameHeader{}, nil, fmt.Errorf("could not decrypt header: %w", err)
+	}
+	numPackets := (encryptedMessageHeaderSize + encryptedFrameHeaderSize + (int(fh.length) + chachaOverhead) + (packetSize - 1)) / packetSize
+	paddedSize := numPackets*packetSize - encryptedFrameHeaderSize - encryptedMessageHeaderSize
+	if fh.length > uint32(len(buf)) || paddedSize > len(buf) {
 		return frameHeader{}, nil, errors.New("peer sent too-large frame")
 	}
 	// read (padded) payload
@@ -96,9 +119,11 @@ func readEncryptedFrame(r io.Reader, buf []byte, packetSize int, aead cipher.AEA
 	// decrypt payload
 	payload, err := decryptInPlace(buf[:paddedSize], aead)
 	if err != nil {
+		// chacha20poly1305: message authentication failed
+		panic(err)
 		return frameHeader{}, nil, fmt.Errorf("could not decrypt payload: %w", err)
 	}
-	return h, payload[:h.length], nil
+	return fh, payload[:fh.length], nil
 }
 
 func initiateEncryptionHandshake(conn net.Conn, theirKey ed25519.PublicKey) (cipher.AEAD, error) {
