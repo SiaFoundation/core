@@ -23,19 +23,39 @@ const (
 	idKeepalive                  // empty frame to keep connection open
 )
 
+type messageHeader struct {
+	flags  uint16
+	length uint32
+}
+
 type frameHeader struct {
 	id     uint32
 	length uint32
 	flags  uint16
 }
 
-const frameHeaderSize = 10
-const encryptedHeaderSize = frameHeaderSize + chachaOverhead
+const (
+	messageHeaderSize          = 2 + 4
+	encryptedMessageHeaderSize = messageHeaderSize + chachaOverhead
+	frameHeaderSize            = 10
+	encryptedFrameHeaderSize   = frameHeaderSize + chachaOverhead
+)
+
+func encodeMessageHeader(buf []byte, h messageHeader) {
+	binary.LittleEndian.PutUint16(buf[0:], h.flags)
+	binary.LittleEndian.PutUint32(buf[2:], h.length)
+}
 
 func encodeFrameHeader(buf []byte, h frameHeader) {
 	binary.LittleEndian.PutUint32(buf[0:], h.id)
 	binary.LittleEndian.PutUint32(buf[4:], h.length)
 	binary.LittleEndian.PutUint16(buf[8:], h.flags)
+}
+
+func decodeMessageHeader(buf []byte) (h messageHeader) {
+	h.flags = binary.LittleEndian.Uint16(buf[0:])
+	h.length = binary.LittleEndian.Uint32(buf[2:])
+	return
 }
 
 func decodeFrameHeader(buf []byte) (h frameHeader) {
@@ -102,7 +122,7 @@ func (cs connSettings) maxFrameSize() int {
 }
 
 func (cs connSettings) maxPayloadSize() int {
-	return cs.maxFrameSize() - encryptedHeaderSize - chachaOverhead
+	return cs.maxFrameSize() - encryptedFrameHeaderSize - chachaOverhead
 }
 
 var defaultConnSettings = connSettings{

@@ -56,14 +56,14 @@ func decryptInPlace(buf []byte, aead cipher.AEAD) ([]byte, error) {
 
 func encryptFrame(buf []byte, h frameHeader, payload []byte, packetSize int, aead cipher.AEAD) []byte {
 	// pad frame to packet boundary
-	numPackets := (encryptedHeaderSize + (len(payload) + chachaOverhead) + (packetSize - 1)) / packetSize
+	numPackets := (encryptedFrameHeaderSize + (len(payload) + chachaOverhead) + (packetSize - 1)) / packetSize
 	frame := buf[:numPackets*packetSize]
 	// encode + encrypt header
 	encodeFrameHeader(frame[chachaPoly1305NonceSize:][:frameHeaderSize], h)
-	encryptInPlace(frame[:encryptedHeaderSize], aead)
+	encryptInPlace(frame[:encryptedFrameHeaderSize], aead)
 	// pad + encrypt payload
-	copy(frame[encryptedHeaderSize+chachaPoly1305NonceSize:], payload)
-	encryptInPlace(frame[encryptedHeaderSize:], aead)
+	copy(frame[encryptedFrameHeaderSize+chachaPoly1305NonceSize:], payload)
+	encryptInPlace(frame[encryptedFrameHeaderSize:], aead)
 	return frame
 }
 
@@ -77,15 +77,15 @@ func decryptFrameHeader(buf []byte, aead cipher.AEAD) (frameHeader, error) {
 
 func readEncryptedFrame(r io.Reader, buf []byte, packetSize int, aead cipher.AEAD) (frameHeader, []byte, error) {
 	// read, decrypt, and decode header
-	if _, err := io.ReadFull(r, buf[:encryptedHeaderSize]); err != nil {
+	if _, err := io.ReadFull(r, buf[:encryptedFrameHeaderSize]); err != nil {
 		return frameHeader{}, nil, fmt.Errorf("could not read frame header: %w", err)
 	}
-	h, err := decryptFrameHeader(buf[:encryptedHeaderSize], aead)
+	h, err := decryptFrameHeader(buf[:encryptedFrameHeaderSize], aead)
 	if err != nil {
 		return frameHeader{}, nil, fmt.Errorf("could not decrypt header: %w", err)
 	}
-	numPackets := (encryptedHeaderSize + (int(h.length) + chachaOverhead) + (packetSize - 1)) / packetSize
-	paddedSize := numPackets*packetSize - encryptedHeaderSize
+	numPackets := (encryptedFrameHeaderSize + (int(h.length) + chachaOverhead) + (packetSize - 1)) / packetSize
+	paddedSize := numPackets*packetSize - encryptedFrameHeaderSize
 	if h.length > uint32(len(buf)) || paddedSize > len(buf) {
 		return frameHeader{}, nil, errors.New("peer sent too-large frame")
 	}
