@@ -95,6 +95,14 @@ func (m *Manager) ValidationContext(index types.ChainIndex) (consensus.Validatio
 	return c.Context, err
 }
 
+// TipContext returns the ValidationContext for the current tip.
+func (m *Manager) TipContext() (consensus.ValidationContext, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c, err := m.store.Checkpoint(m.vc.Index)
+	return c.Context, err
+}
+
 // History returns a set of chain indices that span the entire chain, beginning
 // with the last 10, and subsequently spaced exponentionally farther apart until
 // reaching the genesis block.
