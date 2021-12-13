@@ -2,7 +2,6 @@ package rhp
 
 import (
 	"bytes"
-	"crypto/ed25519"
 	"errors"
 	"io"
 	"math/rand"
@@ -61,11 +60,10 @@ func deepEqual(a, b types.EncoderTo) bool {
 
 func TestSession(t *testing.T) {
 	// initialize host
-	hostPrivKey := ed25519.NewKeyFromSeed(frand.Bytes(32))
-	hostPubKey := hostPrivKey.Public().(ed25519.PublicKey)
-	contractPrivKey := ed25519.NewKeyFromSeed(frand.Bytes(32))
-	var contractPubKey types.PublicKey
-	copy(contractPubKey[:], contractPrivKey[32:])
+	hostPrivKey := types.GeneratePrivateKey()
+	hostPubKey := hostPrivKey.PublicKey()
+	contractPrivKey := types.GeneratePrivateKey()
+	contractPubKey := contractPrivKey.PublicKey()
 	l, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatal(err)
@@ -132,9 +130,8 @@ func TestSession(t *testing.T) {
 func TestChallenge(t *testing.T) {
 	s := Session{}
 	frand.Read(s.challenge[:])
-	privkey := ed25519.NewKeyFromSeed(frand.Bytes(32))
-	var pubkey types.PublicKey
-	copy(pubkey[:], privkey[32:])
+	privkey := types.GeneratePrivateKey()
+	pubkey := privkey.PublicKey()
 	sig := s.SignChallenge(privkey)
 	if !s.VerifyChallenge(sig, pubkey) {
 		t.Fatal("challenge was not signed/verified correctly")

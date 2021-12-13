@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/blake2b"
+	"lukechampine.com/frand"
 )
 
 var (
@@ -61,12 +62,31 @@ type ChainIndex struct {
 // A PublicKey is an Ed25519 public key.
 type PublicKey [32]byte
 
+// A PrivateKey is an Ed25519 private key.
+type PrivateKey []byte
+
+// PublicKey returns the PublicKey corresponding to priv.
+func (priv PrivateKey) PublicKey() (pk PublicKey) {
+	copy(pk[:], priv[32:])
+	return
+}
+
+// NewPrivateKeyFromSeed calculates a private key from a seed.
+func NewPrivateKeyFromSeed(seed [32]byte) PrivateKey {
+	return PrivateKey(ed25519.NewKeyFromSeed(seed[:]))
+}
+
+// GeneratePrivateKey creates a new private key from a secure entropy source.
+func GeneratePrivateKey() PrivateKey {
+	return NewPrivateKeyFromSeed(frand.Entropy256())
+}
+
 // A Signature is an Ed25519 signature.
 type Signature [64]byte
 
-// SignHash signs h with privateKey, producing a Signature.
-func SignHash(privateKey ed25519.PrivateKey, h Hash256) (s Signature) {
-	copy(s[:], ed25519.Sign(privateKey, h[:]))
+// SignHash signs h with priv, producing a Signature.
+func (priv PrivateKey) SignHash(h Hash256) (s Signature) {
+	copy(s[:], ed25519.Sign(ed25519.PrivateKey(priv), h[:]))
 	return
 }
 

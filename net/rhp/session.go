@@ -46,8 +46,8 @@ func (s *Session) SetChallenge(challenge [16]byte) {
 }
 
 // SignChallenge signs the current session challenge.
-func (s *Session) SignChallenge(priv ed25519.PrivateKey) (sig types.Signature) {
-	return types.SignHash(priv, hashChallenge(s.challenge))
+func (s *Session) SignChallenge(priv types.PrivateKey) (sig types.Signature) {
+	return priv.SignHash(hashChallenge(s.challenge))
 }
 
 // VerifyChallenge verifies a signature of the current session challenge.
@@ -57,8 +57,8 @@ func (s *Session) VerifyChallenge(sig types.Signature, pub types.PublicKey) bool
 
 // AcceptSession conducts the host's half of the renter-host protocol handshake,
 // returning a Session that can be used to handle RPC requests.
-func AcceptSession(conn net.Conn, priv ed25519.PrivateKey) (_ *Session, err error) {
-	m, err := mux.Accept(conn, priv)
+func AcceptSession(conn net.Conn, priv types.PrivateKey) (_ *Session, err error) {
+	m, err := mux.Accept(conn, ed25519.PrivateKey(priv))
 	if err != nil {
 		return nil, err
 	}
@@ -93,8 +93,8 @@ func AcceptSession(conn net.Conn, priv ed25519.PrivateKey) (_ *Session, err erro
 
 // DialSession conducts the renter's half of the renter-host protocol handshake,
 // returning a Session that can be used to make RPC requests.
-func DialSession(conn net.Conn, pub ed25519.PublicKey) (_ *Session, err error) {
-	m, err := mux.Dial(conn, pub)
+func DialSession(conn net.Conn, pub types.PublicKey) (_ *Session, err error) {
+	m, err := mux.Dial(conn, pub[:])
 	if err != nil {
 		return nil, err
 	}
