@@ -3,6 +3,7 @@ package merkle
 import (
 	"math/bits"
 
+	"go.sia.tech/core/internal/blake2b"
 	"go.sia.tech/core/types"
 )
 
@@ -21,11 +22,7 @@ func trailingOnes(x uint64) int { return bits.TrailingZeros64(x + 1) }
 
 // NodeHash computes the Merkle root of a pair of node hashes.
 func NodeHash(left, right types.Hash256) types.Hash256 {
-	buf := make([]byte, 65)
-	buf[0] = nodeHashPrefix
-	copy(buf[1:], left[:])
-	copy(buf[33:], right[:])
-	return types.HashBytes(buf)
+	return blake2b.SumPair(left, right)
 }
 
 // ProofRoot returns the Merkle root derived from the supplied leaf hash and
