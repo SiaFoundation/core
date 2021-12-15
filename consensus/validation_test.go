@@ -8,6 +8,7 @@ import (
 
 	"go.sia.tech/core/merkle"
 	"go.sia.tech/core/types"
+
 	"lukechampine.com/frand"
 )
 

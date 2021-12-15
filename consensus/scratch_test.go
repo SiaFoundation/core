@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
+
 	"lukechampine.com/frand"
 )
 
