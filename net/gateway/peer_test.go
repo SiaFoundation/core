@@ -59,7 +59,7 @@ func TestHandshake(t *testing.T) {
 				return err
 			}
 			greeting := "Hello, " + name
-			if err := rpc.WriteResponse(stream, &greeting, nil); err != nil {
+			if err := rpc.WriteResponse(stream, &greeting); err != nil {
 				return err
 			}
 			return nil
