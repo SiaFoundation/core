@@ -11,12 +11,7 @@ import (
 )
 
 func TestFlatStoreRecovery(t *testing.T) {
-	dir, err := os.MkdirTemp(os.TempDir(), t.Name())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
-
+	dir := t.TempDir()
 	sim := NewChainSim()
 	fs, _, err := NewFlatStore(dir, sim.Genesis)
 	if err != nil {
@@ -96,17 +91,8 @@ func TestFlatStoreRecovery(t *testing.T) {
 }
 
 func TestEphemeralStore(t *testing.T) {
-	dir, err := os.MkdirTemp(os.TempDir(), t.Name())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
-
 	sim := NewChainSim()
 	es := NewEphemeralStore(sim.Genesis)
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	// add some blocks
 	blocks := sim.MineBlocks(5)
@@ -146,12 +132,7 @@ func TestEphemeralStore(t *testing.T) {
 }
 
 func BenchmarkFlatStore(b *testing.B) {
-	dir, err := os.MkdirTemp(os.TempDir(), b.Name())
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
-	fs, _, err := NewFlatStore(dir, consensus.Checkpoint{})
+	fs, _, err := NewFlatStore(b.TempDir(), consensus.Checkpoint{})
 	if err != nil {
 		b.Fatal(err)
 	}
