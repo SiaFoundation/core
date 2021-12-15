@@ -457,7 +457,7 @@ func (e *Encoder) WritePolicy(p SpendPolicy) {
 			}
 			writeUint8(p.SignaturesRequired)
 		default:
-			panic("unhandled policy type")
+			panic(fmt.Sprintf("unhandled policy type, %T", p))
 		}
 	}
 

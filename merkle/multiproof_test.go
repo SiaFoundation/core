@@ -2,13 +2,14 @@ package merkle
 
 import (
 	"bytes"
-	"go.sia.tech/core/types"
 	"io"
 	"math"
 	"math/rand"
 	"reflect"
 	"testing"
 	"testing/quick"
+
+	"go.sia.tech/core/types"
 )
 
 func TestEncoding(t *testing.T) {

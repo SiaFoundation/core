@@ -1,10 +1,12 @@
 package chainutil
 
 import (
-	"go.sia.tech/core/types"
-	"lukechampine.com/frand"
 	"reflect"
 	"testing"
+
+	"go.sia.tech/core/types"
+
+	"lukechampine.com/frand"
 )
 
 func TestJust(t *testing.T) {
