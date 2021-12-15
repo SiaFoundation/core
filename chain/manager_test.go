@@ -1,7 +1,6 @@
 package chain_test
 
 import (
-	"os"
 	"reflect"
 	"testing"
 
@@ -12,12 +11,7 @@ import (
 )
 
 func newTestStore(tb testing.TB, checkpoint consensus.Checkpoint) *chainutil.FlatStore {
-	dir, err := os.MkdirTemp("", tb.Name())
-	if err != nil {
-		tb.Fatal(err)
-	}
-	tb.Cleanup(func() { os.RemoveAll(dir) })
-	fs, _, err := chainutil.NewFlatStore(dir, checkpoint)
+	fs, _, err := chainutil.NewFlatStore(tb.TempDir(), checkpoint)
 	if err != nil {
 		tb.Fatal(err)
 	}
