@@ -14,12 +14,7 @@ import (
 	"lukechampine.com/frand"
 )
 
-const (
-	// SectorSize is the size of one sector in bytes.
-	SectorSize = 1 << 22 // 4 MiB
-
-	protocolVersion = 1
-)
+const protocolVersion = 1
 
 // ErrRenterClosed is returned by (*Session).ReadID when the renter sends the
 // session termination signal.
