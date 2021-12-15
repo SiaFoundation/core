@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"go.sia.tech/core/types"
+
 	"lukechampine.com/frand"
 )
 
