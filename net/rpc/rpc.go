@@ -145,15 +145,19 @@ func ReadRequest(r io.Reader, req Object) error {
 	return ReadObject(r, req)
 }
 
-// WriteResponse writes an RPC response object or an error. Either resp or err must
-// be nil. If err is an *rpc.Error, it is sent directly; otherwise, a generic
+// WriteResponse writes an RPC response object to w.
+func WriteResponse(w io.Writer, resp Object) error {
+	return WriteObject(w, &rpcResponse{obj: resp})
+}
+
+// WriteResponseErr writes an RPC error to w. If err is an *rpc.Error, it is sent directly; otherwise, a generic
 // rpc.Error is created from err's Error string.
-func WriteResponse(w io.Writer, resp Object, err error) error {
+func WriteResponseErr(w io.Writer, err error) error {
 	re, ok := err.(*Error)
 	if err != nil && !ok {
 		re = &Error{Description: err.Error()}
 	}
-	return WriteObject(w, &rpcResponse{obj: resp, err: re})
+	return WriteObject(w, &rpcResponse{err: re})
 }
 
 // ReadResponse reads an RPC response. If the response is an error, it is
