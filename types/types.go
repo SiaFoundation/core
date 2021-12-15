@@ -300,6 +300,39 @@ func (txn *Transaction) DeepCopy() Transaction {
 	return c
 }
 
+// SiacoinOutputID returns the ID of the siacoin output at index i.
+func (txn Transaction) SiacoinOutputID(i uint64) ElementID {
+	return ElementID{
+		Source: Hash256(txn.ID()),
+		Index:  i,
+	}
+}
+
+// SiafundClaimOutputID returns the ID of the siacoin claim output for the
+// siafund input at index i.
+func (txn Transaction) SiafundClaimOutputID(i uint64) ElementID {
+	return ElementID{
+		Source: Hash256(txn.ID()),
+		Index:  uint64(len(txn.SiacoinOutputs)) + i,
+	}
+}
+
+// SiafundOutputID returns the ID of the siafund output at index i.
+func (txn Transaction) SiafundOutputID(i uint64) ElementID {
+	return ElementID{
+		Source: Hash256(txn.ID()),
+		Index:  uint64(len(txn.SiacoinOutputs)+len(txn.SiafundInputs)) + i,
+	}
+}
+
+// FileContractID returns the ID of the file contract at index i.
+func (txn Transaction) FileContractID(i uint64) ElementID {
+	return ElementID{
+		Source: Hash256(txn.ID()),
+		Index:  uint64(len(txn.SiacoinOutputs)+len(txn.SiafundInputs)+len(txn.SiafundOutputs)) + i,
+	}
+}
+
 // A BlockHeader contains a Block's non-transaction data.
 type BlockHeader struct {
 	Height       uint64
@@ -336,6 +369,24 @@ func (h BlockHeader) ID() BlockID {
 	binary.LittleEndian.PutUint64(buf[40:], uint64(h.Timestamp.Unix()))
 	copy(buf[48:], h.Commitment[:])
 	return BlockID(HashBytes(buf))
+}
+
+// MinerOutputID returns the output ID of the miner payout.
+func (b Block) MinerOutputID() ElementID {
+	return ElementID{
+		Source: Hash256(b.Header.ID()),
+		Index:  0,
+	}
+}
+
+// FoundationOutputID returns the output ID of the foundation payout. A
+// Foundation subsidy output is only created every 4380 blocks after the
+// hardfork at block 298000.
+func (b Block) FoundationOutputID() ElementID {
+	return ElementID{
+		Source: Hash256(b.Header.ID()),
+		Index:  1,
+	}
 }
 
 // CurrentTimestamp returns the current time, rounded to the nearest second. The
