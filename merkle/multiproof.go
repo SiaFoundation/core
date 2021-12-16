@@ -1,6 +1,7 @@
 package merkle
 
 import (
+	"errors"
 	"math/bits"
 	"sort"
 
@@ -183,18 +184,21 @@ func (se *compressedStateElement) DecodeFrom(d *types.Decoder) {
 	se.ID.DecodeFrom(d)
 	se.LeafIndex = d.ReadUint64()
 	se.MerkleProof = make([]types.Hash256, d.ReadPrefix()) // omit proof data
+	if len(se.MerkleProof) >= 64 {
+		d.SetErr(errors.New("impossibly-large MerkleProof"))
+	}
 }
 
 type compressedSiacoinElement types.SiacoinElement
 
 func (sce compressedSiacoinElement) EncodeTo(e *types.Encoder) {
-	sce.StateElement.EncodeTo(e)
+	(compressedStateElement)(sce.StateElement).EncodeTo(e)
 	sce.SiacoinOutput.EncodeTo(e)
 	e.WriteUint64(sce.Timelock)
 }
 
 func (sce *compressedSiacoinElement) DecodeFrom(d *types.Decoder) {
-	sce.StateElement.DecodeFrom(d)
+	(*compressedStateElement)(&sce.StateElement).DecodeFrom(d)
 	sce.SiacoinOutput.DecodeFrom(d)
 	sce.Timelock = d.ReadUint64()
 }
@@ -222,13 +226,13 @@ func (in *compressedSiacoinInput) DecodeFrom(d *types.Decoder) {
 type compressedSiafundElement types.SiafundElement
 
 func (sfe compressedSiafundElement) EncodeTo(e *types.Encoder) {
-	sfe.StateElement.EncodeTo(e)
+	(compressedStateElement)(sfe.StateElement).EncodeTo(e)
 	sfe.SiafundOutput.EncodeTo(e)
 	sfe.ClaimStart.EncodeTo(e)
 }
 
 func (sfe *compressedSiafundElement) DecodeFrom(d *types.Decoder) {
-	sfe.StateElement.DecodeFrom(d)
+	(*compressedStateElement)(&sfe.StateElement).DecodeFrom(d)
 	sfe.SiafundOutput.DecodeFrom(d)
 	sfe.ClaimStart.DecodeFrom(d)
 }
@@ -258,12 +262,12 @@ func (in *compressedSiafundInput) DecodeFrom(d *types.Decoder) {
 type compressedFileContractElement types.FileContractElement
 
 func (fce compressedFileContractElement) EncodeTo(e *types.Encoder) {
-	fce.StateElement.EncodeTo(e)
+	(compressedStateElement)(fce.StateElement).EncodeTo(e)
 	fce.FileContract.EncodeTo(e)
 }
 
 func (fce *compressedFileContractElement) DecodeFrom(d *types.Decoder) {
-	fce.StateElement.DecodeFrom(d)
+	(*compressedStateElement)(&fce.StateElement).DecodeFrom(d)
 	fce.FileContract.DecodeFrom(d)
 }
 
