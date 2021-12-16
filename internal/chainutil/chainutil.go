@@ -214,7 +214,7 @@ func NewChainSim() *ChainSim {
 	genesisTxns := []types.Transaction{{SiacoinOutputs: gift}}
 	genesis := types.Block{
 		Header: types.BlockHeader{
-			Timestamp: time.Unix(734600000, 0),
+			Timestamp: time.Unix(734600000, 0).UTC(),
 		},
 		Transactions: genesisTxns,
 	}
