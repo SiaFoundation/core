@@ -121,7 +121,6 @@ func (s *Session) FormContract(renterKey types.PrivateKey, hostFunds, renterFund
 		},
 		Revision: fc,
 	}
-	fcr.Revision.RevisionNumber = 1
 
 	renterSigs := rhp.RPCFormContractSignatures{
 		ContractSignatures: make([][]types.InputSignature, len(txn.SiacoinInputs)),

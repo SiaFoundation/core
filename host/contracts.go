@@ -244,7 +244,6 @@ func (sh *SessionHandler) handleRPCFormContract(stream *mux.Stream) {
 		Revision:        fc,
 		RenterSignature: renterSigs.RevisionSignature,
 	}
-	fcr.Revision.RevisionNumber = 1
 
 	// verify the renter's signature
 	if !fc.RenterPublicKey.VerifyHash(vc.ContractSigHash(fcr.Revision), renterSigs.RevisionSignature) {

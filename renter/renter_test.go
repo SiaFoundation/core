@@ -662,12 +662,21 @@ func TestRPCFormContract(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if fcr.Revision.ValidRenterOutput.Value.Cmp(renterFunds.Sub(settings.ContractFee)) != 0 {
-		t.Error("expected renter payout to funds less contract fee")
-	}
-
-	if fcr.Revision.ValidHostOutput.Value.Cmp(hostFunds.Add(settings.ContractFee)) != 0 {
-		t.Error("expected host payout to be funds plus contract fee")
+	switch {
+	case fcr.Revision.RevisionNumber != 0:
+		t.Fatal("expected revision number to be 0")
+	case fcr.Revision.ValidRenterOutput.Address != wallet.Address():
+		t.Fatal("expected valid renter address to be the renter's address")
+	case fcr.Revision.MissedRenterOutput.Address != wallet.Address():
+		t.Fatal("expected missed renter address to be the renter's address")
+	case fcr.Revision.ValidRenterOutput.Value != renterFunds.Sub(settings.ContractFee):
+		t.Fatal("expected valid renter output to be renter funds minus contract fee")
+	case fcr.Revision.ValidHostOutput.Value != hostFunds.Add(settings.ContractFee):
+		t.Fatal("expected valid host output to be host funds plus contract fee")
+	case fcr.Revision.MissedRenterOutput.Value != fcr.Revision.ValidRenterOutput.Value:
+		t.Fatal("expected valid and missed renter outputs to match")
+	case fcr.Revision.MissedHostOutput.Value != fcr.Revision.ValidHostOutput.Value:
+		t.Fatal("expected valid and missed host outputs to match")
 	}
 }
 
@@ -878,9 +887,9 @@ func TestReadWriteProgram(t *testing.T) {
 	}
 
 	switch {
-	case fcr.Revision.RevisionNumber != 4:
-		// no-op revision, settings revision, payment revision, program execution revision
-		t.Fatalf("expected revision number to be 4, got %v", fcr.Revision.RevisionNumber)
+	case fcr.Revision.RevisionNumber != 3:
+		// settings revision, payment revision, program execution revision
+		t.Fatalf("expected revision number to be 3, got %v", fcr.Revision.RevisionNumber)
 	case fcr.Revision.Filesize != rhp.SectorSize:
 		t.Fatalf("expected filesize to be %v, got %v", rhp.SectorSize, fcr.Revision.Filesize)
 	}
