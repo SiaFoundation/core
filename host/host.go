@@ -45,21 +45,21 @@ type (
 
 	// A SectorStore stores contract sector data.
 	SectorStore interface {
-		// ContractRoots returns the roots of all sectors belonging to the
-		// specified file contract.
-		ContractRoots(id types.ElementID) ([]types.Hash256, error)
+		// AddSector adds the sector with the specified root to the store.
+		AddSector(root types.Hash256, sector *[rhp.SectorSize]byte) error
 		// DeleteSector removes a sector from the store.
 		DeleteSector(root types.Hash256) error
 		// Exists checks if the sector exists in the store.
 		Exists(root types.Hash256) (bool, error)
-		// SetContractRoots updates the sector roots of the file contract.
-		SetContractRoots(id types.ElementID, roots []types.Hash256) error
-
-		// AddSector adds the sector with the specified root to the store.
-		AddSector(root types.Hash256, sector *[rhp.SectorSize]byte) error
 		// ReadSector reads the sector with the given root, offset and length
 		// into w. Returns the number of bytes read or an error.
 		ReadSector(root types.Hash256, w io.Writer, offset, length uint64) (n uint64, err error)
+
+		// ContractRoots returns the roots of all sectors belonging to the
+		// specified file contract.
+		ContractRoots(id types.ElementID) ([]types.Hash256, error)
+		// SetContractRoots updates the sector roots of the file contract.
+		SetContractRoots(id types.ElementID, roots []types.Hash256) error
 	}
 
 	// An EphemeralAccountStore manages ephemeral account balances.
@@ -69,13 +69,13 @@ type (
 		// Credit adds the specified amount to the account with the given ID.
 		// May be limited by MaxEphemeralAccountBalance setting.
 		Credit(accountID types.PublicKey, amount types.Currency) (types.Currency, error)
-		// Refund refunds the specified amount to the account with the given ID,
-		// should not be limited by MaxEphemeralAccountBalance setting.
-		Refund(accountID types.PublicKey, amount types.Currency) error
 		// Debit subtracts the specified amount from the account with the given
 		// ID. requestID may be used to uniquely identify and prevent duplicate
 		// debit requests. Returns the remaining balance of the account.
 		Debit(accountID types.PublicKey, requestID types.Hash256, amount types.Currency) (types.Currency, error)
+		// Refund refunds the specified amount to the account with the given ID,
+		// should not be limited by MaxEphemeralAccountBalance setting.
+		Refund(accountID types.PublicKey, amount types.Currency) error
 	}
 
 	// A ContractStore stores file contracts, along with some chain metadata.
@@ -96,6 +96,7 @@ type (
 		// This method does not return an error. If a contract cannot be saved
 		// to the store, the method should panic or exit with an error.
 		UpdateContractTransactions(id types.ElementID, finalization, proof []types.Transaction, err error)
+
 		// ActionableContracts returns all of the store's contracts for which
 		// ContractIsActionable returns true (as of the current block height).
 		//
@@ -120,9 +121,9 @@ type (
 
 	// A Wallet provides addresses and funds and signs transactions.
 	Wallet interface {
+		Addresses() []types.Address
 		Balance() types.Currency
 		NextAddress() types.Address
-		Addresses() []types.Address
 		FundTransaction(txn *types.Transaction, amount types.Currency, pool []types.Transaction) ([]types.ElementID, func(), error)
 		SignTransaction(vc consensus.ValidationContext, txn *types.Transaction, toSign []types.ElementID) error
 	}
