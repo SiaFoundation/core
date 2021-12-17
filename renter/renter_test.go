@@ -974,27 +974,24 @@ func BenchmarkWrite(b *testing.B) {
 
 	duration := fcr.Revision.WindowEnd - settings.BlockHeight
 	inputBuf := bytes.NewBuffer(make([]byte, 0, rhp.SectorSize))
+	builder := NewProgramBuilder(settings, inputBuf, duration)
+	builder.AddAppendSectorInstruction(&sector, true)
+
+	instructions, requiresContract, requiresFinalization, err := builder.Program()
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	programCost := builder.Cost()
+	budget := settings.UploadBandwidthPrice.Mul64(settings.SectorSize).
+		Add(settings.DownloadBandwidthPrice.Mul64(1 << 10)).
+		Add(programCost.BaseCost).
+		Add(programCost.StorageCost)
 
 	b.ResetTimer()
 	b.ReportAllocs()
 	b.SetBytes(int64(rhp.SectorSize))
 	for i := 0; i < b.N; i++ {
-		inputBuf.Reset()
-
-		builder := NewProgramBuilder(settings, inputBuf, duration)
-		builder.AddAppendSectorInstruction(&sector, true)
-
-		instructions, requiresContract, requiresFinalization, err := builder.Program()
-		if err != nil {
-			b.Fatal(err)
-		}
-
-		programCost := builder.Cost()
-		budget := settings.UploadBandwidthPrice.Mul64(settings.SectorSize).
-			Add(settings.DownloadBandwidthPrice.Mul64(1 << 10)).
-			Add(programCost.BaseCost).
-			Add(programCost.StorageCost)
-
 		// append sector does not return any output
 		err = session.ExecuteProgram(Program{
 			Instructions: instructions,
@@ -1044,9 +1041,6 @@ func BenchmarkRead(b *testing.B) {
 
 	duration := fcr.Revision.WindowEnd - settings.BlockHeight
 	inputBuf := bytes.NewBuffer(make([]byte, 0, rhp.SectorSize))
-
-	inputBuf.Reset()
-
 	builder := NewProgramBuilder(settings, inputBuf, duration)
 	builder.AddAppendSectorInstruction(&sector, true)
 
@@ -1075,26 +1069,27 @@ func BenchmarkRead(b *testing.B) {
 		b.Fatal(err)
 	}
 
+	inputBuf.Reset()
+	builder = NewProgramBuilder(settings, inputBuf, duration)
+	if err := builder.AddReadSectorInstruction(root, 0, rhp.SectorSize, true); err != nil {
+		b.Fatal(err)
+	}
+
+	instructions, requiresContract, requiresFinalization, err = builder.Program()
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	programCost = builder.Cost()
+	budget = settings.UploadBandwidthPrice.Mul64(1 << 10).
+		Add(settings.DownloadBandwidthPrice.Mul64(settings.SectorSize)).
+		Add(programCost.BaseCost).
+		Add(programCost.StorageCost)
+
 	b.ResetTimer()
 	b.ReportAllocs()
 	b.SetBytes(int64(rhp.SectorSize))
 	for i := 0; i < b.N; i++ {
-		builder = NewProgramBuilder(settings, inputBuf, duration)
-		if err := builder.AddReadSectorInstruction(root, 0, rhp.SectorSize, true); err != nil {
-			b.Fatal(err)
-		}
-
-		instructions, requiresContract, requiresFinalization, err = builder.Program()
-		if err != nil {
-			b.Fatal(err)
-		}
-
-		programCost = builder.Cost()
-		budget = settings.UploadBandwidthPrice.Mul64(1 << 10).
-			Add(settings.DownloadBandwidthPrice.Mul64(settings.SectorSize)).
-			Add(programCost.BaseCost).
-			Add(programCost.StorageCost)
-
 		// safe to ignore the read sector output
 		err = session.ExecuteProgram(Program{
 			Instructions: instructions,

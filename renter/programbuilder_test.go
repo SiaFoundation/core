@@ -39,6 +39,57 @@ func TestAppendProgram(t *testing.T) {
 	}
 }
 
+func TestReadSectorProgram(t *testing.T) {
+	var sector [rhp.SectorSize]byte
+	frand.Read(sector[:128])
+	root := rhp.SectorRoot(&sector)
+	offset := frand.Uint64n(100)
+	length := frand.Uint64n(100)
+
+	buf := bytes.NewBuffer(nil)
+	builder := NewProgramBuilder(testSettings, buf, 10)
+
+	if err := builder.AddReadSectorInstruction(root, offset, length, true); err != nil {
+		t.Fatal(err)
+	}
+
+	instructions, requiresContract, requiresFinalization, err := builder.Program()
+	switch {
+	case err != nil:
+		t.Fatal(err)
+	case len(instructions) != 1:
+		t.Fatal("wrong number of instructions")
+	case requiresContract:
+		t.Fatal("program should not require a contract")
+	case requiresFinalization:
+		t.Fatal("program should not require finalization")
+	case buf.Len() != 32+8+8:
+		t.Fatalf("wrong data length expected %v, got %v", 32+8+8, buf.Len())
+	}
+
+	decoder := types.NewDecoder(io.LimitedReader{R: buf, N: 32 + 8 + 8})
+
+	var encodedRoot types.Hash256
+	encodedRoot.DecodeFrom(decoder)
+	if encodedRoot != root {
+		t.Fatalf("wrong root expected %v, got %v", root, encodedRoot)
+	}
+
+	encodedOffset := decoder.ReadUint64()
+	if encodedOffset != offset {
+		t.Fatalf("wrong offset expected %v, got %v", offset, encodedOffset)
+	}
+
+	encodedLength := decoder.ReadUint64()
+	if encodedLength != length {
+		t.Fatalf("wrong length expected %v, got %v", length, encodedLength)
+	}
+
+	if _, ok := instructions[0].(rhp.InstrReadSector); !ok {
+		t.Fatal("expected append sector instruction")
+	}
+}
+
 func randomRegistryValue(key types.PrivateKey) (value rhp.RegistryValue) {
 	value.Tweak = frand.Entropy256()
 	value.Data = frand.Bytes(32)
