@@ -163,6 +163,11 @@ func (b *CompressedBlock) DecodeFrom(d *types.Decoder) {
 	for i := range b.Transactions {
 		(*compressedTransaction)(&b.Transactions[i]).DecodeFrom(d)
 	}
+	// MultiproofSize will panic on invalid inputs, so return early if we've
+	// already encountered an error
+	if d.Err() != nil {
+		return
+	}
 	proof := make([]types.Hash256, MultiproofSize(b.Transactions))
 	for i := range proof {
 		proof[i].DecodeFrom(d)
