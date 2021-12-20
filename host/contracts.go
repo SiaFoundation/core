@@ -174,20 +174,14 @@ func validContractRenewal(current, renewal types.FileContract, currentHeight uin
 func (sh *SessionHandler) handleRPCFormContract(stream *mux.Stream) {
 	log := sh.log.Scope("RPCFormContract")
 
-	vc, err := sh.cm.TipContext()
-	if err != nil {
-		log.Errorln("form contract:", "failed to get validation context:", err)
-		return
-	}
-
 	var formContractReq rhp.RPCFormContractRequest
 	if err := rpc.ReadObject(stream, &formContractReq); err != nil {
-		log.Warnln("form contract:", "failed to read contract request:", err)
+		log.Warnln("failed to read contract request:", err)
 		return
 	}
 
 	if len(formContractReq.Transactions) == 0 || len(formContractReq.Transactions[len(formContractReq.Transactions)-1].FileContracts) == 0 {
-		log.Warnln("form contract:", "no file contracts in received transaction")
+		log.Warnln("no file contracts in received transaction")
 		rpc.WriteResponseErr(stream, errors.New("no file contracts in received transaction"))
 		return
 	}
@@ -195,8 +189,13 @@ func (sh *SessionHandler) handleRPCFormContract(stream *mux.Stream) {
 	fc := formContractReq.Transactions[len(formContractReq.Transactions)-1].FileContracts[0]
 	settings := sh.settings.Settings()
 
-	if err = validContractFormation(fc, vc.Index.Height, settings); err != nil {
-		log.Warnln("form contract:", "invalid contract:", err)
+	if !settings.AcceptingContracts {
+		rpc.WriteResponseErr(stream, errors.New("host is not accepting contracts"))
+		return
+	}
+
+	if err := validContractFormation(fc, sh.cm.Tip().Height, settings); err != nil {
+		log.Warnln("invalid contract:", err)
 		rpc.WriteResponseErr(stream, fmt.Errorf("contract refused: %w", err))
 		return
 	}
@@ -209,7 +208,7 @@ func (sh *SessionHandler) handleRPCFormContract(stream *mux.Stream) {
 	// Fund the formation transaction with the host's collateral.
 	toSign, cleanup, err := sh.wallet.FundTransaction(&txn, hostCollateral, nil)
 	if err != nil {
-		log.Warnln("form contract:", "unable to fund transaction:", err)
+		log.Warnln("unable to fund transaction:", err)
 		rpc.WriteResponseErr(stream, errors.New("failed to fund contract formation transaction"))
 		return
 	}
@@ -222,14 +221,14 @@ func (sh *SessionHandler) handleRPCFormContract(stream *mux.Stream) {
 
 	// write the host transaction additions.
 	if err := rpc.WriteResponse(stream, hostAdditions); err != nil {
-		log.Warnln("form contract:", "failed to write contract additions:", err)
+		log.Warnln("failed to write contract additions:", err)
 		return
 	}
 
 	// read the renter signatures from the stream.
 	var renterSigs rhp.RPCFormContractSignatures
 	if err := rpc.ReadResponse(stream, &renterSigs); err != nil {
-		log.Warnln("form contract:", "failed to read renter signatures:", err)
+		log.Warnln("failed to read renter signatures:", err)
 		return
 	}
 
@@ -245,16 +244,22 @@ func (sh *SessionHandler) handleRPCFormContract(stream *mux.Stream) {
 		RenterSignature: renterSigs.RevisionSignature,
 	}
 
+	vc, err := sh.cm.TipContext()
+	if err != nil {
+		log.Errorln("failed to get validation context:", err)
+		return
+	}
+
 	// verify the renter's signature
 	if !fc.RenterPublicKey.VerifyHash(vc.ContractSigHash(fcr.Revision), renterSigs.RevisionSignature) {
-		log.Warnln("form contract:", "renter signature is invalid")
+		log.Warnln("renter signature is invalid")
 		rpc.WriteResponseErr(stream, errors.New("revision signature is invalid"))
 		return
 	}
 
 	// sign the transaction
 	if err := sh.wallet.SignTransaction(vc, &txn, toSign); err != nil {
-		log.Errorln("form contract:", "failed to sign transaction:", err)
+		log.Errorln("failed to sign transaction:", err)
 		rpc.WriteResponseErr(stream, errors.New("failed to sign formation transaction"))
 		return
 	}
@@ -272,36 +277,34 @@ func (sh *SessionHandler) handleRPCFormContract(stream *mux.Stream) {
 		txn.SiacoinInputs[i].Signatures = append(txn.SiacoinInputs[i].Signatures, renterSigs.ContractSignatures[i]...)
 	}
 
-	txnset := append(parents, txn)
-
-	/*if err := vc.ValidateTransactionSet(txnset); err != nil {
-		log.Warnln("form contract:", "failed to validate transaction set:", err)
-		rpc.WriteResponse(stream, nil, fmt.Errorf("failed to validate transaction set: %w", err))
-		return
-	}*/
-
 	contract := Contract{
 		FileContractRevision: fcr,
-		FormationSet:         txnset,
+		FormationSet:         append(parents, txn),
 		FormationHeight:      vc.Index.Height,
 		FinalizationHeight:   fcr.Parent.WindowStart,
 	}
 
+	/*if err := vc.ValidateTransactionSet(contract.FormationSet); err != nil {
+		log.Warnln("failed to validate transaction set:", err)
+		rpc.WriteResponse(stream, nil, fmt.Errorf("failed to validate transaction set: %w", err))
+		return
+	}*/
+
 	if err := sh.contracts.AddContract(contract); err != nil {
-		log.Errorln("form contract:", "failed to add contract:", err)
+		log.Errorln("failed to add contract:", err)
 		rpc.WriteResponseErr(stream, errors.New("failed to add contract"))
 		return
 	}
 
 	if err := sh.tpool.AcceptTransactionSet(contract.FormationSet); err != nil {
-		log.Warnln("form contract:", "failed to accept transaction set:", err)
+		log.Warnln("failed to accept transaction set:", err)
 		rpc.WriteResponseErr(stream, fmt.Errorf("failed to accept transaction set: %w", err))
 		return
 	}
 
 	// write the host signatures.
 	if err := rpc.WriteResponse(stream, hostSigs); err != nil {
-		log.Warnln("form contract:", "failed to write host signatures:", err)
+		log.Warnln("failed to write host signatures:", err)
 		return
 	}
 }

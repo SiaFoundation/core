@@ -77,16 +77,12 @@ func (sh *SessionHandler) handleRPCFundAccount(stream *mux.Stream) {
 		return
 	}
 
-	log.Infoln("host read settings ID")
-
 	settings, err := sh.validSettings(settingsID)
 	if err != nil {
 		log.Warnf("settings uid %s not found:", settingsID)
 		rpc.WriteResponseErr(stream, err)
 		return
 	}
-
-	log.Infoln("got settings")
 
 	budget, refundAccount, err := sh.processPayment(stream)
 	if err != nil {
@@ -97,8 +93,6 @@ func (sh *SessionHandler) handleRPCFundAccount(stream *mux.Stream) {
 	defer func() {
 		sh.accounts.Refund(refundAccount, budget.Remaining())
 	}()
-
-	log.Infoln("Processed payment")
 
 	if err := budget.Spend(settings.RPCFundAccountCost); err != nil {
 		log.Warnln("failed to pay for fund account RPC:", err)
