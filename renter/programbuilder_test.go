@@ -34,7 +34,7 @@ func TestAppendProgram(t *testing.T) {
 		t.Fatal("wrong data")
 	}
 
-	if _, ok := instructions[0].(rhp.InstrAppendSector); !ok {
+	if _, ok := instructions[0].(*rhp.InstrAppendSector); !ok {
 		t.Fatal("expected append sector instruction")
 	}
 }
@@ -85,7 +85,7 @@ func TestReadSectorProgram(t *testing.T) {
 		t.Fatalf("wrong length expected %v, got %v", length, encodedLength)
 	}
 
-	if _, ok := instructions[0].(rhp.InstrReadSector); !ok {
+	if _, ok := instructions[0].(*rhp.InstrReadSector); !ok {
 		t.Fatal("expected append sector instruction")
 	}
 }
@@ -125,7 +125,7 @@ func TestRegistryProgram(t *testing.T) {
 	r := bytes.NewReader(buf.Bytes())
 	dec := types.NewDecoder(io.LimitedReader{R: r, N: int64(buf.Len())})
 
-	readInstr, ok := instructions[0].(rhp.InstrReadRegistry)
+	readInstr, ok := instructions[0].(*rhp.InstrReadRegistry)
 	if !ok {
 		t.Fatal("expected read registry instruction")
 	} else if readInstr.PublicKeyOffset != 0 {
@@ -148,7 +148,7 @@ func TestRegistryProgram(t *testing.T) {
 		t.Fatal("wrong tweak")
 	}
 
-	updateInstr, ok := instructions[1].(rhp.InstrUpdateRegistry)
+	updateInstr, ok := instructions[1].(*rhp.InstrUpdateRegistry)
 	if !ok {
 		t.Fatal("expected read registry instruction")
 	} else if updateInstr.EntryOffset != 64 {
@@ -162,7 +162,7 @@ func TestRegistryProgram(t *testing.T) {
 		t.Fatal("wrong encoded value")
 	}
 
-	readInstr, ok = instructions[2].(rhp.InstrReadRegistry)
+	readInstr, ok = instructions[2].(*rhp.InstrReadRegistry)
 	if !ok {
 		t.Fatal("expected read registry instruction")
 	} else if readInstr.PublicKeyOffset != uint64(buf.Len())-64 {

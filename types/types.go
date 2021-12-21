@@ -534,6 +534,15 @@ func HashBytes(b []byte) Hash256 { return blake2b.Sum256(b) }
 // implementation whose constructor returns a concrete type.
 var hasherPool = &sync.Pool{New: func() interface{} { return NewHasher() }}
 
+// HashObject computes the hash of the object using Sia's hash function.
+func HashObject(obj EncoderTo) Hash256 {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	obj.EncodeTo(h.E)
+	return h.Sum()
+}
+
 // Implementations of fmt.Stringer and json.(Un)marshaler
 
 func stringerHex(prefix string, data []byte) string {

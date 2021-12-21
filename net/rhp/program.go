@@ -35,6 +35,8 @@ var (
 
 // Instruction is a single instruction in a program.
 type Instruction interface {
+	rpc.Object
+
 	// Specifier returns the specifier for the instruction.
 	Specifier() rpc.Specifier
 	// RequiresFinalization returns true if the instruction results need to be
@@ -53,19 +55,19 @@ type InstrAppendSector struct {
 }
 
 // Specifier returns the specifier for the append sector instruction.
-func (i InstrAppendSector) Specifier() rpc.Specifier {
+func (i *InstrAppendSector) Specifier() rpc.Specifier {
 	return specInstrAppendSector
 }
 
 // RequiresFinalization returns true for AppendSector to commit the added sector
 // roots.
-func (i InstrAppendSector) RequiresFinalization() bool {
+func (i *InstrAppendSector) RequiresFinalization() bool {
 	return true
 }
 
 // RequiresContract returns true if the instruction requires a contract to be
 // locked, false otherwise.
-func (i InstrAppendSector) RequiresContract() bool {
+func (i *InstrAppendSector) RequiresContract() bool {
 	return true
 }
 
@@ -93,19 +95,19 @@ type InstrContractRevision struct {
 }
 
 // Specifier returns the specifier for the contract revision instruction.
-func (i InstrContractRevision) Specifier() rpc.Specifier {
+func (i *InstrContractRevision) Specifier() rpc.Specifier {
 	return specInstrContractRevision
 }
 
 // RequiresFinalization returns false - returning the latest revision does not
 // require updating the contract.
-func (i InstrContractRevision) RequiresFinalization() bool {
+func (i *InstrContractRevision) RequiresFinalization() bool {
 	return false
 }
 
 // RequiresContract returns true if the instruction requires a contract to be
 // locked, false otherwise.
-func (i InstrContractRevision) RequiresContract() bool {
+func (i *InstrContractRevision) RequiresContract() bool {
 	return true
 }
 
@@ -131,17 +133,17 @@ type InstrDropSectors struct {
 }
 
 // Specifier returns the specifier for the drop sectors instruction.
-func (i InstrDropSectors) Specifier() rpc.Specifier {
+func (i *InstrDropSectors) Specifier() rpc.Specifier {
 	return specInstrDropSectors
 }
 
 // RequiresFinalization returns true - dropping sectors requires updating the contract roots.
-func (i InstrDropSectors) RequiresFinalization() bool {
+func (i *InstrDropSectors) RequiresFinalization() bool {
 	return true
 }
 
 // RequiresContract returns true if the instruction requires a contract to be locked, false otherwise.
-func (i InstrDropSectors) RequiresContract() bool {
+func (i *InstrDropSectors) RequiresContract() bool {
 	return true
 }
 
@@ -170,19 +172,19 @@ type InstrHasSector struct {
 }
 
 // Specifier returns the specifier for the has sector instruction.
-func (i InstrHasSector) Specifier() rpc.Specifier {
+func (i *InstrHasSector) Specifier() rpc.Specifier {
 	return specInstrHasSector
 }
 
 // RequiresFinalization returns false - HasSector does not require modifying the
 // contract.
-func (i InstrHasSector) RequiresFinalization() bool {
+func (i *InstrHasSector) RequiresFinalization() bool {
 	return false
 }
 
 // RequiresContract returns true if the instruction requires a contract to be
 // locked, false otherwise.
-func (i InstrHasSector) RequiresContract() bool {
+func (i *InstrHasSector) RequiresContract() bool {
 	return false
 }
 
@@ -211,19 +213,19 @@ type InstrReadOffset struct {
 }
 
 // Specifier returns the specifier for the read offset instruction.
-func (i InstrReadOffset) Specifier() rpc.Specifier {
+func (i *InstrReadOffset) Specifier() rpc.Specifier {
 	return specInstrReadOffset
 }
 
 // RequiresFinalization returns false - reading data does not require modifying
 // the contract.
-func (i InstrReadOffset) RequiresFinalization() bool {
+func (i *InstrReadOffset) RequiresFinalization() bool {
 	return false
 }
 
 // RequiresContract returns true if the instruction requires a contract to be
 // locked, false otherwise.
-func (i InstrReadOffset) RequiresContract() bool {
+func (i *InstrReadOffset) RequiresContract() bool {
 	return false
 }
 
@@ -255,19 +257,19 @@ type InstrReadRegistry struct {
 }
 
 // Specifier returns the specifier for the read registry instruction.
-func (i InstrReadRegistry) Specifier() rpc.Specifier {
+func (i *InstrReadRegistry) Specifier() rpc.Specifier {
 	return specInstrReadRegistry
 }
 
 // RequiresFinalization returns false - reading registry entries does not
 // require modifying the contract.
-func (i InstrReadRegistry) RequiresFinalization() bool {
+func (i *InstrReadRegistry) RequiresFinalization() bool {
 	return false
 }
 
 // RequiresContract returns true if the instruction requires a contract to be
 // locked, false otherwise.
-func (i InstrReadRegistry) RequiresContract() bool {
+func (i *InstrReadRegistry) RequiresContract() bool {
 	return false
 }
 
@@ -299,19 +301,19 @@ type InstrReadSector struct {
 }
 
 // Specifier returns the specifier for the read sector instruction.
-func (i InstrReadSector) Specifier() rpc.Specifier {
+func (i *InstrReadSector) Specifier() rpc.Specifier {
 	return specInstrReadSector
 }
 
 // RequiresFinalization returns false - reading data does not require modifying
 // the contract.
-func (i InstrReadSector) RequiresFinalization() bool {
+func (i *InstrReadSector) RequiresFinalization() bool {
 	return false
 }
 
 // RequiresContract returns true if the instruction requires a contract to be
 // locked, false otherwise.
-func (i InstrReadSector) RequiresContract() bool {
+func (i *InstrReadSector) RequiresContract() bool {
 	return false
 }
 
@@ -346,19 +348,19 @@ type InstrSwapSector struct {
 }
 
 // Specifier returns the specifier for the swap sector instruction.
-func (i InstrSwapSector) Specifier() rpc.Specifier {
+func (i *InstrSwapSector) Specifier() rpc.Specifier {
 	return specInstrSwapSector
 }
 
 // RequiresFinalization returns true - swapping sectors requires modifying the
 // contract roots.
-func (i InstrSwapSector) RequiresFinalization() bool {
+func (i *InstrSwapSector) RequiresFinalization() bool {
 	return true
 }
 
 // RequiresContract returns true if the instruction requires a contract to be
 // locked, false otherwise.
-func (i InstrSwapSector) RequiresContract() bool {
+func (i *InstrSwapSector) RequiresContract() bool {
 	return true
 }
 
@@ -389,19 +391,19 @@ type InstrUpdateRegistry struct {
 }
 
 // Specifier returns the specifier for the AppendSector instruction.
-func (i InstrUpdateRegistry) Specifier() rpc.Specifier {
+func (i *InstrUpdateRegistry) Specifier() rpc.Specifier {
 	return specInstrUpdateRegistry
 }
 
 // RequiresFinalization returns false - updating a registry value does not
 // require modifying the contract.
-func (i InstrUpdateRegistry) RequiresFinalization() bool {
+func (i *InstrUpdateRegistry) RequiresFinalization() bool {
 	return false
 }
 
 // RequiresContract returns true if the instruction requires a contract to be
 // locked, false otherwise.
-func (i InstrUpdateRegistry) RequiresContract() bool {
+func (i *InstrUpdateRegistry) RequiresContract() bool {
 	return false
 }
 
@@ -560,74 +562,41 @@ func ReadRegistryCost(settings HostSettings) (costs ResourceUsage) {
 }
 
 func writeInstruction(e *types.Encoder, instr Instruction) {
+	if instr == nil {
+		panic("nil instruction") //developer error
+	}
 	specifier := instr.Specifier()
 	e.Write(specifier[:])
-	switch v := instr.(type) {
-	case InstrAppendSector:
-		v.EncodeTo(e)
-	case InstrDropSectors:
-		v.EncodeTo(e)
-	case InstrHasSector:
-		v.EncodeTo(e)
-	case InstrReadOffset:
-		v.EncodeTo(e)
-	case InstrReadSector:
-		v.EncodeTo(e)
-	case InstrContractRevision:
-		v.EncodeTo(e)
-	case InstrSwapSector:
-		v.EncodeTo(e)
-	case InstrUpdateRegistry:
-		v.EncodeTo(e)
-	case InstrReadRegistry:
-		v.EncodeTo(e)
-	default:
-		panic(fmt.Sprintf("uknown instruction type, %T", v))
-	}
+	instr.EncodeTo(e)
 }
 
-func readInstruction(d *types.Decoder) Instruction {
+func readInstruction(d *types.Decoder) (instr Instruction) {
 	var spec rpc.Specifier
 	d.Read(spec[:])
 
 	switch spec {
 	case specInstrAppendSector:
-		var instr InstrAppendSector
-		instr.DecodeFrom(d)
-		return instr
+		instr = new(InstrAppendSector)
 	case specInstrDropSectors:
-		var instr InstrDropSectors
-		instr.DecodeFrom(d)
-		return instr
+		instr = new(InstrDropSectors)
 	case specInstrHasSector:
-		var instr InstrHasSector
-		instr.DecodeFrom(d)
-		return instr
+		instr = new(InstrHasSector)
 	case specInstrReadOffset:
-		var instr InstrReadOffset
-		instr.DecodeFrom(d)
-		return instr
+		instr = new(InstrReadOffset)
 	case specInstrReadSector:
-		var instr InstrReadSector
-		instr.DecodeFrom(d)
-		return instr
+		instr = new(InstrReadSector)
 	case specInstrContractRevision:
-		var instr InstrContractRevision
-		instr.DecodeFrom(d)
-		return instr
+		instr = new(InstrContractRevision)
 	case specInstrSwapSector:
-		var instr InstrSwapSector
-		instr.DecodeFrom(d)
-		return instr
+		instr = new(InstrSwapSector)
 	case specInstrUpdateRegistry:
-		var instr InstrUpdateRegistry
-		instr.DecodeFrom(d)
-		return instr
+		instr = new(InstrUpdateRegistry)
 	case specInstrReadRegistry:
-		var instr InstrReadRegistry
-		instr.DecodeFrom(d)
-		return instr
+		instr = new(InstrReadRegistry)
 	default:
-		panic(fmt.Sprintf("uknown instruction specifier, %v", spec))
+		d.SetErr(fmt.Errorf("uknown instruction specifier, %v", spec))
+		return
 	}
+	instr.DecodeFrom(d)
+	return
 }

@@ -855,7 +855,7 @@ func TestReadWriteProgram(t *testing.T) {
 		t.Fatal("expected append program to require finalization")
 	} else if len(instructions) != 1 {
 		t.Fatal("expected append program to have 1 instruction")
-	} else if _, ok := instructions[0].(rhp.InstrAppendSector); !ok {
+	} else if _, ok := instructions[0].(*rhp.InstrAppendSector); !ok {
 		t.Fatal("expected append program to have append sector instruction")
 	}
 
@@ -914,7 +914,7 @@ func TestReadWriteProgram(t *testing.T) {
 		t.Fatal("expected read program to not require finalization")
 	} else if len(instructions) != 1 {
 		t.Fatal("expected read program to have 1 instruction")
-	} else if _, ok := instructions[0].(rhp.InstrReadSector); !ok {
+	} else if _, ok := instructions[0].(*rhp.InstrReadSector); !ok {
 		t.Fatal("expected read program to have read sector instruction")
 	}
 

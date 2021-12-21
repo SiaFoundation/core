@@ -65,9 +65,7 @@ func (r *RegistryValue) Work() types.Work {
 	h.E.WriteBytes(data)
 	h.E.WriteUint64(r.Revision)
 
-	return types.Work{
-		NumHashes: h.Sum(),
-	}
+	return types.WorkRequiredForHash(types.BlockID(h.Sum()))
 }
 
 // MaxLen returns the maximum length of an encoded RegistryValue. Implements

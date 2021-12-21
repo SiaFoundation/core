@@ -67,39 +67,39 @@ func newEphemeralRegistryStore(limit uint64) *ephemeralRegistryStore {
 
 func TestRegistryLock(t *testing.T) {
 	r := registry{
-		registryLocks: make(map[types.Hash256]*locker),
+		locks: make(map[types.Hash256]*locker),
 	}
 
 	key := types.Hash256(frand.Entropy256())
 
 	// lock the registry key
-	if err := r.lockRegistryKey(key, time.Second*10); err != nil {
+	if err := r.lockKey(key, time.Second*10); err != nil {
 		t.Fatal(err)
 	}
 
 	// test locking the registry key again with a timeout; should fail.
-	if err := r.lockRegistryKey(key, time.Millisecond*100); err == nil {
+	if err := r.lockKey(key, time.Millisecond*100); err == nil {
 		t.Fatal("expected context error")
 	}
 
 	// test locking a second registry key
 	{
 		key := types.Hash256(frand.Entropy256())
-		if err := r.lockRegistryKey(key, time.Millisecond*100); err != nil {
+		if err := r.lockKey(key, time.Millisecond*100); err != nil {
 			t.Fatal("unexpected error:", err)
 		}
 
-		r.unlockRegistryKey(key)
+		r.unlockKey(key)
 	}
 
 	// unlock the first registry key
-	r.unlockRegistryKey(key)
+	r.unlockKey(key)
 
 	// test locking a second time
-	if err := r.lockRegistryKey(key, time.Millisecond*100); err != nil {
+	if err := r.lockKey(key, time.Millisecond*100); err != nil {
 		t.Fatal(err)
 	}
-	r.unlockRegistryKey(key)
+	r.unlockKey(key)
 }
 
 func randomRegistryValue(key types.PrivateKey) (value rhp.RegistryValue) {
@@ -113,9 +113,9 @@ func randomRegistryValue(key types.PrivateKey) (value rhp.RegistryValue) {
 
 func testRegistry(hostID types.Hash256, limit uint64) *registry {
 	return &registry{
-		hostID:        hostID,
-		store:         newEphemeralRegistryStore(limit),
-		registryLocks: make(map[types.Hash256]*locker),
+		hostID: hostID,
+		store:  newEphemeralRegistryStore(limit),
+		locks:  make(map[types.Hash256]*locker),
 	}
 }
 

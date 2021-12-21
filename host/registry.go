@@ -27,29 +27,29 @@ type registry struct {
 	store  RegistryStore
 
 	// registry entries must be locked while they are being modified
-	registryMu    sync.Mutex
-	registryLocks map[types.Hash256]*locker
+	mu    sync.Mutex
+	locks map[types.Hash256]*locker
 }
 
-// lockRegistryKey locks the registry key with the provided key preventing
+// lockKey locks the registry key with the provided key preventing
 // updates. The context can be used to interrupt if the registry key lock cannot
 // be acquired quickly.
-func (r *registry) lockRegistryKey(key types.Hash256, timeout time.Duration) error {
+func (r *registry) lockKey(key types.Hash256, timeout time.Duration) error {
 	// cannot defer unlock to prevent deadlock
-	r.registryMu.Lock()
-	_, exists := r.registryLocks[key]
+	r.mu.Lock()
+	_, exists := r.locks[key]
 	if !exists {
-		r.registryLocks[key] = &locker{
+		r.locks[key] = &locker{
 			c:       make(chan struct{}, 1),
 			waiters: 1,
 		}
-		r.registryMu.Unlock()
+		r.mu.Unlock()
 		return nil
 	}
-	r.registryLocks[key].waiters++
-	c := r.registryLocks[key].c
+	r.locks[key].waiters++
+	c := r.locks[key].c
 	// mutex must be unlocked before waiting on the channel.
-	r.registryMu.Unlock()
+	r.mu.Unlock()
 	select {
 	case <-c:
 		return nil
@@ -58,15 +58,15 @@ func (r *registry) lockRegistryKey(key types.Hash256, timeout time.Duration) err
 	}
 }
 
-// unlockRegistryKey unlocks the registry key with the provided key.
-func (r *registry) unlockRegistryKey(key types.Hash256) {
-	r.registryMu.Lock()
-	defer r.registryMu.Unlock()
-	lock, exists := r.registryLocks[key]
+// unlockKey unlocks the registry key with the provided key.
+func (r *registry) unlockKey(key types.Hash256) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	lock, exists := r.locks[key]
 	if !exists {
 		return
 	} else if lock.waiters <= 0 {
-		delete(r.registryLocks, key)
+		delete(r.locks, key)
 		return
 	}
 	lock.waiters--
@@ -75,8 +75,8 @@ func (r *registry) unlockRegistryKey(key types.Hash256) {
 
 // Get returns the registry value for the provided key.
 func (r *registry) Get(key types.Hash256) (rhp.RegistryValue, error) {
-	r.lockRegistryKey(key, time.Second)
-	defer r.unlockRegistryKey(key)
+	r.lockKey(key, time.Second)
+	defer r.unlockKey(key)
 	return r.store.Get(key)
 }
 
@@ -85,8 +85,8 @@ func (r *registry) Get(key types.Hash256) (rhp.RegistryValue, error) {
 // registryUpdateError, the old value is returned.
 func (r *registry) Put(value rhp.RegistryValue, expirationHeight uint64) (rhp.RegistryValue, error) {
 	key := value.Key()
-	r.lockRegistryKey(key, time.Second)
-	defer r.unlockRegistryKey(key)
+	r.lockKey(key, time.Second)
+	defer r.unlockKey(key)
 
 	if err := validateRegistryEntry(value); err != nil {
 		return rhp.RegistryValue{}, fmt.Errorf("invalid registry entry: %w", err)

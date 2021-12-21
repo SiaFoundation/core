@@ -35,7 +35,7 @@ func (pb *ProgramBuilder) appendInstruction(instr rhp.Instruction) {
 
 // AddAppendSectorInstruction adds an append sector instruction to the program.
 func (pb *ProgramBuilder) AddAppendSectorInstruction(sector *[rhp.SectorSize]byte, proof bool) {
-	instr := rhp.InstrAppendSector{
+	instr := &rhp.InstrAppendSector{
 		SectorDataOffset: pb.offset,
 		ProofRequired:    proof,
 	}
@@ -47,7 +47,7 @@ func (pb *ProgramBuilder) AddAppendSectorInstruction(sector *[rhp.SectorSize]byt
 
 // AddDropSectorInstruction adds a drop sector instruction to the program.
 func (pb *ProgramBuilder) AddDropSectorInstruction(sectors uint64, proof bool) {
-	instr := rhp.InstrDropSectors{
+	instr := &rhp.InstrDropSectors{
 		SectorCountOffset: pb.offset,
 		ProofRequired:     proof,
 	}
@@ -59,7 +59,7 @@ func (pb *ProgramBuilder) AddDropSectorInstruction(sectors uint64, proof bool) {
 
 // AddHasSectorInstruction adds a has sector instruction to the program.
 func (pb *ProgramBuilder) AddHasSectorInstruction(root types.Hash256) {
-	instr := rhp.InstrHasSector{
+	instr := &rhp.InstrHasSector{
 		SectorRootOffset: pb.offset,
 	}
 	root.EncodeTo(pb.encoder)
@@ -74,7 +74,7 @@ func (pb *ProgramBuilder) AddReadSectorInstruction(root types.Hash256, offset ui
 		return errors.New("read offset + length exceeds sector size")
 	}
 
-	instr := rhp.InstrReadSector{
+	instr := &rhp.InstrReadSector{
 		RootOffset:    pb.offset,
 		SectorOffset:  pb.offset + 32,
 		LengthOffset:  pb.offset + 40,
@@ -91,7 +91,7 @@ func (pb *ProgramBuilder) AddReadSectorInstruction(root types.Hash256, offset ui
 
 // AddReadOffsetInstruction adds a read offset instruction to the program.
 func (pb *ProgramBuilder) AddReadOffsetInstruction(offset, length uint64, proof bool) {
-	instr := rhp.InstrReadOffset{
+	instr := &rhp.InstrReadOffset{
 		DataOffset:    pb.offset,
 		LengthOffset:  pb.offset + 8,
 		ProofRequired: proof,
@@ -105,7 +105,7 @@ func (pb *ProgramBuilder) AddReadOffsetInstruction(offset, length uint64, proof 
 
 // AddDropSectorsInstruction adds a drop sectors instruction to the program.
 func (pb *ProgramBuilder) AddDropSectorsInstruction(sectors uint64, proof bool) {
-	instr := rhp.InstrDropSectors{
+	instr := &rhp.InstrDropSectors{
 		SectorCountOffset: pb.offset,
 		ProofRequired:     proof,
 	}
@@ -117,13 +117,13 @@ func (pb *ProgramBuilder) AddDropSectorsInstruction(sectors uint64, proof bool) 
 
 // AddRevisionInstruction adds a revision instruction to the program.
 func (pb *ProgramBuilder) AddRevisionInstruction() {
-	pb.appendInstruction(rhp.InstrContractRevision{})
+	pb.appendInstruction(&rhp.InstrContractRevision{})
 	pb.addUsage(rhp.RevisionCost(pb.settings))
 }
 
 // AddSwapSectorInstruction adds a swap sector instruction to the program.
 func (pb *ProgramBuilder) AddSwapSectorInstruction(i, j uint64, proof bool) {
-	instr := rhp.InstrSwapSector{
+	instr := &rhp.InstrSwapSector{
 		RootAOffset:   pb.offset,
 		RootBOffset:   pb.offset + 32,
 		ProofRequired: proof,
@@ -137,7 +137,7 @@ func (pb *ProgramBuilder) AddSwapSectorInstruction(i, j uint64, proof bool) {
 
 // AddUpdateRegistryInstruction adds an update registry instruction to the program.
 func (pb *ProgramBuilder) AddUpdateRegistryInstruction(value rhp.RegistryValue) {
-	instr := rhp.InstrUpdateRegistry{
+	instr := &rhp.InstrUpdateRegistry{
 		EntryOffset: pb.offset,
 	}
 	value.EncodeTo(pb.encoder)
@@ -152,7 +152,7 @@ func (pb *ProgramBuilder) AddUpdateRegistryInstruction(value rhp.RegistryValue) 
 
 // AddReadRegistryInstruction adds a read registry instruction to the program.
 func (pb *ProgramBuilder) AddReadRegistryInstruction(pub types.PublicKey, tweak types.Hash256) {
-	instr := rhp.InstrReadRegistry{
+	instr := &rhp.InstrReadRegistry{
 		PublicKeyOffset: pb.offset,
 		TweakOffset:     pb.offset + 32,
 	}

@@ -120,19 +120,17 @@ func (sh *SessionHandler) handleRPCFundAccount(stream *mux.Stream) {
 		return
 	}
 
-	resp := &rhp.RPCFundAccountResponse{
-		Balance: balance,
-		Receipt: rhp.Receipt{
-			Host:      sh.privkey.PublicKey(),
-			Account:   req.AccountID,
-			Amount:    fundAmount,
-			Timestamp: time.Now(),
-		},
+	receipt := rhp.Receipt{
+		Host:      sh.privkey.PublicKey(),
+		Account:   req.AccountID,
+		Amount:    fundAmount,
+		Timestamp: time.Now(),
 	}
-
-	h := types.NewHasher()
-	resp.Receipt.EncodeTo(h.E)
-	resp.Signature = sh.privkey.SignHash(h.Sum())
+	resp := &rhp.RPCFundAccountResponse{
+		Balance:   balance,
+		Receipt:   receipt,
+		Signature: sh.privkey.SignHash(types.HashObject(&receipt)),
+	}
 
 	// write the receipt and current balance.
 	err = rpc.WriteResponse(stream, resp)

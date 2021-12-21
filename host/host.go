@@ -133,7 +133,7 @@ type (
 		Settings() rhp.HostSettings
 	}
 
-	// A TransactionPool broadcasts tßransaction sets to miners for inclusion in
+	// A TransactionPool broadcasts transaction sets to miners for inclusion in
 	// an upcoming block.
 	TransactionPool interface {
 		AcceptTransactionSet(txns []types.Transaction) error
@@ -317,9 +317,7 @@ func (sh *SessionHandler) Serve(conn net.Conn) error {
 
 // NewSessionHandler initializes a new host session manager.
 func NewSessionHandler(privkey types.PrivateKey, cm ChainManager, ss SectorStore, cs ContractStore, as EphemeralAccountStore, rs RegistryStore, w Wallet, sr SettingsReporter, tp TransactionPool, log Logger) *SessionHandler {
-	h := types.NewHasher()
-	privkey.PublicKey().EncodeTo(h.E)
-	hostID := h.Sum()
+	hostID := types.HashObject(privkey.PublicKey())
 
 	sh := &SessionHandler{
 		privkey: privkey,
@@ -334,9 +332,9 @@ func NewSessionHandler(privkey types.PrivateKey, cm ChainManager, ss SectorStore
 		log:       log,
 
 		registry: &registry{
-			hostID:        hostID,
-			store:         rs,
-			registryLocks: make(map[types.Hash256]*locker),
+			hostID: hostID,
+			store:  rs,
+			locks:  make(map[types.Hash256]*locker),
 		},
 
 		activeSettings: make(map[rhp.SettingsID]rhp.HostSettings),

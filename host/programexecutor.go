@@ -198,11 +198,10 @@ func (pe *programExecutor) executeSwapSectors(indexA, indexB uint64, requiresPro
 }
 
 func (pe *programExecutor) executeContractRevision() error {
-	var contract types.FileContractRevision
 	if pe.contract == nil {
 		return errors.New("no contract revision set")
 	}
-	contract.EncodeTo(pe.encoder)
+	pe.contract.EncodeTo(pe.encoder)
 	return nil
 }
 
@@ -255,7 +254,7 @@ func (pe *programExecutor) ExecuteInstruction(r io.Reader, w io.Writer, instruct
 
 	proof, err := func() ([]types.Hash256, error) {
 		switch instr := instruction.(type) {
-		case rhp.InstrAppendSector:
+		case *rhp.InstrAppendSector:
 			// read the sector data.
 			var sector [rhp.SectorSize]byte
 			if _, err := io.ReadFull(r, sector[:]); err != nil {
@@ -263,13 +262,13 @@ func (pe *programExecutor) ExecuteInstruction(r io.Reader, w io.Writer, instruct
 			}
 
 			return pe.executeAppendSector(&sector, instr.ProofRequired)
-		case rhp.InstrDropSectors:
+		case *rhp.InstrDropSectors:
 			var dropped uint64
 			if err := binary.Read(r, binary.LittleEndian, &dropped); err != nil {
 				return nil, fmt.Errorf("failed to read dropped sector count: %w", err)
 			}
 			return pe.executeDropSectors(dropped, instr.ProofRequired)
-		case rhp.InstrHasSector:
+		case *rhp.InstrHasSector:
 			// read the sector root from the program's data
 			var root types.Hash256
 			if _, err := io.ReadFull(r, root[:]); err != nil {
@@ -277,7 +276,7 @@ func (pe *programExecutor) ExecuteInstruction(r io.Reader, w io.Writer, instruct
 			}
 
 			return nil, pe.executeHasSector(root)
-		case rhp.InstrReadSector:
+		case *rhp.InstrReadSector:
 			var root types.Hash256
 			var offset, length uint64
 
@@ -295,7 +294,7 @@ func (pe *programExecutor) ExecuteInstruction(r io.Reader, w io.Writer, instruct
 			}
 
 			return pe.executeReadSector(root, offset, length, instr.ProofRequired)
-		case rhp.InstrReadOffset:
+		case *rhp.InstrReadOffset:
 			var offset, length uint64
 
 			if err := binary.Read(r, binary.LittleEndian, &offset); err != nil {
@@ -314,7 +313,7 @@ func (pe *programExecutor) ExecuteInstruction(r io.Reader, w io.Writer, instruct
 			root := pe.newRoots[index]
 			offset %= rhp.SectorSize
 			return pe.executeReadSector(root, offset, length, instr.ProofRequired)
-		case rhp.InstrSwapSector:
+		case *rhp.InstrSwapSector:
 			var sectorA, sectorB uint64
 
 			if err := binary.Read(r, binary.LittleEndian, &sectorA); err != nil {
@@ -326,9 +325,9 @@ func (pe *programExecutor) ExecuteInstruction(r io.Reader, w io.Writer, instruct
 			}
 
 			return pe.executeSwapSectors(sectorA, sectorB, instr.ProofRequired)
-		case rhp.InstrContractRevision:
+		case *rhp.InstrContractRevision:
 			return nil, pe.executeContractRevision()
-		case rhp.InstrReadRegistry:
+		case *rhp.InstrReadRegistry:
 			// read the registry entry
 			var pub types.PublicKey
 			var tweak types.Hash256
@@ -342,7 +341,7 @@ func (pe *programExecutor) ExecuteInstruction(r io.Reader, w io.Writer, instruct
 			// read the registry value
 			key := rhp.RegistryKey(pub, tweak)
 			return nil, pe.executeReadRegistry(key)
-		case rhp.InstrUpdateRegistry:
+		case *rhp.InstrUpdateRegistry:
 			var value rhp.RegistryValue
 			dec := types.NewDecoder(io.LimitedReader{R: r, N: int64(value.MaxLen())})
 			value.DecodeFrom(dec)

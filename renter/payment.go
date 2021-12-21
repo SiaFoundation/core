@@ -48,10 +48,7 @@ func (p *payByEphemeralAccount) Pay(stream *mux.Stream, amount types.Currency) e
 		},
 	}
 
-	h := types.NewHasher()
-	req.Message.EncodeTo(h.E)
-
-	req.Signature = p.privkey.SignHash(h.Sum())
+	req.Signature = p.privkey.SignHash(types.HashObject(&req.Message))
 	if err := rpc.WriteRequest(stream, rhp.PayByEphemeralAccount, req); err != nil {
 		return fmt.Errorf("failed to write ephemeral account payment request specifier: %w", err)
 	}

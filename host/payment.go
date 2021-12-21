@@ -48,9 +48,7 @@ func newRPCBudget(value types.Currency) *rpcBudget {
 
 func validateEAWithdrawal(req rhp.PayByEphemeralAccountRequest, height uint64) (types.Hash256, error) {
 	// verify the signature is correct.
-	h := types.NewHasher()
-	req.Message.EncodeTo(h.E)
-	withdrawID := h.Sum()
+	withdrawID := types.HashObject(&req.Message)
 
 	if !req.Message.AccountID.VerifyHash(withdrawID, req.Signature) {
 		return types.Hash256{}, errors.New("withdrawal request signature is invalid")
