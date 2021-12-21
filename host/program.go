@@ -136,7 +136,7 @@ func (sh *SessionHandler) handleRPCExecuteProgram(stream *mux.Stream) {
 			return
 		}
 
-		if err := executor.setContract(&contract); err != nil {
+		if err := executor.setContract(contract.FileContractRevision); err != nil {
 			log.Warnln("failed to set contract:", err)
 			_ = rpc.WriteResponseErr(stream, errors.New("failed to set contract"))
 			return

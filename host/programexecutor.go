@@ -42,18 +42,18 @@ type programExecutor struct {
 	sectors  SectorStore
 	registry *registry
 	vc       consensus.ValidationContext
-	contract *Contract
 	settings rhp.HostSettings
 	duration uint64
+	contract *types.FileContractRevision
 
 	committed bool
 }
 
 // setContract sets the contract that read-write programs should use for
 // finalization. The contract should be locked before calling this function.
-func (pe *programExecutor) setContract(contract *Contract) error {
+func (pe *programExecutor) setContract(contract types.FileContractRevision) error {
 	// set initial state of the program.
-	pe.contract = contract
+	pe.contract = &contract
 	pe.newFileSize = contract.Revision.Filesize
 	// use height from price table to calculate remaining duration.
 	pe.duration = contract.Revision.WindowStart - pe.settings.BlockHeight
@@ -387,32 +387,25 @@ func (pe *programExecutor) ExecuteInstruction(r io.Reader, w io.Writer, instruct
 // FinalizeContract updates the contract to reflect the final state of the
 // program.
 func (pe *programExecutor) FinalizeContract(req rhp.RPCFinalizeProgramRequest) (types.FileContractRevision, error) {
-	current := pe.contract.Revision
-	rev := pe.contract.Revision
-	rev.RevisionNumber = req.NewRevisionNumber
-	req.NewOutputs.Apply(&rev)
+	revision := *pe.contract
+	revision.Revision.RevisionNumber = req.NewRevisionNumber
+	req.NewOutputs.Apply(&revision.Revision)
 	// update the contract's merkle root and file size.
-	rev.FileMerkleRoot = pe.newMerkleRoot
-	rev.Filesize = pe.newFileSize
+	revision.Revision.FileMerkleRoot = pe.newMerkleRoot
+	revision.Revision.Filesize = pe.newFileSize
+
+	sigHash := pe.vc.ContractSigHash(revision.Revision)
+	revision.HostSignature = pe.privkey.SignHash(sigHash)
+	revision.RenterSignature = req.Signature
 
 	// validate that the renter's revision is valid and only transfers the
 	// additional collateral and storage costs to the void. All other
 	// costs have already been paid by the RPC budget.
-	if err := validateProgramRevision(current, rev, pe.additionalStorage, pe.additionalCollateral); err != nil {
+	if err := validateProgramRevision(pe.vc, *pe.contract, revision, pe.additionalStorage, pe.additionalCollateral); err != nil {
 		return types.FileContractRevision{}, fmt.Errorf("failed to verify contract revision: %w", err)
 	}
 
-	// validate the renter's signature
-	signHash := pe.vc.ContractSigHash(rev)
-	if !pe.contract.Parent.RenterPublicKey.VerifyHash(signHash, req.Signature) {
-		return types.FileContractRevision{}, errors.New("renter signature invalid")
-	}
-
-	pe.contract.Revision = rev
-	pe.contract.HostSignature = pe.privkey.SignHash(signHash)
-	pe.contract.RenterSignature = req.Signature
-
-	return pe.contract.FileContractRevision, nil
+	return revision, nil
 }
 
 // Revert removes the sectors that were added by the program. If

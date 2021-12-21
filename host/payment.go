@@ -110,38 +110,33 @@ func (sh *SessionHandler) processContractPayment(stream *mux.Stream) (*rpcBudget
 	// valid host outputs.
 	fundAmount := req.NewOutputs.ValidHostValue.Sub(contract.Revision.ValidHostOutput.Value)
 
-	revision := contract.Revision
-	revision.RevisionNumber = req.NewRevisionNumber
-	req.NewOutputs.Apply(&revision)
+	// create a new revision with updated output values and renter signature
+	revision := contract.FileContractRevision
+	revision.Revision.RevisionNumber = req.NewRevisionNumber
+	req.NewOutputs.Apply(&revision.Revision)
 
-	if err := validatePaymentRevision(contract.Revision, revision, fundAmount); err != nil {
-		return nil, types.PublicKey{}, fmt.Errorf("invalid payment revision: %w", err)
-	}
-
-	// verify the renter's signature
 	vc, err := sh.cm.TipContext()
 	if err != nil {
 		return nil, types.PublicKey{}, fmt.Errorf("failed to get validation context: %w", err)
 	}
 
-	revisionHash := vc.ContractSigHash(revision)
-	if !revision.RenterPublicKey.VerifyHash(revisionHash, req.Signature) {
-		return nil, types.PublicKey{}, errors.New("renter revision signature is invalid")
+	// sign the new revision and apply the renter's signature.
+	sigHash := vc.ContractSigHash(revision.Revision)
+	revision.HostSignature = sh.privkey.SignHash(sigHash)
+	revision.RenterSignature = req.Signature
+
+	if err := validatePaymentRevision(vc, contract.FileContractRevision, revision, fundAmount); err != nil {
+		return nil, types.PublicKey{}, fmt.Errorf("invalid payment revision: %w", err)
 	}
 
-	// update the host signature and the contract
-	hostSig := sh.privkey.SignHash(revisionHash)
-	contract.Revision = revision
-	contract.HostSignature = hostSig
-	contract.RenterSignature = req.Signature
-
-	if err := sh.contracts.ReviseContract(contract.FileContractRevision); err != nil {
+	// update the contract.
+	if err := sh.contracts.ReviseContract(revision); err != nil {
 		return nil, types.PublicKey{}, fmt.Errorf("failed to update stored contract revision: %w", err)
 	}
 
 	// send the updated host signature to the renter
 	err = rpc.WriteResponse(stream, &rhp.RPCRevisionSigningResponse{
-		Signature: hostSig,
+		Signature: revision.HostSignature,
 	})
 	if err != nil {
 		return nil, types.PublicKey{}, fmt.Errorf("failed to send host signature response: %w", err)
