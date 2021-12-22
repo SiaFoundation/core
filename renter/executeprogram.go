@@ -20,7 +20,7 @@ type (
 
 		RequiresContract     bool
 		RequiresFinalization bool
-		ContractRevision     *types.FileContractRevision
+		Contract             *Contract
 		RenterKey            types.PrivateKey
 	}
 
@@ -40,7 +40,7 @@ type (
 //
 // ContractRevision and RenterKey may be nil if the program is not read-write.
 func (s *Session) ExecuteProgram(program Program, input []byte, payment PaymentMethod, execute ExecuteFunc) error {
-	if (program.RequiresContract || program.RequiresFinalization) && program.ContractRevision == nil {
+	if (program.RequiresContract || program.RequiresFinalization) && program.Contract == nil {
 		return errors.New("contract required for read-write programs")
 	} else if (program.RequiresContract || program.RequiresFinalization) && len(program.RenterKey) != 64 {
 		return errors.New("contract key is required for read-write programs")
@@ -66,8 +66,8 @@ func (s *Session) ExecuteProgram(program Program, input []byte, payment PaymentM
 	}
 
 	var contractID types.ElementID
-	if program.ContractRevision != nil {
-		contractID = program.ContractRevision.Parent.ID
+	if program.Contract != nil {
+		contractID = program.Contract.ID
 	}
 
 	err = rpc.WriteResponse(stream, &rhp.RPCExecuteProgramRequest{
@@ -114,7 +114,7 @@ func (s *Session) ExecuteProgram(program Program, input []byte, payment PaymentM
 	// finalize the program by updating the contract revision with additional
 	// collateral.
 	transfer := response.AdditionalCollateral.Add(response.AdditionalStorage)
-	rev := program.ContractRevision.Revision
+	rev := program.Contract.Revision
 	if rev.MissedHostOutput.Value.Cmp(transfer) < 0 {
 		return errors.New("not enough collateral to finalize program")
 	}
@@ -156,9 +156,9 @@ func (s *Session) ExecuteProgram(program Program, input []byte, payment PaymentM
 		return errors.New("host revision signature is invalid")
 	}
 
-	program.ContractRevision.Revision = rev
-	program.ContractRevision.HostSignature = resp.Signature
-	program.ContractRevision.RenterSignature = req.Signature
+	program.Contract.Revision = rev
+	program.Contract.HostSignature = resp.Signature
+	program.Contract.RenterSignature = req.Signature
 
 	return nil
 }

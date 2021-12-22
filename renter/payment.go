@@ -25,7 +25,7 @@ type (
 	}
 
 	payByContract struct {
-		rev             *types.FileContractRevision
+		contract        *Contract
 		privkey         types.PrivateKey
 		hostKey         types.PublicKey
 		refundAccountID types.PublicKey
@@ -60,9 +60,9 @@ func (p *payByEphemeralAccount) Pay(stream *mux.Stream, amount types.Currency) e
 func (p *payByContract) Pay(stream *mux.Stream, amount types.Currency) error {
 	// verify the contract has enough funds to pay the amount.
 	switch {
-	case p.rev.Revision.ValidRenterOutput.Value.Cmp(amount) < 0:
+	case p.contract.Revision.ValidRenterOutput.Value.Cmp(amount) < 0:
 		return errors.New("insufficient renter funds")
-	case p.rev.Revision.MissedRenterOutput.Value.Cmp(amount) < 0:
+	case p.contract.Revision.MissedRenterOutput.Value.Cmp(amount) < 0:
 		return errors.New("insufficient renter funds")
 	}
 
@@ -72,24 +72,24 @@ func (p *payByContract) Pay(stream *mux.Stream, amount types.Currency) error {
 	}
 
 	// update the revision to pay for the usage.
-	updated := p.rev.Revision
-	updated.RevisionNumber++
-	updated.ValidRenterOutput.Value = updated.ValidRenterOutput.Value.Sub(amount)
-	updated.MissedRenterOutput.Value = updated.MissedRenterOutput.Value.Sub(amount)
-	updated.ValidHostOutput.Value = updated.ValidHostOutput.Value.Add(amount)
-	updated.MissedHostOutput.Value = updated.MissedHostOutput.Value.Add(amount)
-	revisionHash := vc.ContractSigHash(updated)
+	revision := p.contract.Revision
+	revision.RevisionNumber++
+	revision.ValidRenterOutput.Value = revision.ValidRenterOutput.Value.Sub(amount)
+	revision.MissedRenterOutput.Value = revision.MissedRenterOutput.Value.Sub(amount)
+	revision.ValidHostOutput.Value = revision.ValidHostOutput.Value.Add(amount)
+	revision.MissedHostOutput.Value = revision.MissedHostOutput.Value.Add(amount)
+	revisionHash := vc.ContractSigHash(revision)
 
 	req := &rhp.PayByContractRequest{
 		RefundAccount: p.refundAccountID,
 
-		ContractID:        p.rev.Parent.ID,
-		NewRevisionNumber: updated.RevisionNumber,
+		ContractID:        p.contract.ID,
+		NewRevisionNumber: revision.RevisionNumber,
 		NewOutputs: rhp.ContractOutputs{
-			MissedHostValue:   updated.MissedHostOutput.Value,
-			MissedRenterValue: updated.MissedRenterOutput.Value,
-			ValidHostValue:    updated.ValidHostOutput.Value,
-			ValidRenterValue:  updated.ValidRenterOutput.Value,
+			MissedHostValue:   revision.MissedHostOutput.Value,
+			MissedRenterValue: revision.MissedRenterOutput.Value,
+			ValidHostValue:    revision.ValidHostOutput.Value,
+			ValidRenterValue:  revision.ValidRenterOutput.Value,
 		},
 		Signature: p.privkey.SignHash(revisionHash),
 	}
@@ -111,16 +111,16 @@ func (p *payByContract) Pay(stream *mux.Stream, amount types.Currency) error {
 	}
 
 	// update the contract to reflect the payment and new signatures
-	p.rev.Revision = updated
-	p.rev.RenterSignature = req.Signature
-	p.rev.HostSignature = resp.Signature
+	p.contract.Revision = revision
+	p.contract.RenterSignature = req.Signature
+	p.contract.HostSignature = resp.Signature
 	return nil
 }
 
 // PayByContract creates a new contract payment method.
-func (s *Session) PayByContract(rev *types.FileContractRevision, priv types.PrivateKey, refundAccountID types.PublicKey) PaymentMethod {
+func (s *Session) PayByContract(contract *Contract, priv types.PrivateKey, refundAccountID types.PublicKey) PaymentMethod {
 	return &payByContract{
-		rev:             rev,
+		contract:        contract,
 		privkey:         priv,
 		hostKey:         s.hostKey,
 		refundAccountID: refundAccountID,

@@ -609,12 +609,12 @@ func TestRPCLatestRevision(t *testing.T) {
 	renterFunds := types.Siacoins(5)
 	hostFunds := types.Siacoins(10)
 
-	fcr, _, err := session.FormContract(renterKey, hostFunds, renterFunds, 200)
+	contract, _, err := session.FormContract(renterKey, hostFunds, renterFunds, 200)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	payment := session.PayByContract(&fcr, renterKey, renterPub)
+	payment := session.PayByContract(&contract, renterKey, renterPub)
 	_, err = session.RegisterSettings(payment)
 	if err != nil {
 		t.Fatal(err)
@@ -626,12 +626,12 @@ func TestRPCLatestRevision(t *testing.T) {
 	}
 
 	payment = session.PayByEphemeralAccount(renterPub, renterKey, 20)
-	latest, err := session.LatestRevision(fcr.Parent.ID, payment)
+	latest, err := session.LatestRevision(contract.ID, payment)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if reflect.DeepEqual(latest, fcr.Parent) {
+	if reflect.DeepEqual(latest, contract.Revision) {
 		t.Fatal("expected latest revision match")
 	}
 }
@@ -657,25 +657,25 @@ func TestRPCFormContract(t *testing.T) {
 	renterFunds := types.Siacoins(5)
 	hostFunds := types.Siacoins(10)
 
-	fcr, _, err := session.FormContract(renterPriv, hostFunds, renterFunds, 200)
+	contract, _, err := session.FormContract(renterPriv, hostFunds, renterFunds, 200)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	switch {
-	case fcr.Revision.RevisionNumber != 0:
+	case contract.Revision.RevisionNumber != 0:
 		t.Fatal("expected revision number to be 0")
-	case fcr.Revision.ValidRenterOutput.Address != wallet.Address():
+	case contract.Revision.ValidRenterOutput.Address != wallet.Address():
 		t.Fatal("expected valid renter address to be the renter's address")
-	case fcr.Revision.MissedRenterOutput.Address != wallet.Address():
+	case contract.Revision.MissedRenterOutput.Address != wallet.Address():
 		t.Fatal("expected missed renter address to be the renter's address")
-	case fcr.Revision.ValidRenterOutput.Value != renterFunds.Sub(settings.ContractFee):
+	case contract.Revision.ValidRenterOutput.Value != renterFunds.Sub(settings.ContractFee):
 		t.Fatal("expected valid renter output to be renter funds minus contract fee")
-	case fcr.Revision.ValidHostOutput.Value != hostFunds.Add(settings.ContractFee):
+	case contract.Revision.ValidHostOutput.Value != hostFunds.Add(settings.ContractFee):
 		t.Fatal("expected valid host output to be host funds plus contract fee")
-	case fcr.Revision.MissedRenterOutput.Value != fcr.Revision.ValidRenterOutput.Value:
+	case contract.Revision.MissedRenterOutput.Value != contract.Revision.ValidRenterOutput.Value:
 		t.Fatal("expected valid and missed renter outputs to match")
-	case fcr.Revision.MissedHostOutput.Value != fcr.Revision.ValidHostOutput.Value:
+	case contract.Revision.MissedHostOutput.Value != contract.Revision.ValidHostOutput.Value:
 		t.Fatal("expected valid and missed host outputs to match")
 	}
 }
@@ -696,13 +696,13 @@ func TestRPCFundAccount(t *testing.T) {
 	renterFunds := types.Siacoins(5)
 	hostFunds := types.Siacoins(10)
 
-	fcr, _, err := session.FormContract(renterPriv, hostFunds, renterFunds, 200)
+	contract, _, err := session.FormContract(renterPriv, hostFunds, renterFunds, 200)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	originalAllowance := fcr.Revision.ValidRenterOutput.Value
-	payment := session.PayByContract(&fcr, renterPriv, renterPub)
+	originalAllowance := contract.Revision.ValidRenterOutput.Value
+	payment := session.PayByContract(&contract, renterPriv, renterPub)
 	settings, err := session.RegisterSettings(payment)
 	if err != nil {
 		t.Fatal(err)
@@ -723,8 +723,8 @@ func TestRPCFundAccount(t *testing.T) {
 
 	if balance != fundAmount {
 		t.Fatalf("expected balance to be %v, got %v", fundAmount, balance)
-	} else if fcr.Revision.ValidRenterOutput.Value != remainingAllowance {
-		t.Fatalf("expected remaining allowance to be %v, got %v", remainingAllowance, fcr.Revision.ValidRenterOutput.Value)
+	} else if contract.Revision.ValidRenterOutput.Value != remainingAllowance {
+		t.Fatalf("expected remaining allowance to be %v, got %v", remainingAllowance, contract.Revision.ValidRenterOutput.Value)
 	}
 }
 
@@ -745,13 +745,13 @@ func TestRPCAccountBalance(t *testing.T) {
 	renterFunds := types.Siacoins(5)
 	hostFunds := types.Siacoins(10)
 
-	fcr, _, err := session.FormContract(renterPriv, hostFunds, renterFunds, 200)
+	contract, _, err := session.FormContract(renterPriv, hostFunds, renterFunds, 200)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	remainingAllowance := fcr.Revision.ValidRenterOutput.Value
-	payment := session.PayByContract(&fcr, renterPriv, renterPub)
+	remainingAllowance := contract.Revision.ValidRenterOutput.Value
+	payment := session.PayByContract(&contract, renterPriv, renterPub)
 	// get usable settings.
 	settings, err := session.RegisterSettings(payment)
 	if err != nil {
@@ -760,8 +760,8 @@ func TestRPCAccountBalance(t *testing.T) {
 
 	// make sure the remaining renter allowance is correct.
 	remainingAllowance = remainingAllowance.Sub(settings.RPCHostSettingsCost)
-	if fcr.Revision.ValidRenterOutput.Value.Cmp(remainingAllowance) != 0 {
-		t.Fatalf("expected remaining allowance to be %v, got %v", remainingAllowance, fcr.Revision.ValidRenterOutput.Value)
+	if contract.Revision.ValidRenterOutput.Value.Cmp(remainingAllowance) != 0 {
+		t.Fatalf("expected remaining allowance to be %v, got %v", remainingAllowance, contract.Revision.ValidRenterOutput.Value)
 	}
 
 	// fund an ephemeral account with 2 SC.
@@ -777,8 +777,8 @@ func TestRPCAccountBalance(t *testing.T) {
 	// check the fund amount and renter allowance is correct.
 	if balance != fundAmount {
 		t.Fatalf("expected balance to be %v, got %v", fundAmount, balance)
-	} else if fcr.Revision.ValidRenterOutput.Value != remainingAllowance {
-		t.Fatalf("expected remaining allowance to be %v, got %v", remainingAllowance, fcr.Revision.ValidRenterOutput.Value)
+	} else if contract.Revision.ValidRenterOutput.Value != remainingAllowance {
+		t.Fatalf("expected remaining allowance to be %v, got %v", remainingAllowance, contract.Revision.ValidRenterOutput.Value)
 	}
 
 	balance, err = session.AccountBalance(renterPub, payment)
@@ -792,8 +792,8 @@ func TestRPCAccountBalance(t *testing.T) {
 	// check the account balance and renter allowance is correct.
 	if balance.Cmp(fundAmount) != 0 {
 		t.Fatalf("expected balance to be %v, got %v", fundAmount, balance)
-	} else if fcr.Revision.ValidRenterOutput.Value.Cmp(remainingAllowance) != 0 {
-		t.Fatalf("expected remaining allowance to be %v, got %v", remainingAllowance, fcr.Revision.ValidRenterOutput.Value)
+	} else if contract.Revision.ValidRenterOutput.Value.Cmp(remainingAllowance) != 0 {
+		t.Fatalf("expected remaining allowance to be %v, got %v", remainingAllowance, contract.Revision.ValidRenterOutput.Value)
 	}
 
 	// check the account balance, paying with an ephemeral account.
@@ -805,8 +805,8 @@ func TestRPCAccountBalance(t *testing.T) {
 
 	if balance.Cmp(fundAmount.Sub(settings.RPCAccountBalanceCost)) != 0 {
 		t.Fatalf("expected balance to be %v, got %v", fundAmount.Sub(settings.RPCAccountBalanceCost), balance)
-	} else if fcr.Revision.ValidRenterOutput.Value.Cmp(remainingAllowance) != 0 {
-		t.Fatalf("expected remaining allowance to be %v, got %v", remainingAllowance, fcr.Revision.ValidRenterOutput.Value)
+	} else if contract.Revision.ValidRenterOutput.Value.Cmp(remainingAllowance) != 0 {
+		t.Fatalf("expected remaining allowance to be %v, got %v", remainingAllowance, contract.Revision.ValidRenterOutput.Value)
 	}
 }
 
@@ -826,12 +826,12 @@ func TestReadWriteProgram(t *testing.T) {
 	renterFunds := types.Siacoins(50)
 	hostFunds := types.Siacoins(100)
 
-	fcr, _, err := session.FormContract(renterPriv, hostFunds, renterFunds, 200)
+	contract, _, err := session.FormContract(renterPriv, hostFunds, renterFunds, 200)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	payment := session.PayByContract(&fcr, renterPriv, renterPub)
+	payment := session.PayByContract(&contract, renterPriv, renterPub)
 	settings, err := session.RegisterSettings(payment)
 	if err != nil {
 		t.Fatal(err)
@@ -841,7 +841,7 @@ func TestReadWriteProgram(t *testing.T) {
 	frand.Read(sector[:16])
 	expectedRoot := rhp.SectorRoot(&sector)
 
-	duration := fcr.Revision.WindowStart - settings.BlockHeight
+	duration := contract.Revision.WindowStart - settings.BlockHeight
 	inputBuf := bytes.NewBuffer(make([]byte, 0, rhp.SectorSize))
 	builder := NewProgramBuilder(settings, inputBuf, duration)
 	builder.AddAppendSectorInstruction(&sector, true)
@@ -871,7 +871,7 @@ func TestReadWriteProgram(t *testing.T) {
 
 		RequiresContract:     requiresContract,
 		RequiresFinalization: requiresFinalization,
-		ContractRevision:     &fcr,
+		Contract:             &contract,
 		RenterKey:            renterPriv,
 	}, inputBuf.Bytes(), payment, func(resp rhp.RPCExecuteInstrResponse, r io.Reader) error {
 		switch {
@@ -887,11 +887,11 @@ func TestReadWriteProgram(t *testing.T) {
 	}
 
 	switch {
-	case fcr.Revision.RevisionNumber != 3:
+	case contract.Revision.RevisionNumber != 3:
 		// settings revision, payment revision, program execution revision
-		t.Fatalf("expected revision number to be 3, got %v", fcr.Revision.RevisionNumber)
-	case fcr.Revision.Filesize != rhp.SectorSize:
-		t.Fatalf("expected filesize to be %v, got %v", rhp.SectorSize, fcr.Revision.Filesize)
+		t.Fatalf("expected revision number to be 3, got %v", contract.Revision.RevisionNumber)
+	case contract.Revision.Filesize != rhp.SectorSize:
+		t.Fatalf("expected filesize to be %v, got %v", rhp.SectorSize, contract.Revision.Filesize)
 	}
 
 	inputBuf.Reset()
@@ -924,7 +924,7 @@ func TestReadWriteProgram(t *testing.T) {
 
 		RequiresContract:     requiresContract,
 		RequiresFinalization: requiresFinalization,
-		ContractRevision:     &fcr,
+		Contract:             &contract,
 		RenterKey:            renterPriv,
 	}, inputBuf.Bytes(), payment, func(rir rhp.RPCExecuteInstrResponse, r io.Reader) error {
 		var sector [rhp.SectorSize]byte
@@ -958,12 +958,12 @@ func BenchmarkWrite(b *testing.B) {
 	renterFunds := types.Siacoins(50)
 	hostFunds := types.Siacoins(100)
 
-	fcr, _, err := session.FormContract(renterPriv, hostFunds, renterFunds, 200)
+	contract, _, err := session.FormContract(renterPriv, hostFunds, renterFunds, 200)
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	payment := session.PayByContract(&fcr, renterPriv, renterPub)
+	payment := session.PayByContract(&contract, renterPriv, renterPub)
 	settings, err := session.RegisterSettings(payment)
 	if err != nil {
 		b.Fatal(err)
@@ -972,7 +972,7 @@ func BenchmarkWrite(b *testing.B) {
 	var sector [rhp.SectorSize]byte
 	frand.Read(sector[:16])
 
-	duration := fcr.Revision.WindowEnd - settings.BlockHeight
+	duration := contract.Revision.WindowEnd - settings.BlockHeight
 	inputBuf := bytes.NewBuffer(make([]byte, 0, rhp.SectorSize))
 	builder := NewProgramBuilder(settings, inputBuf, duration)
 	builder.AddAppendSectorInstruction(&sector, true)
@@ -999,7 +999,7 @@ func BenchmarkWrite(b *testing.B) {
 
 			RequiresContract:     requiresContract,
 			RequiresFinalization: requiresFinalization,
-			ContractRevision:     &fcr,
+			Contract:             &contract,
 			RenterKey:            renterPriv,
 		}, inputBuf.Bytes(), payment, nil)
 		if err != nil {
@@ -1024,12 +1024,12 @@ func BenchmarkRead(b *testing.B) {
 	renterFunds := types.Siacoins(1000)
 	hostFunds := types.Siacoins(2000)
 
-	fcr, _, err := session.FormContract(renterPriv, hostFunds, renterFunds, 200)
+	contract, _, err := session.FormContract(renterPriv, hostFunds, renterFunds, 200)
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	payment := session.PayByContract(&fcr, renterPriv, renterPub)
+	payment := session.PayByContract(&contract, renterPriv, renterPub)
 	settings, err := session.RegisterSettings(payment)
 	if err != nil {
 		b.Fatal(err)
@@ -1039,7 +1039,7 @@ func BenchmarkRead(b *testing.B) {
 	frand.Read(sector[:16])
 	root := rhp.SectorRoot(&sector)
 
-	duration := fcr.Revision.WindowEnd - settings.BlockHeight
+	duration := contract.Revision.WindowEnd - settings.BlockHeight
 	inputBuf := bytes.NewBuffer(make([]byte, 0, rhp.SectorSize))
 	builder := NewProgramBuilder(settings, inputBuf, duration)
 	builder.AddAppendSectorInstruction(&sector, true)
@@ -1062,7 +1062,7 @@ func BenchmarkRead(b *testing.B) {
 
 		RequiresContract:     requiresContract,
 		RequiresFinalization: requiresFinalization,
-		ContractRevision:     &fcr,
+		Contract:             &contract,
 		RenterKey:            renterPriv,
 	}, inputBuf.Bytes(), payment, nil)
 	if err != nil {
@@ -1097,7 +1097,7 @@ func BenchmarkRead(b *testing.B) {
 
 			RequiresContract:     requiresContract,
 			RequiresFinalization: requiresFinalization,
-			ContractRevision:     &fcr,
+			Contract:             &contract,
 			RenterKey:            renterPriv,
 		}, inputBuf.Bytes(), payment, nil)
 		if err != nil {
