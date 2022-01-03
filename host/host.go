@@ -170,7 +170,7 @@ type SessionHandler struct {
 	accounts  EphemeralAccountStore
 	contracts *contractManager
 	log       Logger
-	registry  *registry
+	registry  *registryManager
 	sectors   SectorStore
 	settings  SettingsReporter
 
@@ -262,7 +262,7 @@ func NewSessionHandler(privkey types.PrivateKey, cm ChainManager, ss SectorStore
 		tpool:    tp,
 		log:      log,
 
-		registry: &registry{
+		registry: &registryManager{
 			hostID: hostID,
 			store:  rs,
 			locks:  make(map[types.Hash256]*locker),

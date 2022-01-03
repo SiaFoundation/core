@@ -66,7 +66,7 @@ func newEphemeralRegistryStore(limit uint64) *ephemeralRegistryStore {
 }
 
 func TestRegistryLock(t *testing.T) {
-	r := registry{
+	r := registryManager{
 		locks: make(map[types.Hash256]*locker),
 	}
 
@@ -111,8 +111,8 @@ func randomRegistryValue(key types.PrivateKey) (value rhp.RegistryValue) {
 	return
 }
 
-func testRegistry(hostID types.Hash256, limit uint64) *registry {
-	return &registry{
+func testRegistry(hostID types.Hash256, limit uint64) *registryManager {
+	return &registryManager{
 		hostID: hostID,
 		store:  newEphemeralRegistryStore(limit),
 		locks:  make(map[types.Hash256]*locker),

@@ -40,7 +40,7 @@ type programExecutor struct {
 	additionalCollateral types.Currency
 
 	sectors  SectorStore
-	registry *registry
+	registry *registryManager
 	vc       consensus.ValidationContext
 	settings rhp.HostSettings
 	duration uint64
@@ -449,7 +449,7 @@ func (pe *programExecutor) Commit() error {
 }
 
 // newExecutor initializes the program's executor.
-func newExecutor(priv types.PrivateKey, ss SectorStore, reg *registry, vc consensus.ValidationContext, settings rhp.HostSettings, budget *rpcBudget) *programExecutor {
+func newExecutor(priv types.PrivateKey, ss SectorStore, rm *registryManager, vc consensus.ValidationContext, settings rhp.HostSettings, budget *rpcBudget) *programExecutor {
 	pe := &programExecutor{
 		settings: settings,
 		budget:   budget,
@@ -457,7 +457,7 @@ func newExecutor(priv types.PrivateKey, ss SectorStore, reg *registry, vc consen
 
 		privkey:  priv,
 		sectors:  ss,
-		registry: reg,
+		registry: rm,
 		vc:       vc,
 
 		gainedSectors:  make(map[types.Hash256]struct{}),
