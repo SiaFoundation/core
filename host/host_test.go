@@ -22,19 +22,19 @@ func (cs *testStubContractStore) ProcessChainRevertUpdate(cru *chain.RevertUpdat
 }
 
 // Contract returns the contract with the specified ID.
-func (cs *testStubContractStore) Contract(id types.ElementID) (contract Contract, _ error) {
+func (cs *testStubContractStore) Get(id types.ElementID) (contract Contract, _ error) {
 	contract.Parent.ID = id
 	return
 }
 
 // AddContract stores the provided contract, overwriting any previous
 // contract with the same ID.
-func (cs *testStubContractStore) AddContract(c Contract) error {
+func (cs *testStubContractStore) Add(c Contract) error {
 	return nil
 }
 
 // ReviseContract updates the current revision associated with a contract.
-func (cs *testStubContractStore) ReviseContract(revision types.FileContractRevision) error {
+func (cs *testStubContractStore) Revise(revision types.FileContractRevision) error {
 	return nil
 }
 
@@ -42,7 +42,7 @@ func (cs *testStubContractStore) ReviseContract(revision types.FileContractRevis
 //
 // This method does not return an error. If a contract cannot be saved to
 // the store, the method should panic or exit with an error.
-func (cs *testStubContractStore) UpdateContractTransactions(id types.ElementID, finalization, proof []types.Transaction, err error) {
+func (cs *testStubContractStore) UpdateTransactions(id types.ElementID, finalization, proof []types.Transaction, err error) {
 }
 
 // ActionableContracts returns all of the store's contracts for which
@@ -63,7 +63,7 @@ func TestContractLock(t *testing.T) {
 	}
 
 	// lock the contract
-	contract, err := h.lockContract(id, time.Second*10)
+	contract, err := h.contracts.lock(id, time.Second*10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestContractLock(t *testing.T) {
 	}
 
 	// test locking the contract again with a timeout; should fail.
-	if _, err = h.lockContract(id, time.Millisecond*100); err == nil {
+	if _, err = h.contracts.lock(id, time.Millisecond*100); err == nil {
 		t.Fatal("expected context error")
 	}
 
@@ -84,21 +84,21 @@ func TestContractLock(t *testing.T) {
 			Index:  frand.Uint64n(1000),
 		}
 
-		if _, err := h.lockContract(id, time.Millisecond*100); err != nil {
+		if _, err := h.contracts.lock(id, time.Millisecond*100); err != nil {
 			t.Fatal("unexpected error:", err)
 		}
 
-		h.unlockContract(id)
+		h.contracts.unlock(id)
 	}
 
 	// unlock the first contract
-	h.unlockContract(id)
+	h.contracts.unlock(id)
 
 	// test locking a second time
-	if _, err := h.lockContract(id, time.Millisecond*100); err != nil {
+	if _, err := h.contracts.lock(id, time.Millisecond*100); err != nil {
 		t.Fatal(err)
 	}
-	h.unlockContract(id)
+	h.contracts.unlock(id)
 }
 
 func BenchmarkContractLock(b *testing.B) {
@@ -113,10 +113,10 @@ func BenchmarkContractLock(b *testing.B) {
 		b.ResetTimer()
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			if _, err := h.lockContract(id, time.Millisecond*100); err != nil {
+			if _, err := h.contracts.lock(id, time.Millisecond*100); err != nil {
 				b.Fatal(err)
 			}
-			h.unlockContract(id)
+			h.contracts.unlock(id)
 		}
 	})
 
@@ -132,7 +132,7 @@ func BenchmarkContractLock(b *testing.B) {
 		b.ResetTimer()
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			if _, err := h.lockContract(contracts[i], time.Millisecond*100); err != nil {
+			if _, err := h.contracts.lock(contracts[i], time.Millisecond*100); err != nil {
 				b.Fatal(err)
 			}
 		}

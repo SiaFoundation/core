@@ -321,13 +321,13 @@ func (sh *SessionHandler) handleRPCFormContract(stream *mux.Stream) {
 		FinalizationHeight:   fcr.Parent.WindowStart,
 	}
 
-	/*if err := vc.ValidateTransactionSet(contract.FormationSet); err != nil {
+	if err := vc.ValidateTransactionSet(contract.FormationSet); err != nil {
 		log.Warnln("failed to validate transaction set:", err)
 		rpc.WriteResponseErr(stream, fmt.Errorf("failed to validate transaction set: %w", err))
 		return
-	}*/
+	}
 
-	if err := sh.contracts.AddContract(contract); err != nil {
+	if err := sh.contracts.add(contract); err != nil {
 		log.Errorln("failed to add contract:", err)
 		rpc.WriteResponseErr(stream, errors.New("failed to add contract"))
 		return
@@ -380,13 +380,13 @@ func (sh *SessionHandler) handleRPCRenewContract(stream *mux.Stream) {
 	renewal := renewContractReq.Transactions[len(renewContractReq.Transactions)-1].FileContracts[0]
 	contractID := renewContractReq.Transactions[len(renewContractReq.Transactions)-1].FileContractRevisions[0].Parent.ID
 
-	existing, err := sh.lockContract(contractID, time.Second*10)
+	existing, err := sh.contracts.lock(contractID, time.Second*10)
 	if err != nil {
 		log.Warnln("failed to lock contract:", err)
 		rpc.WriteResponseErr(stream, fmt.Errorf("failed to lock contract %v: %w", contractID, err))
 		return
 	}
-	defer sh.unlockContract(contractID)
+	defer sh.contracts.unlock(contractID)
 
 	vc, err := sh.cm.TipContext()
 	if err != nil {
@@ -512,14 +512,16 @@ func (sh *SessionHandler) handleRPCRenewContract(stream *mux.Stream) {
 		FinalizationHeight:   renewalRevision.Parent.WindowStart,
 	}
 
-	/*if err := vc.ValidateTransactionSet(contract.FormationSet); err != nil {
+	if err := vc.ValidateTransactionSet(contract.FormationSet); err != nil {
 		log.Warnln("failed to validate transaction set:", err)
 		rpc.WriteResponseErr(stream, fmt.Errorf("failed to validate transaction set: %w", err))
 		return
-	}*/
+	}
 
-	sh.contracts.UpdateContractTransactions(contractID, contract.FormationSet, nil, nil)
-	if err := sh.contracts.AddContract(contract); err != nil {
+	// update the renewed contract with the clearing revision and add the new
+	// contract.
+	sh.contracts.revise(clearingRevision)
+	if err := sh.contracts.add(contract); err != nil {
 		log.Errorln("failed to add contract:", err)
 		rpc.WriteResponseErr(stream, errors.New("failed to add contract"))
 		return

@@ -22,7 +22,7 @@ func (e *registryValidationError) Error() string {
 	return e.err.Error()
 }
 
-type registry struct {
+type registryManager struct {
 	hostID types.Hash256
 	store  RegistryStore
 
@@ -34,7 +34,7 @@ type registry struct {
 // lockKey locks the registry key with the provided key preventing
 // updates. The context can be used to interrupt if the registry key lock cannot
 // be acquired quickly.
-func (r *registry) lockKey(key types.Hash256, timeout time.Duration) error {
+func (r *registryManager) lockKey(key types.Hash256, timeout time.Duration) error {
 	// cannot defer unlock to prevent deadlock
 	r.mu.Lock()
 	_, exists := r.locks[key]
@@ -59,7 +59,7 @@ func (r *registry) lockKey(key types.Hash256, timeout time.Duration) error {
 }
 
 // unlockKey unlocks the registry key with the provided key.
-func (r *registry) unlockKey(key types.Hash256) {
+func (r *registryManager) unlockKey(key types.Hash256) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	lock, exists := r.locks[key]
@@ -74,7 +74,7 @@ func (r *registry) unlockKey(key types.Hash256) {
 }
 
 // Get returns the registry value for the provided key.
-func (r *registry) Get(key types.Hash256) (rhp.RegistryValue, error) {
+func (r *registryManager) Get(key types.Hash256) (rhp.RegistryValue, error) {
 	r.lockKey(key, time.Second)
 	defer r.unlockKey(key)
 	return r.store.Get(key)
@@ -83,7 +83,7 @@ func (r *registry) Get(key types.Hash256) (rhp.RegistryValue, error) {
 // Put creates or updates the registry value for the provided key. If err is
 // nil, the new value is returned. If err is not nil and is assignable to
 // registryUpdateError, the old value is returned.
-func (r *registry) Put(value rhp.RegistryValue, expirationHeight uint64) (rhp.RegistryValue, error) {
+func (r *registryManager) Put(value rhp.RegistryValue, expirationHeight uint64) (rhp.RegistryValue, error) {
 	key := value.Key()
 	r.lockKey(key, time.Second)
 	defer r.unlockKey(key)

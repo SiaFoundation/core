@@ -179,12 +179,13 @@ func (sh *SessionHandler) handleRPCLatestRevision(stream *mux.Stream) {
 		return
 	}
 
-	contract, err := sh.contracts.Contract(req.ContractID)
+	contract, err := sh.contracts.lock(req.ContractID, time.Second*10)
 	if err != nil {
 		log.Warnf("failed to get contract %s: %s", req.ContractID, err)
 		rpc.WriteResponseErr(stream, errors.New("failed to get contract"))
 		return
 	}
+	sh.contracts.unlock(req.ContractID)
 
 	resp := &rhp.RPCLatestRevisionResponse{
 		Revision: contract.FileContractRevision,

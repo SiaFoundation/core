@@ -116,13 +116,13 @@ func (sh *SessionHandler) handleRPCExecuteProgram(stream *mux.Stream) {
 	// contract is valid and lockable.
 	if requiresFinalization || requiresContract {
 		// lock the contract
-		contract, err := sh.lockContract(executeReq.FileContractID, time.Second*10)
+		contract, err := sh.contracts.lock(executeReq.FileContractID, time.Second*10)
 		if err != nil {
 			log.Warnln("failed to lock contract:", err)
 			_ = rpc.WriteResponseErr(stream, fmt.Errorf("failed to lock contract: %w", err))
 			return
 		}
-		defer sh.unlockContract(executeReq.FileContractID)
+		defer sh.contracts.unlock(executeReq.FileContractID)
 
 		// verify we can still modify the contract
 		switch {
@@ -190,7 +190,7 @@ func (sh *SessionHandler) handleRPCExecuteProgram(stream *mux.Stream) {
 		return
 	}
 
-	if err := sh.contracts.ReviseContract(contract); err != nil {
+	if err := sh.contracts.revise(contract); err != nil {
 		log.Errorln("failed to update contract revision:", err)
 		_ = rpc.WriteResponseErr(stream, errors.New("failed to update contract revision"))
 		return

@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"go.sia.tech/core/chain"
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/net/mux"
 	"go.sia.tech/core/net/rhp"
@@ -78,31 +77,21 @@ type (
 		Refund(accountID types.PublicKey, amount types.Currency) error
 	}
 
-	// A ContractStore stores file contracts, along with some chain metadata.
+	// A ContractStore stores a hosts contracts
 	ContractStore interface {
-		chain.Subscriber
-
-		// Contract returns the contract with the specified ID.
-		Contract(id types.ElementID) (Contract, error)
-
-		// AddContract stores the provided contract, overwriting any previous
-		// contract with the same ID.
-		AddContract(c Contract) error
+		// Get returns the contract with the specified ID.
+		Get(types.ElementID) (Contract, error)
+		// Add stores the provided contract, overwriting any previous contract
+		// with the same ID.
+		Add(c Contract) error
 		// ReviseContract updates the current revision associated with a contract.
-		ReviseContract(revision types.FileContractRevision) error
+		Revise(revision types.FileContractRevision) error
 		// UpdateContractTransactions updates the contract's various
 		// transactions.
 		//
 		// This method does not return an error. If a contract cannot be saved
 		// to the store, the method should panic or exit with an error.
-		UpdateContractTransactions(id types.ElementID, finalization, proof []types.Transaction, err error)
-
-		// ActionableContracts returns all of the store's contracts for which
-		// ContractIsActionable returns true (as of the current block height).
-		//
-		// This method does not return an error. If contracts cannot be loaded
-		// from the store, the method should panic or exit with an error.
-		ActionableContracts() []Contract
+		UpdateTransactions(id types.ElementID, finalization, proof []types.Transaction, err error)
 	}
 
 	// RegistryStore stores host registry entries. The registry is a key/value
@@ -123,7 +112,7 @@ type (
 	Wallet interface {
 		Addresses() []types.Address
 		Balance() types.Currency
-		NextAddress() types.Address
+		Address() types.Address
 		FundTransaction(txn *types.Transaction, amount types.Currency, pool []types.Transaction) ([]types.ElementID, func(), error)
 		SignTransaction(vc consensus.ValidationContext, txn *types.Transaction, toSign []types.ElementID) error
 	}
@@ -178,23 +167,17 @@ type SessionHandler struct {
 	tpool  TransactionPool
 	wallet Wallet
 
-	sectors   SectorStore
-	contracts ContractStore
 	accounts  EphemeralAccountStore
+	contracts *contractManager
+	log       Logger
+	registry  *registry
+	sectors   SectorStore
 	settings  SettingsReporter
-
-	registry *registry
-
-	log Logger
 
 	rpcs map[rpc.Specifier]func(*mux.Stream)
 
 	settingsMu     sync.Mutex
 	activeSettings map[rhp.SettingsID]rhp.HostSettings
-
-	// contracts must be locked while they are being modified
-	contractMu    sync.Mutex
-	contractLocks map[types.ElementID]*locker
 }
 
 // validSettings returns the settings with the given UID, if they exist.
@@ -221,64 +204,10 @@ func (sh *SessionHandler) registerSettings(id rhp.SettingsID, settings rhp.HostS
 	})
 }
 
-// lockContract locks the contract with the provided ID preventing use in other
-// RPC. The context can be used to interrupt if the contract lock cannot be
-// acquired quickly.
-func (sh *SessionHandler) lockContract(id types.ElementID, timeout time.Duration) (Contract, error) {
-	// cannot defer unlock to prevent deadlock
-	sh.contractMu.Lock()
-
-	contract, err := sh.contracts.Contract(id)
-	if err != nil {
-		sh.contractMu.Unlock()
-		return Contract{}, fmt.Errorf("failed to get contract: %w", err)
-	} else if contract.FatalError != nil {
-		sh.contractMu.Unlock()
-		return Contract{}, fmt.Errorf("contract is no longer usable: %w", contract.FatalError)
-	}
-
-	_, exists := sh.contractLocks[id]
-	if !exists {
-		sh.contractLocks[id] = &locker{
-			c:       make(chan struct{}, 1),
-			waiters: 0,
-		}
-		sh.contractMu.Unlock()
-		return contract, nil
-	}
-	sh.contractLocks[id].waiters++
-	c := sh.contractLocks[id].c
-	// mutex must be unlocked before waiting on the channel to prevent deadlock.
-	sh.contractMu.Unlock()
-	select {
-	case <-c:
-		contract, err := sh.contracts.Contract(id)
-		if err != nil {
-			return Contract{}, fmt.Errorf("failed to get contract: %w", err)
-		}
-		return contract, nil
-	case <-time.After(timeout):
-		return Contract{}, errors.New("contract lock timeout")
-	}
-}
-
-// unlockContract unlocks the contract with the provided ID.
-func (sh *SessionHandler) unlockContract(id types.ElementID) {
-	sh.contractMu.Lock()
-	defer sh.contractMu.Unlock()
-	lock, exists := sh.contractLocks[id]
-	if !exists {
-		return
-	} else if lock.waiters <= 0 {
-		delete(sh.contractLocks, id)
-		return
-	}
-	lock.waiters--
-	lock.c <- struct{}{}
-}
-
 // Serve starts a new renter-host session on the provided conn.
 func (sh *SessionHandler) Serve(conn net.Conn) error {
+	defer conn.Close()
+
 	s, err := rhp.AcceptSession(conn, sh.privkey)
 	if err != nil {
 		return fmt.Errorf("failed to start session: %w", err)
@@ -318,18 +247,20 @@ func (sh *SessionHandler) Serve(conn net.Conn) error {
 // NewSessionHandler initializes a new host session manager.
 func NewSessionHandler(privkey types.PrivateKey, cm ChainManager, ss SectorStore, cs ContractStore, as EphemeralAccountStore, rs RegistryStore, w Wallet, sr SettingsReporter, tp TransactionPool, log Logger) *SessionHandler {
 	hostID := types.HashObject(privkey.PublicKey())
-
 	sh := &SessionHandler{
 		privkey: privkey,
 
-		cm:        cm,
-		accounts:  as,
-		sectors:   ss,
-		contracts: cs,
-		wallet:    w,
-		settings:  sr,
-		tpool:     tp,
-		log:       log,
+		cm:       cm,
+		accounts: as,
+		sectors:  ss,
+		contracts: &contractManager{
+			store: cs,
+			locks: make(map[types.ElementID]*locker),
+		},
+		wallet:   w,
+		settings: sr,
+		tpool:    tp,
+		log:      log,
 
 		registry: &registry{
 			hostID: hostID,
@@ -338,7 +269,6 @@ func NewSessionHandler(privkey types.PrivateKey, cm ChainManager, ss SectorStore
 		},
 
 		activeSettings: make(map[rhp.SettingsID]rhp.HostSettings),
-		contractLocks:  make(map[types.ElementID]*locker),
 	}
 
 	sh.rpcs = map[rpc.Specifier]func(*mux.Stream){

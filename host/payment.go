@@ -94,11 +94,11 @@ func (sh *SessionHandler) processContractPayment(stream *mux.Stream) (*rpcBudget
 		return nil, types.PublicKey{}, fmt.Errorf("failed to read contract payment request: %w", err)
 	}
 
-	contract, err := sh.lockContract(req.ContractID, time.Second*30)
+	contract, err := sh.contracts.lock(req.ContractID, time.Second*30)
 	if err != nil {
 		return nil, types.PublicKey{}, fmt.Errorf("failed to lock contract %v: %w", req.ContractID, err)
 	}
-	defer sh.unlockContract(req.ContractID)
+	defer sh.contracts.unlock(req.ContractID)
 
 	if contract.Revision.ValidHostOutput.Value.Cmp(req.NewOutputs.ValidHostValue) > 0 {
 		return nil, types.PublicKey{}, errors.New("new valid host payout must be greater than current")
@@ -128,7 +128,7 @@ func (sh *SessionHandler) processContractPayment(stream *mux.Stream) (*rpcBudget
 	}
 
 	// update the contract.
-	if err := sh.contracts.ReviseContract(revision); err != nil {
+	if err := sh.contracts.revise(revision); err != nil {
 		return nil, types.PublicKey{}, fmt.Errorf("failed to update stored contract revision: %w", err)
 	}
 
