@@ -149,17 +149,16 @@ func TestEncoding(t *testing.T) {
 	}
 	objs := []rpc.Object{
 		&rpc.Specifier{'f', 'o', 'o'},
-		&RPCFormContractRequest{
+		&RPCContractRequest{
 			Transactions: []types.Transaction{randomTxn},
-			RenterKey:    types.PublicKey{1, 2, 3},
 		},
-		&RPCFormContractAdditions{
+		&RPCContractAdditions{
 			Parents: []types.Transaction{randomTxn},
 			Inputs:  randomTxn.SiacoinInputs,
 			Outputs: randomTxn.SiacoinOutputs,
 		},
-		&RPCFormContractSignatures{
-			ContractSignatures: [][]types.InputSignature{
+		&RPCContractSignatures{
+			SiacoinInputSignatures: [][]types.InputSignature{
 				randomTxn.SiacoinInputs[0].Signatures,
 			},
 			RevisionSignature: types.Signature(randomTxn.SiacoinInputs[0].Signatures[0]),
