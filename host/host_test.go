@@ -50,12 +50,15 @@ func (cs *testStubContractStore) UpdateTransactions(id types.ElementID, finaliza
 //
 // This method does not return an error. If contracts cannot be loaded from
 // the store, the method should panic or exit with an error.
-func (cs *testStubContractStore) ActionableContracts() []Contract {
+func (cs *testStubContractStore) ActionableContracts() []types.ElementID {
 	return nil
 }
 
 func TestContractLock(t *testing.T) {
-	h := NewSessionHandler([]byte{31: 0}, nil, nil, new(testStubContractStore), nil, nil, nil, nil, nil, nil)
+	cm := contractManager{
+		store: new(testStubContractStore),
+		locks: make(map[types.ElementID]*locker),
+	}
 
 	id := types.ElementID{
 		Source: frand.Entropy256(),
@@ -63,7 +66,7 @@ func TestContractLock(t *testing.T) {
 	}
 
 	// lock the contract
-	contract, err := h.contracts.lock(id, time.Second*10)
+	contract, err := cm.lock(id, time.Second*10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +76,7 @@ func TestContractLock(t *testing.T) {
 	}
 
 	// test locking the contract again with a timeout; should fail.
-	if _, err = h.contracts.lock(id, time.Millisecond*100); err == nil {
+	if _, err = cm.lock(id, time.Millisecond*100); err == nil {
 		t.Fatal("expected context error")
 	}
 
@@ -84,26 +87,29 @@ func TestContractLock(t *testing.T) {
 			Index:  frand.Uint64n(1000),
 		}
 
-		if _, err := h.contracts.lock(id, time.Millisecond*100); err != nil {
+		if _, err := cm.lock(id, time.Millisecond*100); err != nil {
 			t.Fatal("unexpected error:", err)
 		}
 
-		h.contracts.unlock(id)
+		cm.unlock(id)
 	}
 
 	// unlock the first contract
-	h.contracts.unlock(id)
+	cm.unlock(id)
 
 	// test locking a second time
-	if _, err := h.contracts.lock(id, time.Millisecond*100); err != nil {
+	if _, err := cm.lock(id, time.Millisecond*100); err != nil {
 		t.Fatal(err)
 	}
-	h.contracts.unlock(id)
+	cm.unlock(id)
 }
 
 func BenchmarkContractLock(b *testing.B) {
 	b.Run("single lock unlock", func(b *testing.B) {
-		h := NewSessionHandler([]byte{31: 0}, nil, nil, new(testStubContractStore), nil, nil, nil, nil, nil, nil)
+		cm := contractManager{
+			store: new(testStubContractStore),
+			locks: make(map[types.ElementID]*locker),
+		}
 
 		id := types.ElementID{
 			Source: frand.Entropy256(),
@@ -113,15 +119,18 @@ func BenchmarkContractLock(b *testing.B) {
 		b.ResetTimer()
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			if _, err := h.contracts.lock(id, time.Millisecond*100); err != nil {
+			if _, err := cm.lock(id, time.Millisecond*100); err != nil {
 				b.Fatal(err)
 			}
-			h.contracts.unlock(id)
+			cm.unlock(id)
 		}
 	})
 
 	b.Run("multi lock", func(b *testing.B) {
-		h := NewSessionHandler([]byte{31: 0}, nil, nil, new(testStubContractStore), nil, nil, nil, nil, nil, nil)
+		cm := contractManager{
+			store: new(testStubContractStore),
+			locks: make(map[types.ElementID]*locker),
+		}
 
 		contracts := make([]types.ElementID, b.N)
 		for i := range contracts {
@@ -132,7 +141,7 @@ func BenchmarkContractLock(b *testing.B) {
 		b.ResetTimer()
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			if _, err := h.contracts.lock(contracts[i], time.Millisecond*100); err != nil {
+			if _, err := cm.lock(contracts[i], time.Millisecond*100); err != nil {
 				b.Fatal(err)
 			}
 		}

@@ -6,9 +6,13 @@ import (
 	"sync"
 	"time"
 
+	"go.sia.tech/core/chain"
 	"go.sia.tech/core/types"
 )
 
+// A contractManager manages contracts on the host and handles lifecycle actions
+// TODO: should this logic be moved to siad and provided via interface instead?
+// It would simplify core and allow for more flexibility in the future.
 type contractManager struct {
 	store ContractStore
 
@@ -74,4 +78,20 @@ func (cm *contractManager) add(contract Contract) error {
 
 func (cm *contractManager) revise(revision types.FileContractRevision) error {
 	return cm.store.Revise(revision)
+}
+
+// ProcessChainApplyUpdate processes a chain update.
+//
+// TODO: contract proofs need to be updated and revisions need to be submitted.
+func (cm *contractManager) ProcessChainApplyUpdate(cau *chain.ApplyUpdate, mayCommit bool) error {
+	return nil
+
+}
+
+// ProcessChainRevertUpdate processes a chain revert.
+//
+// TODO: contract proofs need to be updated, contract transactions may need to
+// be resubmitted, and invalid contracts need to be pruned.
+func (cm *contractManager) ProcessChainRevertUpdate(cru *chain.RevertUpdate) error {
+	return nil
 }

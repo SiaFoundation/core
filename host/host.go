@@ -92,6 +92,9 @@ type (
 		// This method does not return an error. If a contract cannot be saved
 		// to the store, the method should panic or exit with an error.
 		UpdateTransactions(id types.ElementID, finalization, proof []types.Transaction, err error)
+		// ActionableContracts returns a list of contract IDs that are ready,
+		// as of the current height, for a lifecycle action to be performed.
+		ActionableContracts() []types.ElementID
 	}
 
 	// RegistryStore stores host registry entries. The registry is a key/value
