@@ -2,6 +2,7 @@ package host
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"sync"
@@ -172,4 +173,21 @@ func validateRegistryUpdate(old, update rhp.RegistryValue, hostID types.Hash256)
 	}
 
 	return nil
+}
+
+func newRegistryManager(privkey types.PrivateKey, store RegistryStore) *registryManager {
+	// v1 compat host public key hash
+	// ed25519 specifier + LE uint64 pub key length + public key
+	pub := privkey.PublicKey()
+	buf := make([]byte, 16+8+32)
+	copy(buf, "ed25519")
+	binary.LittleEndian.PutUint64(buf[16:], 32)
+	copy(buf[24:], pub[:])
+	hostID := types.HashBytes(buf)
+
+	return &registryManager{
+		hostID: hostID,
+		store:  store,
+		locks:  make(map[types.Hash256]*locker),
+	}
 }
