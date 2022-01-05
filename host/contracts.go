@@ -263,7 +263,7 @@ func (sh *SessionHandler) handleRPCFormContract(stream *mux.Stream) {
 	}
 
 	// read the renter signatures from the stream.
-	var renterSigs rhp.RPCContractSignatures
+	var renterSigs rhp.RPCFormContractSignatures
 	if err := rpc.ReadResponse(stream, &renterSigs); err != nil {
 		log.Warnln("failed to read renter signatures:", err)
 		return
@@ -275,20 +275,9 @@ func (sh *SessionHandler) handleRPCFormContract(stream *mux.Stream) {
 		return
 	}
 
-	fcr := types.FileContractRevision{
-		Parent: types.FileContractElement{
-			StateElement: types.StateElement{
-				ID: txn.FileContractID(0),
-			},
-			FileContract: fc,
-		},
-		Revision:        fc,
-		HostSignature:   sh.privkey.SignHash(vc.ContractSigHash(fc)),
-		RenterSignature: renterSigs.RevisionSignature,
-	}
-
 	// verify the renter's signature
-	if !fc.RenterPublicKey.VerifyHash(vc.ContractSigHash(fcr.Revision), fcr.RenterSignature) {
+	sigHash := vc.ContractSigHash(fc)
+	if !fc.RenterPublicKey.VerifyHash(sigHash, renterSigs.RevisionSignature) {
 		log.Warnln("renter signature is invalid")
 		rpc.WriteResponseErr(stream, errors.New("revision signature is invalid"))
 		return
@@ -301,9 +290,9 @@ func (sh *SessionHandler) handleRPCFormContract(stream *mux.Stream) {
 		return
 	}
 
-	hostSigs := &rhp.RPCContractSignatures{
+	hostSigs := &rhp.RPCFormContractSignatures{
 		SiacoinInputSignatures: make([][]types.InputSignature, len(txn.SiacoinInputs)),
-		RevisionSignature:      fcr.HostSignature,
+		RevisionSignature:      sh.privkey.SignHash(sigHash),
 	}
 	for i := range txn.SiacoinInputs {
 		hostSigs.SiacoinInputSignatures[i] = append(hostSigs.SiacoinInputSignatures[i], txn.SiacoinInputs[i].Signatures...)
@@ -315,10 +304,20 @@ func (sh *SessionHandler) handleRPCFormContract(stream *mux.Stream) {
 	}
 
 	contract := Contract{
-		FileContractRevision: fcr,
-		FormationSet:         append(parents, txn),
-		FormationHeight:      vc.Index.Height,
-		FinalizationHeight:   fcr.Parent.WindowStart,
+		FileContractRevision: types.FileContractRevision{
+			Parent: types.FileContractElement{
+				StateElement: types.StateElement{
+					ID: txn.FileContractID(0),
+				},
+				FileContract: fc,
+			},
+			Revision:        fc,
+			HostSignature:   hostSigs.RevisionSignature,
+			RenterSignature: renterSigs.RevisionSignature,
+		},
+		FormationSet:       append(parents, txn),
+		FormationHeight:    vc.Index.Height,
+		FinalizationHeight: fc.WindowStart,
 	}
 
 	if err := vc.ValidateTransactionSet(contract.FormationSet); err != nil {
@@ -405,7 +404,7 @@ func (sh *SessionHandler) handleRPCRenewContract(stream *mux.Stream) {
 
 	// calculate the "base" storage cost to the renter and risked collateral for
 	// the host for the data already in the contract. If the contract height did
-	// not increase, base costs are zero since the storage is already payed for.
+	// not increase, base costs are zero since the storage is already paid for.
 	var baseStorageCost types.Currency
 	if renewal.WindowEnd > existing.Revision.WindowEnd {
 		extension := renewal.WindowEnd - existing.Revision.WindowEnd

@@ -131,7 +131,6 @@ type (
 		AcceptTransactionSet(txns []types.Transaction) error
 		FeeEstimate() (min, max types.Currency, err error)
 		UnconfirmedParents(txn types.Transaction) ([]types.Transaction, error)
-		BroadcastTransaction(txn types.Transaction, dependsOn []types.Transaction)
 	}
 )
 
@@ -249,10 +248,8 @@ func (sh *SessionHandler) Serve(conn net.Conn) error {
 
 // NewSessionHandler initializes a new host session manager.
 func NewSessionHandler(privkey types.PrivateKey, cm ChainManager, ss SectorStore, cs ContractStore, as EphemeralAccountStore, rs RegistryStore, w Wallet, sr SettingsReporter, tp TransactionPool, log Logger) *SessionHandler {
-	hostID := types.HashObject(privkey.PublicKey())
 	sh := &SessionHandler{
-		privkey: privkey,
-
+		privkey:  privkey,
 		cm:       cm,
 		accounts: as,
 		sectors:  ss,
@@ -260,17 +257,11 @@ func NewSessionHandler(privkey types.PrivateKey, cm ChainManager, ss SectorStore
 			store: cs,
 			locks: make(map[types.ElementID]*locker),
 		},
-		wallet:   w,
-		settings: sr,
-		tpool:    tp,
-		log:      log,
-
-		registry: &registryManager{
-			hostID: hostID,
-			store:  rs,
-			locks:  make(map[types.Hash256]*locker),
-		},
-
+		wallet:         w,
+		settings:       sr,
+		tpool:          tp,
+		log:            log,
+		registry:       newRegistryManager(privkey, rs),
 		activeSettings: make(map[rhp.SettingsID]rhp.HostSettings),
 	}
 

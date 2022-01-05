@@ -121,7 +121,7 @@ func (s *Session) FormContract(renterKey types.PrivateKey, hostFunds, renterFund
 	}
 
 	sigHash := vc.ContractSigHash(fc)
-	renterSigs := rhp.RPCContractSignatures{
+	renterSigs := rhp.RPCFormContractSignatures{
 		SiacoinInputSignatures: make([][]types.InputSignature, len(txn.SiacoinInputs)),
 		RevisionSignature:      renterKey.SignHash(sigHash),
 	}
@@ -133,7 +133,7 @@ func (s *Session) FormContract(renterKey types.PrivateKey, hostFunds, renterFund
 		return Contract{}, nil, fmt.Errorf("failed to write renter signatures: %w", err)
 	}
 
-	var hostSigs rhp.RPCContractSignatures
+	var hostSigs rhp.RPCFormContractSignatures
 	if err := rpc.ReadResponse(stream, &hostSigs); err != nil {
 		return Contract{}, nil, fmt.Errorf("failed to read host signatures: %w", err)
 	}

@@ -157,11 +157,18 @@ func TestEncoding(t *testing.T) {
 			Inputs:  randomTxn.SiacoinInputs,
 			Outputs: randomTxn.SiacoinOutputs,
 		},
-		&RPCContractSignatures{
+		&RPCFormContractSignatures{
 			SiacoinInputSignatures: [][]types.InputSignature{
 				randomTxn.SiacoinInputs[0].Signatures,
 			},
 			RevisionSignature: types.Signature(randomTxn.SiacoinInputs[0].Signatures[0]),
+		},
+		&RPCRenewContractSignatures{
+			SiacoinInputSignatures: [][]types.InputSignature{
+				randomTxn.SiacoinInputs[0].Signatures,
+			},
+			ClearingRevisionSignature: types.Signature(randomTxn.SiacoinInputs[0].Signatures[0]),
+			RenewalSignature:          types.Signature(randomTxn.SiacoinInputs[0].Signatures[0]),
 		},
 		&RPCLockRequest{
 			ContractID: randomTxn.FileContractRevisions[0].Parent.ID,

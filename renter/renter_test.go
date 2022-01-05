@@ -2,20 +2,20 @@ package renter
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"math"
-	"net"
 	"os"
 	"reflect"
-	"sync"
 	"testing"
 	"time"
 
 	"go.sia.tech/core/chain"
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/host"
+	"go.sia.tech/core/internal/chainutil"
+	"go.sia.tech/core/internal/ghost"
+	"go.sia.tech/core/internal/walletutil"
 	"go.sia.tech/core/net/rhp"
 	"go.sia.tech/core/types"
 
@@ -42,398 +42,6 @@ var (
 		RPCLatestRevisionCost: types.NewCurrency64(1),
 	}
 )
-
-type memEphemeralAccountStore struct {
-	mu       sync.Mutex
-	balances map[types.PublicKey]types.Currency
-}
-
-func (ms *memEphemeralAccountStore) Balance(accountID types.PublicKey) (types.Currency, error) {
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
-	return ms.balances[accountID], nil
-}
-
-func (ms *memEphemeralAccountStore) Credit(accountID types.PublicKey, amount types.Currency) (types.Currency, error) {
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
-	ms.balances[accountID] = ms.balances[accountID].Add(amount)
-	return ms.balances[accountID], nil
-}
-
-func (ms *memEphemeralAccountStore) Refund(accountID types.PublicKey, amount types.Currency) error {
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
-
-	ms.balances[accountID] = ms.balances[accountID].Add(amount)
-	return nil
-}
-
-func (ms *memEphemeralAccountStore) Debit(accountID types.PublicKey, requestID types.Hash256, amount types.Currency) (types.Currency, error) {
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
-
-	bal, exists := ms.balances[accountID]
-	if !exists || bal.Cmp(amount) < 0 {
-		return bal, errors.New("insufficient funds")
-	}
-
-	ms.balances[accountID] = ms.balances[accountID].Sub(amount)
-	return ms.balances[accountID], nil
-}
-
-func newMemAccountStore() *memEphemeralAccountStore {
-	return &memEphemeralAccountStore{
-		balances: make(map[types.PublicKey]types.Currency),
-	}
-}
-
-type ephemeralSectorStore struct {
-	mu            sync.Mutex
-	sectors       map[types.Hash256]*[rhp.SectorSize]byte
-	contractRoots map[types.ElementID][]types.Hash256
-}
-
-// ContractRoots returns the roots of all sectors belonging to the
-// specified file contract.
-func (es *ephemeralSectorStore) ContractRoots(id types.ElementID) ([]types.Hash256, error) {
-	es.mu.Lock()
-	defer es.mu.Unlock()
-	return es.contractRoots[id], nil
-}
-
-// DeleteSector removes a sector from the store.
-func (es *ephemeralSectorStore) DeleteSector(root types.Hash256) error {
-	es.mu.Lock()
-	defer es.mu.Unlock()
-	delete(es.sectors, root)
-	return nil
-}
-
-// Exists checks if the sector exists in the store.
-func (es *ephemeralSectorStore) Exists(root types.Hash256) (bool, error) {
-	es.mu.Lock()
-	defer es.mu.Unlock()
-	_, exists := es.sectors[root]
-	return exists, nil
-}
-
-// SetContractRoots updates the sector roots of the file contract.
-func (es *ephemeralSectorStore) SetContractRoots(id types.ElementID, roots []types.Hash256) error {
-	es.mu.Lock()
-	defer es.mu.Unlock()
-	es.contractRoots[id] = append([]types.Hash256(nil), roots...)
-	return nil
-}
-
-// AddSector adds the sector with the specified root to the store.
-func (es *ephemeralSectorStore) AddSector(root types.Hash256, sector *[rhp.SectorSize]byte) error {
-	es.mu.Lock()
-	defer es.mu.Unlock()
-	es.sectors[root] = sector
-	return nil
-}
-
-// ReadSector reads the sector with the given root, offset and length
-// into w. Returns the number of bytes read or an error.
-func (es *ephemeralSectorStore) ReadSector(root types.Hash256, w io.Writer, offset, length uint64) (uint64, error) {
-	es.mu.Lock()
-	defer es.mu.Unlock()
-	sector, exists := es.sectors[root]
-	if !exists {
-		return 0, errors.New("sector not found")
-	}
-	if offset+length > rhp.SectorSize {
-		return 0, errors.New("read out of bounds")
-	}
-	n, err := w.Write(sector[offset : offset+length])
-	return uint64(n), err
-}
-
-func newEphemeralSectorStore() *ephemeralSectorStore {
-	return &ephemeralSectorStore{
-		sectors:       make(map[types.Hash256]*[rhp.SectorSize]byte),
-		contractRoots: make(map[types.ElementID][]types.Hash256),
-	}
-}
-
-type ephemeralContractStore struct {
-	key types.PrivateKey
-
-	mu        sync.Mutex
-	height    uint64
-	contracts map[types.ElementID]*host.Contract
-}
-
-// Contract returns the contract with the specified ID.
-func (es *ephemeralContractStore) Contract(id types.ElementID) (host.Contract, error) {
-	es.mu.Lock()
-	defer es.mu.Unlock()
-
-	if _, exists := es.contracts[id]; !exists {
-		return host.Contract{}, errors.New("contract not found")
-	}
-
-	return *es.contracts[id], nil
-}
-
-// AddContract stores the provided contract, overwriting any previous
-// contract with the same ID.
-func (es *ephemeralContractStore) AddContract(c host.Contract) error {
-	es.mu.Lock()
-	defer es.mu.Unlock()
-
-	es.contracts[c.Parent.ID] = &c
-	return nil
-}
-
-// ReviseContract updates the current revision associated with a contract.
-func (es *ephemeralContractStore) ReviseContract(revision types.FileContractRevision) error {
-	es.mu.Lock()
-	defer es.mu.Unlock()
-
-	if _, exists := es.contracts[revision.Parent.ID]; !exists {
-		return errors.New("contract not found")
-	}
-
-	es.contracts[revision.Parent.ID].FileContractRevision = revision
-	return nil
-}
-
-// UpdateContractTransactions updates the contract's various transactions.
-//
-// This method does not return an error. If a contract cannot be saved to
-// the store, the method should panic or exit with an error.
-func (es *ephemeralContractStore) UpdateContractTransactions(contractID types.ElementID, final, proof []types.Transaction, err error) {
-	es.mu.Lock()
-	defer es.mu.Unlock()
-
-	if _, exists := es.contracts[contractID]; !exists {
-		panic("contract not found")
-	}
-
-	es.contracts[contractID].FinalizationSet = final
-	es.contracts[contractID].ProofSet = proof
-}
-
-// ProcessChainApplyUpdate is called when a new block is applied to the consensus.
-func (es *ephemeralContractStore) ProcessChainApplyUpdate(cau *chain.ApplyUpdate, mayCommit bool) error {
-	es.mu.Lock()
-	defer es.mu.Unlock()
-
-	es.height = cau.Context.Index.Height
-
-	for _, fc := range cau.NewFileContracts {
-		if _, exists := es.contracts[fc.ID]; exists {
-			es.contracts[fc.ID].FormationConfirmed = true
-		}
-	}
-
-	for _, fc := range cau.RevisedFileContracts {
-		if _, exists := es.contracts[fc.ID]; exists {
-			es.contracts[fc.ID].FinalizationConfirmed = true
-		}
-	}
-
-	for _, fc := range cau.ResolvedFileContracts {
-		if _, exists := es.contracts[fc.ID]; exists {
-			es.contracts[fc.ID].ResolutionConfirmed = true
-		}
-	}
-	return nil
-}
-
-// ProcessChainRevertUpdate is called when a block is reverted.
-func (es *ephemeralContractStore) ProcessChainRevertUpdate(cru *chain.RevertUpdate) error {
-	es.mu.Lock()
-	defer es.mu.Unlock()
-
-	es.height = cru.Context.Index.Height
-
-	for _, fc := range cru.NewFileContracts {
-		if _, exists := es.contracts[fc.ID]; exists {
-			es.contracts[fc.ID].FormationConfirmed = false
-		}
-	}
-
-	for _, fc := range cru.RevisedFileContracts {
-		if _, exists := es.contracts[fc.ID]; exists {
-			es.contracts[fc.ID].FinalizationConfirmed = false
-		}
-	}
-
-	for _, fc := range cru.ResolvedFileContracts {
-		if _, exists := es.contracts[fc.ID]; exists {
-			es.contracts[fc.ID].ResolutionConfirmed = false
-		}
-	}
-
-	return nil
-}
-
-// ActionableContracts returns all of the store's contracts that are ready,
-// as of the current height, for a lifecycle action to be performed on them.
-//
-// This method does not return an error. If contracts cannot be loaded from
-// the store, the method should panic or exit with an error.
-func (es *ephemeralContractStore) ActionableContracts() (actionable []host.Contract) {
-	es.mu.Lock()
-	defer es.mu.Unlock()
-
-	for _, contract := range es.contracts {
-		if (!contract.ResolutionConfirmed && es.height < contract.ProofHeight) ||
-			(contract.FatalError == nil && (!contract.FormationConfirmed ||
-				(!contract.FinalizationConfirmed && es.height >= contract.FinalizationHeight))) {
-			actionable = append(actionable, *contract)
-		}
-	}
-	return
-}
-
-func newStubContractStore(key types.PrivateKey, initialHeight uint64) *ephemeralContractStore {
-	return &ephemeralContractStore{
-		key:       key,
-		height:    initialHeight,
-		contracts: make(map[types.ElementID]*host.Contract),
-	}
-}
-
-type ephemeralSettingsReporter struct {
-	settings rhp.HostSettings
-}
-
-func (es *ephemeralSettingsReporter) Settings() (settings rhp.HostSettings) {
-	settings = es.settings
-	settings.ValidUntil = time.Now().Add(time.Minute * 10)
-	return
-}
-
-func newEphemeralSettingsReporter(settings rhp.HostSettings) *ephemeralSettingsReporter {
-	return &ephemeralSettingsReporter{
-		settings: settings,
-	}
-}
-
-type stubChainManager struct{}
-
-func (cm *stubChainManager) TipContext() (consensus.ValidationContext, error) {
-	return consensus.ValidationContext{}, nil
-}
-
-func (cm *stubChainManager) Tip() types.ChainIndex {
-	return types.ChainIndex{}
-}
-
-type ephemeralRegistryStore struct {
-	mu sync.Mutex
-
-	cap    uint64
-	values map[types.Hash256]rhp.RegistryValue
-}
-
-// Get returns the registry value for the given key. If the key is not found
-// should return rhp.ErrNotFound.
-func (es *ephemeralRegistryStore) Get(key types.Hash256) (rhp.RegistryValue, error) {
-	es.mu.Lock()
-	defer es.mu.Unlock()
-
-	val, exists := es.values[key]
-	if !exists {
-		return rhp.RegistryValue{}, host.ErrEntryNotFound
-	}
-	return val, nil
-}
-
-// Set sets the registry value for the given key.
-func (es *ephemeralRegistryStore) Set(key types.Hash256, value rhp.RegistryValue, expiration uint64) (rhp.RegistryValue, error) {
-	es.mu.Lock()
-	defer es.mu.Unlock()
-
-	if _, exists := es.values[key]; !exists && uint64(len(es.values)) >= es.cap {
-		return rhp.RegistryValue{}, errors.New("capacity exceeded")
-	}
-
-	es.values[key] = value
-	return value, nil
-}
-
-// Len returns the number of entries in the registry.
-func (es *ephemeralRegistryStore) Len() uint64 {
-	es.mu.Lock()
-	defer es.mu.Unlock()
-
-	return uint64(len(es.values))
-}
-
-// Cap returns the maximum number of entries the registry can hold.
-func (es *ephemeralRegistryStore) Cap() uint64 {
-	return es.cap
-}
-
-func newEphemeralRegistryStore(limit uint64) *ephemeralRegistryStore {
-	return &ephemeralRegistryStore{
-		cap:    limit,
-		values: make(map[types.Hash256]rhp.RegistryValue),
-	}
-}
-
-type stubWallet struct {
-	key     types.PublicKey
-	balance types.Currency
-}
-
-func (w *stubWallet) Balance() types.Currency {
-	return w.balance
-}
-
-func (w *stubWallet) Address() types.Address {
-	return types.PolicyAddress(types.PolicyPublicKey(w.key))
-}
-
-func (w *stubWallet) NextAddress() types.Address {
-	return types.PolicyAddress(types.PolicyPublicKey(w.key))
-}
-
-func (w *stubWallet) Addresses() []types.Address {
-	return []types.Address{w.Address()}
-}
-
-func (w *stubWallet) FundTransaction(txn *types.Transaction, amount types.Currency, pool []types.Transaction) ([]types.ElementID, func(), error) {
-	return nil, func() {}, nil
-}
-
-func (w *stubWallet) SignTransaction(vc consensus.ValidationContext, txn *types.Transaction, toSign []types.ElementID) error {
-	return nil
-}
-
-func newStubWallet(initialBalance types.Currency, key types.PublicKey) *stubWallet {
-	return &stubWallet{
-		key:     key,
-		balance: initialBalance,
-	}
-}
-
-type stubTpool struct {
-}
-
-func (tp *stubTpool) AcceptTransactionSet(txns []types.Transaction) error {
-	return nil
-}
-
-func (tp *stubTpool) FeeEstimate() (min, max types.Currency, err error) {
-	return
-}
-
-func (tp *stubTpool) UnconfirmedParents(txn types.Transaction) ([]types.Transaction, error) {
-	return nil, nil
-}
-
-func (tp *stubTpool) BroadcastTransaction(txn types.Transaction, dependsOn []types.Transaction) {
-}
-
-func newStubTpool() *stubTpool {
-	return &stubTpool{}
-}
 
 type stdOutLogger struct {
 	scope string
@@ -483,44 +91,55 @@ func (l *stdOutLogger) Infoln(v ...interface{}) {
 	l.logln("INFO", v...)
 }
 
-func initTestHost(tb testing.TB, cm host.ChainManager, settings rhp.HostSettings) (types.PublicKey, types.PrivateKey, string) {
-	priv := types.NewPrivateKeyFromSeed(frand.Entropy256())
-	pub := priv.PublicKey()
+func mineBlock(vc consensus.ValidationContext, txns ...types.Transaction) types.Block {
+	b := types.Block{
+		Header: types.BlockHeader{
+			Height:    vc.Index.Height + 1,
+			ParentID:  vc.Index.ID,
+			Timestamp: time.Now(),
+		},
+		Transactions: txns,
+	}
+	b.Header.Commitment = vc.Commitment(b.Header.MinerAddress, b.Transactions)
+	chainutil.FindBlockNonce(&b.Header, types.HashRequiringWork(vc.Difficulty))
+	return b
+}
 
-	cs := newStubContractStore(priv, 0)
-	ss := newEphemeralSectorStore()
-	as := newMemAccountStore()
-	sr := newEphemeralSettingsReporter(settings)
-	r := newEphemeralRegistryStore(100)
-	w := newStubWallet(types.NewCurrency64(0), pub)
-	tp := newStubTpool()
+// initTestChain initializes a new testing chain with a genesis block including
+// siacoin outputs.
+func initTestChain(tb testing.TB, outputs []types.SiacoinOutput) (*chain.ApplyUpdate, *chain.Manager) {
+	block := types.Block{
+		Header:       types.BlockHeader{Timestamp: time.Unix(734600000, 0)},
+		Transactions: []types.Transaction{{SiacoinOutputs: outputs}},
+	}
+	genesisUpdate := consensus.GenesisUpdate(block, types.Work{NumHashes: [32]byte{30: 1}})
+	store := chainutil.NewEphemeralStore(consensus.Checkpoint{
+		Block:   block,
+		Context: genesisUpdate.Context,
+	})
+	cm := chain.NewManager(store, genesisUpdate.Context)
+	tb.Cleanup(func() {
+		cm.Close()
+	})
+	return &chain.ApplyUpdate{
+		ApplyUpdate: genesisUpdate,
+		Block:       block,
+	}, cm
+}
 
-	h := host.NewSessionHandler(priv, cm, ss, cs, as, r, w, sr, tp, new(stdOutLogger))
-
-	listener, err := net.Listen("tcp", "127.0.0.1:")
+// initTestHost initializes a new test host and returns it's listening address. The host will
+// be closed when the test completes.
+func initTestHost(tb testing.TB, privKey types.PrivateKey, cm host.ChainManager, w host.Wallet, tp host.TransactionPool, settings rhp.HostSettings) string {
+	h, err := ghost.New(privKey, settings, cm, w, tp, new(stdOutLogger))
 	if err != nil {
 		tb.Fatal(err)
 	}
 
-	addr := listener.Addr().String()
-
 	tb.Cleanup(func() {
-		listener.Close()
+		h.Close()
 	})
 
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if errors.Is(err, net.ErrClosed) {
-				return
-			} else if err != nil {
-				panic(err)
-			}
-			go h.Serve(conn)
-		}
-	}()
-
-	return pub, priv, addr
+	return h.Settings().NetAddress
 }
 
 func randSettings() rhp.HostSettings {
@@ -570,15 +189,32 @@ func randSettings() rhp.HostSettings {
 
 func TestRPCSettings(t *testing.T) {
 	expectedSettings := randSettings()
-	hostKey, _, hostAddr := initTestHost(t, new(stubChainManager), expectedSettings)
-	session, err := NewSession(hostAddr, hostKey, nil, nil, new(stubChainManager))
+	privKey := types.NewPrivateKeyFromSeed(frand.Entropy256())
+	genesisUpdate, cm := initTestChain(t, nil)
+	hostWallet := walletutil.NewEphemeralWallet(privKey, genesisUpdate)
+	vc, err := cm.TipContext()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tp := walletutil.NewTxPool(vc)
+	hostAddr := initTestHost(t, privKey, cm, hostWallet, tp, expectedSettings)
+	hostKey := privKey.PublicKey()
+	session, err := NewSession(hostAddr, hostKey, nil, nil, cm)
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	expectedSettings.NetAddress = hostAddr
+	expectedSettings.Address = hostWallet.Address()
 	retrievedSettings, err := session.ScanSettings()
 	if err != nil {
 		t.Fatal(err)
+	} else if retrievedSettings.NetAddress != hostAddr {
+		// the host's net address should be the same as the generated one
+		t.Fatal("retrieved settings address does not match host address")
+	} else if retrievedSettings.Address != hostWallet.Address() {
+		// the host's wallet address should be the same as the generated one
+		t.Fatal("retrieved settings wallet address does not match host wallet address")
 	}
 
 	// ID should be empty since no payment method was specified.
@@ -594,14 +230,30 @@ func TestRPCSettings(t *testing.T) {
 }
 
 func TestRPCLatestRevision(t *testing.T) {
-	renterKey := types.NewPrivateKeyFromSeed(frand.Entropy256())
-	renterPub := renterKey.PublicKey()
-
-	wallet := newStubWallet(types.Siacoins(10), renterPub)
-	tpool := newStubTpool()
-
-	hostKey, _, hostAddr := initTestHost(t, new(stubChainManager), testSettings)
-	session, err := NewSession(hostAddr, hostKey, wallet, tpool, new(stubChainManager))
+	renterPriv := types.NewPrivateKeyFromSeed(frand.Entropy256())
+	renterPub := renterPriv.PublicKey()
+	hostPriv := types.NewPrivateKeyFromSeed(frand.Entropy256())
+	hostPub := hostPriv.PublicKey()
+	genesisUpdate, cm := initTestChain(t, []types.SiacoinOutput{
+		{Value: types.Siacoins(100), Address: types.PolicyAddress(types.PolicyPublicKey(renterPub))},
+		{Value: types.Siacoins(100), Address: types.PolicyAddress(types.PolicyPublicKey(hostPub))},
+	})
+	vc, err := cm.TipContext()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostWallet := walletutil.NewEphemeralWallet(hostPriv, genesisUpdate)
+	renterWallet := walletutil.NewEphemeralWallet(renterPriv, genesisUpdate)
+	tp := walletutil.NewTxPool(vc)
+	if err := cm.AddSubscriber(tp, cm.Tip()); err != nil {
+		t.Fatal(err)
+	} else if err := cm.AddSubscriber(hostWallet, cm.Tip()); err != nil {
+		t.Fatal(err)
+	} else if err := cm.AddSubscriber(renterWallet, cm.Tip()); err != nil {
+		t.Fatal(err)
+	}
+	hostAddr := initTestHost(t, hostPriv, cm, hostWallet, tp, ghost.DefaultSettings)
+	session, err := NewSession(hostAddr, hostPub, renterWallet, tp, cm)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -609,12 +261,20 @@ func TestRPCLatestRevision(t *testing.T) {
 	renterFunds := types.Siacoins(5)
 	hostFunds := types.Siacoins(10)
 
-	contract, _, err := session.FormContract(renterKey, hostFunds, renterFunds, 200)
+	contract, _, err := session.FormContract(renterPriv, hostFunds, renterFunds, 200)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	payment := session.PayByContract(&contract, renterKey, renterPub)
+	// check that the contract transaction made it into the transaction pool and
+	// attempt to mine a block to confirm it.
+	if len(tp.Transactions()) != 1 {
+		t.Fatalf("expected 1 transaction in the transaction pool, got %v", len(tp.Transactions()))
+	} else if err := cm.AddTipBlock(mineBlock(vc, tp.TransactionsForBlock()...)); err != nil {
+		t.Fatal(err)
+	}
+
+	payment := session.PayByContract(&contract, renterPriv, renterPub)
 	_, err = session.RegisterSettings(payment)
 	if err != nil {
 		t.Fatal(err)
@@ -625,7 +285,7 @@ func TestRPCLatestRevision(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	payment = session.PayByEphemeralAccount(renterPub, renterKey, 20)
+	payment = session.PayByEphemeralAccount(renterPub, renterPriv, 20)
 	latest, err := session.LatestRevision(contract.ID, payment)
 	if err != nil {
 		t.Fatal(err)
@@ -639,12 +299,28 @@ func TestRPCLatestRevision(t *testing.T) {
 func TestRPCFormContract(t *testing.T) {
 	renterPriv := types.NewPrivateKeyFromSeed(frand.Entropy256())
 	renterPub := renterPriv.PublicKey()
-
-	wallet := newStubWallet(types.Siacoins(10), renterPub)
-	tpool := newStubTpool()
-
-	hostPub, _, hostAddr := initTestHost(t, new(stubChainManager), testSettings)
-	session, err := NewSession(hostAddr, hostPub, wallet, tpool, new(stubChainManager))
+	hostPriv := types.NewPrivateKeyFromSeed(frand.Entropy256())
+	hostPub := hostPriv.PublicKey()
+	genesisUpdate, cm := initTestChain(t, []types.SiacoinOutput{
+		{Value: types.Siacoins(100), Address: types.PolicyAddress(types.PolicyPublicKey(renterPub))},
+		{Value: types.Siacoins(100), Address: types.PolicyAddress(types.PolicyPublicKey(hostPub))},
+	})
+	vc, err := cm.TipContext()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostWallet := walletutil.NewEphemeralWallet(hostPriv, genesisUpdate)
+	renterWallet := walletutil.NewEphemeralWallet(renterPriv, genesisUpdate)
+	tp := walletutil.NewTxPool(vc)
+	if err := cm.AddSubscriber(tp, cm.Tip()); err != nil {
+		t.Fatal(err)
+	} else if err := cm.AddSubscriber(hostWallet, cm.Tip()); err != nil {
+		t.Fatal(err)
+	} else if err := cm.AddSubscriber(renterWallet, cm.Tip()); err != nil {
+		t.Fatal(err)
+	}
+	hostAddr := initTestHost(t, hostPriv, cm, hostWallet, tp, ghost.DefaultSettings)
+	session, err := NewSession(hostAddr, hostPub, renterWallet, tp, cm)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -657,17 +333,33 @@ func TestRPCFormContract(t *testing.T) {
 	renterFunds := types.Siacoins(5)
 	hostFunds := types.Siacoins(10)
 
-	contract, _, err := session.FormContract(renterPriv, hostFunds, renterFunds, 200)
+	contract, txnset, err := session.FormContract(renterPriv, hostFunds, renterFunds, 200)
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	// check that the contract transaction made it into the transaction pool and
+	// attempt to mine a block to confirm it.
+	if len(tp.Transactions()) != len(txnset) {
+		t.Fatalf("expected %v transaction in the transaction pool, got %v", len(txnset), len(tp.Transactions()))
+	} else if err := cm.AddTipBlock(mineBlock(vc, tp.TransactionsForBlock()...)); err != nil {
+		t.Fatal(err)
+	}
+
+	// calculate the expected remaining balance for each wallet
+	hostNewBalance := types.Siacoins(100).Sub(hostFunds)
+	renterNewBalance := types.Siacoins(100).Sub(renterFunds).Sub(txnset[0].MinerFee).Sub(vc.FileContractTax(contract.Revision))
+
 	switch {
+	case hostWallet.Balance() != hostNewBalance:
+		t.Fatalf("expected host wallet balance to be %v SC, got %v SC", hostNewBalance, hostWallet.Balance())
+	case renterWallet.Balance() != renterNewBalance:
+		t.Fatalf("expected renter wallet balance to be %v SC, got %v SC", renterNewBalance, renterWallet.Balance())
 	case contract.Revision.RevisionNumber != 0:
 		t.Fatal("expected revision number to be 0")
-	case contract.Revision.ValidRenterOutput.Address != wallet.Address():
+	case contract.Revision.ValidRenterOutput.Address != renterWallet.Address():
 		t.Fatal("expected valid renter address to be the renter's address")
-	case contract.Revision.MissedRenterOutput.Address != wallet.Address():
+	case contract.Revision.MissedRenterOutput.Address != renterWallet.Address():
 		t.Fatal("expected missed renter address to be the renter's address")
 	case contract.Revision.ValidRenterOutput.Value != renterFunds.Sub(settings.ContractFee):
 		t.Fatal("expected valid renter output to be renter funds minus contract fee")
@@ -683,12 +375,28 @@ func TestRPCFormContract(t *testing.T) {
 func TestRPCFundAccount(t *testing.T) {
 	renterPriv := types.NewPrivateKeyFromSeed(frand.Entropy256())
 	renterPub := renterPriv.PublicKey()
-
-	wallet := newStubWallet(types.Siacoins(10), renterPub)
-	tpool := newStubTpool()
-
-	hostPub, _, hostAddr := initTestHost(t, new(stubChainManager), testSettings)
-	session, err := NewSession(hostAddr, hostPub, wallet, tpool, new(stubChainManager))
+	hostPriv := types.NewPrivateKeyFromSeed(frand.Entropy256())
+	hostPub := hostPriv.PublicKey()
+	genesisUpdate, cm := initTestChain(t, []types.SiacoinOutput{
+		{Value: types.Siacoins(100), Address: types.PolicyAddress(types.PolicyPublicKey(renterPub))},
+		{Value: types.Siacoins(100), Address: types.PolicyAddress(types.PolicyPublicKey(hostPub))},
+	})
+	vc, err := cm.TipContext()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostWallet := walletutil.NewEphemeralWallet(hostPriv, genesisUpdate)
+	renterWallet := walletutil.NewEphemeralWallet(renterPriv, genesisUpdate)
+	tp := walletutil.NewTxPool(vc)
+	if err := cm.AddSubscriber(tp, cm.Tip()); err != nil {
+		t.Fatal(err)
+	} else if err := cm.AddSubscriber(hostWallet, cm.Tip()); err != nil {
+		t.Fatal(err)
+	} else if err := cm.AddSubscriber(renterWallet, cm.Tip()); err != nil {
+		t.Fatal(err)
+	}
+	hostAddr := initTestHost(t, hostPriv, cm, hostWallet, tp, ghost.DefaultSettings)
+	session, err := NewSession(hostAddr, hostPub, renterWallet, tp, cm)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -698,6 +406,14 @@ func TestRPCFundAccount(t *testing.T) {
 
 	contract, _, err := session.FormContract(renterPriv, hostFunds, renterFunds, 200)
 	if err != nil {
+		t.Fatal(err)
+	}
+
+	// check that the contract transaction made it into the transaction pool and
+	// attempt to mine a block to confirm it.
+	if len(tp.Transactions()) != 1 {
+		t.Fatalf("expected 1 transaction in the transaction pool, got %v", len(tp.Transactions()))
+	} else if err := cm.AddTipBlock(mineBlock(vc, tp.TransactionsForBlock()...)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -731,13 +447,28 @@ func TestRPCFundAccount(t *testing.T) {
 func TestRPCAccountBalance(t *testing.T) {
 	renterPriv := types.NewPrivateKeyFromSeed(frand.Entropy256())
 	renterPub := renterPriv.PublicKey()
-
-	wallet := newStubWallet(types.Siacoins(10), renterPub)
-	tpool := newStubTpool()
-	cm := new(stubChainManager)
-
-	hostPub, _, hostAddr := initTestHost(t, cm, testSettings)
-	session, err := NewSession(hostAddr, hostPub, wallet, tpool, cm)
+	hostPriv := types.NewPrivateKeyFromSeed(frand.Entropy256())
+	hostPub := hostPriv.PublicKey()
+	genesisUpdate, cm := initTestChain(t, []types.SiacoinOutput{
+		{Value: types.Siacoins(100), Address: types.PolicyAddress(types.PolicyPublicKey(renterPub))},
+		{Value: types.Siacoins(100), Address: types.PolicyAddress(types.PolicyPublicKey(hostPub))},
+	})
+	vc, err := cm.TipContext()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostWallet := walletutil.NewEphemeralWallet(hostPriv, genesisUpdate)
+	renterWallet := walletutil.NewEphemeralWallet(renterPriv, genesisUpdate)
+	tp := walletutil.NewTxPool(vc)
+	if err := cm.AddSubscriber(tp, cm.Tip()); err != nil {
+		t.Fatal(err)
+	} else if err := cm.AddSubscriber(hostWallet, cm.Tip()); err != nil {
+		t.Fatal(err)
+	} else if err := cm.AddSubscriber(renterWallet, cm.Tip()); err != nil {
+		t.Fatal(err)
+	}
+	hostAddr := initTestHost(t, hostPriv, cm, hostWallet, tp, ghost.DefaultSettings)
+	session, err := NewSession(hostAddr, hostPub, renterWallet, tp, cm)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -747,6 +478,14 @@ func TestRPCAccountBalance(t *testing.T) {
 
 	contract, _, err := session.FormContract(renterPriv, hostFunds, renterFunds, 200)
 	if err != nil {
+		t.Fatal(err)
+	}
+
+	// check that the contract transaction made it into the transaction pool and
+	// attempt to mine a block to confirm it.
+	if len(tp.Transactions()) != 1 {
+		t.Fatalf("expected 1 transaction in the transaction pool, got %v", len(tp.Transactions()))
+	} else if err := cm.AddTipBlock(mineBlock(vc, tp.TransactionsForBlock()...)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -813,12 +552,28 @@ func TestRPCAccountBalance(t *testing.T) {
 func TestReadWriteProgram(t *testing.T) {
 	renterPriv := types.NewPrivateKeyFromSeed(frand.Entropy256())
 	renterPub := renterPriv.PublicKey()
-
-	wallet := newStubWallet(types.Siacoins(10), renterPub)
-	tpool := newStubTpool()
-
-	hostPub, _, hostAddr := initTestHost(t, new(stubChainManager), testSettings)
-	session, err := NewSession(hostAddr, hostPub, wallet, tpool, new(stubChainManager))
+	hostPriv := types.NewPrivateKeyFromSeed(frand.Entropy256())
+	hostPub := hostPriv.PublicKey()
+	genesisUpdate, cm := initTestChain(t, []types.SiacoinOutput{
+		{Value: types.Siacoins(100), Address: types.PolicyAddress(types.PolicyPublicKey(renterPub))},
+		{Value: types.Siacoins(100), Address: types.PolicyAddress(types.PolicyPublicKey(hostPub))},
+	})
+	vc, err := cm.TipContext()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostWallet := walletutil.NewEphemeralWallet(hostPriv, genesisUpdate)
+	renterWallet := walletutil.NewEphemeralWallet(renterPriv, genesisUpdate)
+	tp := walletutil.NewTxPool(vc)
+	if err := cm.AddSubscriber(tp, cm.Tip()); err != nil {
+		t.Fatal(err)
+	} else if err := cm.AddSubscriber(hostWallet, cm.Tip()); err != nil {
+		t.Fatal(err)
+	} else if err := cm.AddSubscriber(renterWallet, cm.Tip()); err != nil {
+		t.Fatal(err)
+	}
+	hostAddr := initTestHost(t, hostPriv, cm, hostWallet, tp, ghost.DefaultSettings)
+	session, err := NewSession(hostAddr, hostPub, renterWallet, tp, cm)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -828,6 +583,14 @@ func TestReadWriteProgram(t *testing.T) {
 
 	contract, _, err := session.FormContract(renterPriv, hostFunds, renterFunds, 200)
 	if err != nil {
+		t.Fatal(err)
+	}
+
+	// check that the contract transaction made it into the transaction pool and
+	// attempt to mine a block to confirm it.
+	if len(tp.Transactions()) != 1 {
+		t.Fatalf("expected 1 transaction in the transaction pool, got %v", len(tp.Transactions()))
+	} else if err := cm.AddTipBlock(mineBlock(vc, tp.TransactionsForBlock()...)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -945,21 +708,45 @@ func TestReadWriteProgram(t *testing.T) {
 func BenchmarkWrite(b *testing.B) {
 	renterPriv := types.NewPrivateKeyFromSeed(frand.Entropy256())
 	renterPub := renterPriv.PublicKey()
-
-	wallet := newStubWallet(types.Siacoins(10), renterPub)
-	tpool := newStubTpool()
-
-	hostPub, _, hostAddr := initTestHost(b, new(stubChainManager), testSettings)
-	session, err := NewSession(hostAddr, hostPub, wallet, tpool, new(stubChainManager))
+	hostPriv := types.NewPrivateKeyFromSeed(frand.Entropy256())
+	hostPub := hostPriv.PublicKey()
+	genesisUpdate, cm := initTestChain(b, []types.SiacoinOutput{
+		{Value: types.Siacoins(100), Address: types.PolicyAddress(types.PolicyPublicKey(renterPub))},
+		{Value: types.Siacoins(100), Address: types.PolicyAddress(types.PolicyPublicKey(hostPub))},
+	})
+	vc, err := cm.TipContext()
+	if err != nil {
+		b.Fatal(err)
+	}
+	hostWallet := walletutil.NewEphemeralWallet(hostPriv, genesisUpdate)
+	renterWallet := walletutil.NewEphemeralWallet(renterPriv, genesisUpdate)
+	tp := walletutil.NewTxPool(vc)
+	if err := cm.AddSubscriber(tp, cm.Tip()); err != nil {
+		b.Fatal(err)
+	} else if err := cm.AddSubscriber(hostWallet, cm.Tip()); err != nil {
+		b.Fatal(err)
+	} else if err := cm.AddSubscriber(renterWallet, cm.Tip()); err != nil {
+		b.Fatal(err)
+	}
+	hostAddr := initTestHost(b, hostPriv, cm, hostWallet, tp, ghost.DefaultSettings)
+	session, err := NewSession(hostAddr, hostPub, renterWallet, tp, cm)
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	renterFunds := types.Siacoins(50)
+	renterFunds := types.Siacoins(100)
 	hostFunds := types.Siacoins(100)
 
 	contract, _, err := session.FormContract(renterPriv, hostFunds, renterFunds, 200)
 	if err != nil {
+		b.Fatal(err)
+	}
+
+	// check that the contract transaction made it into the transaction pool and
+	// attempt to mine a block to confirm it.
+	if len(tp.Transactions()) != 1 {
+		b.Fatalf("expected 1 transaction in the transaction pool, got %v", len(tp.Transactions()))
+	} else if err := cm.AddTipBlock(mineBlock(vc, tp.TransactionsForBlock()...)); err != nil {
 		b.Fatal(err)
 	}
 
@@ -1011,21 +798,45 @@ func BenchmarkWrite(b *testing.B) {
 func BenchmarkRead(b *testing.B) {
 	renterPriv := types.NewPrivateKeyFromSeed(frand.Entropy256())
 	renterPub := renterPriv.PublicKey()
-
-	wallet := newStubWallet(types.Siacoins(10), renterPub)
-	tpool := newStubTpool()
-
-	hostPub, _, hostAddr := initTestHost(b, new(stubChainManager), testSettings)
-	session, err := NewSession(hostAddr, hostPub, wallet, tpool, new(stubChainManager))
+	hostPriv := types.NewPrivateKeyFromSeed(frand.Entropy256())
+	hostPub := hostPriv.PublicKey()
+	genesisUpdate, cm := initTestChain(b, []types.SiacoinOutput{
+		{Value: types.Siacoins(100), Address: types.PolicyAddress(types.PolicyPublicKey(renterPub))},
+		{Value: types.Siacoins(100), Address: types.PolicyAddress(types.PolicyPublicKey(hostPub))},
+	})
+	vc, err := cm.TipContext()
+	if err != nil {
+		b.Fatal(err)
+	}
+	hostWallet := walletutil.NewEphemeralWallet(hostPriv, genesisUpdate)
+	renterWallet := walletutil.NewEphemeralWallet(renterPriv, genesisUpdate)
+	tp := walletutil.NewTxPool(vc)
+	if err := cm.AddSubscriber(tp, cm.Tip()); err != nil {
+		b.Fatal(err)
+	} else if err := cm.AddSubscriber(hostWallet, cm.Tip()); err != nil {
+		b.Fatal(err)
+	} else if err := cm.AddSubscriber(renterWallet, cm.Tip()); err != nil {
+		b.Fatal(err)
+	}
+	hostAddr := initTestHost(b, hostPriv, cm, hostWallet, tp, ghost.FreeSettings)
+	session, err := NewSession(hostAddr, hostPub, renterWallet, tp, cm)
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	renterFunds := types.Siacoins(1000)
-	hostFunds := types.Siacoins(2000)
+	renterFunds := types.Siacoins(100)
+	hostFunds := types.Siacoins(100)
 
 	contract, _, err := session.FormContract(renterPriv, hostFunds, renterFunds, 200)
 	if err != nil {
+		b.Fatal(err)
+	}
+
+	// check that the contract transaction made it into the transaction pool and
+	// attempt to mine a block to confirm it.
+	if len(tp.Transactions()) != 1 {
+		b.Fatalf("expected 1 transaction in the transaction pool, got %v", len(tp.Transactions()))
+	} else if err := cm.AddTipBlock(mineBlock(vc, tp.TransactionsForBlock()...)); err != nil {
 		b.Fatal(err)
 	}
 

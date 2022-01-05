@@ -85,7 +85,6 @@ func (cm *contractManager) revise(revision types.FileContractRevision) error {
 // TODO: contract proofs need to be updated and revisions need to be submitted.
 func (cm *contractManager) ProcessChainApplyUpdate(cau *chain.ApplyUpdate, mayCommit bool) error {
 	return nil
-
 }
 
 // ProcessChainRevertUpdate processes a chain revert.

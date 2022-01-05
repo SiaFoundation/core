@@ -23,10 +23,7 @@ type (
 	// A TransactionPool broadcasts transaction sets to miners for inclusion in an
 	// upcoming block.
 	TransactionPool interface {
-		AcceptTransactionSet(txns []types.Transaction) error
 		FeeEstimate() (min, max types.Currency, err error)
-		UnconfirmedParents(txn types.Transaction) ([]types.Transaction, error)
-		BroadcastTransaction(txn types.Transaction, dependsOn []types.Transaction)
 	}
 
 	// A Wallet provides addresses and funds and signs transactions.
