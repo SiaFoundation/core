@@ -594,7 +594,9 @@ func TestFileContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 	validSAU := ApplyBlock(sau.Context, validBlock)
-	if len(validSAU.NewSiacoinElements) != 3 {
+	if len(validSAU.ResolvedFileContracts) != 1 {
+		t.Fatal("expected one resolved file contract")
+	} else if len(validSAU.NewSiacoinElements) != 3 {
 		t.Fatal("expected three new siacoin outputs")
 	} else if validSAU.NewSiacoinElements[1].SiacoinOutput != finalRev.Revision.ValidRenterOutput {
 		t.Fatal("expected valid renter output to be created")
@@ -620,13 +622,113 @@ func TestFileContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 	sau = ApplyBlock(sau.Context, b)
-
-	if len(sau.NewSiacoinElements) != 3 {
+	if len(sau.ResolvedFileContracts) != 1 {
+		t.Fatal("expected one resolved file contract")
+	} else if len(sau.NewSiacoinElements) != 3 {
 		t.Fatal("expected three new siacoin outputs")
 	} else if sau.NewSiacoinElements[1].SiacoinOutput != finalRev.Revision.MissedRenterOutput {
 		t.Fatal("expected missed renter output to be created")
 	} else if sau.NewSiacoinElements[2].SiacoinOutput != finalRev.Revision.MissedHostOutput {
 		t.Fatal("expected missed host output to be created")
+	}
+}
+
+func TestEarlyContractResolution(t *testing.T) {
+	renterPubkey, renterPrivkey := testingKeypair(0)
+	hostPubkey, hostPrivkey := testingKeypair(1)
+	b := genesisWithSiacoinOutputs(types.SiacoinOutput{
+		Address: types.StandardAddress(renterPubkey),
+		Value:   types.Siacoins(100),
+	}, types.SiacoinOutput{
+		Address: types.StandardAddress(hostPubkey),
+		Value:   types.Siacoins(7),
+	})
+	sau := GenesisUpdate(b, testingDifficulty)
+	renterOutput := sau.NewSiacoinElements[1]
+	hostOutput := sau.NewSiacoinElements[2]
+
+	// form initial contract
+	initialRev := types.FileContract{
+		WindowStart: 5,
+		WindowEnd:   10,
+		ValidRenterOutput: types.SiacoinOutput{
+			Address: types.StandardAddress(renterPubkey),
+			Value:   types.Siacoins(58),
+		},
+		ValidHostOutput: types.SiacoinOutput{
+			Address: types.StandardAddress(renterPubkey),
+			Value:   types.Siacoins(19),
+		},
+		MissedRenterOutput: types.SiacoinOutput{
+			Address: types.StandardAddress(renterPubkey),
+			Value:   types.Siacoins(58),
+		},
+		MissedHostOutput: types.SiacoinOutput{
+			Address: types.StandardAddress(renterPubkey),
+			Value:   types.Siacoins(19),
+		},
+		RenterPublicKey: renterPubkey,
+		HostPublicKey:   hostPubkey,
+	}
+	outputSum := initialRev.ValidRenterOutput.Value.Add(initialRev.ValidHostOutput.Value).Add(sau.Context.FileContractTax(initialRev))
+	txn := types.Transaction{
+		SiacoinInputs: []types.SiacoinInput{
+			{Parent: renterOutput, SpendPolicy: types.PolicyPublicKey(renterPubkey)},
+			{Parent: hostOutput, SpendPolicy: types.PolicyPublicKey(hostPubkey)},
+		},
+		FileContracts: []types.FileContract{initialRev},
+		MinerFee:      renterOutput.Value.Add(hostOutput.Value).Sub(outputSum),
+	}
+	sigHash := sau.Context.SigHash(txn)
+	txn.SiacoinInputs[0].Signatures = []types.InputSignature{types.InputSignature(renterPrivkey.SignHash(sigHash))}
+	txn.SiacoinInputs[1].Signatures = []types.InputSignature{types.InputSignature(hostPrivkey.SignHash(sigHash))}
+
+	b = mineBlock(sau.Context, b, txn)
+	if err := sau.Context.ValidateBlock(b); err != nil {
+		t.Fatal(err)
+	}
+	sau = ApplyBlock(sau.Context, b)
+
+	if len(sau.NewFileContracts) != 1 {
+		t.Fatal("expected one new file contract")
+	}
+	fc := sau.NewFileContracts[0]
+	if !sau.Context.State.ContainsUnresolvedFileContractElement(fc) {
+		t.Fatal("accumulator should contain unresolved contract")
+	}
+	if sau.Context.SiafundPool != sau.Context.FileContractTax(initialRev) {
+		t.Fatal("expected siafund pool to increase")
+	}
+
+	// revise the contract such that it can be resolved early
+	finalRev := fc.FileContract
+	finalRev.RevisionNumber = types.MaxRevisionNumber
+	finalRev.MissedRenterOutput = finalRev.ValidRenterOutput
+	finalRev.MissedHostOutput = finalRev.ValidHostOutput
+	contractHash := sau.Context.ContractSigHash(finalRev)
+	txn = types.Transaction{
+		FileContractRevisions: []types.FileContractRevision{{
+			Parent:          fc,
+			Revision:        finalRev,
+			RenterSignature: renterPrivkey.SignHash(contractHash),
+			HostSignature:   hostPrivkey.SignHash(contractHash),
+		}},
+	}
+
+	// after applying the transaction, the contract's outputs should be created immediately
+	b = mineBlock(sau.Context, b, txn)
+	if err := sau.Context.ValidateBlock(b); err != nil {
+		t.Fatal(err)
+	}
+	sau = ApplyBlock(sau.Context, b)
+	if len(sau.ResolvedFileContracts) != 1 {
+		t.Fatal("expected one resolved file contract")
+	} else if len(sau.NewSiacoinElements) != 3 {
+		t.Fatal("expected three new siacoin outputs")
+	} else if sau.NewSiacoinElements[1].SiacoinOutput != finalRev.ValidRenterOutput {
+		t.Fatal("expected valid/missed renter output to be created")
+	} else if sau.NewSiacoinElements[2].SiacoinOutput != finalRev.ValidHostOutput {
+		t.Fatal("expected valid/missed host output to be created")
 	}
 }
 

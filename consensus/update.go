@@ -107,15 +107,19 @@ func updatedInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinEl
 			addLeaf(merkle.SiafundLeaf(in.Parent, true))
 		}
 		for _, fcr := range txn.FileContractRevisions {
-			fc := fcr.Parent
-			fc.FileContract = fcr.Revision
-			revised = append(revised, fc)
-			addLeaf(merkle.FileContractLeaf(fc, false))
+			fce := fcr.Parent
+			fce.FileContract = fcr.Revision
+			if fcr.Revision.CanResolveEarly() {
+				resolved = append(resolved, fce)
+			} else {
+				revised = append(revised, fce)
+			}
+			addLeaf(merkle.FileContractLeaf(fce, false))
 		}
 		for _, fcr := range txn.FileContractResolutions {
-			fc := fcr.Parent
-			resolved = append(resolved, fc)
-			addLeaf(merkle.FileContractLeaf(fc, true))
+			fce := fcr.Parent
+			resolved = append(resolved, fce)
+			addLeaf(merkle.FileContractLeaf(fce, true))
 		}
 	}
 
@@ -214,6 +218,19 @@ func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinEl
 				StateElement: nextElement(),
 				FileContract: fc,
 			})
+		}
+		for _, fcr := range txn.FileContractRevisions {
+			if fc := fcr.Revision; fc.CanResolveEarly() {
+				renter, host := fc.ValidRenterOutput, fc.ValidHostOutput
+				addSiacoinElement(types.SiacoinElement{
+					StateElement:  nextElement(),
+					SiacoinOutput: renter,
+				})
+				addSiacoinElement(types.SiacoinElement{
+					StateElement:  nextElement(),
+					SiacoinOutput: host,
+				})
+			}
 		}
 		for _, fcr := range txn.FileContractResolutions {
 			fce := fcr.Parent
