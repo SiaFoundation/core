@@ -596,6 +596,10 @@ func TestFileContracts(t *testing.T) {
 	validSAU := ApplyBlock(sau.Context, validBlock)
 	if len(validSAU.NewSiacoinElements) != 3 {
 		t.Fatal("expected three new siacoin outputs")
+	} else if validSAU.NewSiacoinElements[1].SiacoinOutput != finalRev.Revision.ValidRenterOutput {
+		t.Fatal("expected valid renter output to be created")
+	} else if validSAU.NewSiacoinElements[2].SiacoinOutput != finalRev.Revision.ValidHostOutput {
+		t.Fatal("expected valid host output to be created")
 	}
 
 	// revert the block and instead mine past the proof window
@@ -619,6 +623,10 @@ func TestFileContracts(t *testing.T) {
 
 	if len(sau.NewSiacoinElements) != 3 {
 		t.Fatal("expected three new siacoin outputs")
+	} else if sau.NewSiacoinElements[1].SiacoinOutput != finalRev.Revision.MissedRenterOutput {
+		t.Fatal("expected missed renter output to be created")
+	} else if sau.NewSiacoinElements[2].SiacoinOutput != finalRev.Revision.MissedHostOutput {
+		t.Fatal("expected missed host output to be created")
 	}
 }
 
