@@ -307,79 +307,143 @@ func (res *compressedFileContractResolution) DecodeFrom(d *types.Decoder) {
 type compressedTransaction types.Transaction
 
 func (txn compressedTransaction) EncodeTo(e *types.Encoder) {
-	e.WritePrefix(len(txn.SiacoinInputs))
-	for _, in := range txn.SiacoinInputs {
-		(compressedSiacoinInput)(in).EncodeTo(e)
+	var fields uint64
+	for i, b := range [...]bool{
+		len(txn.SiacoinInputs) != 0,
+		len(txn.SiacoinOutputs) != 0,
+		len(txn.SiafundInputs) != 0,
+		len(txn.SiafundOutputs) != 0,
+		len(txn.FileContracts) != 0,
+		len(txn.FileContractRevisions) != 0,
+		len(txn.FileContractResolutions) != 0,
+		len(txn.Attestations) != 0,
+		len(txn.ArbitraryData) != 0,
+		txn.NewFoundationAddress != types.VoidAddress,
+		!txn.MinerFee.IsZero(),
+	} {
+		if b {
+			fields |= 1 << i
+		}
 	}
-	e.WritePrefix(len(txn.SiacoinOutputs))
-	for _, out := range txn.SiacoinOutputs {
-		out.EncodeTo(e)
+	e.WriteUint64(fields)
+
+	if fields&(1<<0) != 0 {
+		e.WritePrefix(len(txn.SiacoinInputs))
+		for _, in := range txn.SiacoinInputs {
+			(compressedSiacoinInput)(in).EncodeTo(e)
+		}
 	}
-	e.WritePrefix(len(txn.SiafundInputs))
-	for _, in := range txn.SiafundInputs {
-		(compressedSiafundInput)(in).EncodeTo(e)
+	if fields&(1<<1) != 0 {
+		e.WritePrefix(len(txn.SiacoinOutputs))
+		for _, out := range txn.SiacoinOutputs {
+			out.EncodeTo(e)
+		}
 	}
-	e.WritePrefix(len(txn.SiafundOutputs))
-	for _, out := range txn.SiafundOutputs {
-		out.EncodeTo(e)
+	if fields&(1<<2) != 0 {
+		e.WritePrefix(len(txn.SiafundInputs))
+		for _, in := range txn.SiafundInputs {
+			(compressedSiafundInput)(in).EncodeTo(e)
+		}
 	}
-	e.WritePrefix(len(txn.FileContracts))
-	for _, fc := range txn.FileContracts {
-		fc.EncodeTo(e)
+	if fields&(1<<3) != 0 {
+		e.WritePrefix(len(txn.SiafundOutputs))
+		for _, out := range txn.SiafundOutputs {
+			out.EncodeTo(e)
+		}
 	}
-	e.WritePrefix(len(txn.FileContractRevisions))
-	for _, rev := range txn.FileContractRevisions {
-		(compressedFileContractRevision)(rev).EncodeTo(e)
+	if fields&(1<<4) != 0 {
+		e.WritePrefix(len(txn.FileContracts))
+		for _, fc := range txn.FileContracts {
+			fc.EncodeTo(e)
+		}
 	}
-	e.WritePrefix(len(txn.FileContractResolutions))
-	for _, res := range txn.FileContractResolutions {
-		(compressedFileContractResolution)(res).EncodeTo(e)
+	if fields&(1<<5) != 0 {
+		e.WritePrefix(len(txn.FileContractRevisions))
+		for _, rev := range txn.FileContractRevisions {
+			(compressedFileContractRevision)(rev).EncodeTo(e)
+		}
 	}
-	e.WritePrefix(len(txn.Attestations))
-	for _, a := range txn.Attestations {
-		a.EncodeTo(e)
+	if fields&(1<<6) != 0 {
+		e.WritePrefix(len(txn.FileContractResolutions))
+		for _, res := range txn.FileContractResolutions {
+			(compressedFileContractResolution)(res).EncodeTo(e)
+		}
 	}
-	e.WritePrefix(len(txn.ArbitraryData))
-	e.Write(txn.ArbitraryData)
-	txn.NewFoundationAddress.EncodeTo(e)
-	txn.MinerFee.EncodeTo(e)
+	if fields&(1<<7) != 0 {
+		e.WritePrefix(len(txn.Attestations))
+		for _, a := range txn.Attestations {
+			a.EncodeTo(e)
+		}
+	}
+	if fields&(1<<8) != 0 {
+		e.WriteBytes(txn.ArbitraryData)
+	}
+	if fields&(1<<9) != 0 {
+		txn.NewFoundationAddress.EncodeTo(e)
+	}
+	if fields&(1<<10) != 0 {
+		txn.MinerFee.EncodeTo(e)
+	}
 }
 
 func (txn *compressedTransaction) DecodeFrom(d *types.Decoder) {
-	txn.SiacoinInputs = make([]types.SiacoinInput, d.ReadPrefix())
-	for i := range txn.SiacoinInputs {
-		(*compressedSiacoinInput)(&txn.SiacoinInputs[i]).DecodeFrom(d)
+	fields := d.ReadUint64()
+
+	if fields&(1<<0) != 0 {
+		txn.SiacoinInputs = make([]types.SiacoinInput, d.ReadPrefix())
+		for i := range txn.SiacoinInputs {
+			(*compressedSiacoinInput)(&txn.SiacoinInputs[i]).DecodeFrom(d)
+		}
 	}
-	txn.SiacoinOutputs = make([]types.SiacoinOutput, d.ReadPrefix())
-	for i := range txn.SiacoinOutputs {
-		txn.SiacoinOutputs[i].DecodeFrom(d)
+	if fields&(1<<1) != 0 {
+		txn.SiacoinOutputs = make([]types.SiacoinOutput, d.ReadPrefix())
+		for i := range txn.SiacoinOutputs {
+			txn.SiacoinOutputs[i].DecodeFrom(d)
+		}
 	}
-	txn.SiafundInputs = make([]types.SiafundInput, d.ReadPrefix())
-	for i := range txn.SiafundInputs {
-		(*compressedSiafundInput)(&txn.SiafundInputs[i]).DecodeFrom(d)
+	if fields&(1<<2) != 0 {
+		txn.SiafundInputs = make([]types.SiafundInput, d.ReadPrefix())
+		for i := range txn.SiafundInputs {
+			(*compressedSiafundInput)(&txn.SiafundInputs[i]).DecodeFrom(d)
+		}
 	}
-	txn.SiafundOutputs = make([]types.SiafundOutput, d.ReadPrefix())
-	for i := range txn.SiafundOutputs {
-		txn.SiafundOutputs[i].DecodeFrom(d)
+	if fields&(1<<3) != 0 {
+		txn.SiafundOutputs = make([]types.SiafundOutput, d.ReadPrefix())
+		for i := range txn.SiafundOutputs {
+			txn.SiafundOutputs[i].DecodeFrom(d)
+		}
 	}
-	txn.FileContracts = make([]types.FileContract, d.ReadPrefix())
-	for i := range txn.FileContracts {
-		txn.FileContracts[i].DecodeFrom(d)
+	if fields&(1<<4) != 0 {
+		txn.FileContracts = make([]types.FileContract, d.ReadPrefix())
+		for i := range txn.FileContracts {
+			txn.FileContracts[i].DecodeFrom(d)
+		}
 	}
-	txn.FileContractRevisions = make([]types.FileContractRevision, d.ReadPrefix())
-	for i := range txn.FileContractRevisions {
-		(*compressedFileContractRevision)(&txn.FileContractRevisions[i]).DecodeFrom(d)
+	if fields&(1<<5) != 0 {
+		txn.FileContractRevisions = make([]types.FileContractRevision, d.ReadPrefix())
+		for i := range txn.FileContractRevisions {
+			(*compressedFileContractRevision)(&txn.FileContractRevisions[i]).DecodeFrom(d)
+		}
 	}
-	txn.FileContractResolutions = make([]types.FileContractResolution, d.ReadPrefix())
-	for i := range txn.FileContractResolutions {
-		(*compressedFileContractResolution)(&txn.FileContractResolutions[i]).DecodeFrom(d)
+	if fields&(1<<6) != 0 {
+		txn.FileContractResolutions = make([]types.FileContractResolution, d.ReadPrefix())
+		for i := range txn.FileContractResolutions {
+			(*compressedFileContractResolution)(&txn.FileContractResolutions[i]).DecodeFrom(d)
+		}
 	}
-	txn.Attestations = make([]types.Attestation, d.ReadPrefix())
-	for i := range txn.Attestations {
-		txn.Attestations[i].DecodeFrom(d)
+	if fields&(1<<7) != 0 {
+		txn.Attestations = make([]types.Attestation, d.ReadPrefix())
+		for i := range txn.Attestations {
+			txn.Attestations[i].DecodeFrom(d)
+		}
 	}
-	txn.ArbitraryData = make([]byte, d.ReadPrefix())
-	d.Read(txn.ArbitraryData)
-	txn.NewFoundationAddress.DecodeFrom(d)
-	txn.MinerFee.DecodeFrom(d)
+	if fields&(1<<8) != 0 {
+		txn.ArbitraryData = d.ReadBytes()
+	}
+	if fields&(1<<9) != 0 {
+		txn.NewFoundationAddress.DecodeFrom(d)
+	}
+	if fields&(1<<10) != 0 {
+		txn.MinerFee.DecodeFrom(d)
+	}
 }
