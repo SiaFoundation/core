@@ -32,6 +32,12 @@ var (
 // into the state accumulator when the block is processed.
 const EphemeralLeafIndex = math.MaxUint64
 
+// MaxRevisionNumber is used to finalize a FileContract. When a contract's
+// RevisionNumber is set to this value, no further revisions are possible. This
+// allows contracts to be resolved "early" in some cases; see
+// (FileContract).CanResolveEarly.
+const MaxRevisionNumber = math.MaxUint64
+
 // A Hash256 is a generic 256-bit cryptographic hash.
 type Hash256 [32]byte
 
@@ -128,6 +134,16 @@ type FileContract struct {
 	RenterPublicKey    PublicKey
 	HostPublicKey      PublicKey
 	RevisionNumber     uint64
+}
+
+// CanResolveEarly returns true if fc cannot be revised and its valid resolution
+// is equivalent to its missed resolution. When these conditions are met, the
+// funds locked in the contract can be released immediately and without the need
+// for a storage proof.
+func (fc *FileContract) CanResolveEarly() bool {
+	return fc.RevisionNumber == MaxRevisionNumber &&
+		fc.ValidRenterOutput == fc.MissedRenterOutput &&
+		fc.ValidHostOutput == fc.MissedHostOutput
 }
 
 // A SiacoinInput spends an unspent SiacoinElement in the state accumulator by
