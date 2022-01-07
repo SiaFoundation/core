@@ -491,11 +491,11 @@ func TestFileContracts(t *testing.T) {
 		},
 		MissedRenterOutput: types.SiacoinOutput{
 			Address: types.StandardAddress(renterPubkey),
-			Value:   types.Siacoins(58),
+			Value:   types.Siacoins(60),
 		},
 		MissedHostOutput: types.SiacoinOutput{
 			Address: types.StandardAddress(renterPubkey),
-			Value:   types.Siacoins(19),
+			Value:   types.Siacoins(17),
 		},
 		RenterPublicKey: renterPubkey,
 		HostPublicKey:   hostPubkey,
@@ -661,11 +661,11 @@ func TestEarlyContractResolution(t *testing.T) {
 		},
 		MissedRenterOutput: types.SiacoinOutput{
 			Address: types.StandardAddress(renterPubkey),
-			Value:   types.Siacoins(58),
+			Value:   types.Siacoins(60),
 		},
 		MissedHostOutput: types.SiacoinOutput{
 			Address: types.StandardAddress(renterPubkey),
-			Value:   types.Siacoins(19),
+			Value:   types.Siacoins(17),
 		},
 		RenterPublicKey: renterPubkey,
 		HostPublicKey:   hostPubkey,

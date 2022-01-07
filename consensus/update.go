@@ -235,7 +235,7 @@ func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinEl
 		for _, fcr := range txn.FileContractResolutions {
 			fce := fcr.Parent
 			renter, host := fce.ValidRenterOutput, fce.ValidHostOutput
-			if fcr.HasStorageProof() {
+			if !fcr.HasStorageProof() {
 				renter, host = fce.MissedRenterOutput, fce.MissedHostOutput
 			}
 			addSiacoinElement(types.SiacoinElement{
