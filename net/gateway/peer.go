@@ -8,46 +8,45 @@ import (
 	"go.sia.tech/core/net/mux"
 	"go.sia.tech/core/net/rpc"
 	"go.sia.tech/core/types"
+	"lukechampine.com/frand"
 )
 
-const (
-	protocolVersion = 1
-)
+const protocolVersion = 1
 
-var (
-	errRejectedVersion = errors.New("peer rejected our version")
-)
+var errRejectedVersion = errors.New("peer rejected our version")
 
-// A Header contains metadata that is exchanged when connecting to a peer.
-type Header struct {
-	GenesisID  types.BlockID
-	UniqueID   [8]byte
-	NetAddress string
+// A UniqueID is a randomly-generated nonce that helps prevent self-connections
+// and double-connections.
+type UniqueID [8]byte
+
+// GenerateUniqueID returns a random UniqueID.
+func GenerateUniqueID() (id UniqueID) {
+	frand.Read(id[:])
+	return
 }
 
-func validateHeader(ours, theirs Header) error {
+type rpcHeader struct {
+	GenesisID types.BlockID
+	UniqueID  [8]byte
+}
+
+func validateHeader(ours, theirs rpcHeader) error {
 	if theirs.GenesisID != ours.GenesisID {
 		return errors.New("peer has different genesis block")
 	} else if theirs.UniqueID == ours.UniqueID {
 		return errors.New("peer has same unique ID as us")
-	} else if _, _, err := net.SplitHostPort(theirs.NetAddress); err != nil {
-		return fmt.Errorf("invalid remote address: %w", err)
 	}
 	return nil
 }
 
-type rpcHeader Header
-
 func (h *rpcHeader) EncodeTo(e *types.Encoder) {
 	h.GenesisID.EncodeTo(e)
 	e.Write(h.UniqueID[:])
-	e.WriteString(h.NetAddress)
 }
 
 func (h *rpcHeader) DecodeFrom(d *types.Decoder) {
 	h.GenesisID.DecodeFrom(d)
 	d.Read(h.UniqueID[:])
-	h.NetAddress = d.ReadString()
 }
 
 func (h *rpcHeader) MaxLen() int {
@@ -57,12 +56,13 @@ func (h *rpcHeader) MaxLen() int {
 // A Session is an ongoing exchange of RPCs via the gateway protocol.
 type Session struct {
 	*mux.Mux
-	Peer Header
+	RemoteAddr string
+	RemoteID   UniqueID
 }
 
 // DialSession initiates the gateway handshake with a peer, establishing a
 // Session.
-func DialSession(conn net.Conn, header Header) (_ *Session, err error) {
+func DialSession(conn net.Conn, genesisID types.BlockID, uid UniqueID) (_ *Session, err error) {
 	m, err := mux.DialAnonymous(conn)
 	if err != nil {
 		return nil, err
@@ -89,24 +89,26 @@ func DialSession(conn net.Conn, header Header) (_ *Session, err error) {
 	}
 
 	// exchange headers
-	var peerHeader Header
-	if err := rpc.WriteObject(s, (*rpcHeader)(&header)); err != nil {
+	ourHeader := rpcHeader{genesisID, uid}
+	var peerHeader rpcHeader
+	if err := rpc.WriteObject(s, &ourHeader); err != nil {
 		return nil, fmt.Errorf("could not write our header: %w", err)
-	} else if err := rpc.ReadObject(s, (*rpcHeader)(&peerHeader)); err != nil {
+	} else if err := rpc.ReadObject(s, &peerHeader); err != nil {
 		return nil, fmt.Errorf("could not read peer's header: %w", err)
-	} else if err := validateHeader(header, peerHeader); err != nil {
+	} else if err := validateHeader(ourHeader, peerHeader); err != nil {
 		return nil, fmt.Errorf("unacceptable header: %w", err)
 	}
 
 	return &Session{
-		Mux:  m,
-		Peer: peerHeader,
+		Mux:        m,
+		RemoteAddr: conn.RemoteAddr().String(),
+		RemoteID:   peerHeader.UniqueID,
 	}, nil
 }
 
 // AcceptSession reciprocates the gateway handshake with a peer, establishing a
 // Session.
-func AcceptSession(conn net.Conn, header Header) (_ *Session, err error) {
+func AcceptSession(conn net.Conn, genesisID types.BlockID, uid UniqueID) (_ *Session, err error) {
 	m, err := mux.AcceptAnonymous(conn)
 	if err != nil {
 		return nil, err
@@ -133,17 +135,19 @@ func AcceptSession(conn net.Conn, header Header) (_ *Session, err error) {
 	}
 
 	// exchange headers
-	var peerHeader Header
-	if err := rpc.ReadObject(s, (*rpcHeader)(&peerHeader)); err != nil {
+	ourHeader := rpcHeader{genesisID, uid}
+	var peerHeader rpcHeader
+	if err := rpc.ReadObject(s, &peerHeader); err != nil {
 		return nil, fmt.Errorf("could not read peer's header: %w", err)
-	} else if err := rpc.WriteObject(s, (*rpcHeader)(&header)); err != nil {
+	} else if err := rpc.WriteObject(s, &ourHeader); err != nil {
 		return nil, fmt.Errorf("could not write our header: %w", err)
-	} else if err := validateHeader(header, peerHeader); err != nil {
+	} else if err := validateHeader(ourHeader, peerHeader); err != nil {
 		return nil, fmt.Errorf("unacceptable header: %w", err)
 	}
 
 	return &Session{
-		Mux:  m,
-		Peer: peerHeader,
+		Mux:        m,
+		RemoteAddr: conn.RemoteAddr().String(),
+		RemoteID:   peerHeader.UniqueID,
 	}, nil
 }

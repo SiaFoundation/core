@@ -33,12 +33,7 @@ func TestHandshake(t *testing.T) {
 				return err
 			}
 			defer conn.Close()
-			h := Header{
-				GenesisID:  genesisID,
-				UniqueID:   [8]byte{0},
-				NetAddress: l.Addr().String(),
-			}
-			sess, err := AcceptSession(conn, h)
+			sess, err := AcceptSession(conn, genesisID, UniqueID{0})
 			if err != nil {
 				return err
 			}
@@ -72,12 +67,7 @@ func TestHandshake(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	h := Header{
-		GenesisID:  genesisID,
-		UniqueID:   [8]byte{1},
-		NetAddress: conn.LocalAddr().String(),
-	}
-	sess, err := DialSession(conn, h)
+	sess, err := DialSession(conn, genesisID, UniqueID{1})
 	if err != nil {
 		t.Fatal(err)
 	}
