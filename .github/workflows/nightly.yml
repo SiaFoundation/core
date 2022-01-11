@@ -1,0 +1,26 @@
+name: Nightly
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+        go-version: [ '1.16', '1.17' ]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-go@v2
+        with:
+          go-version: ${{ matrix.go-version }}
+      - name: test
+        uses: n8maninger/action-golang-test@v1
+        with:
+          args: "-race;-count=100;-timeout=30m;-failfast"
+          skip-go-install: true
+          show-package-output: true
