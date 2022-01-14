@@ -302,6 +302,10 @@ func (au *ApplyUpdate) FileContractElementWasResolved(fce types.FileContractElem
 // ApplyUpdate detailing the resulting changes. The block is assumed to be fully
 // validated.
 func ApplyBlock(vc ValidationContext, b types.Block) (au ApplyUpdate) {
+	if vc.Index.Height > 0 && vc.Index != b.Header.ParentIndex() {
+		panic("consensus: cannot apply non-child block")
+	}
+
 	// update elements
 	var updated, created []merkle.ElementLeaf
 	au.SpentSiacoins, au.SpentSiafunds, au.RevisedFileContracts, au.ResolvedFileContracts, updated = updatedInBlock(vc, b)
@@ -383,6 +387,12 @@ func (ru *RevertUpdate) FileContractElementWasRemoved(o types.FileContractElemen
 // RevertBlock produces a RevertUpdate from a block and the ValidationContext
 // prior to that block.
 func RevertBlock(vc ValidationContext, b types.Block) (ru RevertUpdate) {
+	if b.Header.Height == 0 {
+		panic("consensus: cannot revert genesis block")
+	} else if vc.Index != b.Header.ParentIndex() {
+		panic("consensus: cannot revert non-child block")
+	}
+
 	ru.Context = vc
 	ru.HistoryRevertUpdate = ru.Context.History.RevertBlock(b.Index())
 	var updated []merkle.ElementLeaf
