@@ -316,6 +316,39 @@ func (txn *Transaction) DeepCopy() Transaction {
 	return c
 }
 
+// SiacoinOutputID returns the ID of the siacoin output at index i.
+func (txn Transaction) SiacoinOutputID(i uint64) ElementID {
+	return ElementID{
+		Source: Hash256(txn.ID()),
+		Index:  i,
+	}
+}
+
+// SiafundClaimOutputID returns the ID of the siacoin claim output for the
+// siafund input at index i.
+func (txn Transaction) SiafundClaimOutputID(i uint64) ElementID {
+	return ElementID{
+		Source: Hash256(txn.ID()),
+		Index:  uint64(len(txn.SiacoinOutputs)) + i,
+	}
+}
+
+// SiafundOutputID returns the ID of the siafund output at index i.
+func (txn Transaction) SiafundOutputID(i uint64) ElementID {
+	return ElementID{
+		Source: Hash256(txn.ID()),
+		Index:  uint64(len(txn.SiacoinOutputs)+len(txn.SiafundInputs)) + i,
+	}
+}
+
+// FileContractID returns the ID of the file contract at index i.
+func (txn Transaction) FileContractID(i uint64) ElementID {
+	return ElementID{
+		Source: Hash256(txn.ID()),
+		Index:  uint64(len(txn.SiacoinOutputs)+len(txn.SiafundInputs)+len(txn.SiafundOutputs)) + i,
+	}
+}
+
 // A BlockHeader contains a Block's non-transaction data.
 type BlockHeader struct {
 	Height       uint64
@@ -370,6 +403,24 @@ func (b *Block) ID() BlockID { return b.Header.ID() }
 
 // Index returns the block's chain index. It is equivalent to b.Header.Index().
 func (b *Block) Index() ChainIndex { return b.Header.Index() }
+
+// MinerOutputID returns the output ID of the miner payout.
+func (b Block) MinerOutputID() ElementID {
+	return ElementID{
+		Source: Hash256(b.Header.ID()),
+		Index:  0,
+	}
+}
+
+// FoundationOutputID returns the output ID of the foundation payout. A
+// Foundation subsidy output is only created every 4380 blocks after the
+// hardfork at block 298000.
+func (b Block) FoundationOutputID() ElementID {
+	return ElementID{
+		Source: Hash256(b.Header.ID()),
+		Index:  1,
+	}
+}
 
 // Work represents a quantity of work.
 type Work struct {
