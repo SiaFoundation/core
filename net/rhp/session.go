@@ -10,8 +10,8 @@ import (
 
 	"go.sia.tech/core/net/mux"
 	"go.sia.tech/core/types"
-	"golang.org/x/crypto/blake2b"
 
+	"golang.org/x/crypto/blake2b"
 	"lukechampine.com/frand"
 )
 

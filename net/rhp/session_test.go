@@ -4,19 +4,19 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"math"
 	"math/rand"
 	"net"
 	"reflect"
 	"testing"
 	"testing/quick"
-
-	"lukechampine.com/frand"
+	"time"
 
 	"go.sia.tech/core/net/rpc"
 	"go.sia.tech/core/types"
-)
 
-var errInvalidName = errors.New("invalid name")
+	"lukechampine.com/frand"
+)
 
 var randomTxn = func() types.Transaction {
 	var valueFn func(t reflect.Type, r *rand.Rand) reflect.Value
@@ -143,20 +143,32 @@ func TestEncoding(t *testing.T) {
 		frand.Read(s[:])
 		return
 	}
+	randPubKey := func() (p types.PublicKey) {
+		frand.Read(p[:])
+		return
+	}
 	objs := []rpc.Object{
 		&rpc.Specifier{'f', 'o', 'o'},
-		&RPCFormContractRequest{
+		&RPCContractRequest{
 			Transactions: []types.Transaction{randomTxn},
-			RenterKey:    types.PublicKey{1, 2, 3},
 		},
-		&RPCFormContractAdditions{
+		&RPCContractAdditions{
 			Parents: []types.Transaction{randomTxn},
 			Inputs:  randomTxn.SiacoinInputs,
 			Outputs: randomTxn.SiacoinOutputs,
 		},
-		&RPCFormContractSignatures{
-			ContractSignatures: randomTxn.SiacoinInputs[0].Signatures,
-			RevisionSignature:  types.Signature(randomTxn.SiacoinInputs[0].Signatures[0]),
+		&RPCContractSignatures{
+			SiacoinInputSignatures: [][]types.InputSignature{
+				randomTxn.SiacoinInputs[0].Signatures,
+			},
+			RevisionSignature: types.Signature(randomTxn.SiacoinInputs[0].Signatures[0]),
+		},
+		&RPCRenewContractSignatures{
+			SiacoinInputSignatures: [][]types.InputSignature{
+				randomTxn.SiacoinInputs[0].Signatures,
+			},
+			RenewalSignature:  types.Signature(randomTxn.SiacoinInputs[0].Signatures[0]),
+			ClearingSignature: types.Signature(randomTxn.SiacoinInputs[0].Signatures[0]),
 		},
 		&RPCLockRequest{
 			ContractID: randomTxn.FileContractRevisions[0].Parent.ID,
@@ -188,7 +200,7 @@ func TestEncoding(t *testing.T) {
 			Signature:   randSignature(),
 		},
 		&RPCSettingsResponse{
-			Settings: frand.Bytes(8),
+			Settings: frand.Bytes(128),
 		},
 		&RPCWriteRequest{
 			Actions:           []RPCWriteAction{{Data: frand.Bytes(8)}},
@@ -201,6 +213,48 @@ func TestEncoding(t *testing.T) {
 		},
 		&RPCWriteResponse{
 			Signature: randSignature(),
+		},
+		&RPCRevisionSigningResponse{
+			Signature: randSignature(),
+		},
+		&RPCAccountBalanceResponse{
+			Balance: types.NewCurrency64(frand.Uint64n(math.MaxUint64)),
+		},
+		&RPCAccountBalanceRequest{
+			AccountID: randPubKey(),
+		},
+		&RPCFundAccountRequest{
+			AccountID: randPubKey(),
+		},
+		&RPCFundAccountResponse{
+			Balance: types.NewCurrency64(frand.Uint64n(math.MaxUint64)),
+			Receipt: Receipt{
+				Host:      randPubKey(),
+				Account:   randPubKey(),
+				Amount:    types.NewCurrency64(frand.Uint64n(math.MaxUint64)),
+				Timestamp: time.Now(),
+			},
+			Signature: randSignature(),
+		},
+		&RPCExecuteInstrResponse{
+			AdditionalCollateral: types.NewCurrency64(frand.Uint64n(math.MaxUint64)),
+			OutputLength:         frand.Uint64n(100),
+			NewMerkleRoot:        types.Hash256(randPubKey()),
+			NewDataSize:          frand.Uint64n(100),
+			Proof:                randomTxn.SiacoinInputs[0].Parent.MerkleProof,
+			Error:                errors.New(string(frand.Bytes(128))),
+			TotalCost:            types.NewCurrency64(frand.Uint64n(math.MaxUint64)),
+			FailureRefund:        types.NewCurrency64(frand.Uint64n(math.MaxUint64)),
+		},
+		&RPCFinalizeProgramRequest{
+			Signature:         randSignature(),
+			NewRevisionNumber: frand.Uint64n(100),
+			NewOutputs: ContractOutputs{
+				MissedHostValue:   types.NewCurrency64(frand.Uint64n(math.MaxUint64)),
+				MissedRenterValue: types.NewCurrency64(frand.Uint64n(math.MaxUint64)),
+				ValidHostValue:    types.NewCurrency64(frand.Uint64n(math.MaxUint64)),
+				ValidRenterValue:  types.NewCurrency64(frand.Uint64n(math.MaxUint64)),
+			},
 		},
 	}
 	for _, o := range objs {
