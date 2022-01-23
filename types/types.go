@@ -279,7 +279,39 @@ func (txn *Transaction) ID() TransactionID {
 	h := hasherPool.Get().(*Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	txn.EncodeTo(h.E)
+	h.E.WritePrefix(len(txn.SiacoinInputs))
+	for _, in := range txn.SiacoinInputs {
+		in.Parent.ID.EncodeTo(h.E)
+	}
+	h.E.WritePrefix(len(txn.SiacoinOutputs))
+	for _, out := range txn.SiacoinOutputs {
+		out.EncodeTo(h.E)
+	}
+	h.E.WritePrefix(len(txn.SiafundInputs))
+	for _, in := range txn.SiafundInputs {
+		in.Parent.ID.EncodeTo(h.E)
+	}
+	h.E.WritePrefix(len(txn.SiafundOutputs))
+	for _, out := range txn.SiafundOutputs {
+		out.EncodeTo(h.E)
+	}
+	h.E.WritePrefix(len(txn.FileContracts))
+	for _, fc := range txn.FileContracts {
+		fc.EncodeTo(h.E)
+	}
+	h.E.WritePrefix(len(txn.FileContractRevisions))
+	for _, fcr := range txn.FileContractRevisions {
+		fcr.Parent.ID.EncodeTo(h.E)
+		fcr.Revision.EncodeTo(h.E)
+	}
+	h.E.WritePrefix(len(txn.FileContractResolutions))
+	for _, fcr := range txn.FileContractResolutions {
+		fcr.Parent.ID.EncodeTo(h.E)
+		fcr.StorageProof.WindowStart.EncodeTo(h.E)
+	}
+	h.E.WriteBytes(txn.ArbitraryData)
+	txn.NewFoundationAddress.EncodeTo(h.E)
+	txn.MinerFee.EncodeTo(h.E)
 	return TransactionID(h.Sum())
 }
 
