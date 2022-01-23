@@ -350,6 +350,9 @@ type ElementApplyUpdate struct {
 // incorporate the changes made to the accumulator. The element's proof must be
 // up-to-date; if it is not, UpdateElementProof may panic.
 func (eau *ElementApplyUpdate) UpdateElementProof(e *types.StateElement) {
+	if e.LeafIndex == types.EphemeralLeafIndex {
+		panic("cannot update an ephemeral element")
+	}
 	updateProof(e, &eau.updated)
 	e.MerkleProof = append(e.MerkleProof, eau.treeGrowth[len(e.MerkleProof)]...)
 }
@@ -365,7 +368,9 @@ type ElementRevertUpdate struct {
 // incorporate the changes made to the accumulator. The element's proof must be
 // up-to-date; if it is not, UpdateElementProof may panic.
 func (eru *ElementRevertUpdate) UpdateElementProof(e *types.StateElement) {
-	if e.LeafIndex > eru.numLeaves {
+	if e.LeafIndex == types.EphemeralLeafIndex {
+		panic("cannot update an ephemeral element")
+	} else if e.LeafIndex > eru.numLeaves {
 		panic("cannot update an element that is not present in the accumulator")
 	}
 	if mh := mergeHeight(eru.numLeaves, e.LeafIndex); mh <= len(e.MerkleProof) {

@@ -369,19 +369,19 @@ type RevertUpdate struct {
 // SiacoinElementWasRemoved returns true if the specified SiacoinElement was
 // reverted.
 func (ru *RevertUpdate) SiacoinElementWasRemoved(sce types.SiacoinElement) bool {
-	return sce.LeafIndex >= ru.Context.State.NumLeaves
+	return sce.LeafIndex != types.EphemeralLeafIndex && sce.LeafIndex >= ru.Context.State.NumLeaves
 }
 
 // SiafundElementWasRemoved returns true if the specified SiafundElement was
 // reverted.
 func (ru *RevertUpdate) SiafundElementWasRemoved(sfe types.SiafundElement) bool {
-	return sfe.LeafIndex >= ru.Context.State.NumLeaves
+	return sfe.LeafIndex != types.EphemeralLeafIndex && sfe.LeafIndex >= ru.Context.State.NumLeaves
 }
 
 // FileContractElementWasRemoved returns true if the specified
 // FileContractElement was reverted.
-func (ru *RevertUpdate) FileContractElementWasRemoved(o types.FileContractElement) bool {
-	return o.LeafIndex >= ru.Context.State.NumLeaves
+func (ru *RevertUpdate) FileContractElementWasRemoved(fce types.FileContractElement) bool {
+	return fce.LeafIndex != types.EphemeralLeafIndex && fce.LeafIndex >= ru.Context.State.NumLeaves
 }
 
 // RevertBlock produces a RevertUpdate from a block and the ValidationContext
