@@ -349,35 +349,47 @@ func (txn *Transaction) DeepCopy() Transaction {
 }
 
 // SiacoinOutputID returns the ID of the siacoin output at index i.
-func (txn Transaction) SiacoinOutputID(i uint64) ElementID {
+func (txn *Transaction) SiacoinOutputID(i int) ElementID {
 	return ElementID{
 		Source: Hash256(txn.ID()),
-		Index:  i,
+		Index:  uint64(i),
 	}
 }
 
 // SiafundClaimOutputID returns the ID of the siacoin claim output for the
 // siafund input at index i.
-func (txn Transaction) SiafundClaimOutputID(i uint64) ElementID {
+func (txn *Transaction) SiafundClaimOutputID(i int) ElementID {
 	return ElementID{
 		Source: Hash256(txn.ID()),
-		Index:  uint64(len(txn.SiacoinOutputs)) + i,
+		Index:  uint64(len(txn.SiacoinOutputs) + i),
 	}
 }
 
 // SiafundOutputID returns the ID of the siafund output at index i.
-func (txn Transaction) SiafundOutputID(i uint64) ElementID {
+func (txn *Transaction) SiafundOutputID(i int) ElementID {
 	return ElementID{
 		Source: Hash256(txn.ID()),
-		Index:  uint64(len(txn.SiacoinOutputs)+len(txn.SiafundInputs)) + i,
+		Index:  uint64(len(txn.SiacoinOutputs) + len(txn.SiafundInputs) + i),
 	}
 }
 
 // FileContractID returns the ID of the file contract at index i.
-func (txn Transaction) FileContractID(i uint64) ElementID {
+func (txn *Transaction) FileContractID(i int) ElementID {
 	return ElementID{
 		Source: Hash256(txn.ID()),
-		Index:  uint64(len(txn.SiacoinOutputs)+len(txn.SiafundInputs)+len(txn.SiafundOutputs)) + i,
+		Index:  uint64(len(txn.SiacoinOutputs) + len(txn.SiafundInputs) + len(txn.SiafundOutputs) + i),
+	}
+}
+
+// EphemeralSiacoinElement returns txn.SiacoinOutputs[i] as an ephemeral
+// SiacoinElement.
+func (txn *Transaction) EphemeralSiacoinElement(i int) SiacoinElement {
+	return SiacoinElement{
+		StateElement: StateElement{
+			ID:        txn.SiacoinOutputID(0),
+			LeafIndex: EphemeralLeafIndex,
+		},
+		SiacoinOutput: txn.SiacoinOutputs[0],
 	}
 }
 
