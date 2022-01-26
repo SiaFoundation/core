@@ -2,6 +2,7 @@ package consensus
 
 import (
 	"math"
+	"reflect"
 	"testing"
 	"time"
 
@@ -729,6 +730,167 @@ func TestEarlyContractResolution(t *testing.T) {
 		t.Fatal("expected valid/missed renter output to be created")
 	} else if sau.NewSiacoinElements[2].SiacoinOutput != finalRev.ValidHostOutput {
 		t.Fatal("expected valid/missed host output to be created")
+	}
+}
+
+func TestRevertFileContractRevision(t *testing.T) {
+	renterPubkey, renterPrivkey := testingKeypair(0)
+	hostPubkey, hostPrivkey := testingKeypair(1)
+	b := genesisWithSiacoinOutputs(types.SiacoinOutput{
+		Address: types.StandardAddress(renterPubkey),
+		Value:   types.Siacoins(100),
+	}, types.SiacoinOutput{
+		Address: types.StandardAddress(hostPubkey),
+		Value:   types.Siacoins(7),
+	})
+	parent := b
+	sau := GenesisUpdate(b, testingDifficulty)
+	renterOutput := sau.NewSiacoinElements[1]
+	hostOutput := sau.NewSiacoinElements[2]
+	prevVC, vc := sau.Context, sau.Context
+
+	// form initial contract
+	initialRev := types.FileContract{
+		WindowStart: 5,
+		WindowEnd:   10,
+		ValidRenterOutput: types.SiacoinOutput{
+			Address: types.StandardAddress(renterPubkey),
+			Value:   types.Siacoins(58),
+		},
+		ValidHostOutput: types.SiacoinOutput{
+			Address: types.StandardAddress(renterPubkey),
+			Value:   types.Siacoins(19),
+		},
+		MissedRenterOutput: types.SiacoinOutput{
+			Address: types.StandardAddress(renterPubkey),
+			Value:   types.Siacoins(60),
+		},
+		MissedHostOutput: types.SiacoinOutput{
+			Address: types.StandardAddress(renterPubkey),
+			Value:   types.Siacoins(17),
+		},
+		RenterPublicKey: renterPubkey,
+		HostPublicKey:   hostPubkey,
+	}
+	outputSum := initialRev.ValidRenterOutput.Value.Add(initialRev.ValidHostOutput.Value).Add(vc.FileContractTax(initialRev))
+	txn := types.Transaction{
+		SiacoinInputs: []types.SiacoinInput{
+			{Parent: renterOutput, SpendPolicy: types.PolicyPublicKey(renterPubkey)},
+			{Parent: hostOutput, SpendPolicy: types.PolicyPublicKey(hostPubkey)},
+		},
+		FileContracts: []types.FileContract{initialRev},
+		MinerFee:      renterOutput.Value.Add(hostOutput.Value).Sub(outputSum),
+	}
+	sigHash := vc.SigHash(txn)
+	txn.SiacoinInputs[0].Signatures = []types.InputSignature{types.InputSignature(renterPrivkey.SignHash(sigHash))}
+	txn.SiacoinInputs[1].Signatures = []types.InputSignature{types.InputSignature(hostPrivkey.SignHash(sigHash))}
+
+	// mine a block confirming the contract
+	parent, b = b, mineBlock(vc, b, txn)
+	if err := vc.ValidateBlock(b); err != nil {
+		t.Fatal(err)
+	}
+	sau = ApplyBlock(vc, b)
+	prevVC, vc = vc, sau.Context
+
+	// verify that the contract is now in the consensus set
+	if len(sau.NewFileContracts) != 1 {
+		t.Fatal("expected one new file contract")
+	}
+	fc := sau.NewFileContracts[0]
+	if !vc.State.ContainsUnresolvedFileContractElement(fc) {
+		t.Fatal("accumulator should contain unresolved contract")
+	} else if !reflect.DeepEqual(fc.FileContract, initialRev) {
+		t.Fatal("expected file contract to match initial revision")
+	}
+
+	// create a revision of the contract
+	rev1 := types.FileContractRevision{
+		Parent:   fc,
+		Revision: fc.FileContract,
+	}
+	rev1.Revision.RevisionNumber = 2
+	contractHash := vc.ContractSigHash(rev1.Revision)
+	rev1.RenterSignature = renterPrivkey.SignHash(contractHash)
+	rev1.HostSignature = hostPrivkey.SignHash(contractHash)
+	parent, b = b, mineBlock(vc, b, types.Transaction{
+		FileContractRevisions: []types.FileContractRevision{rev1},
+	})
+	if err := vc.ValidateBlock(b); err != nil {
+		t.Fatal(err)
+	}
+	sau = ApplyBlock(vc, b)
+	prevVC, vc = vc, sau.Context
+	if len(sau.RevisedFileContracts) != 1 {
+		t.Fatal("expected one revised file contract")
+	}
+	fc = sau.RevisedFileContracts[0]
+	if !reflect.DeepEqual(fc.FileContract, rev1.Revision) {
+		t.Fatal("revision 1 should be applied")
+	}
+	sau.UpdateElementProof(&fc.StateElement)
+
+	// create a second revision of the contract
+	rev2 := types.FileContractRevision{
+		Parent:   fc,
+		Revision: fc.FileContract,
+	}
+	rev2.Revision.RevisionNumber = 4
+	contractHash = vc.ContractSigHash(rev2.Revision)
+	rev2.RenterSignature = renterPrivkey.SignHash(contractHash)
+	rev2.HostSignature = hostPrivkey.SignHash(contractHash)
+	parent, b = b, mineBlock(vc, b, types.Transaction{
+		FileContractRevisions: []types.FileContractRevision{rev2},
+	})
+	if err := vc.ValidateBlock(b); err != nil {
+		t.Fatal(err)
+	}
+	sau = ApplyBlock(vc, b)
+	prevVC, vc = vc, sau.Context
+	if len(sau.RevisedFileContracts) != 1 {
+		t.Fatal("expected one revised file contract")
+	}
+	fc = sau.RevisedFileContracts[0]
+	if !reflect.DeepEqual(fc.FileContract, rev2.Revision) {
+		t.Fatal("revision 2 should be applied")
+	}
+	sau.UpdateElementProof(&fc.StateElement)
+
+	// revert the revision and confirm that the contract is reverted to it's
+	// rev1 state.
+	sru := RevertBlock(prevVC, b)
+	b = parent
+	vc = sru.Context
+	fc = sru.RevisedFileContracts[0]
+	if !reflect.DeepEqual(fc.FileContract, rev1.Revision) {
+		t.Fatal("contract should revert to revision 1")
+	}
+	sru.UpdateElementProof(&fc.StateElement)
+
+	// create a final revision of the contract
+	rev3 := types.FileContractRevision{
+		Parent:   fc,
+		Revision: fc.FileContract,
+	}
+	rev3.Revision.RevisionNumber = 3
+	contractHash = vc.ContractSigHash(rev3.Revision)
+	rev3.RenterSignature = renterPrivkey.SignHash(contractHash)
+	rev3.HostSignature = hostPrivkey.SignHash(contractHash)
+	txn = types.Transaction{
+		FileContractRevisions: []types.FileContractRevision{rev3},
+	}
+	parent, b = b, mineBlock(vc, b, txn)
+	if err := vc.ValidateBlock(b); err != nil {
+		t.Fatal(err)
+	}
+	sau = ApplyBlock(vc, b)
+	prevVC, vc = vc, sau.Context
+	if len(sau.RevisedFileContracts) != 1 {
+		t.Fatal("expected one revised file contract")
+	}
+	fc = sau.RevisedFileContracts[0]
+	if !reflect.DeepEqual(fc.FileContract, rev3.Revision) {
+		t.Fatal("revision 3 should be applied")
 	}
 }
 
