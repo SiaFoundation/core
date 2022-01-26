@@ -279,6 +279,7 @@ func (txn *Transaction) ID() TransactionID {
 	h := hasherPool.Get().(*Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
+	h.E.WriteString("sia/id/transaction")
 	h.E.WritePrefix(len(txn.SiacoinInputs))
 	for _, in := range txn.SiacoinInputs {
 		in.Parent.ID.EncodeTo(h.E)
@@ -425,6 +426,7 @@ func (h BlockHeader) ID() BlockID {
 	// must ensure compatibility with existing Sia mining hardware, which
 	// expects an 80-byte buffer with the nonce at [32:40].
 	buf := make([]byte, 32+8+8+32)
+	copy(buf[0:], "sia/id/block")
 	binary.LittleEndian.PutUint64(buf[32:], h.Nonce)
 	binary.LittleEndian.PutUint64(buf[40:], uint64(h.Timestamp.Unix()))
 	copy(buf[48:], h.Commitment[:])
@@ -449,9 +451,9 @@ func (b *Block) ID() BlockID { return b.Header.ID() }
 func (b *Block) Index() ChainIndex { return b.Header.Index() }
 
 // MinerOutputID returns the output ID of the miner payout.
-func (b Block) MinerOutputID() ElementID {
+func (b *Block) MinerOutputID() ElementID {
 	return ElementID{
-		Source: Hash256(b.Header.ID()),
+		Source: Hash256(b.ID()),
 		Index:  0,
 	}
 }
@@ -459,9 +461,9 @@ func (b Block) MinerOutputID() ElementID {
 // FoundationOutputID returns the output ID of the foundation payout. A
 // Foundation subsidy output is only created every 4380 blocks after the
 // hardfork at block 298000.
-func (b Block) FoundationOutputID() ElementID {
+func (b *Block) FoundationOutputID() ElementID {
 	return ElementID{
-		Source: Hash256(b.Header.ID()),
+		Source: Hash256(b.ID()),
 		Index:  1,
 	}
 }

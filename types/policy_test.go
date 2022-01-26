@@ -25,19 +25,19 @@ func TestPolicyAddressString(t *testing.T) {
 	}{
 		{
 			PolicyAbove(50),
-			"addr:e38c9fe65f9297af77381dc718b1c8a775262cfdde08dc3da1116dee081fadf26ca7e015dd71",
+			"addr:f0e864efc7226eb90f79f71caf1d839daf11d1c7f0fb7e25abc3cedd38637f32954986043e6a",
 		},
 		{
 			PolicyPublicKey(publicKeys[0]),
-			"addr:e4b6f506599b1fdc27545f5d3cfd0bcd2fed2940bc9aaa74142d3279c0687b529e1d70be6def",
+			"addr:4c9de1b2775091af2be8f427b1886f2120cdfe074fb3bc3b6011e281f36309e2468424667b70",
 		},
 		{
 			AnyoneCanSpend(),
-			"addr:d0f42fc75e6d3c7b21429ab2f60c78a04f8a599bf8d5a89ca6a299c6f88b738d671c9d57183a",
+			"addr:a1b418e9905dd086e2d0c25ec3675568f849c18f401512d704eceafe1574ee19c48049c5f2b3",
 		},
 		{
 			PolicyThreshold{},
-			"addr:d0f42fc75e6d3c7b21429ab2f60c78a04f8a599bf8d5a89ca6a299c6f88b738d671c9d57183a",
+			"addr:a1b418e9905dd086e2d0c25ec3675568f849c18f401512d704eceafe1574ee19c48049c5f2b3",
 		},
 		{
 			PolicyThreshold{
@@ -46,7 +46,7 @@ func TestPolicyAddressString(t *testing.T) {
 					PolicyPublicKey(publicKeys[0]),
 				},
 			},
-			"addr:36375ad986e8c064a5c3a73ade03c72da0f3b4cacfb69eef39fe3c115c4ac4c63299c631a5b4",
+			"addr:88a889bd46420209db5a41b164956e53ff3da9c4b3d1491d81f9c374f742dd3b0a7c72f58aff",
 		},
 		{
 			PolicyThreshold{
@@ -62,7 +62,7 @@ func TestPolicyAddressString(t *testing.T) {
 					},
 				},
 			},
-			"addr:5ce2aadfd0c5c5009491974960938ba2e19260110394d10a26578d8c3fcd7f0976d0b369a732",
+			"addr:2ce609abbd8bc26d0f22c8f6447d3144bc2ae2391f9b09685aca03237329c339ba3ec4a35133",
 		},
 		{
 			PolicyThreshold{
@@ -73,7 +73,7 @@ func TestPolicyAddressString(t *testing.T) {
 					PolicyPublicKey(publicKeys[2]),
 				},
 			},
-			"addr:c186c3563a4c6a98343a64c0f4981d809fd95f2630df15cb266e809424ec11f44de4a902c222",
+			"addr:0ca4d365f06ebf0de342ed617498521f0c0bcdc133c414428480e8826875c0a565ccaee80fb6",
 		},
 		{
 			policy: PolicyUnlockConditions{

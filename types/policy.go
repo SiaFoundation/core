@@ -95,7 +95,10 @@ func PolicyAddress(p SpendPolicy) Address {
 		// derivation code for these policies
 		return Address(unlockConditionsRoot(uc))
 	}
-	h := NewHasher()
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	h.E.WriteString("sia/address")
 	h.E.WritePolicy(p)
 	return Address(h.Sum())
 }
