@@ -44,7 +44,7 @@ func SiacoinLeaf(e types.SiacoinElement, spent bool) ElementLeaf {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-
+	h.E.WriteString("sia/leaf/siacoin")
 	e.ID.EncodeTo(h.E)
 	e.SiacoinOutput.EncodeTo(h.E)
 	h.E.WriteUint64(e.Timelock)
@@ -60,7 +60,7 @@ func SiafundLeaf(e types.SiafundElement, spent bool) ElementLeaf {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-
+	h.E.WriteString("sia/leaf/siafund")
 	e.ID.EncodeTo(h.E)
 	e.SiafundOutput.EncodeTo(h.E)
 	e.ClaimStart.EncodeTo(h.E)
@@ -76,7 +76,7 @@ func FileContractLeaf(e types.FileContractElement, spent bool) ElementLeaf {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-
+	h.E.WriteString("sia/leaf/filecontract")
 	e.ID.EncodeTo(h.E)
 	e.FileContract.EncodeTo(h.E)
 	return ElementLeaf{

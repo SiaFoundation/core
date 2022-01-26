@@ -214,6 +214,7 @@ func (vc *ValidationContext) Commitment(minerAddr types.Address, txns []types.Tr
 
 	// concatenate the hashes and the miner address
 	h.Reset()
+	h.E.WriteString("sia/commitment")
 	ctxHash.EncodeTo(h.E)
 	minerAddr.EncodeTo(h.E)
 	txnsHash.EncodeTo(h.E)
@@ -225,6 +226,7 @@ func (vc *ValidationContext) SigHash(txn types.Transaction) types.Hash256 {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
+	h.E.WriteString("sia/sig/transaction")
 	h.E.WritePrefix(len(txn.SiacoinInputs))
 	for _, in := range txn.SiacoinInputs {
 		in.Parent.ID.EncodeTo(h.E)
@@ -266,6 +268,7 @@ func (vc *ValidationContext) ContractSigHash(fc types.FileContract) types.Hash25
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
+	h.E.WriteString("sia/sig/filecontract")
 	fc.EncodeTo(h.E)
 	return h.Sum()
 }
@@ -275,6 +278,7 @@ func (vc *ValidationContext) AttestationSigHash(a types.Attestation) types.Hash2
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
+	h.E.WriteString("sia/sig/attestation")
 	a.PublicKey.EncodeTo(h.E)
 	h.E.WriteString(a.Key)
 	h.E.WriteBytes(a.Value)

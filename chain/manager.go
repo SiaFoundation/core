@@ -293,7 +293,7 @@ func (m *Manager) AddBlocks(blocks []types.Block) (*consensus.ScratchChain, erro
 	for _, b := range blocks {
 		c, err := chain.ApplyBlock(b)
 		if err != nil {
-			return nil, fmt.Errorf("invalid block %v: %w", chain.UnvalidatedBase(), err)
+			return nil, fmt.Errorf("invalid block %v: %w", b.Index(), err)
 		} else if err := m.store.AddCheckpoint(c); err != nil {
 			return nil, fmt.Errorf("couldn't store block: %w", err)
 		} else if c.Context.TotalWork.Cmp(m.vc.TotalWork) <= 0 {
