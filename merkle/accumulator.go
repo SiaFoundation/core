@@ -308,7 +308,6 @@ func (acc *ElementAccumulator) ApplyBlock(updated, added []ElementLeaf) (eau Ele
 func (acc *ElementAccumulator) RevertBlock(updated []ElementLeaf) (eru ElementRevertUpdate) {
 	eru.numLeaves = acc.NumLeaves
 	for _, l := range updated {
-		l.Spent = false
 		eru.updated[len(l.MerkleProof)] = append(eru.updated[len(l.MerkleProof)], l)
 	}
 	return
