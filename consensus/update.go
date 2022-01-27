@@ -88,7 +88,7 @@ func applyHeader(vc *ValidationContext, h types.BlockHeader) {
 	vc.Index = h.Index()
 }
 
-func updatedInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinElement, sfos []types.SiafundElement, revised, resolved []types.FileContractElement, leaves []merkle.ElementLeaf) {
+func updatedInBlock(vc ValidationContext, b types.Block, apply bool) (scos []types.SiacoinElement, sfos []types.SiafundElement, revised, resolved []types.FileContractElement, leaves []merkle.ElementLeaf) {
 	addLeaf := func(l merkle.ElementLeaf) {
 		// copy proofs so we don't mutate transaction data
 		l.MerkleProof = append([]types.Hash256(nil), l.MerkleProof...)
@@ -99,16 +99,18 @@ func updatedInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinEl
 		for _, in := range txn.SiacoinInputs {
 			if in.Parent.LeafIndex != types.EphemeralLeafIndex {
 				scos = append(scos, in.Parent)
-				addLeaf(merkle.SiacoinLeaf(in.Parent, true))
+				addLeaf(merkle.SiacoinLeaf(in.Parent, apply))
 			}
 		}
 		for _, in := range txn.SiafundInputs {
 			sfos = append(sfos, in.Parent)
-			addLeaf(merkle.SiafundLeaf(in.Parent, true))
+			addLeaf(merkle.SiafundLeaf(in.Parent, apply))
 		}
 		for _, fcr := range txn.FileContractRevisions {
 			fce := fcr.Parent
-			fce.FileContract = fcr.Revision
+			if apply {
+				fce.FileContract = fcr.Revision
+			}
 			if fcr.Revision.CanResolveEarly() {
 				resolved = append(resolved, fce)
 			} else {
@@ -119,7 +121,7 @@ func updatedInBlock(vc ValidationContext, b types.Block) (scos []types.SiacoinEl
 		for _, fcr := range txn.FileContractResolutions {
 			fce := fcr.Parent
 			resolved = append(resolved, fce)
-			addLeaf(merkle.FileContractLeaf(fce, true))
+			addLeaf(merkle.FileContractLeaf(fce, apply))
 		}
 	}
 
@@ -308,7 +310,7 @@ func ApplyBlock(vc ValidationContext, b types.Block) (au ApplyUpdate) {
 
 	// update elements
 	var updated, created []merkle.ElementLeaf
-	au.SpentSiacoins, au.SpentSiafunds, au.RevisedFileContracts, au.ResolvedFileContracts, updated = updatedInBlock(vc, b)
+	au.SpentSiacoins, au.SpentSiafunds, au.RevisedFileContracts, au.ResolvedFileContracts, updated = updatedInBlock(vc, b, true)
 	au.NewSiacoinElements, au.NewSiafundElements, au.NewFileContracts, created = createdInBlock(vc, b)
 	au.ElementApplyUpdate = vc.State.ApplyBlock(updated, created)
 	for i := range au.NewSiacoinElements {
@@ -396,7 +398,7 @@ func RevertBlock(vc ValidationContext, b types.Block) (ru RevertUpdate) {
 	ru.Context = vc
 	ru.HistoryRevertUpdate = ru.Context.History.RevertBlock(b.Index())
 	var updated []merkle.ElementLeaf
-	ru.SpentSiacoins, ru.SpentSiafunds, ru.RevisedFileContracts, ru.ResolvedFileContracts, updated = updatedInBlock(vc, b)
+	ru.SpentSiacoins, ru.SpentSiafunds, ru.RevisedFileContracts, ru.ResolvedFileContracts, updated = updatedInBlock(vc, b, false)
 	ru.NewSiacoinElements, ru.NewSiafundElements, ru.NewFileContracts, _ = createdInBlock(vc, b)
 	ru.ElementRevertUpdate = ru.Context.State.RevertBlock(updated)
 	return

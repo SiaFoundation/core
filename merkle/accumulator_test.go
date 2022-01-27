@@ -190,7 +190,7 @@ func TestApplyBlock(t *testing.T) {
 		SiafundLeaf(sfes[0], true),
 		FileContractLeaf(fces[0], true),
 	}
-	// ApplyBlock will modify both acc and spent; save copies for later
+	// acc and elements will be modified; save copies for later
 	oldAcc := acc
 	oldSpent := append([]ElementLeaf(nil), spent...)
 	for i := range oldSpent {
@@ -237,6 +237,9 @@ func TestApplyBlock(t *testing.T) {
 	// restore old copies and revert the block
 	acc = oldAcc
 	spent = oldSpent
+	for i := range spent {
+		spent[i].Spent = false
+	}
 	eru := acc.RevertBlock(spent)
 	// update proofs
 	for i := range sces {
