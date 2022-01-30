@@ -746,6 +746,14 @@ type WithdrawalMessage struct {
 	Nonce [8]byte
 }
 
+// SigHash computes the hash of the withdrawal message used for signing the
+// pay by ephemeral account request.
+func (wm *WithdrawalMessage) SigHash() types.Hash256 {
+	h := types.NewHasher()
+	wm.EncodeTo(h.E)
+	return h.Sum()
+}
+
 // MaxLen implements rpc.Object.
 func (wm *WithdrawalMessage) MaxLen() int {
 	return 32 + 8 + 16 + 8
