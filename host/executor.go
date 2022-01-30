@@ -85,14 +85,13 @@ func (pe *ProgramExecutor) executeHasSector(root types.Hash256) error {
 }
 
 // executeAppendSector stores a new sector on the host.
-func (pe *ProgramExecutor) executeAppendSector(sector *[rhp.SectorSize]byte, requiresProof bool) ([]types.Hash256, error) {
+func (pe *ProgramExecutor) executeAppendSector(root types.Hash256, sector *[rhp.SectorSize]byte, requiresProof bool) ([]types.Hash256, error) {
 	err := pe.payForExecution(rhp.AppendSectorCost(pe.settings, pe.duration))
 	if err != nil {
 		return nil, fmt.Errorf("failed to pay append sector cost: %w", err)
 	}
 
 	// add the sector to the sector store.
-	root := rhp.SectorRoot(sector)
 	if err := pe.sectors.AddSector(root, sector); err != nil {
 		return nil, fmt.Errorf("failed to add sector: %w", err)
 	}
@@ -251,12 +250,11 @@ func (pe *ProgramExecutor) ExecuteInstruction(r io.Reader, w io.Writer, instruct
 		switch instr := instruction.(type) {
 		case *rhp.InstrAppendSector:
 			// read the sector data.
-			var sector [rhp.SectorSize]byte
-			if _, err := io.ReadFull(r, sector[:]); err != nil {
-				return nil, fmt.Errorf("failed to read append sector data: %w", err)
+			root, sector, err := rhp.ReadSector(r)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read sector data: %w", err)
 			}
-
-			return pe.executeAppendSector(&sector, instr.ProofRequired)
+			return pe.executeAppendSector(root, sector, instr.ProofRequired)
 		case *rhp.InstrDropSectors:
 			var dropped uint64
 			if err := binary.Read(r, binary.LittleEndian, &dropped); err != nil {
@@ -447,16 +445,17 @@ func (pe *ProgramExecutor) Commit() error {
 }
 
 // NewExecutor initializes the program's executor.
-func NewExecutor(priv types.PrivateKey, ss SectorStore, rm *RegistryManager, vc consensus.ValidationContext, settings rhp.HostSettings, budget *Budget) *ProgramExecutor {
+func NewExecutor(priv types.PrivateKey, ss SectorStore, cm ContractManager, rm *RegistryManager, vc consensus.ValidationContext, settings rhp.HostSettings, budget *Budget) *ProgramExecutor {
 	pe := &ProgramExecutor{
 		settings: settings,
 		budget:   budget,
 		duration: 1,
 
-		privkey:  priv,
-		sectors:  ss,
-		registry: rm,
-		vc:       vc,
+		privkey:   priv,
+		sectors:   ss,
+		registry:  rm,
+		contracts: cm,
+		vc:        vc,
 
 		gainedSectors:  make(map[types.Hash256]struct{}),
 		removedSectors: make(map[types.Hash256]struct{}),

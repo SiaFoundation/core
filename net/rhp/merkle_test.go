@@ -1,6 +1,7 @@
 package rhp
 
 import (
+	"bytes"
 	"math/bits"
 	"testing"
 
@@ -190,5 +191,49 @@ func TestProofAccumulator(t *testing.T) {
 	refRoot := recNodeRoot([]types.Hash256{recNodeRoot(roots[:4]), roots[4]})
 	if pa.root() != refRoot {
 		t.Error("root does not match reference implementation")
+	}
+}
+
+func TestReadSector(t *testing.T) {
+	var expected [SectorSize]byte
+	frand.Read(expected[:256])
+	buf := bytes.NewBuffer(nil)
+	buf.Write(expected[:])
+
+	expectedRoot := refSectorRoot(&expected)
+	root, sector, err := ReadSector(buf)
+	if err != nil {
+		t.Fatal(err)
+	} else if expectedRoot != root {
+		t.Fatalf("incorrect root: expected %s, got %s", expected, root)
+	} else if !bytes.Equal(sector[:], expected[:]) {
+		t.Fatalf("incorrect data: expected %v, got %v", expected, sector)
+	}
+
+	buf.Reset()
+	buf.Write(expected[:len(expected)-100])
+	_, _, err = ReadSector(buf)
+	if err == nil {
+		t.Fatal("expected read error")
+	}
+}
+
+func BenchmarkReadSector(b *testing.B) {
+	buf := bytes.NewBuffer(nil)
+	buf.Grow(SectorSize)
+
+	sector := make([]byte, SectorSize)
+	frand.Read(sector[:256])
+
+	b.SetBytes(SectorSize)
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		buf.Reset()
+		buf.Write(sector)
+		_, _, err := ReadSector(buf)
+		if err != nil {
+			b.Fatal(err)
+		}
 	}
 }
