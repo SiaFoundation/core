@@ -25,9 +25,9 @@ type Contract struct {
 // ValidateSignatures checks that the renter and host signatures are valid.
 func (c *Contract) ValidateSignatures(vc consensus.ValidationContext) (err error) {
 	hash := vc.ContractSigHash(c.Revision)
-	if c.Revision.HostPublicKey.VerifyHash(hash, c.HostSignature) {
+	if !c.Revision.HostPublicKey.VerifyHash(hash, c.HostSignature) {
 		err = fmt.Errorf("failed to validate host signature: %w", ErrInvalidSignature)
-	} else if c.Revision.RenterPublicKey.VerifyHash(hash, c.RenterSignature) {
+	} else if !c.Revision.RenterPublicKey.VerifyHash(hash, c.RenterSignature) {
 		err = fmt.Errorf("failed to validate renter signature: %w", ErrInvalidSignature)
 	}
 	return

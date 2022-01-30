@@ -1,6 +1,8 @@
 package rhp
 
 import (
+	"fmt"
+	"io"
 	"math/bits"
 	"unsafe"
 
@@ -174,4 +176,20 @@ func MetaRoot(roots []types.Hash256) types.Hash256 {
 	// split at largest power of two
 	split := 1 << (bits.Len(uint(len(roots)-1)) - 1)
 	return blake2b.SumPair(MetaRoot(roots[:split]), MetaRoot(roots[split:]))
+}
+
+// ReadSector reads a single sector from the reader and calculates its root.
+func ReadSector(r io.Reader) (types.Hash256, *[SectorSize]byte, error) {
+	const segmentSize = leafSize * 16
+	var sector [SectorSize]byte
+	var s sectorAccumulator
+	var i int
+	for ; i < SectorSize; i += segmentSize {
+		_, err := io.ReadFull(r, sector[i:i+segmentSize])
+		if err != nil {
+			return types.Hash256{}, nil, fmt.Errorf("failed to read sector: %w", err)
+		}
+		s.appendLeaves(sector[i : i+segmentSize])
+	}
+	return s.root(), &sector, nil
 }

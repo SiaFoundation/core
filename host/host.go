@@ -18,7 +18,8 @@ var (
 )
 
 type (
-	// A SectorStore stores contract sector data.
+	// A SectorStore stores contract sector data. Implementations are expected
+	// to handle multiple references to a sector for add and delete operations.
 	SectorStore interface {
 		// AddSector adds the sector with the specified root to the store.
 		AddSector(root types.Hash256, sector *[rhp.SectorSize]byte) error
@@ -65,6 +66,8 @@ type (
 	ContractStore interface {
 		chain.Subscriber
 
+		// Exists returns true if the contract is in the store.
+		Exists(types.ElementID) bool
 		// Get returns the contract with the given ID.
 		Get(types.ElementID) (rhp.Contract, error)
 		// Add stores the provided contract, overwriting any previous contract
@@ -75,7 +78,7 @@ type (
 
 		// Roots returns the roots of all sectors stored by the contract.
 		Roots(types.ElementID) ([]types.Hash256, error)
-		// SetRoots updates the roots of the contract.
+		// SetRoots sets the stored roots of the contract.
 		SetRoots(types.ElementID, []types.Hash256) error
 	}
 
@@ -107,7 +110,6 @@ type (
 	TransactionPool interface {
 		AddTransactionSet(txns []types.Transaction) error
 		FeeEstimate() (min, max types.Currency, err error)
-		UnconfirmedParents(txn types.Transaction) ([]types.Transaction, error)
 	}
 
 	// A Wallet provides addresses and funds and signs transactions.
