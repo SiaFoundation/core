@@ -107,9 +107,18 @@ func (vc *ValidationContext) BlockReward() types.Currency {
 	return types.Siacoins(minimumCoinbase)
 }
 
-// BlockRewardTimelock is the height at which a child block's reward becomes
-// spendable.
-func (vc *ValidationContext) BlockRewardTimelock() uint64 {
+// MaturityHeight is the height at which various outputs created in the child
+// block will "mature" (become spendable).
+//
+// To prevent reorgs from invalidating large swathes of transactions, we impose
+// a timelock on any output that is "linked" to a particular block.
+// Specifically, we timelock block rewards, Foundation subsidies, siafund
+// claims, and contract resolutions. If a reorg occurs, these outputs may no
+// longer exist, so transactions that use them may become invalid (along with
+// any transaction that depend on *those* transactions, and so on). Adding a
+// timelock does not completely eliminate this issue -- after all, reorgs can be
+// arbitrarily deep -- but it does make it highly unlikely to occur in practice.
+func (vc *ValidationContext) MaturityHeight() uint64 {
 	return (vc.Index.Height + 1) + 144
 }
 
