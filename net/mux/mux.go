@@ -2,6 +2,7 @@ package mux
 
 import (
 	"bytes"
+	"context"
 	"crypto/cipher"
 	"crypto/ed25519"
 	"errors"
@@ -261,6 +262,30 @@ func (m *Mux) DialStream() (*Stream, error) {
 	}
 	m.nextID += 2
 	m.streams[s.id] = s
+	return s, nil
+}
+
+// DialStreamContext creates a new Stream with the provided context. When the
+// context expires, the Stream will be closed and any pending calls will return
+// ctx.Err(). DialStreamContext spawns a goroutine whose lifetime matches that
+// of the context.
+//
+// Unlike e.g. net.Dial, this does not perform any I/O; the peer will not be
+// aware of the new Stream until Write is called.
+func (m *Mux) DialStreamContext(ctx context.Context) (*Stream, error) {
+	s, err := m.DialStream()
+	if err != nil {
+		return nil, err
+	}
+	go func() {
+		<-ctx.Done()
+		s.cond.L.Lock()
+		defer s.cond.L.Unlock()
+		if ctx.Err() != nil && s.err == nil {
+			s.err = ctx.Err()
+			s.cond.Broadcast()
+		}
+	}()
 	return s, nil
 }
 
