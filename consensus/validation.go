@@ -659,7 +659,8 @@ func (vc *ValidationContext) validEphemeralOutputs(txns []types.Transaction) err
 	return nil
 
 validate:
-	available := make(map[types.ElementID]types.SiacoinOutput)
+	availableSC := make(map[types.ElementID]types.SiacoinOutput)
+	availableSF := make(map[types.ElementID]types.SiafundOutput)
 	for txnIndex, txn := range txns {
 		txid := txn.ID()
 		var index uint64
@@ -674,18 +675,44 @@ validate:
 
 		for _, in := range txn.SiacoinInputs {
 			if in.Parent.LeafIndex == types.EphemeralLeafIndex {
-				if out, ok := available[in.Parent.ID]; !ok {
-					return fmt.Errorf("transaction set is invalid: transaction %v claims non-existent ephemeral output %v", txnIndex, in.Parent.ID)
+				if out, ok := availableSC[in.Parent.ID]; !ok {
+					return fmt.Errorf("transaction set is invalid: transaction %v claims non-existent siacoin ephemeral output %v", txnIndex, in.Parent.ID)
 				} else if in.Parent.Value != out.Value {
-					return fmt.Errorf("transaction set is invalid: transaction %v claims wrong value for ephemeral output %v", txnIndex, in.Parent.ID)
+					return fmt.Errorf("transaction set is invalid: transaction %v claims wrong value for siacoin ephemeral output %v", txnIndex, in.Parent.ID)
 				} else if in.Parent.Address != out.Address {
-					return fmt.Errorf("transaction set is invalid: transaction %v claims wrong address for ephemeral output %v", txnIndex, in.Parent.ID)
+					return fmt.Errorf("transaction set is invalid: transaction %v claims wrong address for siacoin ephemeral output %v", txnIndex, in.Parent.ID)
 				}
-				delete(available, in.Parent.ID)
+				delete(availableSC, in.Parent.ID)
 			}
 		}
 		for _, out := range txn.SiacoinOutputs {
-			available[nextID()] = out
+			availableSC[nextID()] = out
+		}
+		for _, in := range txn.SiafundInputs {
+			if in.Parent.LeafIndex == types.EphemeralLeafIndex {
+				if out, ok := availableSF[in.Parent.ID]; !ok {
+					return fmt.Errorf("transaction set is invalid: transaction %v claims non-existent siafund ephemeral output %v", txnIndex, in.Parent.ID)
+				} else if in.Parent.Value != out.Value {
+					return fmt.Errorf("transaction set is invalid: transaction %v claims wrong value for siafund ephemeral output %v", txnIndex, in.Parent.ID)
+				} else if in.Parent.Address != out.Address {
+					return fmt.Errorf("transaction set is invalid: transaction %v claims wrong address for siafund ephemeral output %v", txnIndex, in.Parent.ID)
+				}
+				delete(availableSF, in.Parent.ID)
+			}
+		}
+		// advance the index to account for the siafund claim outputs
+		index += uint64(len(txn.SiafundInputs))
+		for _, out := range txn.SiafundOutputs {
+			availableSF[nextID()] = out
+		}
+		// advance the index to account for new file contracts
+		index += uint64(len(txn.FileContracts))
+		for _, fcr := range txn.FileContractRevisions {
+			if fc := fcr.Revision; fc.CanResolveEarly() {
+				renter, host := fc.ValidRenterOutput, fc.ValidHostOutput
+				availableSC[nextID()] = renter
+				availableSC[nextID()] = host
+			}
 		}
 	}
 	return nil
