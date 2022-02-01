@@ -184,6 +184,82 @@ func TestCurrencySub(t *testing.T) {
 	}
 }
 
+func TestCurrencySubWithUnderflow(t *testing.T) {
+	tests := []struct {
+		a, b, want Currency
+		underflows bool
+	}{
+		{
+			ZeroCurrency,
+			ZeroCurrency,
+			ZeroCurrency,
+			false,
+		},
+		{
+			NewCurrency(1, 0),
+			NewCurrency(1, 0),
+			ZeroCurrency,
+			false,
+		},
+		{
+			NewCurrency(1, 0),
+			ZeroCurrency,
+			NewCurrency(1, 0),
+			false,
+		},
+		{
+			NewCurrency(0, 1),
+			NewCurrency(math.MaxUint64, 0),
+			NewCurrency(1, 0),
+			false,
+		},
+		{
+			NewCurrency(0, 1),
+			NewCurrency(1, 0),
+			NewCurrency(math.MaxUint64, 0),
+			false,
+		},
+		{
+			ZeroCurrency,
+			NewCurrency64(1),
+			maxCurrency,
+			true,
+		},
+		{
+			NewCurrency(0, 1),
+			NewCurrency(1, 1),
+			maxCurrency,
+			true,
+		},
+		{
+			NewCurrency(1, 0),
+			NewCurrency(20, 0),
+			NewCurrency(math.MaxUint64-18, math.MaxUint64),
+			true,
+		},
+		{
+			NewCurrency(1, 1),
+			NewCurrency(20, 1),
+			NewCurrency(math.MaxUint64-18, math.MaxUint64),
+			true,
+		},
+		{
+			NewCurrency(math.MaxUint64, 0),
+			NewCurrency(0, 1),
+			maxCurrency,
+			true,
+		},
+	}
+	for _, tt := range tests {
+		diff, underflows := tt.a.SubWithUnderflow(tt.b)
+		if tt.underflows != underflows {
+			t.Fatalf("Currency.SubWithUnderflow(%d, %d) underflow %t, want %t", tt.a, tt.b, underflows, tt.underflows)
+		} else if !diff.Equals(tt.want) {
+			t.Fatalf("Currency.SubWithUnderflow(%d, %d) expected = %d, got %d", tt.a, tt.b, tt.want, diff)
+		}
+	}
+}
+
 func TestCurrencyMul64(t *testing.T) {
 	tests := []struct {
 		a    Currency

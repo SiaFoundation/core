@@ -89,12 +89,19 @@ func (c Currency) AddWithOverflow(v Currency) (Currency, bool) {
 
 // Sub returns c-v. If the result would underflow, Sub panics.
 func (c Currency) Sub(v Currency) Currency {
-	lo, borrow := bits.Sub64(c.Lo, v.Lo, 0)
-	hi, borrow := bits.Sub64(c.Hi, v.Hi, borrow)
-	if borrow != 0 {
+	s, underflow := c.SubWithUnderflow(v)
+	if underflow {
 		panic("underflow")
 	}
-	return Currency{lo, hi}
+	return s
+}
+
+// SubWithUnderflow returns c-v, along with a boolean indicating whether the result
+// underflowed.
+func (c Currency) SubWithUnderflow(v Currency) (Currency, bool) {
+	lo, borrow := bits.Sub64(c.Lo, v.Lo, 0)
+	hi, borrow := bits.Sub64(c.Hi, v.Hi, borrow)
+	return Currency{lo, hi}, borrow != 0
 }
 
 // Mul64 returns c*v. If the result would overflow, Mul64 panics.
