@@ -56,42 +56,40 @@ func (c *Contract) MaxLen() uint64 {
 
 // PaymentRevision returns a new file contract revision with the amount added to
 // the host payout fields and subtracted from the renter payout fields.
-func (c *Contract) PaymentRevision(amount types.Currency) (types.FileContract, error) {
-	if c.Revision.ValidRenterOutput.Value.Cmp(amount) < 0 || c.Revision.MissedRenterOutput.Value.Cmp(amount) < 0 {
-		return types.FileContract{}, errors.New("not enough funds")
+func PaymentRevision(fc types.FileContract, amount types.Currency) (types.FileContract, error) {
+	if fc.ValidRenterOutput.Value.Cmp(amount) < 0 || fc.MissedRenterOutput.Value.Cmp(amount) < 0 {
+		return fc, errors.New("insufficient funds")
 	}
-	fcr := c.Revision
-	fcr.RevisionNumber++
-	fcr.ValidHostOutput.Value = fcr.ValidHostOutput.Value.Add(amount)
-	fcr.MissedHostOutput.Value = fcr.MissedHostOutput.Value.Add(amount)
-	fcr.ValidRenterOutput.Value = fcr.ValidRenterOutput.Value.Sub(amount)
-	fcr.MissedRenterOutput.Value = fcr.MissedRenterOutput.Value.Sub(amount)
-	return fcr, nil
+
+	fc.RevisionNumber++
+	fc.ValidHostOutput.Value = fc.ValidHostOutput.Value.Add(amount)
+	fc.MissedHostOutput.Value = fc.MissedHostOutput.Value.Add(amount)
+	fc.ValidRenterOutput.Value = fc.ValidRenterOutput.Value.Sub(amount)
+	fc.MissedRenterOutput.Value = fc.MissedRenterOutput.Value.Sub(amount)
+	return fc, nil
 }
 
-// ClearingRevision returns a new file contract revision with the revision
+// ClearingRevision returns a new file contract with the revision
 // number set to uint64 max, the file fields set to their zero value, and the
 // missed proof outputs set to the valid proof outputs.
-func (c *Contract) ClearingRevision() types.FileContract {
-	fcr := c.Revision
-	fcr.RevisionNumber = math.MaxUint64
-	fcr.Filesize = 0
-	fcr.FileMerkleRoot = types.Hash256{}
-	fcr.MissedHostOutput.Value = fcr.ValidHostOutput.Value
-	fcr.MissedRenterOutput.Value = fcr.ValidRenterOutput.Value
-	return fcr
+func ClearingRevision(fc types.FileContract) types.FileContract {
+	fc.RevisionNumber = math.MaxUint64
+	fc.Filesize = 0
+	fc.FileMerkleRoot = types.Hash256{}
+	fc.MissedHostOutput = fc.ValidHostOutput
+	fc.MissedRenterOutput = fc.ValidRenterOutput
+	return fc
 }
 
-// ProgramRevision returns a new file contract revision with the burn amount
-// subtracted from the missed host output.
-func (c *Contract) ProgramRevision(burn types.Currency) (types.FileContract, error) {
-	if c.Revision.MissedHostOutput.Value.Cmp(burn) < 0 {
-		return types.FileContract{}, errors.New("not enough funds")
+// FinalizeProgramRevision returns a new file contract revision with the burn
+// amount subtracted from the missed host output.
+func FinalizeProgramRevision(fc types.FileContract, burn types.Currency) (types.FileContract, error) {
+	if fc.MissedHostOutput.Value.Cmp(burn) < 0 {
+		return fc, errors.New("not enough funds")
 	}
-	fcr := c.Revision
-	fcr.RevisionNumber++
-	fcr.MissedHostOutput.Value = fcr.MissedHostOutput.Value.Sub(burn)
-	return fcr, nil
+	fc.RevisionNumber++
+	fc.MissedHostOutput.Value = fc.MissedHostOutput.Value.Sub(burn)
+	return fc, nil
 }
 
 // ValidateContractFormation verifies that the new contract is valid given the
