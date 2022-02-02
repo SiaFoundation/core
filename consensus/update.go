@@ -161,7 +161,7 @@ func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinEl
 			Value:   vc.BlockReward(),
 			Address: b.Header.MinerAddress,
 		},
-		Timelock: vc.BlockRewardTimelock(),
+		Timelock: vc.MaturityHeight(),
 	})
 	if subsidy := vc.FoundationSubsidy(); !subsidy.IsZero() {
 		addSiacoinElement(types.SiacoinElement{
@@ -175,7 +175,7 @@ func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinEl
 				Value:   subsidy,
 				Address: vc.FoundationAddress,
 			},
-			Timelock: vc.BlockRewardTimelock(),
+			Timelock: vc.MaturityHeight(),
 		})
 	}
 	for _, txn := range b.Transactions {
@@ -198,14 +198,13 @@ func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinEl
 			})
 		}
 		for _, in := range txn.SiafundInputs {
-			// TODO: don't create zero-valued claim outputs?
 			addSiacoinElement(types.SiacoinElement{
 				StateElement: nextElement(),
 				SiacoinOutput: types.SiacoinOutput{
 					Value:   vc.SiafundPool.Sub(in.Parent.ClaimStart).Div64(SiafundCount).Mul64(in.Parent.Value),
 					Address: in.ClaimAddress,
 				},
-				Timelock: vc.BlockRewardTimelock(), // TODO: define a separate method for this?
+				Timelock: vc.MaturityHeight(),
 			})
 		}
 		for _, out := range txn.SiafundOutputs {
@@ -222,15 +221,16 @@ func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinEl
 			})
 		}
 		for _, fcr := range txn.FileContractRevisions {
-			if fc := fcr.Revision; fc.CanResolveEarly() {
-				renter, host := fc.ValidRenterOutput, fc.ValidHostOutput
+			if fcr.Revision.CanResolveEarly() {
 				addSiacoinElement(types.SiacoinElement{
 					StateElement:  nextElement(),
-					SiacoinOutput: renter,
+					SiacoinOutput: fcr.Revision.ValidRenterOutput,
+					Timelock:      vc.MaturityHeight(),
 				})
 				addSiacoinElement(types.SiacoinElement{
 					StateElement:  nextElement(),
-					SiacoinOutput: host,
+					SiacoinOutput: fcr.Revision.ValidHostOutput,
+					Timelock:      vc.MaturityHeight(),
 				})
 			}
 		}
@@ -243,10 +243,12 @@ func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinEl
 			addSiacoinElement(types.SiacoinElement{
 				StateElement:  nextElement(),
 				SiacoinOutput: renter,
+				Timelock:      vc.MaturityHeight(),
 			})
 			addSiacoinElement(types.SiacoinElement{
 				StateElement:  nextElement(),
 				SiacoinOutput: host,
+				Timelock:      vc.MaturityHeight(),
 			})
 		}
 	}
