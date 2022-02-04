@@ -71,11 +71,16 @@ type Manager struct {
 	mu sync.Mutex
 }
 
-// Tip returns the tip of the best known valid chain.
-func (m *Manager) Tip() types.ChainIndex {
+// TipContext returns the ValidationContext for the current tip.
+func (m *Manager) TipContext() consensus.ValidationContext {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.vc.Index
+	return m.vc
+}
+
+// Tip returns the tip of the best known valid chain.
+func (m *Manager) Tip() types.ChainIndex {
+	return m.TipContext().Index
 }
 
 // Block returns the block at the specified index.
@@ -92,14 +97,6 @@ func (m *Manager) ValidationContext(index types.ChainIndex) (consensus.Validatio
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	c, err := m.store.Checkpoint(index)
-	return c.Context, err
-}
-
-// TipContext returns the ValidationContext for the current tip.
-func (m *Manager) TipContext() (consensus.ValidationContext, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	c, err := m.store.Checkpoint(m.vc.Index)
 	return c.Context, err
 }
 
