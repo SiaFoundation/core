@@ -935,6 +935,14 @@ type Receipt struct {
 	Timestamp time.Time
 }
 
+// SigHash computes the hash of the receipt. Used for signing the
+// pay by ephemeral account response.
+func (r *Receipt) SigHash() types.Hash256 {
+	h := types.NewHasher()
+	r.EncodeTo(h.E)
+	return h.Sum()
+}
+
 // MaxLen returns the maximum length of the encoded object. Implements
 // rpc.Object.
 func (r *Receipt) MaxLen() int {
