@@ -40,8 +40,6 @@ type HostSettings struct {
 	SectorSize                 uint64         `json:"sectorSize"`
 	TotalRegistryEntries       uint64         `json:"totalRegistryEntries"`
 	TotalStorage               uint64         `json:"totalStorage"`
-	TxnFeeMaxRecommended       types.Currency `json:"txnfeemaxrecommended"`
-	TxnFeeMinRecommended       types.Currency `json:"txnfeeminrecommended"`
 	ValidUntil                 time.Time      `json:"validUntil"`
 	Version                    string         `json:"version"`
 	WindowSize                 uint64         `json:"windowSize"`
@@ -110,8 +108,6 @@ func (p *HostSettings) EncodeTo(e *types.Encoder) {
 	p.DownloadBandwidthPrice.EncodeTo(e)
 	p.UploadBandwidthPrice.EncodeTo(e)
 	p.StoragePrice.EncodeTo(e)
-	p.TxnFeeMinRecommended.EncodeTo(e)
-	p.TxnFeeMaxRecommended.EncodeTo(e)
 	p.RPCAccountBalanceCost.EncodeTo(e)
 	p.RPCFundAccountCost.EncodeTo(e)
 	p.RPCLatestRevisionCost.EncodeTo(e)
@@ -153,8 +149,6 @@ func (p *HostSettings) DecodeFrom(d *types.Decoder) {
 	p.DownloadBandwidthPrice.DecodeFrom(d)
 	p.UploadBandwidthPrice.DecodeFrom(d)
 	p.StoragePrice.DecodeFrom(d)
-	p.TxnFeeMinRecommended.DecodeFrom(d)
-	p.TxnFeeMaxRecommended.DecodeFrom(d)
 	p.RPCAccountBalanceCost.DecodeFrom(d)
 	p.RPCFundAccountCost.DecodeFrom(d)
 	p.RPCLatestRevisionCost.DecodeFrom(d)

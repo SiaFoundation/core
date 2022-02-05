@@ -109,7 +109,7 @@ type (
 	// an upcoming block.
 	TransactionPool interface {
 		AddTransactionSet(txns []types.Transaction) error
-		FeeEstimate() (min, max types.Currency, err error)
+		RecommendedFee() types.Currency
 	}
 
 	// A Wallet provides addresses and funds and signs transactions.
