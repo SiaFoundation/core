@@ -11,12 +11,14 @@ const (
 
 // Specifiers for execute program instructions
 var (
-	SpecInstrAppendSector     = rpc.NewSpecifier("Append")
+	SpecInstrAppendSector     = rpc.NewSpecifier("AppendSector")
+	SpecInstrUpdateSector     = rpc.NewSpecifier("UpdateSector")
 	SpecInstrDropSectors      = rpc.NewSpecifier("DropSectors")
 	SpecInstrHasSector        = rpc.NewSpecifier("HasSector")
 	SpecInstrReadOffset       = rpc.NewSpecifier("ReadOffset")
 	SpecInstrReadSector       = rpc.NewSpecifier("ReadSector")
 	SpecInstrContractRevision = rpc.NewSpecifier("Revision")
+	SpecInstrSectorRoots      = rpc.NewSpecifier("SectorRoots")
 	SpecInstrSwapSector       = rpc.NewSpecifier("SwapSector")
 	SpecInstrUpdateRegistry   = rpc.NewSpecifier("UpdateRegistry")
 	SpecInstrReadRegistry     = rpc.NewSpecifier("ReadRegistry")
@@ -80,6 +82,54 @@ func (i *InstrAppendSector) DecodeFrom(d *types.Decoder) {
 	i.ProofRequired = d.ReadBool()
 }
 
+// InstrUpdateSector uploads and appends a new sector to a contract
+type InstrUpdateSector struct {
+	Offset        uint64
+	Length        uint64
+	DataOffset    uint64
+	ProofRequired bool
+}
+
+// Specifier returns the specifier for the update sector instruction.
+func (i *InstrUpdateSector) Specifier() rpc.Specifier {
+	return SpecInstrUpdateSector
+}
+
+// RequiresFinalization returns true for AppendSector to commit the added sector
+// roots.
+func (i *InstrUpdateSector) RequiresFinalization() bool {
+	return true
+}
+
+// RequiresContract returns true if the instruction requires a contract to be
+// locked, false otherwise.
+func (i *InstrUpdateSector) RequiresContract() bool {
+	return true
+}
+
+// MaxLen implements rpc.Object
+func (i *InstrUpdateSector) MaxLen() int {
+	return 25
+}
+
+// EncodeTo encodes an instruction to the provided encoder. Implements
+// rpc.Object.
+func (i *InstrUpdateSector) EncodeTo(e *types.Encoder) {
+	e.WriteUint64(i.Offset)
+	e.WriteUint64(i.Length)
+	e.WriteUint64(i.DataOffset)
+	e.WriteBool(i.ProofRequired)
+}
+
+// DecodeFrom decodes an instruction from the provided decoder. Implements
+// rpc.Object.
+func (i *InstrUpdateSector) DecodeFrom(d *types.Decoder) {
+	i.Offset = d.ReadUint64()
+	i.Length = d.ReadUint64()
+	i.DataOffset = d.ReadUint64()
+	i.ProofRequired = d.ReadBool()
+}
+
 // InstrContractRevision returns the latest revision of the program's contract.
 type InstrContractRevision struct {
 }
@@ -114,6 +164,42 @@ func (i *InstrContractRevision) EncodeTo(e *types.Encoder) {
 // DecodeFrom decodes an instruction from the provided decoder. Implements
 // rpc.Object.
 func (i *InstrContractRevision) DecodeFrom(d *types.Decoder) {
+}
+
+// InstrSectorRoots returns the program's sector roots
+type InstrSectorRoots struct {
+}
+
+// Specifier returns the specifier for the contract revision instruction.
+func (i *InstrSectorRoots) Specifier() rpc.Specifier {
+	return SpecInstrSectorRoots
+}
+
+// RequiresFinalization returns false - returning sector roots does not require
+// updating the contract.
+func (i *InstrSectorRoots) RequiresFinalization() bool {
+	return false
+}
+
+// RequiresContract returns true - a contract must be locked to return its
+// roots.
+func (i *InstrSectorRoots) RequiresContract() bool {
+	return true
+}
+
+// MaxLen implements rpc.Object
+func (i *InstrSectorRoots) MaxLen() int {
+	return 0
+}
+
+// EncodeTo encodes an instruction to the provided encoder. Implements
+// rpc.Object.
+func (i *InstrSectorRoots) EncodeTo(e *types.Encoder) {
+}
+
+// DecodeFrom decodes an instruction from the provided decoder. Implements
+// rpc.Object.
+func (i *InstrSectorRoots) DecodeFrom(d *types.Decoder) {
 }
 
 // InstrDropSectors deletes a number of sectors from the end of the contract.
@@ -494,7 +580,7 @@ func AppendSectorCost(settings HostSettings, duration uint64) (costs ResourceUsa
 	// base cost is cost of writing 1 sector and storing 1 sector in memory.
 	// note: in siad the memory cost is calculated using the program's total
 	// memory, here I've opted to use only the instruction's memory.
-	costs.BaseCost = writeCost(settings, SectorSize).Add(resourceCost(settings, costs.Memory, costs.Time))
+	costs.BaseCost = settings.InstrAppendSectorBaseCost.Add(writeCost(settings, SectorSize)).Add(resourceCost(settings, costs.Memory, costs.Time))
 	// storage cost is the cost of storing 1 sector for the remaining duration.
 	costs.StorageCost = settings.StoragePrice.Mul64(SectorSize * duration)
 	// additional collateral is the collateral the host is expected to put up
@@ -502,6 +588,17 @@ func AppendSectorCost(settings HostSettings, duration uint64) (costs ResourceUsa
 	// note: in siad the additional collateral does not consider remaining
 	// duration.
 	costs.AdditionalCollateral = settings.Collateral.Mul64(SectorSize * duration)
+	return
+}
+
+// UpdateSectorCost returns the cost of the update instruction.
+func UpdateSectorCost(settings HostSettings, l uint64) (costs ResourceUsage) {
+	costs.Memory = l + SectorSize
+	costs.Time = 10000
+
+	// base cost is cost of reading and writing 1 sector
+	costs = ReadCost(settings, SectorSize)
+	costs.BaseCost = costs.BaseCost.Add(settings.InstrUpdateSectorBaseCost).Add(writeCost(settings, SectorSize)).Add(resourceCost(settings, costs.Memory, costs.Time))
 	return
 }
 
@@ -526,6 +623,14 @@ func ReadCost(settings HostSettings, l uint64) (costs ResourceUsage) {
 // RevisionCost returns the cost of the revision instruction.
 func RevisionCost(settings HostSettings) (costs ResourceUsage) {
 	costs.BaseCost = settings.InstrRevisionBaseCost
+	return
+}
+
+// SectorRootsCost returns the cost of executing the contract roots instruction.
+func SectorRootsCost(settings HostSettings, sectors uint64) (costs ResourceUsage) {
+	costs.Memory = 32 * sectors
+	costs.Time = 10000
+	costs.BaseCost = settings.InstrSectorRootsBaseCost.Add(resourceCost(settings, costs.Memory, costs.Time))
 	return
 }
 

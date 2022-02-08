@@ -44,6 +44,26 @@ func (pb *ProgramBuilder) AddAppendSectorInstruction(sector *[SectorSize]byte, p
 	pb.addUsage(AppendSectorCost(pb.settings, pb.duration))
 }
 
+// AddUpdateSectorInstruction adds an update sector instruction to the program.
+func (pb *ProgramBuilder) AddUpdateSectorInstruction(offset uint64, data []byte, proof bool) error {
+	l := uint64(len(data))
+	if offset+l > SectorSize {
+		return errors.New("update offset + length exceeds sector size")
+	}
+
+	instr := &InstrUpdateSector{
+		Offset:        offset,
+		Length:        l,
+		DataOffset:    pb.offset,
+		ProofRequired: proof,
+	}
+	pb.encoder.Write(data)
+	pb.offset += l
+	pb.appendInstruction(instr)
+	pb.addUsage(UpdateSectorCost(pb.settings, l))
+	return nil
+}
+
 // AddDropSectorInstruction adds a drop sector instruction to the program.
 func (pb *ProgramBuilder) AddDropSectorInstruction(sectors uint64, proof bool) {
 	instr := &InstrDropSectors{
@@ -112,6 +132,13 @@ func (pb *ProgramBuilder) AddDropSectorsInstruction(sectors uint64, proof bool) 
 	pb.offset += 8
 	pb.appendInstruction(instr)
 	pb.addUsage(DropSectorsCost(pb.settings, sectors))
+}
+
+// AddSectorRootsInstruction adds a contract roots instruction to the program,
+// returning the Merkle root of each sector stored by the contract.
+func (pb *ProgramBuilder) AddSectorRootsInstruction(sectors uint64) {
+	pb.appendInstruction(&InstrSectorRoots{})
+	pb.addUsage(SectorRootsCost(pb.settings, sectors))
 }
 
 // AddRevisionInstruction adds a revision instruction to the program.

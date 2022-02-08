@@ -26,8 +26,14 @@ type ProgramExecutor struct {
 	newMerkleRoot types.Hash256
 	newRoots      []types.Hash256
 
-	gainedSectors  map[types.Hash256]struct{}
-	removedSectors map[types.Hash256]struct{}
+	// gainedSectors counts the number of references a sector has gained
+	// through append or update instructions. When a program is reverted all
+	// references must be removed.
+	gainedSectors map[types.Hash256]uint64
+	// removedSectors counts the number of references a sector has lost through
+	// update or drop instructions. When a program is committed all references
+	// must be removed.
+	removedSectors map[types.Hash256]uint64
 
 	// output should not be written to directly, instead write to the encoder.
 	output  bytes.Buffer
@@ -69,8 +75,7 @@ func (pe *ProgramExecutor) payForExecution(usage rhp.ResourceUsage) error {
 
 // executeHasSector checks if the host is storing the sector.
 func (pe *ProgramExecutor) executeHasSector(root types.Hash256) error {
-	err := pe.payForExecution(rhp.HasSectorCost(pe.settings))
-	if err != nil {
+	if err := pe.payForExecution(rhp.HasSectorCost(pe.settings)); err != nil {
 		return fmt.Errorf("failed to pay instruction cost: %w", err)
 	}
 
@@ -84,59 +89,59 @@ func (pe *ProgramExecutor) executeHasSector(root types.Hash256) error {
 	return nil
 }
 
-// executeAppendSector stores a new sector on the host.
+// executeAppendSector appends a new sector to the executor's sector roots and
+// adds it to the sector store.
 func (pe *ProgramExecutor) executeAppendSector(root types.Hash256, sector *[rhp.SectorSize]byte, requiresProof bool) ([]types.Hash256, error) {
-	err := pe.payForExecution(rhp.AppendSectorCost(pe.settings, pe.duration))
-	if err != nil {
+	if err := pe.payForExecution(rhp.AppendSectorCost(pe.settings, pe.duration)); err != nil {
 		return nil, fmt.Errorf("failed to pay append sector cost: %w", err)
 	}
 
-	// add the sector to the sector store.
-	if err := pe.sectors.AddSector(root, sector); err != nil {
+	if err := pe.sectors.Add(root, sector); err != nil {
 		return nil, fmt.Errorf("failed to add sector: %w", err)
 	}
-	// update the program's contract state
+
+	// update the program's state
 	pe.newRoots = append(pe.newRoots, root)
 	pe.newMerkleRoot = rhp.MetaRoot(pe.newRoots)
 	pe.newFileSize += rhp.SectorSize
-	// add the sector to the gained sectors.
-	pe.gainedSectors[root] = struct{}{}
-	// delete the sector from the removed sectors.
-	delete(pe.removedSectors, root)
+	pe.gainedSectors[root]++
 	// TODO: calculate optional proof.
 	return nil, nil
 }
 
-// executeReadSector reads a sector from the host. Returning the bytes read, an
-// optional proof, or an error.
-func (pe *ProgramExecutor) executeReadSector(root types.Hash256, offset, length uint64, requiresProof bool) ([]types.Hash256, error) {
-	if offset+length > rhp.SectorSize {
-		return nil, errors.New("offset and length exceed sector size")
-	}
-
-	err := pe.payForExecution(rhp.ReadCost(pe.settings, length))
-	if err != nil {
+// executeUpdateSector updates an existing sector.
+func (pe *ProgramExecutor) executeUpdateSector(offset uint64, data []byte, requiresProof bool) ([]types.Hash256, error) {
+	if err := pe.payForExecution(rhp.UpdateSectorCost(pe.settings, uint64(len(data)))); err != nil {
 		return nil, fmt.Errorf("failed to pay instruction cost: %w", err)
 	}
 
-	_, err = pe.sectors.ReadSector(root, pe.encoder, offset, length)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read sector: %w", err)
+	index := offset / rhp.SectorSize
+	if index >= uint64(len(pe.newRoots)) {
+		return nil, fmt.Errorf("offset out of range: %d", index)
 	}
+	existingRoot := pe.newRoots[index]
+	offset %= rhp.SectorSize
+
+	// update the sector in the sector store.
+	updatedRoot, err := pe.sectors.Update(existingRoot, offset, data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update sector: %w", err)
+	}
+	// update the program state
+	pe.newRoots[index] = updatedRoot
+	pe.newMerkleRoot = rhp.MetaRoot(pe.newRoots)
+	pe.gainedSectors[updatedRoot]++
+	pe.removedSectors[existingRoot]++
 	// TODO: calculate optional proof.
 	return nil, nil
 }
 
-// executeDropSectors drops the last n sectors from the host and removes them
-// from the contract.
+// executeDropSectors drops the last n sectors from the executor's sector roots.
 func (pe *ProgramExecutor) executeDropSectors(dropped uint64, requiresProof bool) ([]types.Hash256, error) {
-	if uint64(len(pe.newRoots)) < dropped {
-		return nil, errors.New("dropped sector index out of range")
-	}
-
-	err := pe.payForExecution(rhp.DropSectorsCost(pe.settings, dropped))
-	if err != nil {
+	if err := pe.payForExecution(rhp.DropSectorsCost(pe.settings, dropped)); err != nil {
 		return nil, fmt.Errorf("failed to pay instruction cost: %w", err)
+	} else if uint64(len(pe.newRoots)) < dropped {
+		return nil, errors.New("dropped sector index out of range")
 	}
 
 	// get the roots of the sectors to be dropped.
@@ -146,26 +151,22 @@ func (pe *ProgramExecutor) executeDropSectors(dropped uint64, requiresProof bool
 	pe.newRoots = pe.newRoots[:i]
 	pe.newMerkleRoot = rhp.MetaRoot(pe.newRoots)
 	pe.newFileSize = uint64(len(pe.newRoots)) * rhp.SectorSize
-	// remove each sector from the program's gained roots and add them to the
-	// program's removed roots.
+	// remove a reference of each dropped sector.
 	for _, root := range droppedRoots {
-		delete(pe.gainedSectors, root)
-		pe.removedSectors[root] = struct{}{}
+		pe.removedSectors[root]++
 	}
 	// TODO: calculate optional proof.
 	return nil, nil
 }
 
+// executeSwapSectors swaps two sectors in the executor's sector roots.
 func (pe *ProgramExecutor) executeSwapSectors(indexA, indexB uint64, requiresProof bool) ([]types.Hash256, error) {
-	if indexA >= uint64(len(pe.newRoots)) {
+	if err := pe.payForExecution(rhp.SwapSectorCost(pe.settings)); err != nil {
+		return nil, fmt.Errorf("failed to pay instruction cost: %w", err)
+	} else if indexA >= uint64(len(pe.newRoots)) {
 		return nil, fmt.Errorf("sector 1 index out of range %v", indexA)
 	} else if indexB >= uint64(len(pe.newRoots)) {
 		return nil, fmt.Errorf("sector 2 index out of range %v", indexB)
-	}
-
-	err := pe.payForExecution(rhp.SwapSectorCost(pe.settings))
-	if err != nil {
-		return nil, fmt.Errorf("failed to pay instruction cost: %w", err)
 	}
 
 	// swap the sector roots.
@@ -179,15 +180,58 @@ func (pe *ProgramExecutor) executeSwapSectors(indexA, indexB uint64, requiresPro
 	return nil, nil
 }
 
+// executeReadSector reads a sector from the host. Returning the bytes read, an
+// optional proof, or an error.
+func (pe *ProgramExecutor) executeReadSector(root types.Hash256, offset, length uint64, requiresProof bool) ([]types.Hash256, error) {
+	if err := pe.payForExecution(rhp.ReadCost(pe.settings, length)); err != nil {
+		return nil, fmt.Errorf("failed to pay instruction cost: %w", err)
+	} else if offset+length > rhp.SectorSize {
+		return nil, errors.New("offset and length exceed sector size")
+	}
+
+	_, err := pe.sectors.Read(root, pe.encoder, offset, length)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read sector: %w", err)
+	}
+	// TODO: calculate optional proof.
+	return nil, nil
+}
+
+// executeContractRevision returns the latest revision of the contract before
+// any instructions have been executed.
 func (pe *ProgramExecutor) executeContractRevision() error {
-	if pe.contract.ID == (types.ElementID{}) {
+	if err := pe.payForExecution(rhp.RevisionCost(pe.settings)); err != nil {
+		return fmt.Errorf("failed to pay instruction cost: %w", err)
+	} else if pe.contract.ID == (types.ElementID{}) {
 		return errors.New("no contract revision set")
 	}
+
 	pe.contract.EncodeTo(pe.encoder)
 	return nil
 }
 
+// executeSectorRoots returns the current sector roots of the program executor.
+func (pe *ProgramExecutor) executeSectorRoots() error {
+	if err := pe.payForExecution(rhp.SectorRootsCost(pe.settings, uint64(len(pe.newRoots)))); err != nil {
+		return fmt.Errorf("failed to pay instruction cost: %w", err)
+	} else if pe.contract.ID == (types.ElementID{}) {
+		return errors.New("no contract revision set")
+	}
+
+	// write the sector roots to the encoder.
+	pe.encoder.WritePrefix(len(pe.newRoots))
+	for _, root := range pe.newRoots {
+		root.EncodeTo(pe.encoder)
+	}
+	return nil
+}
+
+// executeReadRegistry reads a stored registry key and returns the value.
 func (pe *ProgramExecutor) executeReadRegistry(key types.Hash256) error {
+	if err := pe.payForExecution(rhp.ReadRegistryCost(pe.settings)); err != nil {
+		return fmt.Errorf("failed to pay instruction cost: %w", err)
+	}
+
 	value, err := pe.registry.Get(key)
 	if err != nil {
 		return fmt.Errorf("failed to get registry value %v: %w", key, err)
@@ -196,8 +240,12 @@ func (pe *ProgramExecutor) executeReadRegistry(key types.Hash256) error {
 	return nil
 }
 
+// executeUpdateRegistry updates a stored registry key with a new value.
 func (pe *ProgramExecutor) executeUpdateRegistry(value rhp.RegistryValue) error {
-	if err := rhp.ValidateRegistryEntry(value); err != nil {
+	err := pe.payForExecution(rhp.UpdateRegistryCost(pe.settings))
+	if err != nil {
+		return fmt.Errorf("failed to pay instruction cost: %w", err)
+	} else if err := rhp.ValidateRegistryEntry(value); err != nil {
 		return fmt.Errorf("invalid registry value: %w", err)
 	}
 	expirationHeight := pe.vc.Index.Height + blocksPerYear
@@ -255,6 +303,15 @@ func (pe *ProgramExecutor) ExecuteInstruction(r io.Reader, w io.Writer, instruct
 				return nil, fmt.Errorf("failed to read sector data: %w", err)
 			}
 			return pe.executeAppendSector(root, sector, instr.ProofRequired)
+		case *rhp.InstrUpdateSector:
+			if instr.Length > rhp.SectorSize {
+				return nil, fmt.Errorf("data length exceeds sector size")
+			}
+			data := make([]byte, instr.Length)
+			if _, err := io.ReadFull(r, data); err != nil {
+				return nil, fmt.Errorf("failed to read update data: %w", err)
+			}
+			return pe.executeUpdateSector(instr.Offset, data, instr.ProofRequired)
 		case *rhp.InstrDropSectors:
 			var dropped uint64
 			if err := binary.Read(r, binary.LittleEndian, &dropped); err != nil {
@@ -320,6 +377,8 @@ func (pe *ProgramExecutor) ExecuteInstruction(r io.Reader, w io.Writer, instruct
 			return pe.executeSwapSectors(sectorA, sectorB, instr.ProofRequired)
 		case *rhp.InstrContractRevision:
 			return nil, pe.executeContractRevision()
+		case *rhp.InstrSectorRoots:
+			return nil, pe.executeSectorRoots()
 		case *rhp.InstrReadRegistry:
 			// read the registry entry
 			var pub types.PublicKey
@@ -410,9 +469,9 @@ func (pe *ProgramExecutor) Revert() error {
 		return nil
 	}
 
-	// delete the gained sectors.
-	for root := range pe.gainedSectors {
-		if err := pe.sectors.DeleteSector(root); err != nil {
+	// delete the sectors added by the program.
+	for root, refs := range pe.gainedSectors {
+		if err := pe.sectors.Delete(root, refs); err != nil {
 			return fmt.Errorf("failed to remove sector: %w", err)
 		}
 	}
@@ -430,17 +489,16 @@ func (pe *ProgramExecutor) Commit() error {
 	if pe.committed {
 		return nil
 	}
-	// reset the gained sectors.
-	pe.gainedSectors = make(map[types.Hash256]struct{})
-	// delete the removed sectors.
-	for root := range pe.removedSectors {
-		if err := pe.sectors.DeleteSector(root); err != nil {
+	// delete sectors removed by the program.
+	for root, refs := range pe.removedSectors {
+		if err := pe.sectors.Delete(root, refs); err != nil {
 			return fmt.Errorf("failed to remove sector: %w", err)
 		}
 	}
 
 	// all program ops are now committed, set the failure refund to zero.
 	pe.failureRefund = types.ZeroCurrency
+	pe.committed = true
 	return nil
 }
 
@@ -457,8 +515,8 @@ func NewExecutor(priv types.PrivateKey, ss SectorStore, cm ContractManager, rm *
 		contracts: cm,
 		vc:        vc,
 
-		gainedSectors:  make(map[types.Hash256]struct{}),
-		removedSectors: make(map[types.Hash256]struct{}),
+		gainedSectors:  make(map[types.Hash256]uint64),
+		removedSectors: make(map[types.Hash256]uint64),
 	}
 	pe.encoder = types.NewEncoder(&pe.output)
 
