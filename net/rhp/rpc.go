@@ -663,6 +663,8 @@ func readInstruction(d *types.Decoder) (instr Instruction) {
 	switch spec {
 	case SpecInstrAppendSector:
 		instr = new(InstrAppendSector)
+	case SpecInstrUpdateSector:
+		instr = new(InstrUpdateSector)
 	case SpecInstrDropSectors:
 		instr = new(InstrDropSectors)
 	case SpecInstrHasSector:

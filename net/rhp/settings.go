@@ -74,14 +74,17 @@ type HostSettings struct {
 	// disk during program execution.
 	ProgWriteCost types.Currency `json:"progWriteCost"`
 
+	InstrAppendSectorBaseCost   types.Currency `json:"instrAppendSectorsBaseCost"`
 	InstrDropSectorsBaseCost    types.Currency `json:"instrDropSectorsBaseCost"`
 	InstrDropSectorsUnitCost    types.Currency `json:"instrDropSectorsUnitCost"`
 	InstrHasSectorBaseCost      types.Currency `json:"instrHasSectorBaseCost"`
 	InstrReadBaseCost           types.Currency `json:"instrReadBaseCost"`
 	InstrReadRegistryBaseCost   types.Currency `json:"instrReadRegistryBaseCost"`
 	InstrRevisionBaseCost       types.Currency `json:"instrRevisionBaseCost"`
+	InstrSectorRootsBaseCost    types.Currency `json:"instrSectorRootsBaseCost"`
 	InstrSwapSectorBaseCost     types.Currency `json:"instrSwapSectorCost"`
 	InstrUpdateRegistryBaseCost types.Currency `json:"instrUpdateRegistryBaseCost"`
+	InstrUpdateSectorBaseCost   types.Currency `json:"instrUpdateSectorBaseCost"`
 	InstrWriteBaseCost          types.Currency `json:"instrWriteBaseCost"`
 }
 

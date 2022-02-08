@@ -57,6 +57,34 @@ func TestAppendProgram(t *testing.T) {
 	}
 }
 
+func TestUpdateProgram(t *testing.T) {
+	offset := frand.Uint64n(SectorSize - 128)
+	data := make([]byte, 128)
+	frand.Read(data)
+
+	buf := bytes.NewBuffer(nil)
+	builder := NewProgramBuilder(testSettings, buf, 10)
+	builder.AddUpdateSectorInstruction(offset, data, true)
+
+	instructions, requiresContract, requiresFinalization, err := builder.Program()
+	switch {
+	case err != nil:
+		t.Fatal(err)
+	case len(instructions) != 1:
+		t.Fatal("wrong number of instructions")
+	case !requiresContract:
+		t.Fatal("program should require a contract")
+	case !requiresFinalization:
+		t.Fatal("program should require finalization")
+	case instructions[0].(*InstrUpdateSector).Offset != offset:
+		t.Fatalf("invalid sector offset got %v, expected %v", instructions[0].(*InstrUpdateSector).Offset, offset)
+	case instructions[0].(*InstrUpdateSector).DataOffset != 0:
+		t.Fatalf("invalid data offset got %v, expected %v", instructions[0].(*InstrUpdateSector).DataOffset, 0)
+	case !bytes.Equal(buf.Bytes(), data):
+		t.Fatal("wrong data")
+	}
+}
+
 func TestReadSectorProgram(t *testing.T) {
 	var sector [SectorSize]byte
 	frand.Read(sector[:128])

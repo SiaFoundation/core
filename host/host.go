@@ -21,15 +21,21 @@ type (
 	// A SectorStore stores contract sector data. Implementations are expected
 	// to handle multiple references to a sector for add and delete operations.
 	SectorStore interface {
-		// AddSector adds the sector with the specified root to the store.
-		AddSector(root types.Hash256, sector *[rhp.SectorSize]byte) error
-		// DeleteSector removes a sector from the store.
-		DeleteSector(root types.Hash256) error
+		// Add adds the sector with the specified root to the store.
+		Add(root types.Hash256, sector *[rhp.SectorSize]byte) error
+		// Delete removes a number of references to a sector from the store.
+		// If a sector has no more references, it should be removed from the
+		// store.
+		Delete(root types.Hash256, references uint64) error
 		// Exists checks if the sector exists in the store.
 		Exists(root types.Hash256) (bool, error)
-		// ReadSector reads the sector with the given root, offset and length
+		// Read reads the sector with the given root, offset and length
 		// into w. Returns the number of bytes read or an error.
-		ReadSector(root types.Hash256, w io.Writer, offset, length uint64) (n uint64, err error)
+		Read(root types.Hash256, w io.Writer, offset, length uint64) (n uint64, err error)
+		// Update copies an existing sector with the specified root and adds a
+		// new sector to the store with the data at offset overwritten,
+		// returning the Merkle root of the new sector.
+		Update(root types.Hash256, offset uint64, data []byte) (types.Hash256, error)
 	}
 
 	// An EphemeralAccountStore manages ephemeral account balances.
