@@ -63,18 +63,6 @@ func PaymentRevision(fc types.FileContract, amount types.Currency) (types.FileCo
 	return fc, nil
 }
 
-// ClearingRevision returns a new file contract with the revision
-// number set to uint64 max, the file fields set to their zero value, and the
-// missed proof outputs set to the valid proof outputs.
-func ClearingRevision(fc types.FileContract) types.FileContract {
-	fc.RevisionNumber = math.MaxUint64
-	fc.Filesize = 0
-	fc.FileMerkleRoot = types.Hash256{}
-	fc.MissedHostOutput = fc.ValidHostOutput
-	fc.MissedRenterOutput = fc.ValidRenterOutput
-	return fc
-}
-
 // FinalizeProgramRevision returns a new file contract revision with the burn
 // amount subtracted from the missed host output.
 func FinalizeProgramRevision(fc types.FileContract, burn types.Currency) (types.FileContract, error) {
@@ -236,31 +224,15 @@ func ValidatePaymentRevision(vc consensus.ValidationContext, current, revision C
 	return nil
 }
 
-// ValidateClearingRevision verifies that the revision clears the current contract
-// by clearing the file fields, making the missed and valid payouts equivalent,
-// and locking the contract for further revisions.
-func ValidateClearingRevision(vc consensus.ValidationContext, current, clearing Contract) error {
+// ValidateContractFinalization verifies that the revision clears the current
+// contract by setting its revision number to the maximum legal value.
+func ValidateContractFinalization(vc consensus.ValidationContext, current, final Contract) error {
 	// verify the new revision is valid given the existing revision, the public
 	// keys have not changed, and the signatures are correct.
-	if err := validateStdRevision(vc, current, clearing); err != nil {
+	if err := validateStdRevision(vc, current, final); err != nil {
 		return err
-	}
-
-	switch {
-	case clearing.Revision.RevisionNumber != math.MaxUint64:
+	} else if final.Revision.RevisionNumber != math.MaxUint64 {
 		return errors.New("revision number must be max value")
-	case clearing.Revision.Filesize != 0:
-		return errors.New("file size must be zero")
-	case clearing.Revision.FileMerkleRoot != types.Hash256{}:
-		return errors.New("file merkle root must be cleared")
-	case clearing.Revision.ValidHostOutput.Value.Cmp(current.Revision.ValidHostOutput.Value) != 0:
-		return errors.New("host valid output value must not change")
-	case clearing.Revision.ValidRenterOutput.Value.Cmp(current.Revision.ValidRenterOutput.Value) != 0:
-		return errors.New("renter valid output value must not change")
-	case clearing.Revision.MissedHostOutput.Value.Cmp(current.Revision.ValidHostOutput.Value) != 0:
-		return errors.New("host missed output value must equal host valid output value")
-	case clearing.Revision.MissedRenterOutput.Value.Cmp(current.Revision.ValidRenterOutput.Value) != 0:
-		return errors.New("renter missed output value must equal renter valid output value")
 	}
 	return nil
 }

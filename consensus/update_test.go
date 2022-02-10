@@ -638,7 +638,7 @@ func TestFileContracts(t *testing.T) {
 	}
 }
 
-func TestEarlyContractResolution(t *testing.T) {
+func TestContractFinalization(t *testing.T) {
 	renterPubkey, renterPrivkey := testingKeypair(0)
 	hostPubkey, hostPrivkey := testingKeypair(1)
 	b := genesisWithSiacoinOutputs(types.SiacoinOutput{
@@ -708,7 +708,7 @@ func TestEarlyContractResolution(t *testing.T) {
 		t.Fatal("expected siafund pool to increase")
 	}
 
-	// revise the contract such that it can be resolved early
+	// finalize the contract
 	finalRev := fc.FileContract
 	finalRev.RevisionNumber = types.MaxRevisionNumber
 	finalRev.MissedRenterOutput = finalRev.ValidRenterOutput
@@ -717,9 +717,9 @@ func TestEarlyContractResolution(t *testing.T) {
 	finalRev.RenterSignature = renterPrivkey.SignHash(contractHash)
 	finalRev.HostSignature = hostPrivkey.SignHash(contractHash)
 	txn = types.Transaction{
-		FileContractRevisions: []types.FileContractRevision{{
-			Parent:   fc,
-			Revision: finalRev,
+		FileContractResolutions: []types.FileContractResolution{{
+			Parent:       fc,
+			Finalization: finalRev,
 		}},
 	}
 

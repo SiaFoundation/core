@@ -63,7 +63,7 @@ type (
 	// and RenewContract RPCs. For the form contract RPC, a minimum of one
 	// transaction including a single file contract is required. For the renew
 	// contract RPC a minimum of two transactions are required, the first should
-	// clear the existing contract and the second should include the renewed
+	// finalize the existing contract and the second should include the renewed
 	// contract.
 	RPCContractRequest struct {
 		Transactions []types.Transaction
@@ -87,12 +87,12 @@ type (
 	}
 
 	// RPCRenewContractSignatures contains the signatures for a contract
-	// transaction, initial revision, and clearing revision. These signatures
-	// are sent by both the renter and host during contract renewal.
+	// transaction, initial revision, and finalization revision. These
+	// signatures are sent by both the renter and host during contract renewal.
 	RPCRenewContractSignatures struct {
 		SiacoinInputSignatures [][]types.InputSignature
 		RenewalSignature       types.Signature
-		ClearingSignature      types.Signature
+		FinalizationSignature  types.Signature
 	}
 
 	// RPCLockRequest contains the request parameters for the Lock RPC.
@@ -313,7 +313,7 @@ func (r *RPCRenewContractSignatures) EncodeTo(e *types.Encoder) {
 		}
 	}
 	r.RenewalSignature.EncodeTo(e)
-	r.ClearingSignature.EncodeTo(e)
+	r.FinalizationSignature.EncodeTo(e)
 }
 
 // DecodeFrom implements rpc.Object.
@@ -326,7 +326,7 @@ func (r *RPCRenewContractSignatures) DecodeFrom(d *types.Decoder) {
 		}
 	}
 	r.RenewalSignature.DecodeFrom(d)
-	r.ClearingSignature.DecodeFrom(d)
+	r.FinalizationSignature.DecodeFrom(d)
 }
 
 // MaxLen implements rpc.Object.
