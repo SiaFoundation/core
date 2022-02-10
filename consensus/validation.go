@@ -373,8 +373,11 @@ func (vc *ValidationContext) validFileContractRevisions(txn types.Transaction) e
 			return fmt.Errorf("file contract revision %v cannot be applied to contract whose proof window (%v - %v) has already begun", i, cur.WindowStart, cur.WindowEnd)
 		}
 		curValidSum := cur.ValidRenterOutput.Value.Add(cur.ValidHostOutput.Value)
-		revValidSum := rev.ValidRenterOutput.Value.Add(rev.ValidHostOutput.Value)
-		revMissedSum := rev.MissedRenterOutput.Value.Add(rev.MissedHostOutput.Value)
+		revValidSum, validOverflow := rev.ValidRenterOutput.Value.AddWithOverflow(rev.ValidHostOutput.Value)
+		revMissedSum, missedOverflow := rev.MissedRenterOutput.Value.AddWithOverflow(rev.MissedHostOutput.Value)
+		if validOverflow || missedOverflow {
+			return ErrOverflow
+		}
 		switch {
 		case rev.RevisionNumber <= cur.RevisionNumber:
 			return fmt.Errorf("file contract revision %v does not increase revision number (%v -> %v)", i, cur.RevisionNumber, rev.RevisionNumber)
@@ -630,15 +633,19 @@ func (vc *ValidationContext) validSpendPolicies(txn types.Transaction) error {
 // ValidateTransaction partially validates txn for inclusion in a child block.
 // It does not validate ephemeral outputs.
 func (vc *ValidationContext) ValidateTransaction(txn types.Transaction) error {
+	// check proofs first; that way, subsequent checks can assume that all
+	// parent StateElements are valid
+	if err := vc.validStateProofs(txn); err != nil {
+		return err
+	} else if err := vc.validHistoryProofs(txn); err != nil {
+		return err
+	}
+
 	if err := vc.containsZeroValuedOutputs(txn); err != nil {
 		return err
 	} else if err := vc.validTimeLocks(txn); err != nil {
 		return err
 	} else if err := vc.outputsEqualInputs(txn); err != nil {
-		return err
-	} else if err := vc.validStateProofs(txn); err != nil {
-		return err
-	} else if err := vc.validHistoryProofs(txn); err != nil {
 		return err
 	} else if err := vc.validFoundationUpdate(txn); err != nil {
 		return err
