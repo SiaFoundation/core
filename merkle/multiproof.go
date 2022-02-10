@@ -281,15 +281,11 @@ type compressedFileContractRevision types.FileContractRevision
 func (rev compressedFileContractRevision) EncodeTo(e *types.Encoder) {
 	(compressedFileContractElement)(rev.Parent).EncodeTo(e)
 	rev.Revision.EncodeTo(e)
-	rev.RenterSignature.EncodeTo(e)
-	rev.HostSignature.EncodeTo(e)
 }
 
 func (rev *compressedFileContractRevision) DecodeFrom(d *types.Decoder) {
 	(*compressedFileContractElement)(&rev.Parent).DecodeFrom(d)
 	rev.Revision.DecodeFrom(d)
-	rev.RenterSignature.DecodeFrom(d)
-	rev.HostSignature.DecodeFrom(d)
 }
 
 type compressedFileContractResolution types.FileContractResolution

@@ -278,7 +278,17 @@ func (vc *ValidationContext) ContractSigHash(fc types.FileContract) types.Hash25
 	defer hasherPool.Put(h)
 	h.Reset()
 	h.E.WriteString("sia/sig/filecontract")
-	fc.EncodeTo(h.E)
+	h.E.WriteUint64(fc.Filesize)
+	fc.FileMerkleRoot.EncodeTo(h.E)
+	h.E.WriteUint64(fc.WindowStart)
+	h.E.WriteUint64(fc.WindowEnd)
+	fc.ValidRenterOutput.EncodeTo(h.E)
+	fc.ValidHostOutput.EncodeTo(h.E)
+	fc.MissedRenterOutput.EncodeTo(h.E)
+	fc.MissedHostOutput.EncodeTo(h.E)
+	fc.RenterPublicKey.EncodeTo(h.E)
+	fc.HostPublicKey.EncodeTo(h.E)
+	h.E.WriteUint64(fc.RevisionNumber)
 	return h.Sum()
 }
 
@@ -362,6 +372,12 @@ func (vc *ValidationContext) validFileContracts(txn types.Transaction) error {
 		} else if fc.WindowEnd <= fc.WindowStart {
 			return fmt.Errorf("file contract %v has proof window (%v-%v) that ends before it begins", i, fc.WindowStart, fc.WindowEnd)
 		}
+		contractHash := vc.ContractSigHash(fc)
+		if !fc.RenterPublicKey.VerifyHash(contractHash, fc.RenterSignature) {
+			return fmt.Errorf("file contract %v has invalid renter signature", i)
+		} else if !fc.HostPublicKey.VerifyHash(contractHash, fc.HostSignature) {
+			return fmt.Errorf("file contract %v has invalid host signature", i)
+		}
 	}
 	return nil
 }
@@ -393,10 +409,9 @@ func (vc *ValidationContext) validFileContractRevisions(txn types.Transaction) e
 		//
 		// NOTE: very important that we verify with the *current* keys!
 		contractHash := vc.ContractSigHash(rev)
-		if !cur.RenterPublicKey.VerifyHash(contractHash, fcr.RenterSignature) {
+		if !cur.RenterPublicKey.VerifyHash(contractHash, rev.RenterSignature) {
 			return fmt.Errorf("file contract revision %v has invalid renter signature", i)
-		}
-		if !cur.HostPublicKey.VerifyHash(contractHash, fcr.HostSignature) {
+		} else if !cur.HostPublicKey.VerifyHash(contractHash, rev.HostSignature) {
 			return fmt.Errorf("file contract revision %v has invalid host signature", i)
 		}
 	}

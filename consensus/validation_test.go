@@ -365,6 +365,8 @@ func TestValidateTransaction(t *testing.T) {
 			ValidHostOutput:    types.SiacoinOutput{Value: types.Siacoins(4)},
 			MissedRenterOutput: types.SiacoinOutput{Value: types.Siacoins(2)},
 			MissedHostOutput:   types.SiacoinOutput{Value: types.Siacoins(3)},
+			RenterPublicKey:    renterPubkey,
+			HostPublicKey:      hostPubkey,
 		}},
 		FileContractRevisions: []types.FileContractRevision{{
 			Parent: openContract,
@@ -389,12 +391,16 @@ func TestValidateTransaction(t *testing.T) {
 		}},
 		MinerFee: types.Siacoins(48).Div64(10),
 	}
-	signAllInputs(&txn, vc, privkey)
+	fc := &txn.FileContracts[0]
+	contractHash := vc.ContractSigHash(*fc)
+	fc.RenterSignature = renterPrivkey.SignHash(contractHash)
+	fc.HostSignature = hostPrivkey.SignHash(contractHash)
 	rev := &txn.FileContractRevisions[0]
-	contractHash := vc.ContractSigHash(rev.Revision)
-	rev.RenterSignature = renterPrivkey.SignHash(contractHash)
-	rev.HostSignature = hostPrivkey.SignHash(contractHash)
+	contractHash = vc.ContractSigHash(rev.Revision)
+	rev.Revision.RenterSignature = renterPrivkey.SignHash(contractHash)
+	rev.Revision.HostSignature = hostPrivkey.SignHash(contractHash)
 	txn.Attestations[0].Signature = privkey.SignHash(vc.AttestationSigHash(txn.Attestations[0]))
+	signAllInputs(&txn, vc, privkey)
 
 	if err := vc.ValidateTransaction(txn); err != nil {
 		t.Fatal(err)
@@ -549,15 +555,15 @@ func TestValidateTransaction(t *testing.T) {
 			},
 		},
 		{
-			"file contract revision that has invalid renter signature",
+			"file contract that has invalid renter signature",
 			func(txn *types.Transaction) {
-				txn.FileContractRevisions[0].RenterSignature[0] ^= 1
+				txn.FileContracts[0].RenterSignature[0] ^= 1
 			},
 		},
 		{
-			"file contract revision that has invalid host signature",
+			"file contract that has invalid host signature",
 			func(txn *types.Transaction) {
-				txn.FileContractRevisions[0].HostSignature[0] ^= 1
+				txn.FileContracts[0].HostSignature[0] ^= 1
 			},
 		},
 		{
@@ -617,6 +623,20 @@ func TestValidateTransaction(t *testing.T) {
 			func(txn *types.Transaction) {
 				rev := &txn.FileContractRevisions[0].Revision
 				rev.WindowEnd = rev.WindowStart - 1
+			},
+		},
+		{
+			"file contract revision that has invalid renter signature",
+			func(txn *types.Transaction) {
+				rev := &txn.FileContractRevisions[0].Revision
+				rev.RenterSignature[0] ^= 1
+			},
+		},
+		{
+			"file contract revision that has invalid host signature",
+			func(txn *types.Transaction) {
+				rev := &txn.FileContractRevisions[0].Revision
+				rev.HostSignature[0] ^= 1
 			},
 		},
 		{

@@ -382,6 +382,8 @@ func (fc FileContract) EncodeTo(e *Encoder) {
 	fc.RenterPublicKey.EncodeTo(e)
 	fc.HostPublicKey.EncodeTo(e)
 	e.WriteUint64(fc.RevisionNumber)
+	fc.RenterSignature.EncodeTo(e)
+	fc.HostSignature.EncodeTo(e)
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -394,8 +396,6 @@ func (fce FileContractElement) EncodeTo(e *Encoder) {
 func (rev FileContractRevision) EncodeTo(e *Encoder) {
 	rev.Parent.EncodeTo(e)
 	rev.Revision.EncodeTo(e)
-	rev.RenterSignature.EncodeTo(e)
-	rev.HostSignature.EncodeTo(e)
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -734,6 +734,8 @@ func (fc *FileContract) DecodeFrom(d *Decoder) {
 	fc.RenterPublicKey.DecodeFrom(d)
 	fc.HostPublicKey.DecodeFrom(d)
 	fc.RevisionNumber = d.ReadUint64()
+	fc.RenterSignature.DecodeFrom(d)
+	fc.HostSignature.DecodeFrom(d)
 }
 
 // DecodeFrom implements types.DecoderFrom.
@@ -746,8 +748,6 @@ func (fce *FileContractElement) DecodeFrom(d *Decoder) {
 func (rev *FileContractRevision) DecodeFrom(d *Decoder) {
 	rev.Parent.DecodeFrom(d)
 	rev.Revision.DecodeFrom(d)
-	rev.RenterSignature.DecodeFrom(d)
-	rev.HostSignature.DecodeFrom(d)
 }
 
 // DecodeFrom implements types.DecoderFrom.
