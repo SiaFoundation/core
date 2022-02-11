@@ -382,37 +382,43 @@ func (vc *ValidationContext) validFileContracts(txn types.Transaction) error {
 	return nil
 }
 
+func (vc *ValidationContext) validateRevision(cur, rev types.FileContract) error {
+	curValidSum := cur.ValidRenterOutput.Value.Add(cur.ValidHostOutput.Value)
+	revValidSum, validOverflow := rev.ValidRenterOutput.Value.AddWithOverflow(rev.ValidHostOutput.Value)
+	revMissedSum, missedOverflow := rev.MissedRenterOutput.Value.AddWithOverflow(rev.MissedHostOutput.Value)
+	if validOverflow || missedOverflow {
+		return ErrOverflow
+	}
+	switch {
+	case rev.RevisionNumber <= cur.RevisionNumber:
+		return fmt.Errorf("does not increase revision number (%v -> %v)", cur.RevisionNumber, rev.RevisionNumber)
+	case !revValidSum.Equals(curValidSum):
+		return fmt.Errorf("modifies valid output sum (%v -> %v)", curValidSum, revValidSum)
+	case revMissedSum.Cmp(revValidSum) > 0:
+		return fmt.Errorf("has missed output sum (%v) exceeding valid output sum (%v)", revMissedSum, revValidSum)
+	case rev.WindowEnd <= rev.WindowStart:
+		return fmt.Errorf("has proof window (%v - %v) that ends before it begins", rev.WindowStart, rev.WindowEnd)
+	}
+
+	// verify signatures
+	//
+	// NOTE: very important that we verify with the *current* keys!
+	contractHash := vc.ContractSigHash(rev)
+	if !cur.RenterPublicKey.VerifyHash(contractHash, rev.RenterSignature) {
+		return fmt.Errorf("has invalid renter signature")
+	} else if !cur.HostPublicKey.VerifyHash(contractHash, rev.HostSignature) {
+		return fmt.Errorf("has invalid host signature")
+	}
+	return nil
+}
+
 func (vc *ValidationContext) validFileContractRevisions(txn types.Transaction) error {
 	for i, fcr := range txn.FileContractRevisions {
 		cur, rev := fcr.Parent.FileContract, fcr.Revision
 		if vc.Index.Height > cur.WindowStart {
 			return fmt.Errorf("file contract revision %v cannot be applied to contract whose proof window (%v - %v) has already begun", i, cur.WindowStart, cur.WindowEnd)
-		}
-		curValidSum := cur.ValidRenterOutput.Value.Add(cur.ValidHostOutput.Value)
-		revValidSum, validOverflow := rev.ValidRenterOutput.Value.AddWithOverflow(rev.ValidHostOutput.Value)
-		revMissedSum, missedOverflow := rev.MissedRenterOutput.Value.AddWithOverflow(rev.MissedHostOutput.Value)
-		if validOverflow || missedOverflow {
-			return ErrOverflow
-		}
-		switch {
-		case rev.RevisionNumber <= cur.RevisionNumber:
-			return fmt.Errorf("file contract revision %v does not increase revision number (%v -> %v)", i, cur.RevisionNumber, rev.RevisionNumber)
-		case !revValidSum.Equals(curValidSum):
-			return fmt.Errorf("file contract revision %v modifies valid output sum (%v -> %v)", i, curValidSum, revValidSum)
-		case revMissedSum.Cmp(revValidSum) > 0:
-			return fmt.Errorf("file contract revision %v has missed output sum (%v) exceeding valid output sum (%v)", i, revMissedSum, revValidSum)
-		case rev.WindowEnd <= rev.WindowStart:
-			return fmt.Errorf("file contract revision %v has proof window (%v - %v) that ends before it begins", i, rev.WindowStart, rev.WindowEnd)
-		}
-
-		// verify signatures
-		//
-		// NOTE: very important that we verify with the *current* keys!
-		contractHash := vc.ContractSigHash(rev)
-		if !cur.RenterPublicKey.VerifyHash(contractHash, rev.RenterSignature) {
-			return fmt.Errorf("file contract revision %v has invalid renter signature", i)
-		} else if !cur.HostPublicKey.VerifyHash(contractHash, rev.HostSignature) {
-			return fmt.Errorf("file contract revision %v has invalid host signature", i)
+		} else if err := vc.validateRevision(cur, rev); err != nil {
+			return fmt.Errorf("file contract revision %v %s", i, err)
 		}
 	}
 	return nil
@@ -421,19 +427,28 @@ func (vc *ValidationContext) validFileContractRevisions(txn types.Transaction) e
 func (vc *ValidationContext) validFileContractResolutions(txn types.Transaction) error {
 	for i, fcr := range txn.FileContractResolutions {
 		fc := fcr.Parent.FileContract
-		if fcr.HasStorageProof() {
+		if fcr.HasFinalization() {
+			// renter and host have agreed upon an explicit final contract
+			// state; this can be done at any point before WindowEnd (even
+			// before WindowStart)
+			if fc.WindowEnd < vc.Index.Height {
+				return fmt.Errorf("file contract finalization %v cannot be applied to contract whose proof window (%v - %v) has expired", i, fc.WindowStart, fc.WindowEnd)
+			} else if err := vc.validateRevision(fc, fcr.Finalization); err != nil {
+				return fmt.Errorf("file contract finalization %v %s", i, err)
+			}
+		} else if fcr.HasStorageProof() {
 			// we must be within the proof window
 			if vc.Index.Height < fc.WindowStart || fc.WindowEnd < vc.Index.Height {
-				return fmt.Errorf("file contract resolution %v attempts to claim valid outputs, but proof window (%v - %v) has expired", i, fc.WindowStart, fc.WindowEnd)
+				return fmt.Errorf("storage proof %v attempts to claim valid outputs, but proof window (%v - %v) has expired", i, fc.WindowStart, fc.WindowEnd)
 			}
 			// validate storage proof
 			if fcr.StorageProof.WindowStart.Height != fc.WindowStart {
 				// see note on this field in types.StorageProof
-				return fmt.Errorf("file contract resolution %v has storage proof with WindowStart (%v) that does not match contract WindowStart (%v)", i, fcr.StorageProof.WindowStart.Height, fc.WindowStart)
+				return fmt.Errorf("storage proof %v has WindowStart (%v) that does not match contract WindowStart (%v)", i, fcr.StorageProof.WindowStart.Height, fc.WindowStart)
 			}
 			segmentIndex := vc.StorageProofSegmentIndex(fc.Filesize, fcr.StorageProof.WindowStart, fcr.Parent.ID)
 			if merkle.StorageProofRoot(fcr.StorageProof, segmentIndex) != fc.FileMerkleRoot {
-				return fmt.Errorf("file contract resolution %v has storage proof root that does not match contract Merkle root", i)
+				return fmt.Errorf("storage proof %v has root that does not match contract Merkle root", i)
 			}
 		} else {
 			// contract must have expired

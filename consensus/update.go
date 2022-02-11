@@ -111,15 +111,14 @@ func updatedInBlock(vc ValidationContext, b types.Block, apply bool) (scos []typ
 			if apply {
 				fce.FileContract = fcr.Revision
 			}
-			if fcr.Revision.CanResolveEarly() {
-				resolved = append(resolved, fce)
-			} else {
-				revised = append(revised, fce)
-			}
+			revised = append(revised, fce)
 			addLeaf(merkle.FileContractLeaf(fce, false))
 		}
 		for _, fcr := range txn.FileContractResolutions {
 			fce := fcr.Parent
+			if apply && fcr.HasFinalization() {
+				fce.FileContract = fcr.Finalization
+			}
 			resolved = append(resolved, fce)
 			addLeaf(merkle.FileContractLeaf(fce, apply))
 		}
@@ -220,24 +219,14 @@ func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinEl
 				FileContract: fc,
 			})
 		}
-		for _, fcr := range txn.FileContractRevisions {
-			if fcr.Revision.CanResolveEarly() {
-				addSiacoinElement(types.SiacoinElement{
-					StateElement:  nextElement(),
-					SiacoinOutput: fcr.Revision.ValidRenterOutput,
-					Timelock:      vc.MaturityHeight(),
-				})
-				addSiacoinElement(types.SiacoinElement{
-					StateElement:  nextElement(),
-					SiacoinOutput: fcr.Revision.ValidHostOutput,
-					Timelock:      vc.MaturityHeight(),
-				})
-			}
-		}
 		for _, fcr := range txn.FileContractResolutions {
 			fce := fcr.Parent
-			renter, host := fce.ValidRenterOutput, fce.ValidHostOutput
-			if !fcr.HasStorageProof() {
+			var renter, host types.SiacoinOutput
+			if fcr.HasStorageProof() {
+				renter, host = fce.ValidRenterOutput, fce.ValidHostOutput
+			} else if fcr.HasFinalization() {
+				renter, host = fcr.Finalization.ValidRenterOutput, fcr.Finalization.ValidHostOutput
+			} else {
 				renter, host = fce.MissedRenterOutput, fce.MissedHostOutput
 			}
 			addSiacoinElement(types.SiacoinElement{

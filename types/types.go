@@ -35,7 +35,7 @@ const EphemeralLeafIndex = math.MaxUint64
 // MaxRevisionNumber is used to finalize a FileContract. When a contract's
 // RevisionNumber is set to this value, no further revisions are possible. This
 // allows contracts to be resolved "early" in some cases; see
-// (FileContract).CanResolveEarly.
+// FileContractResolution.
 const MaxRevisionNumber = math.MaxUint64
 
 // A Hash256 is a generic 256-bit cryptographic hash.
@@ -140,16 +140,6 @@ type FileContract struct {
 	HostSignature   Signature
 }
 
-// CanResolveEarly returns true if fc cannot be revised and its valid resolution
-// is equivalent to its missed resolution. When these conditions are met, the
-// funds locked in the contract can be released immediately and without the need
-// for a storage proof.
-func (fc *FileContract) CanResolveEarly() bool {
-	return fc.RevisionNumber == MaxRevisionNumber &&
-		fc.ValidRenterOutput == fc.MissedRenterOutput &&
-		fc.ValidHostOutput == fc.MissedHostOutput
-}
-
 // A SiacoinInput spends an unspent SiacoinElement in the state accumulator by
 // revealing its public key and signing the transaction.
 type SiacoinInput struct {
@@ -175,14 +165,29 @@ type FileContractRevision struct {
 	Revision FileContract
 }
 
-// A FileContractResolution closes a file contract's payment channel. If a valid
-// storage proof is provided within the contract's proof window, the channel
-// resolves as "valid." After the window has ended, anyone may submit a
-// resolution (omitting the storage proof), which will cause the contract to
-// resolve as "missed."
+// A FileContractResolution closes a file contract's payment channel. There are
+// three ways a contract can be resolved:
+//
+// 1) The host can submit a valid storage proof within the contract's proof
+// window. This is considered a "valid" resolution.
+//
+// 2) The renter and host can sign a final contract revision (a "finalization"),
+// setting the contract's revision number to its maximum legal value. A
+// finalization can be submitted at any time prior to the contract's WindowEnd.
+// This is considered a "valid" resolution.
+//
+// 3) After the proof window has expired, anyone can submit an empty resolution
+// with no storage proof or finalization. This is considered a "missed"
+// resolution.
 type FileContractResolution struct {
 	Parent       FileContractElement
 	StorageProof StorageProof
+	Finalization FileContract
+}
+
+// HasFinalization returns true if the resolution contains a finalization.
+func (fcr *FileContractResolution) HasFinalization() bool {
+	return fcr.Finalization.RevisionNumber == MaxRevisionNumber
 }
 
 // HasStorageProof returns true if any fields in the resolution's StorageProof

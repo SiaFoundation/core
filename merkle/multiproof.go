@@ -293,11 +293,13 @@ type compressedFileContractResolution types.FileContractResolution
 func (res compressedFileContractResolution) EncodeTo(e *types.Encoder) {
 	(compressedFileContractElement)(res.Parent).EncodeTo(e)
 	res.StorageProof.EncodeTo(e)
+	res.Finalization.EncodeTo(e)
 }
 
 func (res *compressedFileContractResolution) DecodeFrom(d *types.Decoder) {
 	(*compressedFileContractElement)(&res.Parent).DecodeFrom(d)
 	res.StorageProof.DecodeFrom(d)
+	res.Finalization.DecodeFrom(d)
 }
 
 type compressedTransaction types.Transaction

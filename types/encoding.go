@@ -410,6 +410,7 @@ func (sp StorageProof) EncodeTo(e *Encoder) {
 func (res FileContractResolution) EncodeTo(e *Encoder) {
 	res.Parent.EncodeTo(e)
 	res.StorageProof.EncodeTo(e)
+	res.Finalization.EncodeTo(e)
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -762,6 +763,7 @@ func (sp *StorageProof) DecodeFrom(d *Decoder) {
 func (res *FileContractResolution) DecodeFrom(d *Decoder) {
 	res.Parent.DecodeFrom(d)
 	res.StorageProof.DecodeFrom(d)
+	res.Finalization.DecodeFrom(d)
 }
 
 // DecodeFrom implements types.DecoderFrom.
