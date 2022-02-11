@@ -74,10 +74,9 @@ func applyHeader(vc *ValidationContext, h types.BlockHeader) {
 		vc.Index = h.Index()
 		return
 	}
-	blockWork := types.WorkRequiredForHash(h.ID())
-	vc.TotalWork = vc.TotalWork.Add(blockWork)
+	vc.TotalWork = vc.TotalWork.Add(vc.Difficulty)
 	parentTimestamp := vc.PrevTimestamps[vc.numTimestamps()-1]
-	vc.OakTime, vc.OakWork = updateOakTotals(vc.OakTime, h.Timestamp.Sub(parentTimestamp), vc.OakWork, blockWork)
+	vc.OakTime, vc.OakWork = updateOakTotals(vc.OakTime, h.Timestamp.Sub(parentTimestamp), vc.OakWork, vc.Difficulty)
 	vc.Difficulty = adjustDifficulty(vc.Difficulty, h.Height, h.Timestamp.Sub(vc.GenesisTimestamp), vc.OakTime, vc.OakWork)
 	if vc.numTimestamps() < len(vc.PrevTimestamps) {
 		vc.PrevTimestamps[vc.numTimestamps()] = h.Timestamp
