@@ -510,6 +510,10 @@ func TestFileContracts(t *testing.T) {
 		FileContracts: []types.FileContract{initialRev},
 		MinerFee:      renterOutput.Value.Add(hostOutput.Value).Sub(outputSum),
 	}
+	fc := &txn.FileContracts[0]
+	contractHash := sau.Context.ContractSigHash(*fc)
+	fc.RenterSignature = renterPrivkey.SignHash(contractHash)
+	fc.HostSignature = hostPrivkey.SignHash(contractHash)
 	sigHash := sau.Context.SigHash(txn)
 	txn.SiacoinInputs[0].Signatures = []types.InputSignature{types.InputSignature(renterPrivkey.SignHash(sigHash))}
 	txn.SiacoinInputs[1].Signatures = []types.InputSignature{types.InputSignature(hostPrivkey.SignHash(sigHash))}
@@ -523,8 +527,8 @@ func TestFileContracts(t *testing.T) {
 	if len(sau.NewFileContracts) != 1 {
 		t.Fatal("expected one new file contract")
 	}
-	fc := sau.NewFileContracts[0]
-	if !sau.Context.State.ContainsUnresolvedFileContractElement(fc) {
+	fce := sau.NewFileContracts[0]
+	if !sau.Context.State.ContainsUnresolvedFileContractElement(fce) {
 		t.Fatal("accumulator should contain unresolved contract")
 	}
 	if sau.Context.SiafundPool != sau.Context.FileContractTax(initialRev) {
@@ -535,17 +539,17 @@ func TestFileContracts(t *testing.T) {
 	// the final revision
 	data := frand.Bytes(64 * 2)
 	finalRev := types.FileContractRevision{
-		Parent:   fc,
-		Revision: fc.FileContract,
+		Parent:   fce,
+		Revision: fce.FileContract,
 	}
 	finalRev.Revision.FileMerkleRoot = merkle.NodeHash(
 		merkle.StorageProofLeafHash(data[:64]),
 		merkle.StorageProofLeafHash(data[64:]),
 	)
 	finalRev.Revision.RevisionNumber++
-	contractHash := sau.Context.ContractSigHash(finalRev.Revision)
-	finalRev.RenterSignature = renterPrivkey.SignHash(contractHash)
-	finalRev.HostSignature = hostPrivkey.SignHash(contractHash)
+	contractHash = sau.Context.ContractSigHash(finalRev.Revision)
+	finalRev.Revision.RenterSignature = renterPrivkey.SignHash(contractHash)
+	finalRev.Revision.HostSignature = hostPrivkey.SignHash(contractHash)
 	txn = types.Transaction{
 		FileContractRevisions: []types.FileContractRevision{finalRev},
 	}
@@ -558,8 +562,8 @@ func TestFileContracts(t *testing.T) {
 	if len(sau.RevisedFileContracts) != 1 {
 		t.Fatal("expected one revised file contract")
 	}
-	fc = sau.RevisedFileContracts[0]
-	sau.UpdateElementProof(&fc.StateElement)
+	fce = sau.RevisedFileContracts[0]
+	sau.UpdateElementProof(&fce.StateElement)
 
 	// mine until we enter the proof window
 	//
@@ -568,13 +572,13 @@ func TestFileContracts(t *testing.T) {
 	for sau.Context.Index.Height < fc.WindowStart {
 		b = mineBlock(sau.Context, b)
 		sau = ApplyBlock(sau.Context, b)
-		sau.UpdateElementProof(&fc.StateElement)
+		sau.UpdateElementProof(&fce.StateElement)
 	}
 	sp := types.StorageProof{
 		WindowStart: sau.Context.Index,
 		WindowProof: sau.HistoryProof(),
 	}
-	proofIndex := sau.Context.StorageProofSegmentIndex(fc.Filesize, sp.WindowStart, fc.ID)
+	proofIndex := sau.Context.StorageProofSegmentIndex(fc.Filesize, sp.WindowStart, fce.ID)
 	copy(sp.DataSegment[:], data[64*proofIndex:])
 	if proofIndex == 0 {
 		sp.SegmentProof = append(sp.SegmentProof, merkle.StorageProofLeafHash(data[64:]))
@@ -585,7 +589,7 @@ func TestFileContracts(t *testing.T) {
 	// create valid contract resolution
 	txn = types.Transaction{
 		FileContractResolutions: []types.FileContractResolution{{
-			Parent:       fc,
+			Parent:       fce,
 			StorageProof: sp,
 		}},
 	}
@@ -671,6 +675,9 @@ func TestEarlyContractResolution(t *testing.T) {
 		RenterPublicKey: renterPubkey,
 		HostPublicKey:   hostPubkey,
 	}
+	contractHash := sau.Context.ContractSigHash(initialRev)
+	initialRev.RenterSignature = renterPrivkey.SignHash(contractHash)
+	initialRev.HostSignature = hostPrivkey.SignHash(contractHash)
 	outputSum := initialRev.ValidRenterOutput.Value.Add(initialRev.ValidHostOutput.Value).Add(sau.Context.FileContractTax(initialRev))
 	txn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{
@@ -706,13 +713,13 @@ func TestEarlyContractResolution(t *testing.T) {
 	finalRev.RevisionNumber = types.MaxRevisionNumber
 	finalRev.MissedRenterOutput = finalRev.ValidRenterOutput
 	finalRev.MissedHostOutput = finalRev.ValidHostOutput
-	contractHash := sau.Context.ContractSigHash(finalRev)
+	contractHash = sau.Context.ContractSigHash(finalRev)
+	finalRev.RenterSignature = renterPrivkey.SignHash(contractHash)
+	finalRev.HostSignature = hostPrivkey.SignHash(contractHash)
 	txn = types.Transaction{
 		FileContractRevisions: []types.FileContractRevision{{
-			Parent:          fc,
-			Revision:        finalRev,
-			RenterSignature: renterPrivkey.SignHash(contractHash),
-			HostSignature:   hostPrivkey.SignHash(contractHash),
+			Parent:   fc,
+			Revision: finalRev,
 		}},
 	}
 
@@ -772,6 +779,9 @@ func TestRevertFileContractRevision(t *testing.T) {
 		RenterPublicKey: renterPubkey,
 		HostPublicKey:   hostPubkey,
 	}
+	contractHash := vc.ContractSigHash(initialRev)
+	initialRev.RenterSignature = renterPrivkey.SignHash(contractHash)
+	initialRev.HostSignature = hostPrivkey.SignHash(contractHash)
 	outputSum := initialRev.ValidRenterOutput.Value.Add(initialRev.ValidHostOutput.Value).Add(vc.FileContractTax(initialRev))
 	txn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{
@@ -797,22 +807,22 @@ func TestRevertFileContractRevision(t *testing.T) {
 	if len(sau.NewFileContracts) != 1 {
 		t.Fatal("expected one new file contract")
 	}
-	fc := sau.NewFileContracts[0]
-	if !vc.State.ContainsUnresolvedFileContractElement(fc) {
+	fce := sau.NewFileContracts[0]
+	if !vc.State.ContainsUnresolvedFileContractElement(fce) {
 		t.Fatal("accumulator should contain unresolved contract")
-	} else if !reflect.DeepEqual(fc.FileContract, initialRev) {
+	} else if !reflect.DeepEqual(fce.FileContract, initialRev) {
 		t.Fatal("expected file contract to match initial revision")
 	}
 
 	// create a revision of the contract
 	rev1 := types.FileContractRevision{
-		Parent:   fc,
-		Revision: fc.FileContract,
+		Parent:   fce,
+		Revision: fce.FileContract,
 	}
 	rev1.Revision.RevisionNumber = 2
-	contractHash := vc.ContractSigHash(rev1.Revision)
-	rev1.RenterSignature = renterPrivkey.SignHash(contractHash)
-	rev1.HostSignature = hostPrivkey.SignHash(contractHash)
+	contractHash = vc.ContractSigHash(rev1.Revision)
+	rev1.Revision.RenterSignature = renterPrivkey.SignHash(contractHash)
+	rev1.Revision.HostSignature = hostPrivkey.SignHash(contractHash)
 	parent, b = b, mineBlock(vc, b, types.Transaction{
 		FileContractRevisions: []types.FileContractRevision{rev1},
 	})
@@ -824,21 +834,21 @@ func TestRevertFileContractRevision(t *testing.T) {
 	if len(sau.RevisedFileContracts) != 1 {
 		t.Fatal("expected one revised file contract")
 	}
-	fc = sau.RevisedFileContracts[0]
-	if !reflect.DeepEqual(fc.FileContract, rev1.Revision) {
+	fce = sau.RevisedFileContracts[0]
+	if !reflect.DeepEqual(fce.FileContract, rev1.Revision) {
 		t.Fatal("revision 1 should be applied")
 	}
-	sau.UpdateElementProof(&fc.StateElement)
+	sau.UpdateElementProof(&fce.StateElement)
 
 	// create a second revision of the contract
 	rev2 := types.FileContractRevision{
-		Parent:   fc,
-		Revision: fc.FileContract,
+		Parent:   fce,
+		Revision: fce.FileContract,
 	}
 	rev2.Revision.RevisionNumber = 4
 	contractHash = vc.ContractSigHash(rev2.Revision)
-	rev2.RenterSignature = renterPrivkey.SignHash(contractHash)
-	rev2.HostSignature = hostPrivkey.SignHash(contractHash)
+	rev2.Revision.RenterSignature = renterPrivkey.SignHash(contractHash)
+	rev2.Revision.HostSignature = hostPrivkey.SignHash(contractHash)
 	parent, b = b, mineBlock(vc, b, types.Transaction{
 		FileContractRevisions: []types.FileContractRevision{rev2},
 	})
@@ -850,32 +860,32 @@ func TestRevertFileContractRevision(t *testing.T) {
 	if len(sau.RevisedFileContracts) != 1 {
 		t.Fatal("expected one revised file contract")
 	}
-	fc = sau.RevisedFileContracts[0]
-	if !reflect.DeepEqual(fc.FileContract, rev2.Revision) {
+	fce = sau.RevisedFileContracts[0]
+	if !reflect.DeepEqual(fce.FileContract, rev2.Revision) {
 		t.Fatal("revision 2 should be applied")
 	}
-	sau.UpdateElementProof(&fc.StateElement)
+	sau.UpdateElementProof(&fce.StateElement)
 
 	// revert the revision and confirm that the contract is reverted to it's
 	// rev1 state.
 	sru := RevertBlock(prevVC, b)
 	b = parent
 	vc = sru.Context
-	fc = sru.RevisedFileContracts[0]
-	if !reflect.DeepEqual(fc.FileContract, rev1.Revision) {
+	fce = sru.RevisedFileContracts[0]
+	if !reflect.DeepEqual(fce.FileContract, rev1.Revision) {
 		t.Fatal("contract should revert to revision 1")
 	}
-	sru.UpdateElementProof(&fc.StateElement)
+	sru.UpdateElementProof(&fce.StateElement)
 
 	// create a final revision of the contract
 	rev3 := types.FileContractRevision{
-		Parent:   fc,
-		Revision: fc.FileContract,
+		Parent:   fce,
+		Revision: fce.FileContract,
 	}
 	rev3.Revision.RevisionNumber = 3
 	contractHash = vc.ContractSigHash(rev3.Revision)
-	rev3.RenterSignature = renterPrivkey.SignHash(contractHash)
-	rev3.HostSignature = hostPrivkey.SignHash(contractHash)
+	rev3.Revision.RenterSignature = renterPrivkey.SignHash(contractHash)
+	rev3.Revision.HostSignature = hostPrivkey.SignHash(contractHash)
 	txn = types.Transaction{
 		FileContractRevisions: []types.FileContractRevision{rev3},
 	}
@@ -888,8 +898,8 @@ func TestRevertFileContractRevision(t *testing.T) {
 	if len(sau.RevisedFileContracts) != 1 {
 		t.Fatal("expected one revised file contract")
 	}
-	fc = sau.RevisedFileContracts[0]
-	if !reflect.DeepEqual(fc.FileContract, rev3.Revision) {
+	fce = sau.RevisedFileContracts[0]
+	if !reflect.DeepEqual(fce.FileContract, rev3.Revision) {
 		t.Fatal("revision 3 should be applied")
 	}
 }

@@ -438,28 +438,27 @@ func (pe *ProgramExecutor) ExecuteInstruction(r io.Reader, w io.Writer, instruct
 // FinalizeContract updates the contract to reflect the final state of the
 // program.
 func (pe *ProgramExecutor) FinalizeContract(req rhp.RPCFinalizeProgramRequest) (rhp.Contract, error) {
-	revision := pe.contract
-	revision.Revision.RevisionNumber = req.NewRevisionNumber
-	req.NewOutputs.Apply(&revision.Revision)
+	c := pe.contract
+	c.Revision.RevisionNumber = req.NewRevisionNumber
+	req.NewOutputs.Apply(&c.Revision)
 	// update the contract's merkle root and file size.
-	revision.Revision.FileMerkleRoot = pe.newMerkleRoot
-	revision.Revision.Filesize = pe.newFileSize
+	c.Revision.FileMerkleRoot = pe.newMerkleRoot
+	c.Revision.Filesize = pe.newFileSize
 
-	sigHash := pe.vc.ContractSigHash(revision.Revision)
-	revision.HostSignature = pe.privkey.SignHash(sigHash)
-	revision.RenterSignature = req.Signature
+	c.Revision.RenterSignature = req.Signature
+	c.Revision.HostSignature = pe.privkey.SignHash(pe.vc.ContractSigHash(c.Revision))
 
 	// validate that the renter's revision is valid and only transfers the
 	// additional collateral and storage costs to the void. All other
 	// costs have already been paid by the RPC budget.
-	if err := rhp.ValidateProgramRevision(pe.vc, pe.contract, revision, pe.additionalStorage, pe.additionalCollateral); err != nil {
+	if err := rhp.ValidateProgramRevision(pe.vc, pe.contract, c, pe.additionalStorage, pe.additionalCollateral); err != nil {
 		return rhp.Contract{}, fmt.Errorf("failed to verify contract revision: %w", err)
-	} else if err := pe.contracts.Revise(revision); err != nil {
+	} else if err := pe.contracts.Revise(c); err != nil {
 		return rhp.Contract{}, fmt.Errorf("failed to revise contract: %w", err)
-	} else if err := pe.contracts.SetRoots(revision.ID, pe.newRoots); err != nil {
+	} else if err := pe.contracts.SetRoots(c.ID, pe.newRoots); err != nil {
 		return rhp.Contract{}, fmt.Errorf("failed to set new roots: %w", err)
 	}
-	return revision, nil
+	return c, nil
 }
 
 // Revert removes the sectors that were added by the program. If

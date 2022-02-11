@@ -134,6 +134,10 @@ type FileContract struct {
 	RenterPublicKey    PublicKey
 	HostPublicKey      PublicKey
 	RevisionNumber     uint64
+
+	// signatures cover above fields
+	RenterSignature Signature
+	HostSignature   Signature
 }
 
 // CanResolveEarly returns true if fc cannot be revised and its valid resolution
@@ -167,10 +171,8 @@ type SiafundInput struct {
 
 // A FileContractRevision updates the state of an existing file contract.
 type FileContractRevision struct {
-	Parent          FileContractElement
-	Revision        FileContract
-	RenterSignature Signature
-	HostSignature   Signature
+	Parent   FileContractElement
+	Revision FileContract
 }
 
 // A FileContractResolution closes a file contract's payment channel. If a valid
