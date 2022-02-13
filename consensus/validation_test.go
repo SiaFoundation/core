@@ -3,6 +3,8 @@ package consensus
 import (
 	"encoding/binary"
 	"math"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -1105,6 +1107,289 @@ func TestValidateBlock(t *testing.T) {
 		test.corrupt(&corruptBlock)
 		if err := vc.ValidateBlock(corruptBlock); err == nil {
 			t.Fatalf("accepted block with %v", test.desc)
+		}
+	}
+}
+
+func TestNoDoubleContractUpdates(t *testing.T) {
+	renterPub, renterPriv := testingKeypair(0)
+	hostPub, hostPriv := testingKeypair(1)
+	renterAddr := types.StandardAddress(renterPub)
+	hostAddr := types.StandardAddress(hostPub)
+	genesis := genesisWithSiacoinOutputs(types.SiacoinOutput{
+		Address: renterAddr,
+		Value:   types.Siacoins(100),
+	}, types.SiacoinOutput{
+		Address: hostAddr,
+		Value:   types.Siacoins(100),
+	})
+	sau := GenesisUpdate(genesis, testingDifficulty)
+	vc := sau.Context
+
+	signRevision := func(fc *types.FileContract) {
+		sigHash := vc.ContractSigHash(*fc)
+		fc.HostSignature = hostPriv.SignHash(sigHash)
+		fc.RenterSignature = renterPriv.SignHash(sigHash)
+	}
+
+	// Mine a block with a new file contract.
+	fc := types.FileContract{
+		WindowStart: 20,
+		WindowEnd:   30,
+		ValidRenterOutput: types.SiacoinOutput{
+			Address: renterAddr,
+			Value:   types.Siacoins(5),
+		},
+		ValidHostOutput: types.SiacoinOutput{
+			Address: hostAddr,
+			Value:   types.Siacoins(10),
+		},
+		MissedRenterOutput: types.SiacoinOutput{
+			Address: renterAddr,
+			Value:   types.Siacoins(5),
+		},
+		MissedHostOutput: types.SiacoinOutput{
+			Address: hostAddr,
+			Value:   types.Siacoins(10),
+		},
+		RenterPublicKey: renterPub,
+		HostPublicKey:   hostPub,
+	}
+	signRevision(&fc)
+	formationTxn := types.Transaction{
+		SiacoinInputs: []types.SiacoinInput{
+			{Parent: sau.NewSiacoinElements[1], SpendPolicy: types.PolicyPublicKey(renterPub)},
+			{Parent: sau.NewSiacoinElements[2], SpendPolicy: types.PolicyPublicKey(hostPub)},
+		},
+		SiacoinOutputs: []types.SiacoinOutput{
+			{Address: renterAddr, Value: types.Siacoins(90)},
+			{Address: hostAddr, Value: types.Siacoins(95).Sub(vc.FileContractTax(fc))},
+		},
+		FileContracts: []types.FileContract{fc},
+	}
+	sigHash := vc.SigHash(formationTxn)
+	formationTxn.SiacoinInputs[0].Signatures = []types.InputSignature{types.InputSignature(renterPriv.SignHash(sigHash))}
+	formationTxn.SiacoinInputs[1].Signatures = []types.InputSignature{types.InputSignature(hostPriv.SignHash(sigHash))}
+	b := mineBlock(vc, genesis, formationTxn)
+	if err := vc.ValidateBlock(b); err != nil {
+		t.Fatal(err)
+	}
+	sau = ApplyBlock(vc, b)
+	vc = sau.Context
+	if len(sau.NewFileContracts) != 1 {
+		t.Fatal("expected 1 new file contract")
+	}
+	fce := sau.NewFileContracts[0]
+
+	// mine additional blocks
+	for i := 0; i < 5; i++ {
+		b = mineBlock(vc, b)
+		if err := vc.ValidateBlock(b); err != nil {
+			t.Fatal(err)
+		}
+		sau = ApplyBlock(vc, b)
+		vc = sau.Context
+		sau.UpdateElementProof(&fce.StateElement)
+	}
+
+	// helper function to return a signed revision of the file contract with the
+	// given revision number.
+	newRevision := func(n uint64) types.FileContract {
+		fc := fce.FileContract
+		fc.RevisionNumber = n
+		signRevision(&fc)
+		return fc
+	}
+
+	tests := [][]types.Transaction{
+		{
+			{
+				FileContractRevisions: []types.FileContractRevision{
+					{Parent: fce, Revision: newRevision(2)},
+				},
+			},
+			{
+				FileContractRevisions: []types.FileContractRevision{
+					{Parent: fce, Revision: newRevision(3)},
+				},
+			},
+		},
+		{
+			{
+				FileContractRevisions: []types.FileContractRevision{
+					{Parent: fce, Revision: newRevision(2)},
+					{Parent: fce, Revision: newRevision(3)},
+				},
+			},
+		},
+		{
+			{
+				FileContractRevisions: []types.FileContractRevision{
+					{Parent: fce, Revision: newRevision(2)},
+				},
+			},
+			{
+				FileContractResolutions: []types.FileContractResolution{
+					{Parent: fce, Finalization: newRevision(types.MaxRevisionNumber)},
+				},
+			},
+		},
+		{
+			{
+				FileContractResolutions: []types.FileContractResolution{
+					{Parent: fce, Finalization: newRevision(types.MaxRevisionNumber)},
+					{Parent: fce, Finalization: newRevision(types.MaxRevisionNumber)},
+				},
+			},
+		},
+	}
+
+	for i, set := range tests {
+		if err := vc.ValidateBlock(mineBlock(vc, b, set...)); err == nil {
+			t.Fatalf("test %v: expected invalid block error", i)
+		} else if !strings.Contains(err.Error(), "multiple times (previously updated in transaction") { // TODO: use errors.Is?
+			t.Fatalf("test %v: expected multiple update error, got %v", i, err)
+		}
+	}
+
+	// apply a final revision
+	data := frand.Bytes(64 * 2)
+	revisionTxn := types.Transaction{
+		FileContractRevisions: []types.FileContractRevision{
+			{Parent: fce, Revision: fce.FileContract},
+		},
+	}
+	revisionTxn.FileContractRevisions[0].Revision.FileMerkleRoot = merkle.NodeHash(
+		merkle.StorageProofLeafHash(data[:64]),
+		merkle.StorageProofLeafHash(data[64:]),
+	)
+	revisionTxn.FileContractRevisions[0].Revision.RevisionNumber++
+	sigHash = vc.ContractSigHash(revisionTxn.FileContractRevisions[0].Revision)
+	revisionTxn.FileContractRevisions[0].Revision.RenterSignature = renterPriv.SignHash(sigHash)
+	revisionTxn.FileContractRevisions[0].Revision.HostSignature = hostPriv.SignHash(sigHash)
+	b = mineBlock(vc, b, revisionTxn)
+	if err := vc.ValidateBlock(b); err != nil {
+		t.Fatal(err)
+	}
+	sau = ApplyBlock(vc, b)
+	vc = sau.Context
+	if len(sau.RevisedFileContracts) != 1 {
+		t.Fatal("expected 1 revised file contract")
+	} else if !reflect.DeepEqual(sau.RevisedFileContracts[0].FileContract, revisionTxn.FileContractRevisions[0].Revision) {
+		t.Fatal("final revision did not match")
+	}
+	fce = sau.RevisedFileContracts[0]
+
+	// mine until the contract proof window
+	for i := vc.Index.Height; i < fc.WindowStart; i++ {
+		b = mineBlock(vc, b)
+		if err := vc.ValidateBlock(b); err != nil {
+			t.Fatal(err)
+		}
+		sau = ApplyBlock(vc, b)
+		vc = sau.Context
+		sau.UpdateElementProof(&fce.StateElement)
+	}
+
+	// build a vaild proof for the contract
+	proof := types.StorageProof{
+		WindowStart: vc.Index,
+		WindowProof: sau.HistoryProof(),
+	}
+	proofIndex := sau.Context.StorageProofSegmentIndex(fc.Filesize, proof.WindowStart, fce.ID)
+	copy(proof.DataSegment[:], data[64*proofIndex:])
+	if proofIndex == 0 {
+		proof.SegmentProof = append(proof.SegmentProof, merkle.StorageProofLeafHash(data[64:]))
+	} else {
+		proof.SegmentProof = append(proof.SegmentProof, merkle.StorageProofLeafHash(data[:64]))
+	}
+
+	tests = [][]types.Transaction{
+		{
+			{
+				FileContractResolutions: []types.FileContractResolution{
+					{Parent: fce, StorageProof: proof},
+					{Parent: fce, Finalization: newRevision(types.MaxRevisionNumber)},
+				},
+			},
+		},
+		{
+			{
+				FileContractResolutions: []types.FileContractResolution{
+					{Parent: fce, StorageProof: proof},
+				},
+			},
+			{
+				FileContractResolutions: []types.FileContractResolution{
+					{Parent: fce, StorageProof: proof},
+				},
+			},
+		},
+		{
+			{
+				FileContractResolutions: []types.FileContractResolution{
+					{Parent: fce, Finalization: newRevision(types.MaxRevisionNumber)},
+					{Parent: fce, Finalization: newRevision(types.MaxRevisionNumber)},
+				},
+			},
+		},
+	}
+
+	for i, set := range tests {
+		if err := vc.ValidateBlock(mineBlock(vc, b, set...)); err == nil {
+			t.Fatalf("test %v: expected invalid block error", i)
+		} else if !strings.Contains(err.Error(), "multiple times (previously updated in transaction") { // TODO: use errors.Is?
+			t.Fatalf("test %v: expected multiple update error, got %v", i, err)
+		}
+	}
+
+	// mine until after contract proof window
+	for i := vc.Index.Height; i < fc.WindowEnd+1; i++ {
+		b = mineBlock(vc, b)
+		if err := vc.ValidateBlock(b); err != nil {
+			t.Fatal(err)
+		}
+		sau = ApplyBlock(vc, b)
+		vc = sau.Context
+		sau.UpdateElementProof(&fce.StateElement)
+	}
+
+	tests = [][]types.Transaction{
+		{
+			{
+				FileContractResolutions: []types.FileContractResolution{
+					{Parent: fce},
+					{Parent: fce, Finalization: newRevision(types.MaxRevisionNumber)},
+				},
+			},
+		},
+		{
+			{
+				FileContractResolutions: []types.FileContractResolution{
+					{Parent: fce},
+				},
+			},
+			{
+				FileContractResolutions: []types.FileContractResolution{
+					{Parent: fce},
+				},
+			},
+		},
+		{
+			{
+				FileContractResolutions: []types.FileContractResolution{
+					{Parent: fce, Finalization: newRevision(types.MaxRevisionNumber)},
+					{Parent: fce, Finalization: newRevision(types.MaxRevisionNumber)},
+				},
+			},
+		},
+	}
+
+	for i, set := range tests {
+		if err := vc.ValidateBlock(mineBlock(vc, b, set...)); err == nil {
+			t.Fatalf("test %v: expected invalid block error", i)
+		} else if !strings.Contains(err.Error(), "multiple times (previously updated in transaction") { // TODO: use errors.Is?
+			t.Fatalf("test %v: expected multiple update error, got %v", i, err)
 		}
 	}
 }
