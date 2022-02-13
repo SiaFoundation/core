@@ -371,9 +371,12 @@ func (vc *ValidationContext) validFileContracts(txn types.Transaction) error {
 	for i, fc := range txn.FileContracts {
 		validSum := fc.ValidRenterOutput.Value.Add(fc.ValidHostOutput.Value)
 		missedSum := fc.MissedRenterOutput.Value.Add(fc.MissedHostOutput.Value)
-		if missedSum.Cmp(validSum) > 0 {
+		switch {
+		case missedSum.Cmp(validSum) > 0:
 			return fmt.Errorf("file contract %v has missed output sum (%v SC) exceeding valid output sum (%v SC)", i, missedSum, validSum)
-		} else if fc.WindowEnd <= fc.WindowStart {
+		case fc.WindowEnd <= vc.Index.Height:
+			return fmt.Errorf("file contract %v has proof window (%v-%v) that ends in the past", i, fc.WindowStart, fc.WindowEnd)
+		case fc.WindowEnd <= fc.WindowStart:
 			return fmt.Errorf("file contract %v has proof window (%v-%v) that ends before it begins", i, fc.WindowStart, fc.WindowEnd)
 		}
 		contractHash := vc.ContractSigHash(fc)
@@ -400,6 +403,8 @@ func (vc *ValidationContext) validateRevision(cur, rev types.FileContract) error
 		return fmt.Errorf("modifies valid output sum (%v -> %v)", curValidSum, revValidSum)
 	case revMissedSum.Cmp(revValidSum) > 0:
 		return fmt.Errorf("has missed output sum (%v) exceeding valid output sum (%v)", revMissedSum, revValidSum)
+	case rev.WindowEnd <= vc.Index.Height:
+		return fmt.Errorf("has proof window (%v-%v) that ends in the past", rev.WindowStart, rev.WindowEnd)
 	case rev.WindowEnd <= rev.WindowStart:
 		return fmt.Errorf("has proof window (%v - %v) that ends before it begins", rev.WindowStart, rev.WindowEnd)
 	}
