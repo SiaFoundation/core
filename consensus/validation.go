@@ -756,6 +756,25 @@ func (vc *ValidationContext) noDoubleSpends(txns []types.Transaction) error {
 	return nil
 }
 
+func (vc *ValidationContext) noDoubleContractUpdates(txns []types.Transaction) error {
+	updated := make(map[types.ElementID]int)
+	for i, txn := range txns {
+		for _, in := range txn.FileContractRevisions {
+			if prev, ok := updated[in.Parent.ID]; ok {
+				return fmt.Errorf("transaction set is invalid: transaction %v updates contract %v multiple times (previously updated in transaction %v)", i, in.Parent.ID, prev)
+			}
+			updated[in.Parent.ID] = i
+		}
+		for _, in := range txn.FileContractResolutions {
+			if prev, ok := updated[in.Parent.ID]; ok {
+				return fmt.Errorf("transaction set is invalid: transaction %v updates contract %v multiple times (previously updated in transaction %v)", i, in.Parent.ID, prev)
+			}
+			updated[in.Parent.ID] = i
+		}
+	}
+	return nil
+}
+
 // ValidateTransactionSet validates txns in their corresponding validation context.
 func (vc *ValidationContext) ValidateTransactionSet(txns []types.Transaction) error {
 	if vc.BlockWeight(txns) > vc.MaxBlockWeight() {
@@ -763,6 +782,8 @@ func (vc *ValidationContext) ValidateTransactionSet(txns []types.Transaction) er
 	} else if err := vc.validEphemeralOutputs(txns); err != nil {
 		return err
 	} else if err := vc.noDoubleSpends(txns); err != nil {
+		return err
+	} else if err := vc.noDoubleContractUpdates(txns); err != nil {
 		return err
 	}
 	for i, txn := range txns {
