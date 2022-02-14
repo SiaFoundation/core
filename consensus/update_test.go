@@ -638,6 +638,234 @@ func TestFileContracts(t *testing.T) {
 	}
 }
 
+func TestContractRenewal(t *testing.T) {
+	renterPubkey, renterPrivkey := testingKeypair(0)
+	hostPubkey, hostPrivkey := testingKeypair(1)
+	b := genesisWithSiacoinOutputs(types.SiacoinOutput{
+		Address: types.StandardAddress(renterPubkey),
+		Value:   types.Siacoins(100),
+	}, types.SiacoinOutput{
+		Address: types.StandardAddress(hostPubkey),
+		Value:   types.Siacoins(7),
+	}, types.SiacoinOutput{
+		Address: types.StandardAddress(renterPubkey),
+		Value:   types.Siacoins(200),
+	})
+	sau := GenesisUpdate(b, testingDifficulty)
+	renterOutput := sau.NewSiacoinElements[1]
+	hostOutput := sau.NewSiacoinElements[2]
+	renewOutput := sau.NewSiacoinElements[3]
+
+	// form initial contract
+	initialRev := types.FileContract{
+		WindowStart: 5,
+		WindowEnd:   10,
+		ValidRenterOutput: types.SiacoinOutput{
+			Address: types.StandardAddress(renterPubkey),
+			Value:   types.Siacoins(58),
+		},
+		ValidHostOutput: types.SiacoinOutput{
+			Address: types.StandardAddress(hostPubkey),
+			Value:   types.Siacoins(19),
+		},
+		MissedRenterOutput: types.SiacoinOutput{
+			Address: types.StandardAddress(renterPubkey),
+			Value:   types.Siacoins(60),
+		},
+		MissedHostOutput: types.SiacoinOutput{
+			Address: types.StandardAddress(hostPubkey),
+			Value:   types.Siacoins(17),
+		},
+		RenterPublicKey: renterPubkey,
+		HostPublicKey:   hostPubkey,
+	}
+	contractHash := sau.Context.ContractSigHash(initialRev)
+	initialRev.RenterSignature = renterPrivkey.SignHash(contractHash)
+	initialRev.HostSignature = hostPrivkey.SignHash(contractHash)
+	outputSum := initialRev.ValidRenterOutput.Value.Add(initialRev.ValidHostOutput.Value).Add(sau.Context.FileContractTax(initialRev))
+	txn := types.Transaction{
+		SiacoinInputs: []types.SiacoinInput{
+			{Parent: renterOutput, SpendPolicy: types.PolicyPublicKey(renterPubkey)},
+			{Parent: hostOutput, SpendPolicy: types.PolicyPublicKey(hostPubkey)},
+		},
+		FileContracts: []types.FileContract{initialRev},
+		MinerFee:      renterOutput.Value.Add(hostOutput.Value).Sub(outputSum),
+	}
+	sigHash := sau.Context.InputSigHash(txn)
+	txn.SiacoinInputs[0].Signatures = []types.Signature{renterPrivkey.SignHash(sigHash)}
+	txn.SiacoinInputs[1].Signatures = []types.Signature{hostPrivkey.SignHash(sigHash)}
+
+	b = mineBlock(sau.Context, b, txn)
+	if err := sau.Context.ValidateBlock(b); err != nil {
+		t.Fatal(err)
+	}
+	sau = ApplyBlock(sau.Context, b)
+	sau.UpdateElementProof(&renewOutput.StateElement)
+
+	if len(sau.NewFileContracts) != 1 {
+		t.Fatal("expected one new file contract")
+	}
+	fc := sau.NewFileContracts[0]
+	if !sau.Context.State.ContainsUnresolvedFileContractElement(fc) {
+		t.Fatal("accumulator should contain unresolved contract")
+	}
+
+	// construct the renewal by finalizing the old contract and initializing the
+	// new contract, rolling over some SC into the new contract
+	finalRev := fc.FileContract
+	finalRev.RevisionNumber = types.MaxRevisionNumber
+	contractHash = sau.Context.ContractSigHash(finalRev)
+	finalRev.RenterSignature = renterPrivkey.SignHash(contractHash)
+	finalRev.HostSignature = hostPrivkey.SignHash(contractHash)
+
+	initialRev = fc.FileContract
+	initialRev.RevisionNumber = 0
+	initialRev.WindowStart += 10
+	initialRev.WindowEnd += 10
+	initialRev.ValidRenterOutput.Value = types.Siacoins(100)
+	initialRev.ValidHostOutput.Value = types.Siacoins(100)
+	initialRev.MissedRenterOutput.Value = types.Siacoins(100)
+	initialRev.MissedHostOutput.Value = types.Siacoins(100)
+	contractHash = sau.Context.ContractSigHash(initialRev)
+	initialRev.RenterSignature = renterPrivkey.SignHash(contractHash)
+	initialRev.HostSignature = hostPrivkey.SignHash(contractHash)
+
+	renewal := types.FileContractRenewal{
+		FinalRevision:   finalRev,
+		InitialRevision: initialRev,
+		RenterRollover:  types.Siacoins(3),
+		HostRollover:    types.Siacoins(6),
+	}
+	renewalHash := sau.Context.RenewalSigHash(renewal)
+	renewal.RenterSignature = renterPrivkey.SignHash(renewalHash)
+	renewal.HostSignature = hostPrivkey.SignHash(renewalHash)
+
+	// since we increased the amount of value in the contract, we need to add
+	// more inputs
+	rollover := renewal.RenterRollover.Add(renewal.HostRollover)
+	contractCost := initialRev.ValidRenterOutput.Value.Add(initialRev.ValidHostOutput.Value).Add(sau.Context.FileContractTax(initialRev)).Sub(rollover)
+	txn = types.Transaction{
+		SiacoinInputs: []types.SiacoinInput{{
+			Parent:      renewOutput,
+			SpendPolicy: types.PolicyPublicKey(renterPubkey),
+		}},
+		FileContractResolutions: []types.FileContractResolution{{
+			Parent:  fc,
+			Renewal: renewal,
+		}},
+		MinerFee: renewOutput.Value.Sub(contractCost),
+	}
+	sigHash = sau.Context.InputSigHash(txn)
+	txn.SiacoinInputs[0].Signatures = []types.Signature{renterPrivkey.SignHash(sigHash)}
+
+	// after applying the transaction, we should observe a number of effects:
+	// - the old contract should be marked resolved
+	// - the new contract should be created
+	// - the old contract payouts, sans rollover, should be created
+	b = mineBlock(sau.Context, b, txn)
+	if err := sau.Context.ValidateBlock(b); err != nil {
+		t.Fatal(err)
+	}
+	sau = ApplyBlock(sau.Context, b)
+	expRenterOutput := types.SiacoinOutput{
+		Value:   finalRev.ValidRenterOutput.Value.Sub(renewal.RenterRollover),
+		Address: finalRev.ValidRenterOutput.Address,
+	}
+	expHostOutput := types.SiacoinOutput{
+		Value:   finalRev.ValidHostOutput.Value.Sub(renewal.HostRollover),
+		Address: finalRev.ValidHostOutput.Address,
+	}
+	if len(sau.ResolvedFileContracts) != 1 {
+		t.Fatal("expected one resolved file contract")
+	} else if len(sau.NewFileContracts) != 1 {
+		t.Fatal("expected one created file contract")
+	} else if len(sau.NewSiacoinElements) != 3 {
+		t.Fatal("expected three new siacoin outputs")
+	} else if sau.NewSiacoinElements[1].SiacoinOutput != expRenterOutput {
+		t.Fatal("expected valid renter output to be created", sau.NewSiacoinElements[1].SiacoinOutput, expRenterOutput)
+	} else if sau.NewSiacoinElements[1].Timelock != sau.Context.MaturityHeight()-1 {
+		t.Fatal("renter output has wrong maturity height")
+	} else if sau.NewSiacoinElements[2].SiacoinOutput != expHostOutput {
+		t.Fatal("expected valid host output to be created", sau.NewSiacoinElements[2].SiacoinOutput, expHostOutput)
+	} else if sau.NewSiacoinElements[2].Timelock != sau.Context.MaturityHeight()-1 {
+		t.Fatal("host output has wrong maturity height")
+	}
+	fc = sau.NewFileContracts[0]
+	if !sau.Context.State.ContainsUnresolvedFileContractElement(fc) {
+		t.Fatal("accumulator should contain unresolved contract")
+	}
+
+	// renew the contract again, this time with a total value less than the
+	// current contract; no additional funding should be required
+	finalRev = fc.FileContract
+	finalRev.RevisionNumber = types.MaxRevisionNumber
+	contractHash = sau.Context.ContractSigHash(finalRev)
+	finalRev.RenterSignature = renterPrivkey.SignHash(contractHash)
+	finalRev.HostSignature = hostPrivkey.SignHash(contractHash)
+
+	initialRev = fc.FileContract
+	initialRev.RevisionNumber = 0
+	initialRev.WindowStart += 10
+	initialRev.WindowEnd += 10
+	initialRev.ValidRenterOutput.Value = types.Siacoins(10)
+	initialRev.ValidHostOutput.Value = types.Siacoins(10)
+	initialRev.MissedRenterOutput.Value = types.Siacoins(10)
+	initialRev.MissedHostOutput.Value = types.Siacoins(10)
+	contractHash = sau.Context.ContractSigHash(initialRev)
+	initialRev.RenterSignature = renterPrivkey.SignHash(contractHash)
+	initialRev.HostSignature = hostPrivkey.SignHash(contractHash)
+
+	renewal = types.FileContractRenewal{
+		FinalRevision:   finalRev,
+		InitialRevision: initialRev,
+		RenterRollover:  types.Siacoins(17).Add(sau.Context.FileContractTax(initialRev)),
+		HostRollover:    types.Siacoins(3),
+	}
+	renewalHash = sau.Context.RenewalSigHash(renewal)
+	renewal.RenterSignature = renterPrivkey.SignHash(renewalHash)
+	renewal.HostSignature = hostPrivkey.SignHash(renewalHash)
+
+	txn = types.Transaction{
+		FileContractResolutions: []types.FileContractResolution{{
+			Parent:  fc,
+			Renewal: renewal,
+		}},
+	}
+
+	// apply the transaction
+	b = mineBlock(sau.Context, b, txn)
+	if err := sau.Context.ValidateBlock(b); err != nil {
+		t.Fatal(err)
+	}
+	sau = ApplyBlock(sau.Context, b)
+	for i, sce := range sau.NewSiacoinElements {
+		t.Log(i, sce.SiacoinOutput)
+	}
+	expRenterOutput = types.SiacoinOutput{
+		Value:   finalRev.ValidRenterOutput.Value.Sub(renewal.RenterRollover),
+		Address: finalRev.ValidRenterOutput.Address,
+	}
+	expHostOutput = types.SiacoinOutput{
+		Value:   finalRev.ValidHostOutput.Value.Sub(renewal.HostRollover),
+		Address: finalRev.ValidHostOutput.Address,
+	}
+	if len(sau.ResolvedFileContracts) != 1 {
+		t.Fatal("expected one resolved file contract")
+	} else if len(sau.NewFileContracts) != 1 {
+		t.Fatal("expected one created file contract")
+	} else if len(sau.NewSiacoinElements) != 3 {
+		t.Fatal("expected three new siacoin outputs")
+	} else if sau.NewSiacoinElements[1].SiacoinOutput != expRenterOutput {
+		t.Fatal("expected valid renter output to be created", sau.NewSiacoinElements[1].SiacoinOutput, expRenterOutput)
+	} else if sau.NewSiacoinElements[1].Timelock != sau.Context.MaturityHeight()-1 {
+		t.Fatal("renter output has wrong maturity height")
+	} else if sau.NewSiacoinElements[2].SiacoinOutput != expHostOutput {
+		t.Fatal("expected valid host output to be created", sau.NewSiacoinElements[2].SiacoinOutput, expHostOutput)
+	} else if sau.NewSiacoinElements[2].Timelock != sau.Context.MaturityHeight()-1 {
+		t.Fatal("host output has wrong maturity height")
+	}
+}
+
 func TestContractFinalization(t *testing.T) {
 	renterPubkey, renterPrivkey := testingKeypair(0)
 	hostPubkey, hostPrivkey := testingKeypair(1)
@@ -661,7 +889,7 @@ func TestContractFinalization(t *testing.T) {
 			Value:   types.Siacoins(58),
 		},
 		ValidHostOutput: types.SiacoinOutput{
-			Address: types.StandardAddress(renterPubkey),
+			Address: types.StandardAddress(hostPubkey),
 			Value:   types.Siacoins(19),
 		},
 		MissedRenterOutput: types.SiacoinOutput{
@@ -669,7 +897,7 @@ func TestContractFinalization(t *testing.T) {
 			Value:   types.Siacoins(60),
 		},
 		MissedHostOutput: types.SiacoinOutput{
-			Address: types.StandardAddress(renterPubkey),
+			Address: types.StandardAddress(hostPubkey),
 			Value:   types.Siacoins(17),
 		},
 		RenterPublicKey: renterPubkey,

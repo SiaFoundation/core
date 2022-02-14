@@ -115,8 +115,12 @@ func updatedInBlock(vc ValidationContext, b types.Block, apply bool) (scos []typ
 		}
 		for _, fcr := range txn.FileContractResolutions {
 			fce := fcr.Parent
-			if apply && fcr.HasFinalization() {
-				fce.FileContract = fcr.Finalization
+			if apply {
+				if fcr.HasRenewal() {
+					fce.FileContract = fcr.Renewal.FinalRevision
+				} else if fcr.HasFinalization() {
+					fce.FileContract = fcr.Finalization
+				}
 			}
 			resolved = append(resolved, fce)
 			addLeaf(merkle.FileContractLeaf(fce, apply))
@@ -126,29 +130,8 @@ func updatedInBlock(vc ValidationContext, b types.Block, apply bool) (scos []typ
 	return
 }
 
-func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinElement, sfes []types.SiafundElement, fces []types.FileContractElement, leaves []merkle.ElementLeaf) {
-	spent := make(map[types.ElementID]bool)
-	for _, txn := range b.Transactions {
-		for _, in := range txn.SiacoinInputs {
-			if in.Parent.LeafIndex == types.EphemeralLeafIndex {
-				spent[in.Parent.ID] = true
-			}
-		}
-	}
-	addSiacoinElement := func(sce types.SiacoinElement) {
-		sces = append(sces, sce)
-		leaves = append(leaves, merkle.SiacoinLeaf(sce, spent[sce.ID]))
-	}
-	addSiafundElement := func(sfe types.SiafundElement) {
-		sfes = append(sfes, sfe)
-		leaves = append(leaves, merkle.SiafundLeaf(sfe, spent[sfe.ID]))
-	}
-	addFileContract := func(fce types.FileContractElement) {
-		fces = append(fces, fce)
-		leaves = append(leaves, merkle.FileContractLeaf(fce, spent[fce.ID]))
-	}
-
-	addSiacoinElement(types.SiacoinElement{
+func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinElement, sfes []types.SiafundElement, fces []types.FileContractElement) {
+	sces = append(sces, types.SiacoinElement{
 		StateElement: types.StateElement{
 			ID: types.ElementID{
 				Source: types.Hash256(b.ID()),
@@ -162,7 +145,7 @@ func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinEl
 		Timelock: vc.MaturityHeight(),
 	})
 	if subsidy := vc.FoundationSubsidy(); !subsidy.IsZero() {
-		addSiacoinElement(types.SiacoinElement{
+		sces = append(sces, types.SiacoinElement{
 			StateElement: types.StateElement{
 				ID: types.ElementID{
 					Source: types.Hash256(b.ID()),
@@ -190,13 +173,13 @@ func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinEl
 		}
 
 		for _, out := range txn.SiacoinOutputs {
-			addSiacoinElement(types.SiacoinElement{
+			sces = append(sces, types.SiacoinElement{
 				StateElement:  nextElement(),
 				SiacoinOutput: out,
 			})
 		}
 		for _, in := range txn.SiafundInputs {
-			addSiacoinElement(types.SiacoinElement{
+			sces = append(sces, types.SiacoinElement{
 				StateElement: nextElement(),
 				SiacoinOutput: types.SiacoinOutput{
 					Value:   vc.SiafundPool.Sub(in.Parent.ClaimStart).Div64(SiafundCount).Mul64(in.Parent.Value),
@@ -206,14 +189,14 @@ func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinEl
 			})
 		}
 		for _, out := range txn.SiafundOutputs {
-			addSiafundElement(types.SiafundElement{
+			sfes = append(sfes, types.SiafundElement{
 				StateElement:  nextElement(),
 				SiafundOutput: out,
 				ClaimStart:    vc.SiafundPool,
 			})
 		}
 		for _, fc := range txn.FileContracts {
-			addFileContract(types.FileContractElement{
+			fces = append(fces, types.FileContractElement{
 				StateElement: nextElement(),
 				FileContract: fc,
 			})
@@ -221,19 +204,27 @@ func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinEl
 		for _, fcr := range txn.FileContractResolutions {
 			fce := fcr.Parent
 			var renter, host types.SiacoinOutput
-			if fcr.HasStorageProof() {
+			if fcr.HasRenewal() {
+				renter, host = fcr.Renewal.FinalRevision.ValidRenterOutput, fcr.Renewal.FinalRevision.ValidHostOutput
+				renter.Value = renter.Value.Sub(fcr.Renewal.RenterRollover)
+				host.Value = host.Value.Sub(fcr.Renewal.HostRollover)
+				fces = append(fces, types.FileContractElement{
+					StateElement: nextElement(),
+					FileContract: fcr.Renewal.InitialRevision,
+				})
+			} else if fcr.HasStorageProof() {
 				renter, host = fce.ValidRenterOutput, fce.ValidHostOutput
 			} else if fcr.HasFinalization() {
 				renter, host = fcr.Finalization.ValidRenterOutput, fcr.Finalization.ValidHostOutput
 			} else {
 				renter, host = fce.MissedRenterOutput, fce.MissedHostOutput
 			}
-			addSiacoinElement(types.SiacoinElement{
+			sces = append(sces, types.SiacoinElement{
 				StateElement:  nextElement(),
 				SiacoinOutput: renter,
 				Timelock:      vc.MaturityHeight(),
 			})
-			addSiacoinElement(types.SiacoinElement{
+			sces = append(sces, types.SiacoinElement{
 				StateElement:  nextElement(),
 				SiacoinOutput: host,
 				Timelock:      vc.MaturityHeight(),
@@ -301,7 +292,24 @@ func ApplyBlock(vc ValidationContext, b types.Block) (au ApplyUpdate) {
 	// update elements
 	var updated, created []merkle.ElementLeaf
 	au.SpentSiacoins, au.SpentSiafunds, au.RevisedFileContracts, au.ResolvedFileContracts, updated = updatedInBlock(vc, b, true)
-	au.NewSiacoinElements, au.NewSiafundElements, au.NewFileContracts, created = createdInBlock(vc, b)
+	au.NewSiacoinElements, au.NewSiafundElements, au.NewFileContracts = createdInBlock(vc, b)
+	spent := make(map[types.ElementID]bool)
+	for _, txn := range b.Transactions {
+		for _, in := range txn.SiacoinInputs {
+			if in.Parent.LeafIndex == types.EphemeralLeafIndex {
+				spent[in.Parent.ID] = true
+			}
+		}
+	}
+	for _, sce := range au.NewSiacoinElements {
+		created = append(created, merkle.SiacoinLeaf(sce, spent[sce.ID]))
+	}
+	for _, sfe := range au.NewSiafundElements {
+		created = append(created, merkle.SiafundLeaf(sfe, spent[sfe.ID]))
+	}
+	for _, fce := range au.NewFileContracts {
+		created = append(created, merkle.FileContractLeaf(fce, spent[fce.ID]))
+	}
 	au.ElementApplyUpdate = vc.State.ApplyBlock(updated, created)
 	for i := range au.NewSiacoinElements {
 		au.NewSiacoinElements[i].StateElement = created[0].StateElement
@@ -389,7 +397,7 @@ func RevertBlock(vc ValidationContext, b types.Block) (ru RevertUpdate) {
 	ru.HistoryRevertUpdate = ru.Context.History.RevertBlock(b.Index())
 	var updated []merkle.ElementLeaf
 	ru.SpentSiacoins, ru.SpentSiafunds, ru.RevisedFileContracts, ru.ResolvedFileContracts, updated = updatedInBlock(vc, b, false)
-	ru.NewSiacoinElements, ru.NewSiafundElements, ru.NewFileContracts, _ = createdInBlock(vc, b)
+	ru.NewSiacoinElements, ru.NewSiafundElements, ru.NewFileContracts = createdInBlock(vc, b)
 	ru.ElementRevertUpdate = ru.Context.State.RevertBlock(updated)
 	return
 }

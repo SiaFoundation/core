@@ -164,28 +164,32 @@ type FileContractRevision struct {
 }
 
 // A FileContractResolution closes a file contract's payment channel. There are
-// three ways a contract can be resolved:
+// four ways a contract can be resolved:
 //
-// 1) The host can submit a valid storage proof within the contract's proof
+// 1) The renter and host can renew the contract. The old contract is finalized,
+// and a portion of its funds are "rolled over" into a new contract.
+//
+// 2) The host can submit a valid storage proof within the contract's proof
 // window. This is considered a "valid" resolution.
 //
-// 2) The renter and host can sign a final contract revision (a "finalization"),
+// 3) The renter and host can sign a final contract revision (a "finalization"),
 // setting the contract's revision number to its maximum legal value. A
 // finalization can be submitted at any time prior to the contract's WindowEnd.
 // This is considered a "valid" resolution.
 //
-// 3) After the proof window has expired, anyone can submit an empty resolution
+// 4) After the proof window has expired, anyone can submit an empty resolution
 // with no storage proof or finalization. This is considered a "missed"
 // resolution.
 type FileContractResolution struct {
 	Parent       FileContractElement
+	Renewal      FileContractRenewal
 	StorageProof StorageProof
 	Finalization FileContract
 }
 
-// HasFinalization returns true if the resolution contains a finalization.
-func (fcr *FileContractResolution) HasFinalization() bool {
-	return fcr.Finalization.RevisionNumber == MaxRevisionNumber
+// HasRenewal returns true if the resolution contains a renewal.
+func (fcr *FileContractResolution) HasRenewal() bool {
+	return fcr.Renewal.FinalRevision.RevisionNumber == MaxRevisionNumber
 }
 
 // HasStorageProof returns true if any fields in the resolution's StorageProof
@@ -194,6 +198,23 @@ func (fcr *FileContractResolution) HasStorageProof() bool {
 	sp := &fcr.StorageProof
 	return sp.WindowStart != (ChainIndex{}) || len(sp.WindowProof) > 0 ||
 		sp.DataSegment != ([64]byte{}) || len(sp.SegmentProof) > 0
+}
+
+// HasFinalization returns true if the resolution contains a finalization.
+func (fcr *FileContractResolution) HasFinalization() bool {
+	return fcr.Finalization.RevisionNumber == MaxRevisionNumber
+}
+
+// A FileContractRenewal renews a file contract.
+type FileContractRenewal struct {
+	FinalRevision   FileContract
+	InitialRevision FileContract
+	RenterRollover  Currency
+	HostRollover    Currency
+
+	// signatures cover above fields
+	RenterSignature Signature
+	HostSignature   Signature
 }
 
 // A StorageProof asserts the presence of a small segment of data within a
