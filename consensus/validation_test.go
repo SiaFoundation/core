@@ -34,7 +34,7 @@ func genesisWithSiacoinOutputs(scos ...types.SiacoinOutput) types.Block {
 }
 
 func signAllInputs(txn *types.Transaction, vc ValidationContext, priv types.PrivateKey) {
-	sigHash := vc.SigHash(*txn)
+	sigHash := vc.InputSigHash(*txn)
 	for i := range txn.SiacoinInputs {
 		txn.SiacoinInputs[i].Signatures = []types.InputSignature{types.InputSignature(priv.SignHash(sigHash))}
 	}
@@ -935,7 +935,7 @@ func TestValidateSpendPolicy(t *testing.T) {
 				SpendPolicy: tt.policy,
 			}},
 		}
-		sigHash := vc.SigHash(txn)
+		sigHash := vc.InputSigHash(txn)
 		txn.SiacoinInputs[0].Signatures = tt.sign(sigHash)
 		if err := vc.validSpendPolicies(txn); (err != nil) != tt.wantErr {
 			t.Fatalf("case %q failed: %v", tt.desc, err)
@@ -1167,7 +1167,7 @@ func TestNoDoubleContractUpdates(t *testing.T) {
 		},
 		FileContracts: []types.FileContract{fc},
 	}
-	sigHash := vc.SigHash(formationTxn)
+	sigHash := vc.InputSigHash(formationTxn)
 	formationTxn.SiacoinInputs[0].Signatures = []types.InputSignature{types.InputSignature(renterPriv.SignHash(sigHash))}
 	formationTxn.SiacoinInputs[1].Signatures = []types.InputSignature{types.InputSignature(hostPriv.SignHash(sigHash))}
 	b := mineBlock(vc, genesis, formationTxn)

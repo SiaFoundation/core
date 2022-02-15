@@ -514,7 +514,7 @@ func TestFileContracts(t *testing.T) {
 	contractHash := sau.Context.ContractSigHash(*fc)
 	fc.RenterSignature = renterPrivkey.SignHash(contractHash)
 	fc.HostSignature = hostPrivkey.SignHash(contractHash)
-	sigHash := sau.Context.SigHash(txn)
+	sigHash := sau.Context.InputSigHash(txn)
 	txn.SiacoinInputs[0].Signatures = []types.InputSignature{types.InputSignature(renterPrivkey.SignHash(sigHash))}
 	txn.SiacoinInputs[1].Signatures = []types.InputSignature{types.InputSignature(hostPrivkey.SignHash(sigHash))}
 
@@ -687,7 +687,7 @@ func TestContractFinalization(t *testing.T) {
 		FileContracts: []types.FileContract{initialRev},
 		MinerFee:      renterOutput.Value.Add(hostOutput.Value).Sub(outputSum),
 	}
-	sigHash := sau.Context.SigHash(txn)
+	sigHash := sau.Context.InputSigHash(txn)
 	txn.SiacoinInputs[0].Signatures = []types.InputSignature{types.InputSignature(renterPrivkey.SignHash(sigHash))}
 	txn.SiacoinInputs[1].Signatures = []types.InputSignature{types.InputSignature(hostPrivkey.SignHash(sigHash))}
 
@@ -791,7 +791,7 @@ func TestRevertFileContractRevision(t *testing.T) {
 		FileContracts: []types.FileContract{initialRev},
 		MinerFee:      renterOutput.Value.Add(hostOutput.Value).Sub(outputSum),
 	}
-	sigHash := vc.SigHash(txn)
+	sigHash := vc.InputSigHash(txn)
 	txn.SiacoinInputs[0].Signatures = []types.InputSignature{types.InputSignature(renterPrivkey.SignHash(sigHash))}
 	txn.SiacoinInputs[1].Signatures = []types.InputSignature{types.InputSignature(hostPrivkey.SignHash(sigHash))}
 
