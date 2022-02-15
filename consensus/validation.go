@@ -265,6 +265,10 @@ func (vc *ValidationContext) SigHash(txn types.Transaction) types.Hash256 {
 	for _, fcr := range txn.FileContractResolutions {
 		fcr.Parent.ID.EncodeTo(h.E)
 		fcr.StorageProof.WindowStart.EncodeTo(h.E)
+		fcr.Finalization.EncodeTo(h.E)
+	}
+	for _, a := range txn.Attestations {
+		a.EncodeTo(h.E)
 	}
 	h.E.WriteBytes(txn.ArbitraryData)
 	txn.NewFoundationAddress.EncodeTo(h.E)
