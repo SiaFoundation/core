@@ -3,7 +3,6 @@ package rhp
 import (
 	"errors"
 	"fmt"
-	"math"
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
@@ -139,100 +138,120 @@ func ValidateContractRenewal(existing, renewal types.FileContract, currentHeight
 	return nil
 }
 
-func validateStdRevision(vc consensus.ValidationContext, current, revision Contract) error {
+// ValidateContractFinalization verifies that the revision locks the current
+// contract by setting its revision number to the maximum legal value, no other
+// fields should change. Signatures are not validated.
+func ValidateContractFinalization(current, final types.FileContract) error {
 	switch {
-	case revision.Revision.RevisionNumber <= current.Revision.RevisionNumber:
-		return errors.New("revision number must increase")
-	case revision.Revision.WindowStart != current.Revision.WindowStart:
+	case current.Filesize != final.Filesize:
+		return errors.New("file size must not change")
+	case current.FileMerkleRoot != final.FileMerkleRoot:
+		return errors.New("file merkle root must not change")
+	case current.WindowStart != final.WindowStart:
 		return errors.New("window start must not change")
-	case revision.Revision.WindowEnd != current.Revision.WindowEnd:
+	case current.WindowEnd != final.WindowEnd:
 		return errors.New("window end must not change")
-	case revision.Revision.RenterPublicKey != current.Revision.RenterPublicKey:
+	case current.ValidRenterOutput != final.ValidRenterOutput:
+		return errors.New("valid renter output must not change")
+	case current.ValidHostOutput != final.ValidHostOutput:
+		return errors.New("valid host output must not change")
+	case current.MissedRenterOutput != final.MissedRenterOutput:
+		return errors.New("missed renter output must not change")
+	case current.MissedHostOutput != final.MissedHostOutput:
+		return errors.New("missed host output must not change")
+	case current.RenterPublicKey != final.RenterPublicKey:
 		return errors.New("renter public key must not change")
-	case revision.Revision.HostPublicKey != current.Revision.HostPublicKey:
+	case current.HostPublicKey != final.HostPublicKey:
 		return errors.New("host public key must not change")
-	case revision.Revision.ValidRenterOutput.Address != current.Revision.ValidRenterOutput.Address:
-		return errors.New("address of valid renter output must not change")
-	case revision.Revision.ValidHostOutput.Address != current.Revision.ValidHostOutput.Address:
-		return errors.New("address of valid host output must not change")
-	case revision.Revision.MissedRenterOutput.Address != current.Revision.MissedRenterOutput.Address:
-		return errors.New("address of missed renter output must not change")
-	case revision.Revision.MissedHostOutput.Address != current.Revision.MissedHostOutput.Address:
-		return errors.New("address of missed host output must not change")
+	case final.RevisionNumber != types.MaxRevisionNumber:
+		return errors.New("revision number must be max value")
 	}
-	return revision.ValidateSignatures(vc)
+	return nil
 }
 
-// ValidateProgramRevision verifies that a contract program revision is valid and
-// only the missed host output value is modified by the expected burn amount all
-// other usage will have been paid for by the RPC budget.
-func ValidateProgramRevision(vc consensus.ValidationContext, current, revision Contract, additionalStorage, additionalCollateral types.Currency) error {
-	// verify the new revision is valid given the existing revision, the public
-	// keys have not changed, and the signatures are correct.
-	if err := validateStdRevision(vc, current, revision); err != nil {
+func validateStdRevision(current, revision types.FileContract) error {
+	switch {
+	case revision.RevisionNumber <= current.RevisionNumber:
+		return errors.New("revision number must increase")
+	case revision.WindowStart != current.WindowStart:
+		return errors.New("window start must not change")
+	case revision.WindowEnd != current.WindowEnd:
+		return errors.New("window end must not change")
+	case revision.RenterPublicKey != current.RenterPublicKey:
+		return errors.New("renter public key must not change")
+	case revision.HostPublicKey != current.HostPublicKey:
+		return errors.New("host public key must not change")
+	case revision.ValidRenterOutput.Address != current.ValidRenterOutput.Address:
+		return errors.New("address of valid renter output must not change")
+	case revision.ValidHostOutput.Address != current.ValidHostOutput.Address:
+		return errors.New("address of valid host output must not change")
+	case revision.MissedRenterOutput.Address != current.MissedRenterOutput.Address:
+		return errors.New("address of missed renter output must not change")
+	case revision.MissedHostOutput.Address != current.MissedHostOutput.Address:
+		return errors.New("address of missed host output must not change")
+	}
+	return nil
+}
+
+// ValidateProgramRevision verifies that a contract program revision is valid
+// and only the missed host output value is modified by the expected burn amount
+// all other usage will have been paid for by the RPC budget. Signatures are not
+// validated.
+func ValidateProgramRevision(current, revision types.FileContract, additionalStorage, additionalCollateral types.Currency) error {
+	// verify the new revision is valid given the existing revision and the
+	// public keys have not changed
+	if err := validateStdRevision(current, revision); err != nil {
 		return err
 	}
 
 	expectedBurn := additionalStorage.Add(additionalCollateral)
-	if expectedBurn.Cmp(current.Revision.MissedHostOutput.Value) > 0 {
+	if expectedBurn.Cmp(current.MissedHostOutput.Value) > 0 {
 		return errors.New("expected burn amount is greater than the missed host output value")
 	}
-	missedHostValue := current.Revision.MissedHostOutput.Value.Sub(expectedBurn)
+	missedHostValue := current.MissedHostOutput.Value.Sub(expectedBurn)
 
 	switch {
-	case revision.Revision.MissedHostOutput.Value != missedHostValue:
+	case revision.MissedHostOutput.Value != missedHostValue:
 		return errors.New("revision has incorrect collateral transfer")
-	case revision.Revision.ValidHostOutput.Value != current.Revision.ValidHostOutput.Value:
+	case revision.ValidHostOutput.Value != current.ValidHostOutput.Value:
 		return errors.New("host valid output value should not change")
-	case revision.Revision.ValidRenterOutput.Value != current.Revision.ValidRenterOutput.Value:
+	case revision.ValidRenterOutput.Value != current.ValidRenterOutput.Value:
 		return errors.New("renter valid output value should not change")
-	case revision.Revision.MissedRenterOutput.Value != current.Revision.MissedRenterOutput.Value:
+	case revision.MissedRenterOutput.Value != current.MissedRenterOutput.Value:
 		return errors.New("renter missed output value should not change")
 	}
 	return nil
 }
 
-// ValidatePaymentRevision verifies that a payment revision is valid and the amount
-// is properly deducted from both renter outputs and added to both host outputs.
-func ValidatePaymentRevision(vc consensus.ValidationContext, current, revision Contract, amount types.Currency) error {
-	// verify the new revision is valid given the existing revision, the public
-	// keys have not changed, and the signatures are correct.
-	if err := validateStdRevision(vc, current, revision); err != nil {
+// ValidatePaymentRevision verifies that a payment revision is valid and the
+// amount is properly deducted from both renter outputs and added to both host
+// outputs. Signatures are not validated.
+func ValidatePaymentRevision(current, revision types.FileContract, amount types.Currency) error {
+	// verify the new revision is valid given the existing revision and the
+	// public keys have not changed.
+	if err := validateStdRevision(current, revision); err != nil {
 		return err
 	}
 
 	// validate that all fields are consistent with only transferring the amount
 	// from the renter payouts to the host payouts.
 	switch {
-	case revision.Revision.FileMerkleRoot != current.Revision.FileMerkleRoot:
+	case revision.FileMerkleRoot != current.FileMerkleRoot:
 		return errors.New("file merkle root must not change")
-	case revision.Revision.Filesize != current.Revision.Filesize:
+	case revision.Filesize != current.Filesize:
 		return errors.New("file size must not change")
-	case revision.Revision.MissedHostOutput.Value.Cmp(amount) < 0:
+	case revision.MissedHostOutput.Value.Cmp(amount) < 0:
 		return errors.New("host missed output value should increase by the amount")
-	case revision.Revision.ValidHostOutput.Value.Cmp(amount) < 0:
+	case revision.ValidHostOutput.Value.Cmp(amount) < 0:
 		return errors.New("host valid output value should increase by the amount")
-	case revision.Revision.MissedHostOutput.Value.Sub(amount) != current.Revision.MissedHostOutput.Value:
+	case revision.MissedHostOutput.Value.Sub(amount) != current.MissedHostOutput.Value:
 		return errors.New("host missed output value should increase by the amount")
-	case revision.Revision.ValidHostOutput.Value.Sub(amount) != current.Revision.ValidHostOutput.Value:
+	case revision.ValidHostOutput.Value.Sub(amount) != current.ValidHostOutput.Value:
 		return errors.New("host valid output value should increase by the amount")
-	case revision.Revision.MissedRenterOutput.Value.Add(amount) != current.Revision.MissedRenterOutput.Value:
+	case revision.MissedRenterOutput.Value.Add(amount) != current.MissedRenterOutput.Value:
 		return errors.New("renter missed output value should decrease by the amount")
-	case revision.Revision.ValidRenterOutput.Value.Add(amount) != current.Revision.ValidRenterOutput.Value:
+	case revision.ValidRenterOutput.Value.Add(amount) != current.ValidRenterOutput.Value:
 		return errors.New("renter valid output value should decrease by the amount")
-	}
-	return nil
-}
-
-// ValidateContractFinalization verifies that the revision clears the current
-// contract by setting its revision number to the maximum legal value.
-func ValidateContractFinalization(vc consensus.ValidationContext, current, final Contract) error {
-	// verify the new revision is valid given the existing revision, the public
-	// keys have not changed, and the signatures are correct.
-	if err := validateStdRevision(vc, current, final); err != nil {
-		return err
-	} else if final.Revision.RevisionNumber != math.MaxUint64 {
-		return errors.New("revision number must be max value")
 	}
 	return nil
 }
