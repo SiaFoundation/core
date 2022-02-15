@@ -69,7 +69,7 @@ func quickValue(t reflect.Type, rand *rand.Rand) reflect.Value {
 func TestEncoderRoundtrip(t *testing.T) {
 	tests := []EncoderTo{
 		Hash256{0: 0xAA, 31: 0xBB},
-		InputSignature{0: 0xAA, 63: 0xBB},
+		Signature{0: 0xAA, 63: 0xBB},
 		Work{NumHashes: [32]byte{0: 0xAA, 31: 0xBB}},
 		NewCurrency(5, 5),
 		ChainIndex{

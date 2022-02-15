@@ -102,9 +102,6 @@ func (pk PublicKey) VerifyHash(h Hash256, s Signature) bool {
 	return ed25519.Verify(pk[:], h[:], s[:])
 }
 
-// An InputSignature signs a transaction input.
-type InputSignature Signature
-
 // A SiacoinOutput is the recipient of some of the siacoins spent in a
 // transaction.
 type SiacoinOutput struct {
@@ -146,7 +143,7 @@ type FileContract struct {
 type SiacoinInput struct {
 	Parent      SiacoinElement
 	SpendPolicy SpendPolicy
-	Signatures  []InputSignature
+	Signatures  []Signature
 }
 
 // A SiafundInput spends an unspent SiafundElement in the state accumulator by
@@ -157,7 +154,7 @@ type SiafundInput struct {
 	Parent       SiafundElement
 	ClaimAddress Address
 	SpendPolicy  SpendPolicy
-	Signatures   []InputSignature
+	Signatures   []Signature
 }
 
 // A FileContractRevision updates the state of an existing file contract.
@@ -330,13 +327,13 @@ func (txn *Transaction) DeepCopy() Transaction {
 	c.SiacoinInputs = append([]SiacoinInput(nil), c.SiacoinInputs...)
 	for i := range c.SiacoinInputs {
 		c.SiacoinInputs[i].Parent.MerkleProof = append([]Hash256(nil), c.SiacoinInputs[i].Parent.MerkleProof...)
-		c.SiacoinInputs[i].Signatures = append([]InputSignature(nil), c.SiacoinInputs[i].Signatures...)
+		c.SiacoinInputs[i].Signatures = append([]Signature(nil), c.SiacoinInputs[i].Signatures...)
 	}
 	c.SiacoinOutputs = append([]SiacoinOutput(nil), c.SiacoinOutputs...)
 	c.SiafundInputs = append([]SiafundInput(nil), c.SiafundInputs...)
 	for i := range c.SiafundInputs {
 		c.SiafundInputs[i].Parent.MerkleProof = append([]Hash256(nil), c.SiafundInputs[i].Parent.MerkleProof...)
-		c.SiafundInputs[i].Signatures = append([]InputSignature(nil), c.SiafundInputs[i].Signatures...)
+		c.SiafundInputs[i].Signatures = append([]Signature(nil), c.SiafundInputs[i].Signatures...)
 	}
 	c.SiafundOutputs = append([]SiafundOutput(nil), c.SiafundOutputs...)
 	c.FileContracts = append([]FileContract(nil), c.FileContracts...)
@@ -704,13 +701,13 @@ func (tid TransactionID) MarshalJSON() ([]byte, error) { return marshalJSONHex("
 func (tid *TransactionID) UnmarshalJSON(b []byte) error { return unmarshalJSONHex(tid[:], "txid", b) }
 
 // String implements fmt.Stringer.
-func (is InputSignature) String() string { return stringerHex("sig", is[:]) }
+func (sig Signature) String() string { return stringerHex("sig", sig[:]) }
 
 // MarshalJSON implements json.Marshaler.
-func (is InputSignature) MarshalJSON() ([]byte, error) { return marshalJSONHex("sig", is[:]) }
+func (sig Signature) MarshalJSON() ([]byte, error) { return marshalJSONHex("sig", sig[:]) }
 
 // UnmarshalJSON implements json.Unmarshaler.
-func (is *InputSignature) UnmarshalJSON(b []byte) error { return unmarshalJSONHex(is[:], "sig", b) }
+func (sig *Signature) UnmarshalJSON(b []byte) error { return unmarshalJSONHex(sig[:], "sig", b) }
 
 // String implements fmt.Stringer.
 func (w Work) String() string { return new(big.Int).SetBytes(w.NumHashes[:]).String() }
