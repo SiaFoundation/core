@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -713,3 +714,21 @@ func (is *InputSignature) UnmarshalJSON(b []byte) error { return unmarshalJSONHe
 
 // String implements fmt.Stringer.
 func (w Work) String() string { return new(big.Int).SetBytes(w.NumHashes[:]).String() }
+
+// MarshalJSON implements json.Marshaler.
+func (w Work) MarshalJSON() ([]byte, error) {
+	return new(big.Int).SetBytes(w.NumHashes[:]).MarshalJSON()
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (w *Work) UnmarshalJSON(b []byte) error {
+	i := new(big.Int)
+	if err := json.Unmarshal(b, i); err != nil {
+		return err
+	} else if i.Sign() < 0 {
+		return errors.New("value cannot be negative")
+	} else if i.BitLen() > 128 {
+		return errors.New("value overflows Work representation")
+	}
+	return nil
+}
