@@ -78,7 +78,7 @@ type (
 		Get(types.ElementID) (rhp.Contract, error)
 		// Add stores the provided contract, overwriting any previous contract
 		// with the same ID.
-		Add(rhp.Contract, []types.Transaction) error
+		Add(rhp.Contract, types.Transaction) error
 		// ReviseContract updates the current revision associated with a contract.
 		Revise(rhp.Contract) error
 
@@ -96,7 +96,7 @@ type (
 		Unlock(types.ElementID)
 		// Add stores the provided contract, overwriting any previous contract
 		// with the same ID.
-		Add(rhp.Contract, []types.Transaction) error
+		Add(rhp.Contract, types.Transaction) error
 		// ReviseContract updates the current revision associated with a contract.
 		Revise(rhp.Contract) error
 
@@ -114,7 +114,7 @@ type (
 	// A TransactionPool broadcasts transaction sets to miners for inclusion in
 	// an upcoming block.
 	TransactionPool interface {
-		AddTransactionSet(txns []types.Transaction) error
+		AddTransaction(txn types.Transaction) error
 		RecommendedFee() types.Currency
 	}
 

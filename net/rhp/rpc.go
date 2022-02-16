@@ -59,21 +59,28 @@ var (
 
 // RPC request/response objects
 type (
-	// RPCContractRequest contains the request parameters for the FormContract
-	// and RenewContract RPCs. For the form contract RPC, a minimum of one
-	// transaction including a single file contract is required. For the renew
-	// contract RPC a minimum of two transactions are required, the first should
-	// finalize the existing contract and the second should include the renewed
-	// contract.
-	RPCContractRequest struct {
-		Transactions []types.Transaction
+	// RPCFormContractRequest contains the request parameters for the FormContract
+	// RPC.
+	RPCFormContractRequest struct {
+		Inputs   []types.SiacoinInput
+		Outputs  []types.SiacoinOutput
+		MinerFee types.Currency
+		Contract types.FileContract
+	}
+
+	// RPCRenewContractRequest contains the request parameters for the Renew
+	// RPC. Resolution must contain a valid contract renewal.
+	RPCRenewContractRequest struct {
+		Inputs     []types.SiacoinInput
+		Outputs    []types.SiacoinOutput
+		MinerFee   types.Currency
+		Resolution types.FileContractResolution
 	}
 
 	// RPCFormContractHostAdditions contains the parent transaction, inputs,
 	// outputs and contract signature added by the host when negotiating a file
 	// contract. It is expected that the inputs are not signed yet.
 	RPCFormContractHostAdditions struct {
-		Parents           []types.Transaction
 		Inputs            []types.SiacoinInput
 		Outputs           []types.SiacoinOutput
 		ContractSignature types.Signature
@@ -84,18 +91,27 @@ type (
 	// negotiating a contract renewal. It is expected that the inputs are not
 	// signed yet.
 	RPCRenewContractHostAdditions struct {
-		Parents               []types.Transaction
 		Inputs                []types.SiacoinInput
 		Outputs               []types.SiacoinOutput
+		HostRollover          types.Currency
 		FinalizationSignature types.Signature
+		InitialSignature      types.Signature
 		RenewalSignature      types.Signature
 	}
 
-	// RPCContractSignatures contains the signatures for a contract transaction.
-	// These signatures are sent by both the renter and host during contract
-	// formation.
+	// RPCContractSignatures contains the siacoin input signatures for a
+	// transaction. These signatures are sent by the renter and host during
+	// contract formation.
 	RPCContractSignatures struct {
 		SiacoinInputSignatures [][]types.Signature
+	}
+
+	// RPCRenewContractRenterSignatures contains the siacoin input and renewal
+	// signature for a transaction. These signatures are sent by the renter
+	// during contract renewal.
+	RPCRenewContractRenterSignatures struct {
+		SiacoinInputSignatures [][]types.Signature
+		RenewalSignature       types.Signature
 	}
 
 	// RPCLockRequest contains the request parameters for the Lock RPC.
@@ -220,32 +236,73 @@ func (ContractOutputs) maxLen() int {
 }
 
 // EncodeTo implements rpc.Object.
-func (r *RPCContractRequest) EncodeTo(e *types.Encoder) {
-	e.WritePrefix(len(r.Transactions))
-	for i := range r.Transactions {
-		r.Transactions[i].EncodeTo(e)
+func (r *RPCFormContractRequest) EncodeTo(e *types.Encoder) {
+	e.WritePrefix(len(r.Inputs))
+	for i := range r.Inputs {
+		r.Inputs[i].EncodeTo(e)
 	}
+	e.WritePrefix(len(r.Outputs))
+	for i := range r.Outputs {
+		r.Outputs[i].EncodeTo(e)
+	}
+	r.MinerFee.EncodeTo(e)
+	r.Contract.EncodeTo(e)
 }
 
 // DecodeFrom implements rpc.Object.
-func (r *RPCContractRequest) DecodeFrom(d *types.Decoder) {
-	r.Transactions = make([]types.Transaction, d.ReadPrefix())
-	for i := range r.Transactions {
-		r.Transactions[i].DecodeFrom(d)
+func (r *RPCFormContractRequest) DecodeFrom(d *types.Decoder) {
+	r.Inputs = make([]types.SiacoinInput, d.ReadPrefix())
+	for i := range r.Inputs {
+		r.Inputs[i].DecodeFrom(d)
 	}
+	r.Outputs = make([]types.SiacoinOutput, d.ReadPrefix())
+	for i := range r.Outputs {
+		r.Outputs[i].DecodeFrom(d)
+	}
+	r.MinerFee.DecodeFrom(d)
+	r.Contract.DecodeFrom(d)
 }
 
 // MaxLen implements rpc.Object.
-func (r *RPCContractRequest) MaxLen() int {
+func (r *RPCFormContractRequest) MaxLen() int {
+	return defaultMaxLen
+}
+
+// EncodeTo implements rpc.Object.
+func (r *RPCRenewContractRequest) EncodeTo(e *types.Encoder) {
+	e.WritePrefix(len(r.Inputs))
+	for i := range r.Inputs {
+		r.Inputs[i].EncodeTo(e)
+	}
+	e.WritePrefix(len(r.Outputs))
+	for i := range r.Outputs {
+		r.Outputs[i].EncodeTo(e)
+	}
+	r.MinerFee.EncodeTo(e)
+	r.Resolution.EncodeTo(e)
+}
+
+// DecodeFrom implements rpc.Object.
+func (r *RPCRenewContractRequest) DecodeFrom(d *types.Decoder) {
+	r.Inputs = make([]types.SiacoinInput, d.ReadPrefix())
+	for i := range r.Inputs {
+		r.Inputs[i].DecodeFrom(d)
+	}
+	r.Outputs = make([]types.SiacoinOutput, d.ReadPrefix())
+	for i := range r.Outputs {
+		r.Outputs[i].DecodeFrom(d)
+	}
+	r.MinerFee.DecodeFrom(d)
+	r.Resolution.DecodeFrom(d)
+}
+
+// MaxLen implements rpc.Object.
+func (r *RPCRenewContractRequest) MaxLen() int {
 	return largeMaxLen
 }
 
 // EncodeTo implements rpc.Object.
 func (r *RPCFormContractHostAdditions) EncodeTo(e *types.Encoder) {
-	e.WritePrefix(len(r.Parents))
-	for i := range r.Parents {
-		r.Parents[i].EncodeTo(e)
-	}
 	e.WritePrefix(len(r.Inputs))
 	for i := range r.Inputs {
 		r.Inputs[i].EncodeTo(e)
@@ -259,10 +316,6 @@ func (r *RPCFormContractHostAdditions) EncodeTo(e *types.Encoder) {
 
 // DecodeFrom implements rpc.Object.
 func (r *RPCFormContractHostAdditions) DecodeFrom(d *types.Decoder) {
-	r.Parents = make([]types.Transaction, d.ReadPrefix())
-	for i := range r.Parents {
-		r.Parents[i].DecodeFrom(d)
-	}
 	r.Inputs = make([]types.SiacoinInput, d.ReadPrefix())
 	for i := range r.Inputs {
 		r.Inputs[i].DecodeFrom(d)
@@ -281,10 +334,6 @@ func (r *RPCFormContractHostAdditions) MaxLen() int {
 
 // EncodeTo implements rpc.Object.
 func (r *RPCRenewContractHostAdditions) EncodeTo(e *types.Encoder) {
-	e.WritePrefix(len(r.Parents))
-	for i := range r.Parents {
-		r.Parents[i].EncodeTo(e)
-	}
 	e.WritePrefix(len(r.Inputs))
 	for i := range r.Inputs {
 		r.Inputs[i].EncodeTo(e)
@@ -293,16 +342,14 @@ func (r *RPCRenewContractHostAdditions) EncodeTo(e *types.Encoder) {
 	for i := range r.Outputs {
 		r.Outputs[i].EncodeTo(e)
 	}
+	r.HostRollover.EncodeTo(e)
 	r.FinalizationSignature.EncodeTo(e)
+	r.InitialSignature.EncodeTo(e)
 	r.RenewalSignature.EncodeTo(e)
 }
 
 // DecodeFrom implements rpc.Object.
 func (r *RPCRenewContractHostAdditions) DecodeFrom(d *types.Decoder) {
-	r.Parents = make([]types.Transaction, d.ReadPrefix())
-	for i := range r.Parents {
-		r.Parents[i].DecodeFrom(d)
-	}
 	r.Inputs = make([]types.SiacoinInput, d.ReadPrefix())
 	for i := range r.Inputs {
 		r.Inputs[i].DecodeFrom(d)
@@ -311,13 +358,15 @@ func (r *RPCRenewContractHostAdditions) DecodeFrom(d *types.Decoder) {
 	for i := range r.Outputs {
 		r.Outputs[i].DecodeFrom(d)
 	}
+	r.HostRollover.DecodeFrom(d)
 	r.FinalizationSignature.DecodeFrom(d)
+	r.InitialSignature.DecodeFrom(d)
 	r.RenewalSignature.DecodeFrom(d)
 }
 
 // MaxLen implements rpc.Object.
 func (r *RPCRenewContractHostAdditions) MaxLen() int {
-	return largeMaxLen
+	return defaultMaxLen
 }
 
 // EncodeTo implements rpc.Object.
@@ -344,6 +393,35 @@ func (r *RPCContractSignatures) DecodeFrom(d *types.Decoder) {
 
 // MaxLen implements rpc.Object.
 func (r *RPCContractSignatures) MaxLen() int {
+	return defaultMaxLen
+}
+
+// EncodeTo implements rpc.Object.
+func (r *RPCRenewContractRenterSignatures) EncodeTo(e *types.Encoder) {
+	e.WritePrefix(len(r.SiacoinInputSignatures))
+	for i := range r.SiacoinInputSignatures {
+		e.WritePrefix(len(r.SiacoinInputSignatures[i]))
+		for j := range r.SiacoinInputSignatures[i] {
+			r.SiacoinInputSignatures[i][j].EncodeTo(e)
+		}
+	}
+	r.RenewalSignature.EncodeTo(e)
+}
+
+// DecodeFrom implements rpc.Object.
+func (r *RPCRenewContractRenterSignatures) DecodeFrom(d *types.Decoder) {
+	r.SiacoinInputSignatures = make([][]types.Signature, d.ReadPrefix())
+	for i := range r.SiacoinInputSignatures {
+		r.SiacoinInputSignatures[i] = make([]types.Signature, d.ReadPrefix())
+		for j := range r.SiacoinInputSignatures[i] {
+			r.SiacoinInputSignatures[i][j].DecodeFrom(d)
+		}
+	}
+	r.RenewalSignature.DecodeFrom(d)
+}
+
+// MaxLen implements rpc.Object.
+func (r *RPCRenewContractRenterSignatures) MaxLen() int {
 	return defaultMaxLen
 }
 

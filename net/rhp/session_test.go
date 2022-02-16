@@ -149,17 +149,24 @@ func TestEncoding(t *testing.T) {
 	}
 	objs := []rpc.Object{
 		&rpc.Specifier{'f', 'o', 'o'},
-		&RPCContractRequest{
-			Transactions: []types.Transaction{randomTxn},
+		&RPCFormContractRequest{
+			Inputs:   randomTxn.SiacoinInputs,
+			Outputs:  randomTxn.SiacoinOutputs,
+			MinerFee: randomTxn.MinerFee,
+			Contract: randomTxn.FileContracts[0],
+		},
+		&RPCRenewContractRequest{
+			Inputs:     randomTxn.SiacoinInputs,
+			Outputs:    randomTxn.SiacoinOutputs,
+			MinerFee:   randomTxn.MinerFee,
+			Resolution: randomTxn.FileContractResolutions[0],
 		},
 		&RPCFormContractHostAdditions{
-			Parents:           []types.Transaction{randomTxn},
 			Inputs:            randomTxn.SiacoinInputs,
 			Outputs:           randomTxn.SiacoinOutputs,
 			ContractSignature: randomTxn.SiacoinInputs[0].Signatures[0],
 		},
 		&RPCRenewContractHostAdditions{
-			Parents:               []types.Transaction{randomTxn},
 			Inputs:                randomTxn.SiacoinInputs,
 			Outputs:               randomTxn.SiacoinOutputs,
 			RenewalSignature:      randomTxn.SiacoinInputs[0].Signatures[0],
@@ -170,7 +177,12 @@ func TestEncoding(t *testing.T) {
 				randomTxn.SiacoinInputs[0].Signatures,
 			},
 		},
-
+		&RPCRenewContractRenterSignatures{
+			SiacoinInputSignatures: [][]types.Signature{
+				randomTxn.SiacoinInputs[0].Signatures,
+			},
+			RenewalSignature: randomTxn.SiacoinInputs[0].Signatures[0],
+		},
 		&RPCLockRequest{
 			ContractID: randomTxn.FileContractRevisions[0].Parent.ID,
 			Signature:  randSignature(),
