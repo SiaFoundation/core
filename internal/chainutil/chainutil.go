@@ -155,9 +155,9 @@ func (cs *ChainSim) MineBlockWithSiacoinOutputs(scos ...types.SiacoinOutput) typ
 	}
 
 	// sign and mine
-	sigHash := cs.Context.SigHash(txn)
+	sigHash := cs.Context.InputSigHash(txn)
 	for i := range txn.SiacoinInputs {
-		txn.SiacoinInputs[i].Signatures = []types.InputSignature{types.InputSignature(cs.privkey.SignHash(sigHash))}
+		txn.SiacoinInputs[i].Signatures = []types.Signature{cs.privkey.SignHash(sigHash)}
 	}
 	return cs.MineBlockWithTxns(txn)
 }
@@ -178,9 +178,9 @@ func (cs *ChainSim) MineBlock() types.Block {
 			},
 			MinerFee: types.NewCurrency64(cs.Context.Index.Height),
 		}
-		sigHash := cs.Context.SigHash(txn)
+		sigHash := cs.Context.InputSigHash(txn)
 		for i := range txn.SiacoinInputs {
-			txn.SiacoinInputs[i].Signatures = []types.InputSignature{types.InputSignature(cs.privkey.SignHash(sigHash))}
+			txn.SiacoinInputs[i].Signatures = []types.Signature{cs.privkey.SignHash(sigHash)}
 		}
 
 		txns = append(txns, txn)

@@ -222,7 +222,7 @@ func (in compressedSiacoinInput) EncodeTo(e *types.Encoder) {
 func (in *compressedSiacoinInput) DecodeFrom(d *types.Decoder) {
 	(*compressedSiacoinElement)(&in.Parent).DecodeFrom(d)
 	in.SpendPolicy = d.ReadPolicy()
-	in.Signatures = make([]types.InputSignature, d.ReadPrefix())
+	in.Signatures = make([]types.Signature, d.ReadPrefix())
 	for i := range in.Signatures {
 		in.Signatures[i].DecodeFrom(d)
 	}
@@ -258,7 +258,7 @@ func (in *compressedSiafundInput) DecodeFrom(d *types.Decoder) {
 	(*compressedSiafundElement)(&in.Parent).DecodeFrom(d)
 	in.ClaimAddress.DecodeFrom(d)
 	in.SpendPolicy = d.ReadPolicy()
-	in.Signatures = make([]types.InputSignature, d.ReadPrefix())
+	in.Signatures = make([]types.Signature, d.ReadPrefix())
 	for i := range in.Signatures {
 		in.Signatures[i].DecodeFrom(d)
 	}

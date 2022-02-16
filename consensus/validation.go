@@ -230,12 +230,12 @@ func (vc *ValidationContext) Commitment(minerAddr types.Address, txns []types.Tr
 	return h.Sum()
 }
 
-// SigHash returns the hash that must be signed for each transaction input.
-func (vc *ValidationContext) SigHash(txn types.Transaction) types.Hash256 {
+// InputSigHash returns the hash that must be signed for each transaction input.
+func (vc *ValidationContext) InputSigHash(txn types.Transaction) types.Hash256 {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	h.E.WriteString("sia/sig/transaction")
+	h.E.WriteString("sia/sig/transactioninput")
 	h.E.WritePrefix(len(txn.SiacoinInputs))
 	for _, in := range txn.SiacoinInputs {
 		in.Parent.ID.EncodeTo(h.E)
@@ -601,8 +601,8 @@ func (vc *ValidationContext) validFoundationUpdate(txn types.Transaction) error 
 }
 
 func (vc *ValidationContext) validSpendPolicies(txn types.Transaction) error {
-	sigHash := vc.SigHash(txn)
-	verifyPolicy := func(p types.SpendPolicy, sigs []types.InputSignature) error {
+	sigHash := vc.InputSigHash(txn)
+	verifyPolicy := func(p types.SpendPolicy, sigs []types.Signature) error {
 		var verify func(types.SpendPolicy) error
 		verify = func(p types.SpendPolicy) error {
 			switch p := p.(type) {

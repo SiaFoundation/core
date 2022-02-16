@@ -275,9 +275,6 @@ func (pk PublicKey) EncodeTo(e *Encoder) { e.Write(pk[:]) }
 func (s Signature) EncodeTo(e *Encoder) { e.Write(s[:]) }
 
 // EncodeTo implements types.EncoderTo.
-func (is InputSignature) EncodeTo(e *Encoder) { e.Write(is[:]) }
-
-// EncodeTo implements types.EncoderTo.
 func (w Work) EncodeTo(e *Encoder) { e.Write(w.NumHashes[:]) }
 
 // EncodeTo implements types.EncoderTo.
@@ -567,9 +564,6 @@ func (pk *PublicKey) DecodeFrom(d *Decoder) { d.Read(pk[:]) }
 func (s *Signature) DecodeFrom(d *Decoder) { d.Read(s[:]) }
 
 // DecodeFrom implements types.DecoderFrom.
-func (is *InputSignature) DecodeFrom(d *Decoder) { d.Read(is[:]) }
-
-// DecodeFrom implements types.DecoderFrom.
 func (w *Work) DecodeFrom(d *Decoder) { d.Read(w.NumHashes[:]) }
 
 // DecodeFrom implements types.DecoderFrom.
@@ -691,7 +685,7 @@ func (se *StateElement) DecodeFrom(d *Decoder) {
 func (in *SiacoinInput) DecodeFrom(d *Decoder) {
 	in.Parent.DecodeFrom(d)
 	in.SpendPolicy = d.ReadPolicy()
-	in.Signatures = make([]InputSignature, d.ReadPrefix())
+	in.Signatures = make([]Signature, d.ReadPrefix())
 	for i := range in.Signatures {
 		in.Signatures[i].DecodeFrom(d)
 	}
@@ -709,7 +703,7 @@ func (in *SiafundInput) DecodeFrom(d *Decoder) {
 	in.Parent.DecodeFrom(d)
 	in.ClaimAddress.DecodeFrom(d)
 	in.SpendPolicy = d.ReadPolicy()
-	in.Signatures = make([]InputSignature, d.ReadPrefix())
+	in.Signatures = make([]Signature, d.ReadPrefix())
 	for i := range in.Signatures {
 		in.Signatures[i].DecodeFrom(d)
 	}

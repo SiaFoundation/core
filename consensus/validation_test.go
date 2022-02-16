@@ -34,12 +34,12 @@ func genesisWithSiacoinOutputs(scos ...types.SiacoinOutput) types.Block {
 }
 
 func signAllInputs(txn *types.Transaction, vc ValidationContext, priv types.PrivateKey) {
-	sigHash := vc.SigHash(*txn)
+	sigHash := vc.InputSigHash(*txn)
 	for i := range txn.SiacoinInputs {
-		txn.SiacoinInputs[i].Signatures = []types.InputSignature{types.InputSignature(priv.SignHash(sigHash))}
+		txn.SiacoinInputs[i].Signatures = []types.Signature{types.Signature(priv.SignHash(sigHash))}
 	}
 	for i := range txn.SiafundInputs {
-		txn.SiafundInputs[i].Signatures = []types.InputSignature{types.InputSignature(priv.SignHash(sigHash))}
+		txn.SiafundInputs[i].Signatures = []types.Signature{types.Signature(priv.SignHash(sigHash))}
 	}
 }
 
@@ -720,7 +720,7 @@ func TestValidateSpendPolicy(t *testing.T) {
 	tests := []struct {
 		desc    string
 		policy  types.SpendPolicy
-		sign    func(sigHash types.Hash256) []types.InputSignature
+		sign    func(sigHash types.Hash256) []types.Signature
 		wantErr bool
 	}{
 		{
@@ -732,21 +732,21 @@ func TestValidateSpendPolicy(t *testing.T) {
 					types.PolicyPublicKey(pubkey(1)),
 				},
 			},
-			sign: func(sigHash types.Hash256) []types.InputSignature {
-				return []types.InputSignature{types.InputSignature(privkey(0).SignHash(sigHash))}
+			sign: func(sigHash types.Hash256) []types.Signature {
+				return []types.Signature{privkey(0).SignHash(sigHash)}
 			},
 			wantErr: true,
 		},
 		{
 			desc:    "height not above",
 			policy:  types.PolicyAbove(150),
-			sign:    func(types.Hash256) []types.InputSignature { return nil },
+			sign:    func(types.Hash256) []types.Signature { return nil },
 			wantErr: true,
 		},
 		{
 			desc:    "anyone can spend",
 			policy:  types.AnyoneCanSpend(),
-			sign:    func(types.Hash256) []types.InputSignature { return nil },
+			sign:    func(types.Hash256) []types.Signature { return nil },
 			wantErr: false,
 		},
 		{
@@ -759,11 +759,11 @@ func TestValidateSpendPolicy(t *testing.T) {
 					types.PolicyPublicKey(pubkey(2)),
 				},
 			},
-			sign: func(sigHash types.Hash256) []types.InputSignature {
-				return []types.InputSignature{
-					types.InputSignature(privkey(0).SignHash(sigHash)),
-					types.InputSignature(privkey(1).SignHash(sigHash)),
-					types.InputSignature(privkey(2).SignHash(sigHash)),
+			sign: func(sigHash types.Hash256) []types.Signature {
+				return []types.Signature{
+					privkey(0).SignHash(sigHash),
+					privkey(1).SignHash(sigHash),
+					privkey(2).SignHash(sigHash),
 				}
 			},
 			wantErr: false,
@@ -791,8 +791,8 @@ func TestValidateSpendPolicy(t *testing.T) {
 					},
 				},
 			},
-			sign: func(sigHash types.Hash256) []types.InputSignature {
-				return []types.InputSignature{types.InputSignature(privkey(3).SignHash(sigHash))}
+			sign: func(sigHash types.Hash256) []types.Signature {
+				return []types.Signature{privkey(3).SignHash(sigHash)}
 			},
 			wantErr: true,
 		},
@@ -819,10 +819,10 @@ func TestValidateSpendPolicy(t *testing.T) {
 					},
 				},
 			},
-			sign: func(sigHash types.Hash256) []types.InputSignature {
-				return []types.InputSignature{
-					types.InputSignature(privkey(1).SignHash(sigHash)),
-					types.InputSignature(privkey(2).SignHash(sigHash)),
+			sign: func(sigHash types.Hash256) []types.Signature {
+				return []types.Signature{
+					privkey(1).SignHash(sigHash),
+					privkey(2).SignHash(sigHash),
 				}
 			},
 			wantErr: false,
@@ -850,8 +850,8 @@ func TestValidateSpendPolicy(t *testing.T) {
 					},
 				},
 			},
-			sign: func(sigHash types.Hash256) []types.InputSignature {
-				return []types.InputSignature{types.InputSignature(privkey(3).SignHash(sigHash))}
+			sign: func(sigHash types.Hash256) []types.Signature {
+				return []types.Signature{privkey(3).SignHash(sigHash)}
 			},
 			wantErr: false,
 		},
@@ -865,9 +865,9 @@ func TestValidateSpendPolicy(t *testing.T) {
 				},
 				SignaturesRequired: 2,
 			},
-			sign: func(sigHash types.Hash256) []types.InputSignature {
-				return []types.InputSignature{
-					types.InputSignature(privkey(0).SignHash(sigHash)),
+			sign: func(sigHash types.Hash256) []types.Signature {
+				return []types.Signature{
+					privkey(0).SignHash(sigHash),
 				}
 			},
 			wantErr: true,
@@ -881,9 +881,9 @@ func TestValidateSpendPolicy(t *testing.T) {
 				Timelock:           150,
 				SignaturesRequired: 1,
 			},
-			sign: func(sigHash types.Hash256) []types.InputSignature {
-				return []types.InputSignature{
-					types.InputSignature(privkey(0).SignHash(sigHash)),
+			sign: func(sigHash types.Hash256) []types.Signature {
+				return []types.Signature{
+					privkey(0).SignHash(sigHash),
 				}
 			},
 			wantErr: true,
@@ -898,10 +898,10 @@ func TestValidateSpendPolicy(t *testing.T) {
 				},
 				SignaturesRequired: 2,
 			},
-			sign: func(sigHash types.Hash256) []types.InputSignature {
-				return []types.InputSignature{
-					types.InputSignature(privkey(0).SignHash(sigHash)),
-					types.InputSignature(privkey(1).SignHash(sigHash)),
+			sign: func(sigHash types.Hash256) []types.Signature {
+				return []types.Signature{
+					privkey(0).SignHash(sigHash),
+					privkey(1).SignHash(sigHash),
 				}
 			},
 			wantErr: false,
@@ -915,10 +915,8 @@ func TestValidateSpendPolicy(t *testing.T) {
 				Timelock:           80,
 				SignaturesRequired: 1,
 			},
-			sign: func(sigHash types.Hash256) []types.InputSignature {
-				return []types.InputSignature{
-					types.InputSignature(privkey(0).SignHash(sigHash)),
-				}
+			sign: func(sigHash types.Hash256) []types.Signature {
+				return []types.Signature{privkey(0).SignHash(sigHash)}
 			},
 			wantErr: false,
 		},
@@ -935,7 +933,7 @@ func TestValidateSpendPolicy(t *testing.T) {
 				SpendPolicy: tt.policy,
 			}},
 		}
-		sigHash := vc.SigHash(txn)
+		sigHash := vc.InputSigHash(txn)
 		txn.SiacoinInputs[0].Signatures = tt.sign(sigHash)
 		if err := vc.validSpendPolicies(txn); (err != nil) != tt.wantErr {
 			t.Fatalf("case %q failed: %v", tt.desc, err)
@@ -1167,9 +1165,9 @@ func TestNoDoubleContractUpdates(t *testing.T) {
 		},
 		FileContracts: []types.FileContract{fc},
 	}
-	sigHash := vc.SigHash(formationTxn)
-	formationTxn.SiacoinInputs[0].Signatures = []types.InputSignature{types.InputSignature(renterPriv.SignHash(sigHash))}
-	formationTxn.SiacoinInputs[1].Signatures = []types.InputSignature{types.InputSignature(hostPriv.SignHash(sigHash))}
+	sigHash := vc.InputSigHash(formationTxn)
+	formationTxn.SiacoinInputs[0].Signatures = []types.Signature{renterPriv.SignHash(sigHash)}
+	formationTxn.SiacoinInputs[1].Signatures = []types.Signature{hostPriv.SignHash(sigHash)}
 	b := mineBlock(vc, genesis, formationTxn)
 	if err := vc.ValidateBlock(b); err != nil {
 		t.Fatal(err)

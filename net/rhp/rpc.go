@@ -82,7 +82,7 @@ type (
 	// transaction and initial revision. These signatures are sent by both the
 	// renter and host during contract formation.
 	RPCContractSignatures struct {
-		SiacoinInputSignatures [][]types.InputSignature
+		SiacoinInputSignatures [][]types.Signature
 		RevisionSignature      types.Signature
 	}
 
@@ -90,7 +90,7 @@ type (
 	// transaction, initial revision, and finalization revision. These
 	// signatures are sent by both the renter and host during contract renewal.
 	RPCRenewContractSignatures struct {
-		SiacoinInputSignatures [][]types.InputSignature
+		SiacoinInputSignatures [][]types.Signature
 		RenewalSignature       types.Signature
 		FinalizationSignature  types.Signature
 	}
@@ -98,7 +98,7 @@ type (
 	// RPCLockRequest contains the request parameters for the Lock RPC.
 	RPCLockRequest struct {
 		ContractID types.ElementID
-		Signature  types.InputSignature
+		Signature  types.Signature
 		Timeout    uint64
 	}
 
@@ -288,9 +288,9 @@ func (r *RPCContractSignatures) EncodeTo(e *types.Encoder) {
 
 // DecodeFrom implements rpc.Object.
 func (r *RPCContractSignatures) DecodeFrom(d *types.Decoder) {
-	r.SiacoinInputSignatures = make([][]types.InputSignature, d.ReadPrefix())
+	r.SiacoinInputSignatures = make([][]types.Signature, d.ReadPrefix())
 	for i := range r.SiacoinInputSignatures {
-		r.SiacoinInputSignatures[i] = make([]types.InputSignature, d.ReadPrefix())
+		r.SiacoinInputSignatures[i] = make([]types.Signature, d.ReadPrefix())
 		for j := range r.SiacoinInputSignatures[i] {
 			r.SiacoinInputSignatures[i][j].DecodeFrom(d)
 		}
@@ -318,9 +318,9 @@ func (r *RPCRenewContractSignatures) EncodeTo(e *types.Encoder) {
 
 // DecodeFrom implements rpc.Object.
 func (r *RPCRenewContractSignatures) DecodeFrom(d *types.Decoder) {
-	r.SiacoinInputSignatures = make([][]types.InputSignature, d.ReadPrefix())
+	r.SiacoinInputSignatures = make([][]types.Signature, d.ReadPrefix())
 	for i := range r.SiacoinInputSignatures {
-		r.SiacoinInputSignatures[i] = make([]types.InputSignature, d.ReadPrefix())
+		r.SiacoinInputSignatures[i] = make([]types.Signature, d.ReadPrefix())
 		for j := range r.SiacoinInputSignatures[i] {
 			r.SiacoinInputSignatures[i][j].DecodeFrom(d)
 		}
