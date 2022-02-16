@@ -396,6 +396,16 @@ func (rev FileContractRevision) EncodeTo(e *Encoder) {
 }
 
 // EncodeTo implements types.EncoderTo.
+func (ren FileContractRenewal) EncodeTo(e *Encoder) {
+	ren.FinalRevision.EncodeTo(e)
+	ren.InitialRevision.EncodeTo(e)
+	ren.RenterRollover.EncodeTo(e)
+	ren.HostRollover.EncodeTo(e)
+	ren.RenterSignature.EncodeTo(e)
+	ren.HostSignature.EncodeTo(e)
+}
+
+// EncodeTo implements types.EncoderTo.
 func (sp StorageProof) EncodeTo(e *Encoder) {
 	sp.WindowStart.EncodeTo(e)
 	e.writeMerkleProof(sp.WindowProof)
@@ -406,6 +416,7 @@ func (sp StorageProof) EncodeTo(e *Encoder) {
 // EncodeTo implements types.EncoderTo.
 func (res FileContractResolution) EncodeTo(e *Encoder) {
 	res.Parent.EncodeTo(e)
+	res.Renewal.EncodeTo(e)
 	res.StorageProof.EncodeTo(e)
 	res.Finalization.EncodeTo(e)
 }
@@ -746,6 +757,16 @@ func (rev *FileContractRevision) DecodeFrom(d *Decoder) {
 }
 
 // DecodeFrom implements types.DecoderFrom.
+func (ren *FileContractRenewal) DecodeFrom(d *Decoder) {
+	ren.FinalRevision.DecodeFrom(d)
+	ren.InitialRevision.DecodeFrom(d)
+	ren.RenterRollover.DecodeFrom(d)
+	ren.HostRollover.DecodeFrom(d)
+	ren.RenterSignature.DecodeFrom(d)
+	ren.HostSignature.DecodeFrom(d)
+}
+
+// DecodeFrom implements types.DecoderFrom.
 func (sp *StorageProof) DecodeFrom(d *Decoder) {
 	sp.WindowStart.DecodeFrom(d)
 	sp.WindowProof = d.readMerkleProof()
@@ -756,6 +777,7 @@ func (sp *StorageProof) DecodeFrom(d *Decoder) {
 // DecodeFrom implements types.DecoderFrom.
 func (res *FileContractResolution) DecodeFrom(d *Decoder) {
 	res.Parent.DecodeFrom(d)
+	res.Renewal.DecodeFrom(d)
 	res.StorageProof.DecodeFrom(d)
 	res.Finalization.DecodeFrom(d)
 }
