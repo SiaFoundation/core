@@ -152,24 +152,25 @@ func TestEncoding(t *testing.T) {
 		&RPCContractRequest{
 			Transactions: []types.Transaction{randomTxn},
 		},
-		&RPCContractAdditions{
-			Parents: []types.Transaction{randomTxn},
-			Inputs:  randomTxn.SiacoinInputs,
-			Outputs: randomTxn.SiacoinOutputs,
+		&RPCFormContractHostAdditions{
+			Parents:           []types.Transaction{randomTxn},
+			Inputs:            randomTxn.SiacoinInputs,
+			Outputs:           randomTxn.SiacoinOutputs,
+			ContractSignature: randomTxn.SiacoinInputs[0].Signatures[0],
+		},
+		&RPCRenewContractHostAdditions{
+			Parents:               []types.Transaction{randomTxn},
+			Inputs:                randomTxn.SiacoinInputs,
+			Outputs:               randomTxn.SiacoinOutputs,
+			RenewalSignature:      randomTxn.SiacoinInputs[0].Signatures[0],
+			FinalizationSignature: randomTxn.SiacoinInputs[0].Signatures[0],
 		},
 		&RPCContractSignatures{
 			SiacoinInputSignatures: [][]types.Signature{
 				randomTxn.SiacoinInputs[0].Signatures,
 			},
-			RevisionSignature: types.Signature(randomTxn.SiacoinInputs[0].Signatures[0]),
 		},
-		&RPCRenewContractSignatures{
-			SiacoinInputSignatures: [][]types.Signature{
-				randomTxn.SiacoinInputs[0].Signatures,
-			},
-			RenewalSignature:      types.Signature(randomTxn.SiacoinInputs[0].Signatures[0]),
-			FinalizationSignature: types.Signature(randomTxn.SiacoinInputs[0].Signatures[0]),
-		},
+
 		&RPCLockRequest{
 			ContractID: randomTxn.FileContractRevisions[0].Parent.ID,
 			Signature:  randSignature(),
