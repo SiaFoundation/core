@@ -263,10 +263,9 @@ func TestEncoding(t *testing.T) {
 			Signature:         randSignature(),
 			NewRevisionNumber: frand.Uint64n(100),
 			NewOutputs: ContractOutputs{
-				MissedHostValue:   types.NewCurrency64(frand.Uint64n(math.MaxUint64)),
-				MissedRenterValue: types.NewCurrency64(frand.Uint64n(math.MaxUint64)),
-				ValidHostValue:    types.NewCurrency64(frand.Uint64n(math.MaxUint64)),
-				ValidRenterValue:  types.NewCurrency64(frand.Uint64n(math.MaxUint64)),
+				HostValue:       types.NewCurrency64(frand.Uint64n(math.MaxUint64)),
+				RenterValue:     types.NewCurrency64(frand.Uint64n(math.MaxUint64)),
+				MissedHostValue: types.NewCurrency64(frand.Uint64n(math.MaxUint64)),
 			},
 		},
 	}

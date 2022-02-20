@@ -198,22 +198,15 @@ func TestValidateTransaction(t *testing.T) {
 				{
 					WindowStart: 5,
 					WindowEnd:   10,
-					ValidRenterOutput: types.SiacoinOutput{
+					RenterOutput: types.SiacoinOutput{
 						Address: types.StandardAddress(renterPubkey),
 						Value:   types.Siacoins(58),
 					},
-					ValidHostOutput: types.SiacoinOutput{
+					HostOutput: types.SiacoinOutput{
 						Address: types.StandardAddress(renterPubkey),
 						Value:   types.Siacoins(19),
 					},
-					MissedRenterOutput: types.SiacoinOutput{
-						Address: types.StandardAddress(renterPubkey),
-						Value:   types.Siacoins(58),
-					},
-					MissedHostOutput: types.SiacoinOutput{
-						Address: types.StandardAddress(renterPubkey),
-						Value:   types.Siacoins(19),
-					},
+					TotalCollateral: types.ZeroCurrency,
 					RenterPublicKey: renterPubkey,
 					HostPublicKey:   hostPubkey,
 				},
@@ -361,25 +354,23 @@ func TestValidateTransaction(t *testing.T) {
 			Value:   unspentSF.Value,
 		}},
 		FileContracts: []types.FileContract{{
-			WindowStart:        100,
-			WindowEnd:          105,
-			ValidRenterOutput:  types.SiacoinOutput{Value: types.Siacoins(1)},
-			ValidHostOutput:    types.SiacoinOutput{Value: types.Siacoins(4)},
-			MissedRenterOutput: types.SiacoinOutput{Value: types.Siacoins(2)},
-			MissedHostOutput:   types.SiacoinOutput{Value: types.Siacoins(3)},
-			RenterPublicKey:    renterPubkey,
-			HostPublicKey:      hostPubkey,
+			WindowStart:     100,
+			WindowEnd:       105,
+			RenterOutput:    types.SiacoinOutput{Value: types.Siacoins(1)},
+			HostOutput:      types.SiacoinOutput{Value: types.Siacoins(4)},
+			TotalCollateral: types.Siacoins(1),
+			RenterPublicKey: renterPubkey,
+			HostPublicKey:   hostPubkey,
 		}},
 		FileContractRevisions: []types.FileContractRevision{{
 			Parent: openContract,
 			Revision: types.FileContract{
-				WindowStart:        200,
-				WindowEnd:          205,
-				ValidRenterOutput:  types.SiacoinOutput{Value: types.Siacoins(77)},
-				ValidHostOutput:    types.SiacoinOutput{Value: types.Siacoins(0)},
-				MissedRenterOutput: types.SiacoinOutput{Value: types.Siacoins(55)},
-				MissedHostOutput:   types.SiacoinOutput{Value: types.Siacoins(0)},
-				RevisionNumber:     1,
+				WindowStart:     200,
+				WindowEnd:       205,
+				RenterOutput:    types.SiacoinOutput{Value: types.Siacoins(77)},
+				HostOutput:      types.SiacoinOutput{Value: types.Siacoins(0)},
+				TotalCollateral: types.ZeroCurrency,
+				RevisionNumber:  1,
 			},
 		}},
 		FileContractResolutions: []types.FileContractResolution{{
@@ -491,7 +482,7 @@ func TestValidateTransaction(t *testing.T) {
 				txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
 					Value: maxCurrency.Sub(types.Siacoins(2)),
 				})
-				txn.FileContracts[0].ValidRenterOutput.Value = types.Siacoins(2)
+				txn.FileContracts[0].RenterOutput.Value = types.Siacoins(2)
 			},
 		},
 		{
@@ -500,18 +491,29 @@ func TestValidateTransaction(t *testing.T) {
 				txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
 					Value: maxCurrency.Sub(types.Siacoins(2)),
 				})
-				txn.FileContracts[0].ValidRenterOutput.Value = types.ZeroCurrency
-				txn.FileContracts[0].ValidHostOutput.Value = types.Siacoins(2)
+				txn.FileContracts[0].RenterOutput.Value = types.ZeroCurrency
+				txn.FileContracts[0].HostOutput.Value = types.Siacoins(2)
 			},
 		},
 		{
-			"file contract tax overflow",
+			"file contract collateral overflows",
 			func(txn *types.Transaction) {
 				txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
 					Value: maxCurrency.Sub(types.Siacoins(2)),
 				})
-				txn.FileContracts[0].ValidRenterOutput.Value = types.Siacoins(1)
-				txn.FileContracts[0].ValidHostOutput.Value = types.ZeroCurrency
+				txn.FileContracts[0].RenterOutput.Value = types.ZeroCurrency
+				txn.FileContracts[0].HostOutput.Value = types.ZeroCurrency
+				txn.FileContracts[0].TotalCollateral = types.Siacoins(2)
+			},
+		},
+		{
+			"file contract tax overflows",
+			func(txn *types.Transaction) {
+				txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
+					Value: maxCurrency.Sub(types.Siacoins(2)),
+				})
+				txn.FileContracts[0].RenterOutput.Value = types.Siacoins(1)
+				txn.FileContracts[0].HostOutput.Value = types.ZeroCurrency
 			},
 		},
 		{
@@ -569,13 +571,6 @@ func TestValidateTransaction(t *testing.T) {
 			},
 		},
 		{
-			"file contract whose missed payouts exceed its valid payouts",
-			func(txn *types.Transaction) {
-				txn.FileContracts[0].ValidRenterOutput.Value = types.ZeroCurrency
-				txn.MinerFee = types.Siacoins(584).Div64(100)
-			},
-		},
-		{
 			"file contract whose window ends before it begins",
 			func(txn *types.Transaction) {
 				txn.FileContracts[0].WindowEnd = txn.FileContracts[0].WindowStart - 1
@@ -607,17 +602,10 @@ func TestValidateTransaction(t *testing.T) {
 			},
 		},
 		{
-			"file contract revision that modifies valid output sum",
+			"file contract revision that modifies output sum",
 			func(txn *types.Transaction) {
 				rev := &txn.FileContractRevisions[0].Revision
-				rev.ValidRenterOutput.Value = rev.ValidRenterOutput.Value.Mul64(2)
-			},
-		},
-		{
-			"file contract revision whose missed output sum exceeds its valid output sum",
-			func(txn *types.Transaction) {
-				rev := &txn.FileContractRevisions[0].Revision
-				rev.MissedRenterOutput.Value = rev.MissedRenterOutput.Value.Mul64(2)
+				rev.RenterOutput.Value = rev.RenterOutput.Value.Mul64(2)
 			},
 		},
 		{
@@ -1134,22 +1122,15 @@ func TestNoDoubleContractUpdates(t *testing.T) {
 	fc := types.FileContract{
 		WindowStart: 20,
 		WindowEnd:   30,
-		ValidRenterOutput: types.SiacoinOutput{
+		RenterOutput: types.SiacoinOutput{
 			Address: renterAddr,
 			Value:   types.Siacoins(5),
 		},
-		ValidHostOutput: types.SiacoinOutput{
+		HostOutput: types.SiacoinOutput{
 			Address: hostAddr,
 			Value:   types.Siacoins(10),
 		},
-		MissedRenterOutput: types.SiacoinOutput{
-			Address: renterAddr,
-			Value:   types.Siacoins(5),
-		},
-		MissedHostOutput: types.SiacoinOutput{
-			Address: hostAddr,
-			Value:   types.Siacoins(10),
-		},
+		TotalCollateral: types.ZeroCurrency,
 		RenterPublicKey: renterPub,
 		HostPublicKey:   hostPub,
 	}

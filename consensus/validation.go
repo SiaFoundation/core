@@ -169,9 +169,9 @@ func (vc *ValidationContext) BlockWeight(txns []types.Transaction) uint64 {
 
 // FileContractTax computes the tax levied on a given contract.
 func (vc *ValidationContext) FileContractTax(fc types.FileContract) types.Currency {
-	sum := fc.ValidRenterOutput.Value.Add(fc.ValidHostOutput.Value)
+	sum := fc.RenterOutput.Value.Add(fc.HostOutput.Value)
 	tax := sum.Div64(25) // 4%
-	// round down to SiafundCount
+	// round down to nearest multiple of SiafundCount
 	_, r := bits.Div64(0, tax.Hi, SiafundCount)
 	_, r = bits.Div64(r, tax.Lo, SiafundCount)
 	return tax.Sub(types.NewCurrency64(r))
@@ -286,10 +286,9 @@ func (vc *ValidationContext) ContractSigHash(fc types.FileContract) types.Hash25
 	fc.FileMerkleRoot.EncodeTo(h.E)
 	h.E.WriteUint64(fc.WindowStart)
 	h.E.WriteUint64(fc.WindowEnd)
-	fc.ValidRenterOutput.EncodeTo(h.E)
-	fc.ValidHostOutput.EncodeTo(h.E)
-	fc.MissedRenterOutput.EncodeTo(h.E)
-	fc.MissedHostOutput.EncodeTo(h.E)
+	fc.RenterOutput.EncodeTo(h.E)
+	fc.HostOutput.EncodeTo(h.E)
+	fc.MissedHostValue.EncodeTo(h.E)
 	fc.RenterPublicKey.EncodeTo(h.E)
 	fc.HostPublicKey.EncodeTo(h.E)
 	h.E.WriteUint64(fc.RevisionNumber)
@@ -381,10 +380,10 @@ func (vc *ValidationContext) validCurrencyValues(txn types.Transaction) error {
 		}
 	}
 	addContract := func(fc types.FileContract) {
-		add(fc.ValidRenterOutput.Value)
-		add(fc.ValidHostOutput.Value)
-		add(fc.MissedRenterOutput.Value)
-		add(fc.MissedHostOutput.Value)
+		add(fc.RenterOutput.Value)
+		add(fc.HostOutput.Value)
+		add(fc.MissedHostValue)
+		add(fc.TotalCollateral)
 		add(vc.FileContractTax(fc))
 	}
 
@@ -439,15 +438,15 @@ func (vc *ValidationContext) validTimeLocks(txn types.Transaction) error {
 }
 
 func (vc *ValidationContext) validateContract(fc types.FileContract) error {
-	validSum := fc.ValidRenterOutput.Value.Add(fc.ValidHostOutput.Value)
-	missedSum := fc.MissedRenterOutput.Value.Add(fc.MissedHostOutput.Value)
 	switch {
-	case missedSum.Cmp(validSum) > 0:
-		return fmt.Errorf("has missed output sum (%v SC) exceeding valid output sum (%v SC)", missedSum, validSum)
 	case fc.WindowEnd <= vc.Index.Height:
 		return fmt.Errorf("has proof window (%v-%v) that ends in the past", fc.WindowStart, fc.WindowEnd)
 	case fc.WindowEnd <= fc.WindowStart:
 		return fmt.Errorf("has proof window (%v-%v) that ends before it begins", fc.WindowStart, fc.WindowEnd)
+	case fc.MissedHostValue.Cmp(fc.HostOutput.Value) > 0:
+		return fmt.Errorf("has missed host value (%v SC) exceeding valid host value (%v SC)", fc.MissedHostValue, fc.HostOutput.Value)
+	case fc.TotalCollateral.Cmp(fc.HostOutput.Value) > 0:
+		return fmt.Errorf("has total collateral (%v SC) exceeding valid host value (%v SC)", fc.TotalCollateral, fc.HostOutput.Value)
 	}
 	contractHash := vc.ContractSigHash(fc)
 	if !fc.RenterPublicKey.VerifyHash(contractHash, fc.RenterSignature) {
@@ -459,16 +458,15 @@ func (vc *ValidationContext) validateContract(fc types.FileContract) error {
 }
 
 func (vc *ValidationContext) validateRevision(cur, rev types.FileContract) error {
-	curValidSum := cur.ValidRenterOutput.Value.Add(cur.ValidHostOutput.Value)
-	revValidSum := rev.ValidRenterOutput.Value.Add(rev.ValidHostOutput.Value)
-	revMissedSum := rev.MissedRenterOutput.Value.Add(rev.MissedHostOutput.Value)
+	curOutputSum := cur.RenterOutput.Value.Add(cur.HostOutput.Value)
+	revOutputSum := rev.RenterOutput.Value.Add(rev.HostOutput.Value)
 	switch {
 	case rev.RevisionNumber <= cur.RevisionNumber:
 		return fmt.Errorf("does not increase revision number (%v -> %v)", cur.RevisionNumber, rev.RevisionNumber)
-	case !revValidSum.Equals(curValidSum):
-		return fmt.Errorf("modifies valid output sum (%v -> %v)", curValidSum, revValidSum)
-	case revMissedSum.Cmp(revValidSum) > 0:
-		return fmt.Errorf("has missed output sum (%v) exceeding valid output sum (%v)", revMissedSum, revValidSum)
+	case !revOutputSum.Equals(curOutputSum):
+		return fmt.Errorf("modifies output sum (%v SC -> %v SC)", curOutputSum, revOutputSum)
+	case rev.TotalCollateral != cur.TotalCollateral:
+		return fmt.Errorf("modifies total collateral")
 	case rev.WindowEnd <= vc.Index.Height:
 		return fmt.Errorf("has proof window (%v-%v) that ends in the past", rev.WindowStart, rev.WindowEnd)
 	case rev.WindowEnd <= rev.WindowStart:
@@ -526,13 +524,13 @@ func (vc *ValidationContext) validFileContractResolutions(txn types.Transaction)
 
 			// rollover must not exceed total contract value
 			rollover := fcr.Renewal.RenterRollover.Add(fcr.Renewal.HostRollover)
-			newContractCost := renewed.ValidRenterOutput.Value.Add(renewed.ValidHostOutput.Value).Add(vc.FileContractTax(renewed))
-			if fcr.Renewal.RenterRollover.Cmp(old.ValidRenterOutput.Value) > 0 {
-				return fmt.Errorf("file contract renewal %v has renter rollover (%v) exceeding old valid proof output (%v)", i, fcr.Renewal.RenterRollover, old.ValidRenterOutput.Value)
-			} else if fcr.Renewal.HostRollover.Cmp(old.ValidHostOutput.Value) > 0 {
-				return fmt.Errorf("file contract renewal %v has host rollover (%v) exceeding old valid proof output (%v)", i, fcr.Renewal.HostRollover, old.ValidHostOutput.Value)
+			newContractCost := renewed.RenterOutput.Value.Add(renewed.HostOutput.Value).Add(vc.FileContractTax(renewed))
+			if fcr.Renewal.RenterRollover.Cmp(old.RenterOutput.Value) > 0 {
+				return fmt.Errorf("file contract renewal %v has renter rollover (%v SC) exceeding old output (%v SC)", i, fcr.Renewal.RenterRollover, old.RenterOutput.Value)
+			} else if fcr.Renewal.HostRollover.Cmp(old.HostOutput.Value) > 0 {
+				return fmt.Errorf("file contract renewal %v has host rollover (%v SC) exceeding old output (%v SC)", i, fcr.Renewal.HostRollover, old.HostOutput.Value)
 			} else if rollover.Cmp(newContractCost) > 0 {
-				return fmt.Errorf("file contract renewal %v has rollover (%v) exceeding new contract cost (%v)", i, rollover, newContractCost)
+				return fmt.Errorf("file contract renewal %v has rollover (%v SC) exceeding new contract cost (%v SC)", i, rollover, newContractCost)
 			}
 
 			renewalHash := vc.RenewalSigHash(fcr.Renewal)
@@ -595,7 +593,7 @@ func (vc *ValidationContext) outputsEqualInputs(txn types.Transaction) error {
 		outputSC = outputSC.Add(out.Value)
 	}
 	for _, fc := range txn.FileContracts {
-		outputSC = outputSC.Add(fc.ValidRenterOutput.Value).Add(fc.ValidHostOutput.Value).Add(vc.FileContractTax(fc))
+		outputSC = outputSC.Add(fc.RenterOutput.Value).Add(fc.HostOutput.Value).Add(vc.FileContractTax(fc))
 	}
 	for _, fcr := range txn.FileContractResolutions {
 		if fcr.HasRenewal() {
@@ -605,9 +603,10 @@ func (vc *ValidationContext) outputsEqualInputs(txn types.Transaction) error {
 			inputSC = inputSC.Add(fcr.Renewal.HostRollover)
 
 			rev := fcr.Renewal.InitialRevision
-			outputSC = outputSC.Add(rev.ValidRenterOutput.Value).Add(rev.ValidHostOutput.Value).Add(vc.FileContractTax(rev))
+			outputSC = outputSC.Add(rev.RenterOutput.Value).Add(rev.HostOutput.Value).Add(vc.FileContractTax(rev))
 		}
 	}
+
 	outputSC = outputSC.Add(txn.MinerFee)
 	if inputSC != outputSC {
 		return fmt.Errorf("siacoin inputs (%v SC) do not equal siacoin outputs (%v SC)", inputSC, outputSC)

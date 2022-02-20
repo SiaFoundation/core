@@ -482,26 +482,20 @@ func TestFileContracts(t *testing.T) {
 	initialRev := types.FileContract{
 		WindowStart: 5,
 		WindowEnd:   10,
-		ValidRenterOutput: types.SiacoinOutput{
+		RenterOutput: types.SiacoinOutput{
 			Address: types.StandardAddress(renterPubkey),
 			Value:   types.Siacoins(58),
 		},
-		ValidHostOutput: types.SiacoinOutput{
-			Address: types.StandardAddress(renterPubkey),
+		HostOutput: types.SiacoinOutput{
+			Address: types.StandardAddress(hostPubkey),
 			Value:   types.Siacoins(19),
 		},
-		MissedRenterOutput: types.SiacoinOutput{
-			Address: types.StandardAddress(renterPubkey),
-			Value:   types.Siacoins(60),
-		},
-		MissedHostOutput: types.SiacoinOutput{
-			Address: types.StandardAddress(renterPubkey),
-			Value:   types.Siacoins(17),
-		},
+		MissedHostValue: types.Siacoins(17),
+		TotalCollateral: types.Siacoins(18),
 		RenterPublicKey: renterPubkey,
 		HostPublicKey:   hostPubkey,
 	}
-	outputSum := initialRev.ValidRenterOutput.Value.Add(initialRev.ValidHostOutput.Value).Add(sau.Context.FileContractTax(initialRev))
+	outputSum := initialRev.RenterOutput.Value.Add(initialRev.HostOutput.Value).Add(sau.Context.FileContractTax(initialRev))
 	txn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{
 			{Parent: renterOutput, SpendPolicy: types.PolicyPublicKey(renterPubkey)},
@@ -603,9 +597,9 @@ func TestFileContracts(t *testing.T) {
 		t.Fatal("expected one resolved file contract")
 	} else if len(validSAU.NewSiacoinElements) != 3 {
 		t.Fatal("expected three new siacoin outputs")
-	} else if validSAU.NewSiacoinElements[1].SiacoinOutput != finalRev.Revision.ValidRenterOutput {
-		t.Fatal("expected valid renter output to be created")
-	} else if validSAU.NewSiacoinElements[2].SiacoinOutput != finalRev.Revision.ValidHostOutput {
+	} else if validSAU.NewSiacoinElements[1].SiacoinOutput != finalRev.Revision.RenterOutput {
+		t.Fatal("expected renter output to be created")
+	} else if validSAU.NewSiacoinElements[2].SiacoinOutput != finalRev.Revision.HostOutput {
 		t.Fatal("expected valid host output to be created")
 	}
 
@@ -631,9 +625,9 @@ func TestFileContracts(t *testing.T) {
 		t.Fatal("expected one resolved file contract")
 	} else if len(sau.NewSiacoinElements) != 3 {
 		t.Fatal("expected three new siacoin outputs")
-	} else if sau.NewSiacoinElements[1].SiacoinOutput != finalRev.Revision.MissedRenterOutput {
-		t.Fatal("expected missed renter output to be created")
-	} else if sau.NewSiacoinElements[2].SiacoinOutput != finalRev.Revision.MissedHostOutput {
+	} else if sau.NewSiacoinElements[1].SiacoinOutput != finalRev.Revision.RenterOutput {
+		t.Fatal("expected renter output to be created")
+	} else if sau.NewSiacoinElements[2].SiacoinOutput != finalRev.Revision.MissedHostOutput() {
 		t.Fatal("expected missed host output to be created")
 	}
 }
@@ -660,29 +654,23 @@ func TestContractRenewal(t *testing.T) {
 	initialRev := types.FileContract{
 		WindowStart: 5,
 		WindowEnd:   10,
-		ValidRenterOutput: types.SiacoinOutput{
+		RenterOutput: types.SiacoinOutput{
 			Address: types.StandardAddress(renterPubkey),
 			Value:   types.Siacoins(58),
 		},
-		ValidHostOutput: types.SiacoinOutput{
+		HostOutput: types.SiacoinOutput{
 			Address: types.StandardAddress(hostPubkey),
 			Value:   types.Siacoins(19),
 		},
-		MissedRenterOutput: types.SiacoinOutput{
-			Address: types.StandardAddress(renterPubkey),
-			Value:   types.Siacoins(60),
-		},
-		MissedHostOutput: types.SiacoinOutput{
-			Address: types.StandardAddress(hostPubkey),
-			Value:   types.Siacoins(17),
-		},
+		MissedHostValue: types.Siacoins(17),
+		TotalCollateral: types.Siacoins(18),
 		RenterPublicKey: renterPubkey,
 		HostPublicKey:   hostPubkey,
 	}
 	contractHash := sau.Context.ContractSigHash(initialRev)
 	initialRev.RenterSignature = renterPrivkey.SignHash(contractHash)
 	initialRev.HostSignature = hostPrivkey.SignHash(contractHash)
-	outputSum := initialRev.ValidRenterOutput.Value.Add(initialRev.ValidHostOutput.Value).Add(sau.Context.FileContractTax(initialRev))
+	outputSum := initialRev.RenterOutput.Value.Add(initialRev.HostOutput.Value).Add(sau.Context.FileContractTax(initialRev))
 	txn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{
 			{Parent: renterOutput, SpendPolicy: types.PolicyPublicKey(renterPubkey)},
@@ -722,10 +710,10 @@ func TestContractRenewal(t *testing.T) {
 	initialRev.RevisionNumber = 0
 	initialRev.WindowStart += 10
 	initialRev.WindowEnd += 10
-	initialRev.ValidRenterOutput.Value = types.Siacoins(100)
-	initialRev.ValidHostOutput.Value = types.Siacoins(100)
-	initialRev.MissedRenterOutput.Value = types.Siacoins(100)
-	initialRev.MissedHostOutput.Value = types.Siacoins(100)
+	initialRev.RenterOutput.Value = types.Siacoins(100)
+	initialRev.HostOutput.Value = types.Siacoins(100)
+	initialRev.MissedHostValue = types.Siacoins(100)
+	initialRev.TotalCollateral = types.Siacoins(100)
 	contractHash = sau.Context.ContractSigHash(initialRev)
 	initialRev.RenterSignature = renterPrivkey.SignHash(contractHash)
 	initialRev.HostSignature = hostPrivkey.SignHash(contractHash)
@@ -743,7 +731,7 @@ func TestContractRenewal(t *testing.T) {
 	// since we increased the amount of value in the contract, we need to add
 	// more inputs
 	rollover := renewal.RenterRollover.Add(renewal.HostRollover)
-	contractCost := initialRev.ValidRenterOutput.Value.Add(initialRev.ValidHostOutput.Value).Add(sau.Context.FileContractTax(initialRev)).Sub(rollover)
+	contractCost := initialRev.RenterOutput.Value.Add(initialRev.HostOutput.Value).Add(sau.Context.FileContractTax(initialRev)).Sub(rollover)
 	txn = types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
 			Parent:      renewOutput,
@@ -768,12 +756,12 @@ func TestContractRenewal(t *testing.T) {
 	}
 	sau = ApplyBlock(sau.Context, b)
 	expRenterOutput := types.SiacoinOutput{
-		Value:   finalRev.ValidRenterOutput.Value.Sub(renewal.RenterRollover),
-		Address: finalRev.ValidRenterOutput.Address,
+		Value:   finalRev.RenterOutput.Value.Sub(renewal.RenterRollover),
+		Address: finalRev.RenterOutput.Address,
 	}
 	expHostOutput := types.SiacoinOutput{
-		Value:   finalRev.ValidHostOutput.Value.Sub(renewal.HostRollover),
-		Address: finalRev.ValidHostOutput.Address,
+		Value:   finalRev.HostOutput.Value.Sub(renewal.HostRollover),
+		Address: finalRev.HostOutput.Address,
 	}
 	if len(sau.ResolvedFileContracts) != 1 {
 		t.Fatal("expected one resolved file contract")
@@ -807,10 +795,10 @@ func TestContractRenewal(t *testing.T) {
 	initialRev.RevisionNumber = 0
 	initialRev.WindowStart += 10
 	initialRev.WindowEnd += 10
-	initialRev.ValidRenterOutput.Value = types.Siacoins(10)
-	initialRev.ValidHostOutput.Value = types.Siacoins(10)
-	initialRev.MissedRenterOutput.Value = types.Siacoins(10)
-	initialRev.MissedHostOutput.Value = types.Siacoins(10)
+	initialRev.RenterOutput.Value = types.Siacoins(10)
+	initialRev.HostOutput.Value = types.Siacoins(10)
+	initialRev.MissedHostValue = types.Siacoins(10)
+	initialRev.TotalCollateral = types.Siacoins(10)
 	contractHash = sau.Context.ContractSigHash(initialRev)
 	initialRev.RenterSignature = renterPrivkey.SignHash(contractHash)
 	initialRev.HostSignature = hostPrivkey.SignHash(contractHash)
@@ -842,12 +830,12 @@ func TestContractRenewal(t *testing.T) {
 		t.Log(i, sce.SiacoinOutput)
 	}
 	expRenterOutput = types.SiacoinOutput{
-		Value:   finalRev.ValidRenterOutput.Value.Sub(renewal.RenterRollover),
-		Address: finalRev.ValidRenterOutput.Address,
+		Value:   finalRev.RenterOutput.Value.Sub(renewal.RenterRollover),
+		Address: finalRev.RenterOutput.Address,
 	}
 	expHostOutput = types.SiacoinOutput{
-		Value:   finalRev.ValidHostOutput.Value.Sub(renewal.HostRollover),
-		Address: finalRev.ValidHostOutput.Address,
+		Value:   finalRev.HostOutput.Value.Sub(renewal.HostRollover),
+		Address: finalRev.HostOutput.Address,
 	}
 	if len(sau.ResolvedFileContracts) != 1 {
 		t.Fatal("expected one resolved file contract")
@@ -884,29 +872,23 @@ func TestContractFinalization(t *testing.T) {
 	initialRev := types.FileContract{
 		WindowStart: 5,
 		WindowEnd:   10,
-		ValidRenterOutput: types.SiacoinOutput{
+		RenterOutput: types.SiacoinOutput{
 			Address: types.StandardAddress(renterPubkey),
 			Value:   types.Siacoins(58),
 		},
-		ValidHostOutput: types.SiacoinOutput{
+		HostOutput: types.SiacoinOutput{
 			Address: types.StandardAddress(hostPubkey),
 			Value:   types.Siacoins(19),
 		},
-		MissedRenterOutput: types.SiacoinOutput{
-			Address: types.StandardAddress(renterPubkey),
-			Value:   types.Siacoins(60),
-		},
-		MissedHostOutput: types.SiacoinOutput{
-			Address: types.StandardAddress(hostPubkey),
-			Value:   types.Siacoins(17),
-		},
+		MissedHostValue: types.Siacoins(17),
+		TotalCollateral: types.Siacoins(18),
 		RenterPublicKey: renterPubkey,
 		HostPublicKey:   hostPubkey,
 	}
 	contractHash := sau.Context.ContractSigHash(initialRev)
 	initialRev.RenterSignature = renterPrivkey.SignHash(contractHash)
 	initialRev.HostSignature = hostPrivkey.SignHash(contractHash)
-	outputSum := initialRev.ValidRenterOutput.Value.Add(initialRev.ValidHostOutput.Value).Add(sau.Context.FileContractTax(initialRev))
+	outputSum := initialRev.RenterOutput.Value.Add(initialRev.HostOutput.Value).Add(sau.Context.FileContractTax(initialRev))
 	txn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{
 			{Parent: renterOutput, SpendPolicy: types.PolicyPublicKey(renterPubkey)},
@@ -939,8 +921,6 @@ func TestContractFinalization(t *testing.T) {
 	// finalize the contract
 	finalRev := fc.FileContract
 	finalRev.RevisionNumber = types.MaxRevisionNumber
-	finalRev.MissedRenterOutput = finalRev.ValidRenterOutput
-	finalRev.MissedHostOutput = finalRev.ValidHostOutput
 	contractHash = sau.Context.ContractSigHash(finalRev)
 	finalRev.RenterSignature = renterPrivkey.SignHash(contractHash)
 	finalRev.HostSignature = hostPrivkey.SignHash(contractHash)
@@ -961,10 +941,10 @@ func TestContractFinalization(t *testing.T) {
 		t.Fatal("expected one resolved file contract")
 	} else if len(sau.NewSiacoinElements) != 3 {
 		t.Fatal("expected three new siacoin outputs")
-	} else if sau.NewSiacoinElements[1].SiacoinOutput != finalRev.ValidRenterOutput {
-		t.Fatal("expected valid/missed renter output to be created")
-	} else if sau.NewSiacoinElements[2].SiacoinOutput != finalRev.ValidHostOutput {
-		t.Fatal("expected valid/missed host output to be created")
+	} else if sau.NewSiacoinElements[1].SiacoinOutput != finalRev.RenterOutput {
+		t.Fatal("expected renter output to be created")
+	} else if sau.NewSiacoinElements[2].SiacoinOutput != finalRev.HostOutput {
+		t.Fatal("expected valid host output to be created")
 	}
 }
 
@@ -988,29 +968,23 @@ func TestRevertFileContractRevision(t *testing.T) {
 	initialRev := types.FileContract{
 		WindowStart: 5,
 		WindowEnd:   10,
-		ValidRenterOutput: types.SiacoinOutput{
+		RenterOutput: types.SiacoinOutput{
 			Address: types.StandardAddress(renterPubkey),
 			Value:   types.Siacoins(58),
 		},
-		ValidHostOutput: types.SiacoinOutput{
-			Address: types.StandardAddress(renterPubkey),
+		HostOutput: types.SiacoinOutput{
+			Address: types.StandardAddress(hostPubkey),
 			Value:   types.Siacoins(19),
 		},
-		MissedRenterOutput: types.SiacoinOutput{
-			Address: types.StandardAddress(renterPubkey),
-			Value:   types.Siacoins(60),
-		},
-		MissedHostOutput: types.SiacoinOutput{
-			Address: types.StandardAddress(renterPubkey),
-			Value:   types.Siacoins(17),
-		},
+		MissedHostValue: types.Siacoins(17),
+		TotalCollateral: types.Siacoins(18),
 		RenterPublicKey: renterPubkey,
 		HostPublicKey:   hostPubkey,
 	}
 	contractHash := vc.ContractSigHash(initialRev)
 	initialRev.RenterSignature = renterPrivkey.SignHash(contractHash)
 	initialRev.HostSignature = hostPrivkey.SignHash(contractHash)
-	outputSum := initialRev.ValidRenterOutput.Value.Add(initialRev.ValidHostOutput.Value).Add(vc.FileContractTax(initialRev))
+	outputSum := initialRev.RenterOutput.Value.Add(initialRev.HostOutput.Value).Add(vc.FileContractTax(initialRev))
 	txn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{
 			{Parent: renterOutput, SpendPolicy: types.PolicyPublicKey(renterPubkey)},
