@@ -356,16 +356,74 @@ func (vc *ValidationContext) validateHeader(h types.BlockHeader) error {
 	return nil
 }
 
-func (vc *ValidationContext) containsZeroValuedOutputs(txn types.Transaction) error {
+func (vc *ValidationContext) validCurrencyValues(txn types.Transaction) error {
+	// Add up all of the currency values in the transaction and check for
+	// overflow. This allows us to freely add any currency values in later
+	// validation functions without worrying about overflow.
+	//
+	// NOTE: This check could be a little more "tolerant" -- currently it adds
+	// both the input and output values to the same sum, and it double-counts
+	// some value in file contracts. Even so, it won't be possible to construct
+	// a valid transaction that fails this check for ~50,000 years.
+
+	var sum types.Currency
+	var sum64 uint64
+	var overflowed bool
+	add := func(x types.Currency) {
+		if !overflowed {
+			sum, overflowed = sum.AddWithOverflow(x)
+		}
+	}
+	add64 := func(x uint64) {
+		if !overflowed {
+			s, carry := bits.Add64(sum64, x, 0)
+			sum64, overflowed = s, carry > 0
+		}
+	}
+	addContract := func(fc types.FileContract) {
+		add(fc.ValidRenterOutput.Value)
+		add(fc.ValidHostOutput.Value)
+		add(fc.MissedRenterOutput.Value)
+		add(fc.MissedHostOutput.Value)
+		add(vc.FileContractTax(fc))
+	}
+
+	for _, in := range txn.SiacoinInputs {
+		add(in.Parent.Value)
+	}
 	for i, out := range txn.SiacoinOutputs {
 		if out.Value.IsZero() {
 			return fmt.Errorf("siacoin output %v has zero value", i)
 		}
+		add(out.Value)
+	}
+	for _, in := range txn.SiafundInputs {
+		add64(in.Parent.Value)
 	}
 	for i, out := range txn.SiafundOutputs {
 		if out.Value == 0 {
 			return fmt.Errorf("siafund output %v has zero value", i)
 		}
+		add64(out.Value)
+	}
+	for _, fc := range txn.FileContracts {
+		addContract(fc)
+	}
+	for _, fc := range txn.FileContractRevisions {
+		addContract(fc.Revision)
+	}
+	for _, fcr := range txn.FileContractResolutions {
+		if fcr.HasRenewal() {
+			add(fcr.Renewal.RenterRollover)
+			add(fcr.Renewal.HostRollover)
+			addContract(fcr.Renewal.InitialRevision)
+		} else if fcr.HasFinalization() {
+			addContract(fcr.Finalization)
+		}
+	}
+	add(txn.MinerFee)
+	if overflowed {
+		return ErrOverflow
 	}
 	return nil
 }
@@ -402,11 +460,8 @@ func (vc *ValidationContext) validateContract(fc types.FileContract) error {
 
 func (vc *ValidationContext) validateRevision(cur, rev types.FileContract) error {
 	curValidSum := cur.ValidRenterOutput.Value.Add(cur.ValidHostOutput.Value)
-	revValidSum, validOverflow := rev.ValidRenterOutput.Value.AddWithOverflow(rev.ValidHostOutput.Value)
-	revMissedSum, missedOverflow := rev.MissedRenterOutput.Value.AddWithOverflow(rev.MissedHostOutput.Value)
-	if validOverflow || missedOverflow {
-		return ErrOverflow
-	}
+	revValidSum := rev.ValidRenterOutput.Value.Add(rev.ValidHostOutput.Value)
+	revMissedSum := rev.MissedRenterOutput.Value.Add(rev.MissedHostOutput.Value)
 	switch {
 	case rev.RevisionNumber <= cur.RevisionNumber:
 		return fmt.Errorf("does not increase revision number (%v -> %v)", cur.RevisionNumber, rev.RevisionNumber)
@@ -532,59 +587,40 @@ func (vc *ValidationContext) validAttestations(txn types.Transaction) error {
 }
 
 func (vc *ValidationContext) outputsEqualInputs(txn types.Transaction) error {
-	var overflowed bool
-	add := func(x, y types.Currency) types.Currency {
-		x, overflowed = x.AddWithOverflow(y)
-		return x
-	}
-	add64 := func(x, y uint64) uint64 {
-		z, carry := bits.Add64(x, y, 0)
-		overflowed = carry > 0
-		return z
-	}
-
 	var inputSC, outputSC types.Currency
 	for _, in := range txn.SiacoinInputs {
-		inputSC = add(inputSC, in.Parent.Value)
+		inputSC = inputSC.Add(in.Parent.Value)
 	}
 	for _, out := range txn.SiacoinOutputs {
-		outputSC = add(outputSC, out.Value)
+		outputSC = outputSC.Add(out.Value)
 	}
 	for _, fc := range txn.FileContracts {
-		outputSC = add(outputSC, fc.ValidRenterOutput.Value)
-		outputSC = add(outputSC, fc.ValidHostOutput.Value)
-		outputSC = add(outputSC, vc.FileContractTax(fc))
+		outputSC = outputSC.Add(fc.ValidRenterOutput.Value).Add(fc.ValidHostOutput.Value).Add(vc.FileContractTax(fc))
 	}
 	for _, fcr := range txn.FileContractResolutions {
 		if fcr.HasRenewal() {
 			// a renewal creates a new contract, optionally "rolling over" funds
 			// from the old contract
-			inputSC = add(inputSC, fcr.Renewal.RenterRollover)
-			inputSC = add(inputSC, fcr.Renewal.HostRollover)
+			inputSC = inputSC.Add(fcr.Renewal.RenterRollover)
+			inputSC = inputSC.Add(fcr.Renewal.HostRollover)
 
-			outputSC = add(outputSC, fcr.Renewal.InitialRevision.ValidRenterOutput.Value)
-			outputSC = add(outputSC, fcr.Renewal.InitialRevision.ValidHostOutput.Value)
-			outputSC = add(outputSC, vc.FileContractTax(fcr.Renewal.InitialRevision))
+			rev := fcr.Renewal.InitialRevision
+			outputSC = outputSC.Add(rev.ValidRenterOutput.Value).Add(rev.ValidHostOutput.Value).Add(vc.FileContractTax(rev))
 		}
 	}
-
-	outputSC = add(outputSC, txn.MinerFee)
-	if overflowed {
-		return ErrOverflow
-	} else if inputSC != outputSC {
+	outputSC = outputSC.Add(txn.MinerFee)
+	if inputSC != outputSC {
 		return fmt.Errorf("siacoin inputs (%v SC) do not equal siacoin outputs (%v SC)", inputSC, outputSC)
 	}
 
 	var inputSF, outputSF uint64
 	for _, in := range txn.SiafundInputs {
-		inputSF = add64(inputSF, in.Parent.Value)
+		inputSF += in.Parent.Value
 	}
 	for _, out := range txn.SiafundOutputs {
-		outputSF = add64(outputSF, out.Value)
+		outputSF += out.Value
 	}
-	if overflowed {
-		return ErrOverflow
-	} else if inputSF != outputSF {
+	if inputSF != outputSF {
 		return fmt.Errorf("siafund inputs (%d SF) do not equal siafund outputs (%d SF)", inputSF, outputSF)
 	}
 
@@ -733,7 +769,7 @@ func (vc *ValidationContext) ValidateTransaction(txn types.Transaction) error {
 		return err
 	}
 
-	if err := vc.containsZeroValuedOutputs(txn); err != nil {
+	if err := vc.validCurrencyValues(txn); err != nil {
 		return err
 	} else if err := vc.validTimeLocks(txn); err != nil {
 		return err
