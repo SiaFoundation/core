@@ -369,7 +369,7 @@ type ElementRevertUpdate struct {
 func (eru *ElementRevertUpdate) UpdateElementProof(e *types.StateElement) {
 	if e.LeafIndex == types.EphemeralLeafIndex {
 		panic("cannot update an ephemeral element")
-	} else if e.LeafIndex > eru.numLeaves {
+	} else if e.LeafIndex >= eru.numLeaves {
 		panic("cannot update an element that is not present in the accumulator")
 	}
 	if mh := mergeHeight(eru.numLeaves, e.LeafIndex); mh <= len(e.MerkleProof) {

@@ -491,72 +491,141 @@ func (m *Manager) discardChain(sc *consensus.ScratchChain) {
 	}
 }
 
+func (m *Manager) reorgPath(a, b types.ChainIndex) (revert, apply []types.ChainIndex, err error) {
+	// TODO: In the common case, a and b will rejoin the best chain fairly
+	// quickly. Once both are on the best chain, we can determine their common
+	// ancestor directly, and read the path elements via BestIndex, which is
+	// (presumably) much faster than "parent-chasing" via Header.
+
+	// helper function for "rewinding" to the parent index
+	rewind := func(index *types.ChainIndex) bool {
+		h, hErr := m.store.Header(*index)
+		if hErr != nil {
+			err = fmt.Errorf("failed to get header %v: %w", a, hErr)
+			return false
+		}
+		*index = h.ParentIndex()
+		return true
+	}
+
+	// rewind a or b until their heights match
+	for a.Height > b.Height {
+		revert = append(revert, a)
+		if !rewind(&a) {
+			return
+		}
+	}
+	for b.Height > a.Height {
+		apply = append(apply, b)
+		if !rewind(&b) {
+			return
+		}
+	}
+
+	// now rewind both until we reach a common ancestor
+	for a != b {
+		revert = append(revert, a)
+		apply = append(apply, b)
+		if !rewind(&a) || !rewind(&b) {
+			return
+		}
+	}
+
+	// reverse the apply path
+	for i := 0; i < len(apply)/2; i++ {
+		j := len(apply) - i - 1
+		apply[i], apply[j] = apply[j], apply[i]
+	}
+	return revert, apply, nil
+}
+
 // AddSubscriber subscribes s to m, ensuring that it will receive updates when
 // the best chain changes. If tip does not match the Manager's current tip, s is
 // updated accordingly.
 func (m *Manager) AddSubscriber(s Subscriber, tip types.ChainIndex) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.vc.Index != tip {
-		// starting at tip, follow parent chain until we connect to the
-		// current best chain
-		h, err := m.store.Header(tip)
+
+	// reorg s to the current tip, if necessary
+	revert, apply, err := m.reorgPath(tip, m.vc.Index)
+	if err != nil {
+		return fmt.Errorf("failed to establish reorg path from %v to %v: %w", tip, m.vc.Index, err)
+	}
+	for _, index := range revert {
+		c, err := m.store.Checkpoint(index)
 		if err != nil {
-			return fmt.Errorf("failed to get header %v: %w", tip, err)
+			return fmt.Errorf("failed to get revert checkpoint %v: %w", index, err)
 		}
-		for {
-			if index, err := m.store.BestIndex(h.Height); err != nil && !errors.Is(err, ErrUnknownIndex) {
-				return fmt.Errorf("failed to get index at %v: %w", h.Height, err)
-			} else if index == h.Index() {
-				break
-			}
-
-			// construct and send update
-			c, err := m.store.Checkpoint(h.Index())
-			if err != nil {
-				return fmt.Errorf("failed to get revert checkpoint %v: %w", h.Index(), err)
-			}
-			b := c.Block
-			c, err = m.store.Checkpoint(h.ParentIndex())
-			if err != nil {
-				return fmt.Errorf("failed to get revert parent checkpoint %v: %w", h.ParentIndex(), err)
-			}
-			sru := consensus.RevertBlock(c.Context, b)
-			if err := s.ProcessChainRevertUpdate(&RevertUpdate{sru, b}); err != nil {
-				return fmt.Errorf("failed to process revert update: %w", err)
-			}
-
-			// load parent
-			h, err = m.store.Header(h.ParentIndex())
-			if err != nil {
-				return fmt.Errorf("failed to get header %v: %w", h.ParentIndex(), err)
-			}
-		}
-
-		// apply to m.Tip
-		c, err := m.store.Checkpoint(h.Index())
+		b := c.Block
+		c, err = m.store.Checkpoint(b.Header.ParentIndex())
 		if err != nil {
-			return fmt.Errorf("failed to get current checkpoint %v: %w", h.Index(), err)
+			return fmt.Errorf("failed to get revert parent checkpoint %v: %w", b.Header.ParentIndex(), err)
 		}
-		vc := c.Context
-		for vc.Index != m.vc.Index {
-			index, err := m.store.BestIndex(vc.Index.Height + 1)
-			if err != nil {
-				return fmt.Errorf("failed to get apply index %v: %w", vc.Index.Height+1, err)
-			}
-			c, err := m.store.Checkpoint(index)
-			if err != nil {
-				return fmt.Errorf("failed to get apply checkpoint %v: %w", index, err)
-			}
-			sau := consensus.ApplyBlock(vc, c.Block)
-			shouldCommit := index == m.vc.Index
-			if err := s.ProcessChainApplyUpdate(&ApplyUpdate{sau, c.Block}, shouldCommit); err != nil {
-				return fmt.Errorf("failed to process apply update: %w", err)
-			}
-			vc = sau.Context
+		sru := consensus.RevertBlock(c.Context, b)
+		if err := s.ProcessChainRevertUpdate(&RevertUpdate{sru, b}); err != nil {
+			return fmt.Errorf("failed to process revert update: %w", err)
+		}
+	}
+	for _, index := range apply {
+		c, err := m.store.Checkpoint(index)
+		if err != nil {
+			return fmt.Errorf("failed to get apply checkpoint %v: %w", index, err)
+		}
+		b := c.Block
+		c, err = m.store.Checkpoint(b.Header.ParentIndex())
+		if err != nil {
+			return fmt.Errorf("failed to get apply parent checkpoint %v: %w", b.Header.ParentIndex(), err)
+		}
+		sau := consensus.ApplyBlock(c.Context, b)
+		shouldCommit := index == m.vc.Index
+		if err := s.ProcessChainApplyUpdate(&ApplyUpdate{sau, b}, shouldCommit); err != nil {
+			return fmt.Errorf("failed to process apply update: %w", err)
 		}
 	}
 	m.subscribers = append(m.subscribers, s)
+	return nil
+}
+
+// UpdateElementProof updates the Merkle proof of the provided StateElement,
+// which must be valid as of index a, so that it is valid as of index b. An
+// error is returned if the Manager cannot establish a path from a to b, or if
+// the StateElement does not exist at index b.
+func (m *Manager) UpdateElementProof(e *types.StateElement, a, b types.ChainIndex) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	revert, apply, err := m.reorgPath(a, b)
+	if err != nil {
+		return fmt.Errorf("failed to establish reorg path from %v to %v: %w", a, b, err)
+	}
+	for _, index := range revert {
+		c, err := m.store.Checkpoint(index)
+		if err != nil {
+			return fmt.Errorf("failed to get revert checkpoint %v: %w", index, err)
+		}
+		b := c.Block
+		c, err = m.store.Checkpoint(b.Header.ParentIndex())
+		if err != nil {
+			return fmt.Errorf("failed to get revert parent checkpoint %v: %w", b.Header.ParentIndex(), err)
+		}
+		sru := consensus.RevertBlock(c.Context, b)
+		if e.LeafIndex >= sru.Context.State.NumLeaves {
+			return fmt.Errorf("element %v does not exist at destination index", e.ID)
+		}
+		sru.UpdateElementProof(e)
+	}
+	for _, index := range apply {
+		c, err := m.store.Checkpoint(index)
+		if err != nil {
+			return fmt.Errorf("failed to get apply checkpoint %v: %w", index, err)
+		}
+		b := c.Block
+		c, err = m.store.Checkpoint(b.Header.ParentIndex())
+		if err != nil {
+			return fmt.Errorf("failed to get apply parent checkpoint %v: %w", b.Header.ParentIndex(), err)
+		}
+		sau := consensus.ApplyBlock(c.Context, b)
+		sau.UpdateElementProof(e)
+	}
 	return nil
 }
 
