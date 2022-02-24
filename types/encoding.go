@@ -345,7 +345,7 @@ func (in SiacoinInput) EncodeTo(e *Encoder) {
 func (sce SiacoinElement) EncodeTo(e *Encoder) {
 	sce.StateElement.EncodeTo(e)
 	sce.SiacoinOutput.EncodeTo(e)
-	e.WriteUint64(sce.Timelock)
+	e.WriteUint64(sce.MaturityHeight)
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -706,7 +706,7 @@ func (in *SiacoinInput) DecodeFrom(d *Decoder) {
 func (sce *SiacoinElement) DecodeFrom(d *Decoder) {
 	sce.StateElement.DecodeFrom(d)
 	sce.SiacoinOutput.DecodeFrom(d)
-	sce.Timelock = d.ReadUint64()
+	sce.MaturityHeight = d.ReadUint64()
 }
 
 // DecodeFrom implements types.DecoderFrom.

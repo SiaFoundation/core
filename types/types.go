@@ -264,7 +264,7 @@ type StateElement struct {
 type SiacoinElement struct {
 	StateElement
 	SiacoinOutput
-	Timelock uint64
+	MaturityHeight uint64
 }
 
 // A SiafundElement is a volume of siafunds that is created and spent as an

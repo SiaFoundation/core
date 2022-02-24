@@ -199,13 +199,13 @@ type compressedSiacoinElement types.SiacoinElement
 func (sce compressedSiacoinElement) EncodeTo(e *types.Encoder) {
 	(compressedStateElement)(sce.StateElement).EncodeTo(e)
 	sce.SiacoinOutput.EncodeTo(e)
-	e.WriteUint64(sce.Timelock)
+	e.WriteUint64(sce.MaturityHeight)
 }
 
 func (sce *compressedSiacoinElement) DecodeFrom(d *types.Decoder) {
 	(*compressedStateElement)(&sce.StateElement).DecodeFrom(d)
 	sce.SiacoinOutput.DecodeFrom(d)
-	sce.Timelock = d.ReadUint64()
+	sce.MaturityHeight = d.ReadUint64()
 }
 
 type compressedSiacoinInput types.SiacoinInput

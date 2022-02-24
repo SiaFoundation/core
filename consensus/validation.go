@@ -430,8 +430,8 @@ func (vc *ValidationContext) validCurrencyValues(txn types.Transaction) error {
 func (vc *ValidationContext) validTimeLocks(txn types.Transaction) error {
 	blockHeight := vc.Index.Height + 1
 	for i, in := range txn.SiacoinInputs {
-		if in.Parent.Timelock > blockHeight {
-			return fmt.Errorf("siacoin input %v is timelocked until block %v", i, in.Parent.Timelock)
+		if in.Parent.MaturityHeight > blockHeight {
+			return fmt.Errorf("siacoin input %v does not mature until block %v", i, in.Parent.MaturityHeight)
 		}
 	}
 	return nil

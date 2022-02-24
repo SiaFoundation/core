@@ -306,7 +306,7 @@ func TestSiafunds(t *testing.T) {
 		t.Fatal("expected one block reward and one claim output")
 	}
 
-	// attempt to spend the claim output; it should be timelocked
+	// attempt to spend the claim output before it matures
 	txn = types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
 			Parent:      sau.NewSiacoinElements[1],
@@ -317,11 +317,11 @@ func TestSiafunds(t *testing.T) {
 	signAllInputs(&txn, sau.Context, claimPrivkey)
 	b = mineBlock(sau.Context, b, txn)
 	if err := sau.Context.ValidateBlock(b); err == nil {
-		t.Fatal("expected error when attempting to spend timelocked claim output")
+		t.Fatal("expected error when attempting to spend immature claim output")
 	}
 
-	// skip to timelock height and try again
-	sau.Context.Index.Height = sau.NewSiacoinElements[1].Timelock + 1
+	// skip to maturity height and try again
+	sau.Context.Index.Height = sau.NewSiacoinElements[1].MaturityHeight + 1
 	sau.Context.Index.ID = b.ID()
 	for i := range sau.Context.PrevTimestamps {
 		sau.Context.PrevTimestamps[i] = b.Header.Timestamp
@@ -396,8 +396,8 @@ func TestFoundationSubsidy(t *testing.T) {
 		t.Fatal("Foundation address not updated")
 	}
 
-	// skip beyond the timelock of the initial subsidy output, and spend it
-	sau.Context.Index.Height = subsidyOutput.Timelock + 1
+	// skip beyond the maturity height of the initial subsidy output, and spend it
+	sau.Context.Index.Height = subsidyOutput.MaturityHeight + 1
 	txn = types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
 			Parent:      subsidyOutput,
@@ -771,11 +771,11 @@ func TestContractRenewal(t *testing.T) {
 		t.Fatal("expected three new siacoin outputs")
 	} else if sau.NewSiacoinElements[1].SiacoinOutput != expRenterOutput {
 		t.Fatal("expected valid renter output to be created", sau.NewSiacoinElements[1].SiacoinOutput, expRenterOutput)
-	} else if sau.NewSiacoinElements[1].Timelock != sau.Context.MaturityHeight()-1 {
+	} else if sau.NewSiacoinElements[1].MaturityHeight != sau.Context.MaturityHeight()-1 {
 		t.Fatal("renter output has wrong maturity height")
 	} else if sau.NewSiacoinElements[2].SiacoinOutput != expHostOutput {
 		t.Fatal("expected valid host output to be created", sau.NewSiacoinElements[2].SiacoinOutput, expHostOutput)
-	} else if sau.NewSiacoinElements[2].Timelock != sau.Context.MaturityHeight()-1 {
+	} else if sau.NewSiacoinElements[2].MaturityHeight != sau.Context.MaturityHeight()-1 {
 		t.Fatal("host output has wrong maturity height")
 	}
 	fc = sau.NewFileContracts[0]
@@ -845,11 +845,11 @@ func TestContractRenewal(t *testing.T) {
 		t.Fatal("expected three new siacoin outputs")
 	} else if sau.NewSiacoinElements[1].SiacoinOutput != expRenterOutput {
 		t.Fatal("expected valid renter output to be created", sau.NewSiacoinElements[1].SiacoinOutput, expRenterOutput)
-	} else if sau.NewSiacoinElements[1].Timelock != sau.Context.MaturityHeight()-1 {
+	} else if sau.NewSiacoinElements[1].MaturityHeight != sau.Context.MaturityHeight()-1 {
 		t.Fatal("renter output has wrong maturity height")
 	} else if sau.NewSiacoinElements[2].SiacoinOutput != expHostOutput {
 		t.Fatal("expected valid host output to be created", sau.NewSiacoinElements[2].SiacoinOutput, expHostOutput)
-	} else if sau.NewSiacoinElements[2].Timelock != sau.Context.MaturityHeight()-1 {
+	} else if sau.NewSiacoinElements[2].MaturityHeight != sau.Context.MaturityHeight()-1 {
 		t.Fatal("host output has wrong maturity height")
 	}
 }

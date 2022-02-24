@@ -47,7 +47,7 @@ func SiacoinLeaf(e types.SiacoinElement, spent bool) ElementLeaf {
 	h.E.WriteString("sia/leaf/siacoin")
 	e.ID.EncodeTo(h.E)
 	e.SiacoinOutput.EncodeTo(h.E)
-	h.E.WriteUint64(e.Timelock)
+	h.E.WriteUint64(e.MaturityHeight)
 	return ElementLeaf{
 		StateElement: e.StateElement,
 		ElementHash:  h.Sum(),

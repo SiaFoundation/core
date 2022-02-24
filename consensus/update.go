@@ -142,7 +142,7 @@ func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinEl
 			Value:   vc.BlockReward(),
 			Address: b.Header.MinerAddress,
 		},
-		Timelock: vc.MaturityHeight(),
+		MaturityHeight: vc.MaturityHeight(),
 	})
 	if subsidy := vc.FoundationSubsidy(); !subsidy.IsZero() {
 		sces = append(sces, types.SiacoinElement{
@@ -156,7 +156,7 @@ func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinEl
 				Value:   subsidy,
 				Address: vc.FoundationAddress,
 			},
-			Timelock: vc.MaturityHeight(),
+			MaturityHeight: vc.MaturityHeight(),
 		})
 	}
 	for _, txn := range b.Transactions {
@@ -185,7 +185,7 @@ func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinEl
 					Value:   vc.SiafundPool.Sub(in.Parent.ClaimStart).Div64(SiafundCount).Mul64(in.Parent.Value),
 					Address: in.ClaimAddress,
 				},
-				Timelock: vc.MaturityHeight(),
+				MaturityHeight: vc.MaturityHeight(),
 			})
 		}
 		for _, out := range txn.SiafundOutputs {
@@ -220,14 +220,14 @@ func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinEl
 				renter, host = fce.RenterOutput, fce.MissedHostOutput()
 			}
 			sces = append(sces, types.SiacoinElement{
-				StateElement:  nextElement(),
-				SiacoinOutput: renter,
-				Timelock:      vc.MaturityHeight(),
+				StateElement:   nextElement(),
+				SiacoinOutput:  renter,
+				MaturityHeight: vc.MaturityHeight(),
 			})
 			sces = append(sces, types.SiacoinElement{
-				StateElement:  nextElement(),
-				SiacoinOutput: host,
-				Timelock:      vc.MaturityHeight(),
+				StateElement:   nextElement(),
+				SiacoinOutput:  host,
+				MaturityHeight: vc.MaturityHeight(),
 			})
 		}
 	}
