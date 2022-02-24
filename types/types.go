@@ -122,21 +122,30 @@ type SiafundOutput struct {
 // or "missed" depending on whether a valid StorageProof is submitted for the
 // contract.
 type FileContract struct {
-	Filesize           uint64
-	FileMerkleRoot     Hash256
-	WindowStart        uint64
-	WindowEnd          uint64
-	ValidRenterOutput  SiacoinOutput
-	ValidHostOutput    SiacoinOutput
-	MissedRenterOutput SiacoinOutput
-	MissedHostOutput   SiacoinOutput
-	RenterPublicKey    PublicKey
-	HostPublicKey      PublicKey
-	RevisionNumber     uint64
+	Filesize        uint64
+	FileMerkleRoot  Hash256
+	WindowStart     uint64
+	WindowEnd       uint64
+	RenterOutput    SiacoinOutput
+	HostOutput      SiacoinOutput
+	MissedHostValue Currency
+	TotalCollateral Currency
+	RenterPublicKey PublicKey
+	HostPublicKey   PublicKey
+	RevisionNumber  uint64
 
 	// signatures cover above fields
 	RenterSignature Signature
 	HostSignature   Signature
+}
+
+// MissedHostOutput returns the host output that will be created if the contract
+// resolves missed.
+func (fc FileContract) MissedHostOutput() SiacoinOutput {
+	return SiacoinOutput{
+		Value:   fc.MissedHostValue,
+		Address: fc.HostOutput.Address,
+	}
 }
 
 // A SiacoinInput spends an unspent SiacoinElement in the state accumulator by

@@ -205,7 +205,7 @@ func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinEl
 			fce := fcr.Parent
 			var renter, host types.SiacoinOutput
 			if fcr.HasRenewal() {
-				renter, host = fcr.Renewal.FinalRevision.ValidRenterOutput, fcr.Renewal.FinalRevision.ValidHostOutput
+				renter, host = fcr.Renewal.FinalRevision.RenterOutput, fcr.Renewal.FinalRevision.HostOutput
 				renter.Value = renter.Value.Sub(fcr.Renewal.RenterRollover)
 				host.Value = host.Value.Sub(fcr.Renewal.HostRollover)
 				fces = append(fces, types.FileContractElement{
@@ -213,11 +213,11 @@ func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinEl
 					FileContract: fcr.Renewal.InitialRevision,
 				})
 			} else if fcr.HasStorageProof() {
-				renter, host = fce.ValidRenterOutput, fce.ValidHostOutput
+				renter, host = fce.RenterOutput, fce.HostOutput
 			} else if fcr.HasFinalization() {
-				renter, host = fcr.Finalization.ValidRenterOutput, fcr.Finalization.ValidHostOutput
+				renter, host = fcr.Finalization.RenterOutput, fcr.Finalization.HostOutput
 			} else {
-				renter, host = fce.MissedRenterOutput, fce.MissedHostOutput
+				renter, host = fce.RenterOutput, fce.MissedHostOutput()
 			}
 			sces = append(sces, types.SiacoinElement{
 				StateElement:  nextElement(),

@@ -47,29 +47,28 @@ func (c *Contract) MaxLen() uint64 {
 	return 10e3
 }
 
-// PaymentRevision returns a new file contract revision with the amount added to
-// the host payout fields and subtracted from the renter payout fields.
+// PaymentRevision returns a new file contract revision with the specified
+// amount moved from the renter's payout to the host's payout (both valid and
+// missed). The revision number is incremented.
 func PaymentRevision(fc types.FileContract, amount types.Currency) (types.FileContract, error) {
-	if fc.ValidRenterOutput.Value.Cmp(amount) < 0 || fc.MissedRenterOutput.Value.Cmp(amount) < 0 {
+	if fc.RenterOutput.Value.Cmp(amount) < 0 {
 		return fc, errors.New("insufficient funds")
 	}
-
 	fc.RevisionNumber++
-	fc.ValidHostOutput.Value = fc.ValidHostOutput.Value.Add(amount)
-	fc.MissedHostOutput.Value = fc.MissedHostOutput.Value.Add(amount)
-	fc.ValidRenterOutput.Value = fc.ValidRenterOutput.Value.Sub(amount)
-	fc.MissedRenterOutput.Value = fc.MissedRenterOutput.Value.Sub(amount)
+	fc.RenterOutput.Value = fc.RenterOutput.Value.Sub(amount)
+	fc.HostOutput.Value = fc.HostOutput.Value.Add(amount)
+	fc.MissedHostValue = fc.MissedHostValue.Add(amount)
 	return fc, nil
 }
 
 // FinalizeProgramRevision returns a new file contract revision with the burn
-// amount subtracted from the missed host output.
+// amount subtracted from the host output. The revision number is incremented.
 func FinalizeProgramRevision(fc types.FileContract, burn types.Currency) (types.FileContract, error) {
-	if fc.MissedHostOutput.Value.Cmp(burn) < 0 {
+	if fc.MissedHostValue.Cmp(burn) < 0 {
 		return fc, errors.New("not enough funds")
 	}
 	fc.RevisionNumber++
-	fc.MissedHostOutput.Value = fc.MissedHostOutput.Value.Sub(burn)
+	fc.MissedHostValue = fc.MissedHostValue.Sub(burn)
 	return fc, nil
 }
 
@@ -89,25 +88,21 @@ func ValidateContractFormation(fc types.FileContract, currentHeight uint64, sett
 		return errors.New("contract duration is too long")
 	case fc.WindowEnd < fc.WindowStart+settings.WindowSize:
 		return errors.New("proof window is too small")
-	case fc.ValidHostOutput.Address != settings.Address:
+	case fc.HostOutput.Address != settings.Address:
 		return errors.New("wrong address for host valid output")
-	case fc.MissedHostOutput.Address != settings.Address:
-		return errors.New("wrong address for host missed output")
-	case fc.ValidHostOutput.Value.Cmp(fc.MissedHostOutput.Value) != 0:
-		return errors.New("host valid output value does not match host missed output value")
-	case fc.ValidRenterOutput.Value.Cmp(fc.MissedRenterOutput.Value) != 0:
-		return errors.New("renter valid output value does not match renter missed output value")
-	case fc.ValidHostOutput.Value.Cmp(settings.ContractFee) < 0:
-		return errors.New("insufficient initial host payout")
-	case fc.ValidHostOutput.Value.Sub(settings.ContractFee).Cmp(settings.MaxCollateral) > 0:
+	case fc.HostOutput.Value != fc.MissedHostValue:
+		return errors.New("host valid output value does not equal missed value")
+	case fc.HostOutput.Value != settings.ContractFee.Add(fc.TotalCollateral):
+		return errors.New("wrong initial host output value")
+	case fc.TotalCollateral.Cmp(settings.MaxCollateral) > 0:
 		return errors.New("excessive initial collateral")
 	}
 	return nil
 }
 
 // ValidateContractRenewal verifies that the renewed contract is valid given the
-// old contract. A renewal is valid if the file fields match and the revision
-// number is 0.
+// old contract. A renewal is valid if the contract fields match and the
+// revision number is 0.
 func ValidateContractRenewal(existing, renewal types.FileContract, currentHeight uint64, settings HostSettings) error {
 	switch {
 	case renewal.HostPublicKey != existing.HostPublicKey:
@@ -117,29 +112,29 @@ func ValidateContractRenewal(existing, renewal types.FileContract, currentHeight
 	case renewal.RevisionNumber != 0:
 		return errors.New("revision number must be zero")
 	case renewal.Filesize != existing.Filesize:
-		return errors.New("file size must not change")
+		return errors.New("filesize must not change")
 	case renewal.FileMerkleRoot != existing.FileMerkleRoot:
-		return errors.New("file merkle root must not change")
+		return errors.New("file Merkle root must not change")
 	case renewal.WindowEnd < existing.WindowEnd:
-		return errors.New("renewal window end must be after existing window end")
+		return errors.New("renewal window must not end before current window")
 	case renewal.WindowStart < currentHeight+settings.WindowSize:
 		return errors.New("contract ends too soon to safely submit the contract transaction")
 	case renewal.WindowStart > currentHeight+settings.MaxDuration:
 		return errors.New("contract duration is too long")
 	case renewal.WindowEnd < renewal.WindowStart+settings.WindowSize:
 		return errors.New("proof window is too small")
-	case renewal.ValidHostOutput.Address != settings.Address:
-		return errors.New("wrong address for host valid output")
-	case renewal.MissedHostOutput.Address != settings.Address:
-		return errors.New("wrong address for host missed output")
-	case renewal.ValidHostOutput.Value.Cmp(settings.ContractFee) < 0:
+	case renewal.HostOutput.Address != settings.Address:
+		return errors.New("wrong address for host output")
+	case renewal.HostOutput.Value.Cmp(settings.ContractFee.Add(renewal.TotalCollateral)) < 0:
 		return errors.New("insufficient initial host payout")
+	case renewal.TotalCollateral.Cmp(settings.MaxCollateral) > 0:
+		return errors.New("excessive initial collateral")
 	}
 	return nil
 }
 
 // ValidateContractFinalization verifies that the revision locks the current
-// contract by setting its revision number to the maximum legal value, no other
+// contract by setting its revision number to the maximum legal value. No other
 // fields should change. Signatures are not validated.
 func ValidateContractFinalization(current, final types.FileContract) error {
 	switch {
@@ -151,14 +146,14 @@ func ValidateContractFinalization(current, final types.FileContract) error {
 		return errors.New("window start must not change")
 	case current.WindowEnd != final.WindowEnd:
 		return errors.New("window end must not change")
-	case current.ValidRenterOutput != final.ValidRenterOutput:
-		return errors.New("valid renter output must not change")
-	case current.ValidHostOutput != final.ValidHostOutput:
+	case current.RenterOutput != final.RenterOutput:
+		return errors.New("renter output must not change")
+	case current.HostOutput != final.HostOutput:
 		return errors.New("valid host output must not change")
-	case current.MissedRenterOutput != final.MissedRenterOutput:
-		return errors.New("missed renter output must not change")
-	case current.MissedHostOutput != final.MissedHostOutput:
-		return errors.New("missed host output must not change")
+	case current.MissedHostValue != final.MissedHostValue:
+		return errors.New("missed host payout must not change")
+	case current.TotalCollateral != final.TotalCollateral:
+		return errors.New("total collateral must not change")
 	case current.RenterPublicKey != final.RenterPublicKey:
 		return errors.New("renter public key must not change")
 	case current.HostPublicKey != final.HostPublicKey:
@@ -181,14 +176,12 @@ func validateStdRevision(current, revision types.FileContract) error {
 		return errors.New("renter public key must not change")
 	case revision.HostPublicKey != current.HostPublicKey:
 		return errors.New("host public key must not change")
-	case revision.ValidRenterOutput.Address != current.ValidRenterOutput.Address:
-		return errors.New("address of valid renter output must not change")
-	case revision.ValidHostOutput.Address != current.ValidHostOutput.Address:
-		return errors.New("address of valid host output must not change")
-	case revision.MissedRenterOutput.Address != current.MissedRenterOutput.Address:
-		return errors.New("address of missed renter output must not change")
-	case revision.MissedHostOutput.Address != current.MissedHostOutput.Address:
-		return errors.New("address of missed host output must not change")
+	case revision.RenterOutput.Address != current.RenterOutput.Address:
+		return errors.New("renter address must not change")
+	case revision.HostOutput.Address != current.HostOutput.Address:
+		return errors.New("host address must not change")
+	case revision.TotalCollateral != current.TotalCollateral:
+		return errors.New("total collateral must not change")
 	}
 	return nil
 }
@@ -205,20 +198,18 @@ func ValidateProgramRevision(current, revision types.FileContract, additionalSto
 	}
 
 	expectedBurn := additionalStorage.Add(additionalCollateral)
-	if expectedBurn.Cmp(current.MissedHostOutput.Value) > 0 {
+	if expectedBurn.Cmp(current.MissedHostValue) > 0 {
 		return errors.New("expected burn amount is greater than the missed host output value")
 	}
-	missedHostValue := current.MissedHostOutput.Value.Sub(expectedBurn)
+	missedHostValue := current.MissedHostValue.Sub(expectedBurn)
 
 	switch {
-	case revision.MissedHostOutput.Value != missedHostValue:
+	case revision.MissedHostValue != missedHostValue:
 		return errors.New("revision has incorrect collateral transfer")
-	case revision.ValidHostOutput.Value != current.ValidHostOutput.Value:
-		return errors.New("host valid output value should not change")
-	case revision.ValidRenterOutput.Value != current.ValidRenterOutput.Value:
-		return errors.New("renter valid output value should not change")
-	case revision.MissedRenterOutput.Value != current.MissedRenterOutput.Value:
-		return errors.New("renter missed output value should not change")
+	case revision.RenterOutput != current.RenterOutput:
+		return errors.New("renter output should not change")
+	case revision.HostOutput != current.HostOutput:
+		return errors.New("host valid output should not change")
 	}
 	return nil
 }
@@ -240,18 +231,12 @@ func ValidatePaymentRevision(current, revision types.FileContract, amount types.
 		return errors.New("file merkle root must not change")
 	case revision.Filesize != current.Filesize:
 		return errors.New("file size must not change")
-	case revision.MissedHostOutput.Value.Cmp(amount) < 0:
+	case revision.RenterOutput.Value.Add(amount) != current.RenterOutput.Value:
+		return errors.New("renter output value should decrease by the amount")
+	case revision.HostOutput.Value != current.HostOutput.Value.Add(amount):
+		return errors.New("host output value should increase by the amount")
+	case revision.MissedHostValue != current.MissedHostValue.Add(amount):
 		return errors.New("host missed output value should increase by the amount")
-	case revision.ValidHostOutput.Value.Cmp(amount) < 0:
-		return errors.New("host valid output value should increase by the amount")
-	case revision.MissedHostOutput.Value.Sub(amount) != current.MissedHostOutput.Value:
-		return errors.New("host missed output value should increase by the amount")
-	case revision.ValidHostOutput.Value.Sub(amount) != current.ValidHostOutput.Value:
-		return errors.New("host valid output value should increase by the amount")
-	case revision.MissedRenterOutput.Value.Add(amount) != current.MissedRenterOutput.Value:
-		return errors.New("renter missed output value should decrease by the amount")
-	case revision.ValidRenterOutput.Value.Add(amount) != current.ValidRenterOutput.Value:
-		return errors.New("renter valid output value should decrease by the amount")
 	}
 	return nil
 }

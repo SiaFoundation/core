@@ -16,18 +16,16 @@ const largeMaxLen = 1e6    // for transactions
 // revisions negotiated by the renter and host typically do not modify the
 // output recipients, we can save some space by only sending the new values.
 type ContractOutputs struct {
-	ValidRenterValue  types.Currency
-	ValidHostValue    types.Currency
-	MissedRenterValue types.Currency
-	MissedHostValue   types.Currency
+	RenterValue     types.Currency
+	HostValue       types.Currency
+	MissedHostValue types.Currency
 }
 
 // Apply sets the output values of fc according to co.
 func (co ContractOutputs) Apply(fc *types.FileContract) {
-	fc.ValidRenterOutput.Value = co.ValidRenterValue
-	fc.ValidHostOutput.Value = co.ValidHostValue
-	fc.MissedRenterOutput.Value = co.MissedRenterValue
-	fc.MissedHostOutput.Value = co.MissedHostValue
+	fc.RenterOutput.Value = co.RenterValue
+	fc.HostOutput.Value = co.HostValue
+	fc.MissedHostValue = co.MissedHostValue
 }
 
 // RPC IDs
@@ -218,16 +216,14 @@ func readMerkleProof(d *types.Decoder) (proof []types.Hash256) {
 }
 
 func (co *ContractOutputs) encodeTo(e *types.Encoder) {
-	co.ValidRenterValue.EncodeTo(e)
-	co.ValidHostValue.EncodeTo(e)
-	co.MissedRenterValue.EncodeTo(e)
+	co.RenterValue.EncodeTo(e)
+	co.HostValue.EncodeTo(e)
 	co.MissedHostValue.EncodeTo(e)
 }
 
 func (co *ContractOutputs) decodeFrom(d *types.Decoder) {
-	co.ValidRenterValue.DecodeFrom(d)
-	co.ValidHostValue.DecodeFrom(d)
-	co.MissedRenterValue.DecodeFrom(d)
+	co.RenterValue.DecodeFrom(d)
+	co.HostValue.DecodeFrom(d)
 	co.MissedHostValue.DecodeFrom(d)
 }
 
