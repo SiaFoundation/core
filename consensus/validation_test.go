@@ -36,10 +36,10 @@ func genesisWithSiacoinOutputs(scos ...types.SiacoinOutput) types.Block {
 func signAllInputs(txn *types.Transaction, vc ValidationContext, priv types.PrivateKey) {
 	sigHash := vc.InputSigHash(*txn)
 	for i := range txn.SiacoinInputs {
-		txn.SiacoinInputs[i].Signatures = []types.Signature{types.Signature(priv.SignHash(sigHash))}
+		txn.SiacoinInputs[i].Signatures = []types.Signature{priv.SignHash(sigHash)}
 	}
 	for i := range txn.SiafundInputs {
-		txn.SiafundInputs[i].Signatures = []types.Signature{types.Signature(priv.SignHash(sigHash))}
+		txn.SiafundInputs[i].Signatures = []types.Signature{priv.SignHash(sigHash)}
 	}
 }
 

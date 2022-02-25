@@ -232,6 +232,8 @@ func (vc *ValidationContext) Commitment(minerAddr types.Address, txns []types.Tr
 
 // InputSigHash returns the hash that must be signed for each transaction input.
 func (vc *ValidationContext) InputSigHash(txn types.Transaction) types.Hash256 {
+	// NOTE: This currently covers exactly the same fields as txn.ID(), and for
+	// similar reasons.
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
@@ -264,6 +266,7 @@ func (vc *ValidationContext) InputSigHash(txn types.Transaction) types.Hash256 {
 	h.E.WritePrefix(len(txn.FileContractResolutions))
 	for _, fcr := range txn.FileContractResolutions {
 		fcr.Parent.ID.EncodeTo(h.E)
+		fcr.Renewal.EncodeTo(h.E)
 		fcr.StorageProof.WindowStart.EncodeTo(h.E)
 		fcr.Finalization.EncodeTo(h.E)
 	}
@@ -706,7 +709,7 @@ func (vc *ValidationContext) validSpendPolicies(txn types.Transaction) error {
 				return fmt.Errorf("height not above %v", uint64(p))
 			case types.PolicyPublicKey:
 				for i := range sigs {
-					if types.PublicKey(p).VerifyHash(sigHash, types.Signature(sigs[i])) {
+					if types.PublicKey(p).VerifyHash(sigHash, sigs[i]) {
 						sigs = sigs[i+1:]
 						return nil
 					}

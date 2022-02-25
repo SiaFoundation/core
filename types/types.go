@@ -310,8 +310,21 @@ type Transaction struct {
 	MinerFee                Currency
 }
 
-// ID returns the hash of all data in the transaction.
+// ID returns the "semantic hash" of the transaction, covering all of the
+// transaction's effects, but not incidental data such as signatures or Merkle
+// proofs. This ensures that the ID will remain stable (i.e. non-malleable).
+//
+// To hash all of the data in a transaction, use the EncodeTo method.
 func (txn *Transaction) ID() TransactionID {
+	// NOTE: In general, it is not possible to change a transaction's ID without
+	// causing it to become invalid, but an exception exists for non-standard
+	// spend policies. Consider a policy that may be satisfied by either a
+	// signature or a timelock. If a transaction is broadcast that signs the
+	// input, and the timelock has expired, then anyone may remove the signature
+	// from the input without invalidating the transaction. Of course, the net
+	// result will be the same, so arguably there's little reason to care. You
+	// only need to worry about this if you're hashing the full transaction data
+	// for some reason.
 	h := hasherPool.Get().(*Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
@@ -344,7 +357,12 @@ func (txn *Transaction) ID() TransactionID {
 	h.E.WritePrefix(len(txn.FileContractResolutions))
 	for _, fcr := range txn.FileContractResolutions {
 		fcr.Parent.ID.EncodeTo(h.E)
+		fcr.Renewal.EncodeTo(h.E)
 		fcr.StorageProof.WindowStart.EncodeTo(h.E)
+		fcr.Finalization.EncodeTo(h.E)
+	}
+	for _, a := range txn.Attestations {
+		a.EncodeTo(h.E)
 	}
 	h.E.WriteBytes(txn.ArbitraryData)
 	txn.NewFoundationAddress.EncodeTo(h.E)
