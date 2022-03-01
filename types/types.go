@@ -698,11 +698,13 @@ func (h *Hash256) UnmarshalJSON(b []byte) error { return unmarshalJSONHex(h[:], 
 func (ci ChainIndex) String() string {
 	// use the 4 least-significant bytes of ID -- in a mature chain, the
 	// most-significant bytes will be zeros
-	return fmt.Sprintf("%v::%x", ci.Height, ci.ID[len(ci.ID)-4:])
+	return fmt.Sprintf("%d::%x", ci.Height, ci.ID[len(ci.ID)-4:])
 }
 
 // MarshalText implements encoding.TextMarshaler.
-func (ci ChainIndex) MarshalText() ([]byte, error) { return []byte(ci.String()), nil }
+func (ci ChainIndex) MarshalText() ([]byte, error) {
+	return []byte(fmt.Sprintf("%d::%x", ci.Height, ci.ID[:])), nil
+}
 
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (ci ChainIndex) UnmarshalText(b []byte) (err error) {
@@ -855,11 +857,13 @@ func (w Work) String() string { return new(big.Int).SetBytes(w.NumHashes[:]).Str
 
 // MarshalJSON implements json.Marshaler.
 func (w Work) MarshalJSON() ([]byte, error) {
-	return new(big.Int).SetBytes(w.NumHashes[:]).MarshalJSON()
+	js, err := new(big.Int).SetBytes(w.NumHashes[:]).MarshalJSON()
+	return []byte(`"` + string(js) + `"`), err
 }
 
 // UnmarshalJSON implements json.Unmarshaler.
 func (w *Work) UnmarshalJSON(b []byte) error {
+	b = bytes.Trim(b, `"`)
 	i := new(big.Int)
 	if err := json.Unmarshal(b, i); err != nil {
 		return err
