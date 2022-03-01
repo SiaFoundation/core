@@ -2,6 +2,8 @@ package merkle
 
 import (
 	"encoding/binary"
+	"encoding/json"
+	"errors"
 	"math/bits"
 	"sort"
 	"sync"
@@ -119,6 +121,41 @@ func (acc *Accumulator) DecodeFrom(d *types.Decoder) {
 			acc.Trees[i].DecodeFrom(d)
 		}
 	}
+}
+
+// MarshalJSON implements json.Marshaler.
+func (acc Accumulator) MarshalJSON() ([]byte, error) {
+	v := struct {
+		NumLeaves uint64
+		Trees     []types.Hash256
+	}{acc.NumLeaves, []types.Hash256{}}
+	for i, root := range acc.Trees {
+		if acc.hasTreeAtHeight(i) {
+			v.Trees = append(v.Trees, root)
+		}
+	}
+	return json.Marshal(v)
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (acc *Accumulator) UnmarshalJSON(b []byte) error {
+	var v struct {
+		NumLeaves uint64
+		Trees     []types.Hash256
+	}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	} else if len(v.Trees) != bits.OnesCount64(v.NumLeaves) {
+		return errors.New("invalid accumulator encoding")
+	}
+	acc.NumLeaves = v.NumLeaves
+	for i := range acc.Trees {
+		if acc.hasTreeAtHeight(i) {
+			acc.Trees[i] = v.Trees[i]
+			v.Trees = v.Trees[1:]
+		}
+	}
+	return nil
 }
 
 // An ElementAccumulator tracks the state of an unbounded number of elements

@@ -46,20 +46,20 @@ var hasherPool = &sync.Pool{New: func() interface{} { return types.NewHasher() }
 
 // ValidationContext contains the necessary context to fully validate a block.
 type ValidationContext struct {
-	Index types.ChainIndex
+	Index types.ChainIndex `json:"index"`
 
-	State          merkle.ElementAccumulator
-	History        merkle.HistoryAccumulator
-	PrevTimestamps [11]time.Time
+	State          merkle.ElementAccumulator `json:"state"`
+	History        merkle.HistoryAccumulator `json:"history"`
+	PrevTimestamps [11]time.Time             `json:"prevTimestamps"`
 
-	TotalWork        types.Work
-	Difficulty       types.Work
-	OakWork          types.Work
-	OakTime          time.Duration
-	GenesisTimestamp time.Time
+	TotalWork        types.Work    `json:"totalWork"`
+	Difficulty       types.Work    `json:"difficulty"`
+	OakWork          types.Work    `json:"oakWork"`
+	OakTime          time.Duration `json:"oakTime"`
+	GenesisTimestamp time.Time     `json:"genesisTimestamp"`
 
-	SiafundPool       types.Currency
-	FoundationAddress types.Address
+	SiafundPool       types.Currency `json:"siafundPool"`
+	FoundationAddress types.Address  `json:"foundationAddress"`
 }
 
 // EncodeTo implements types.EncoderTo.
