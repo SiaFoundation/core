@@ -21,6 +21,12 @@ jobs:
       - name: test
         uses: n8maninger/action-golang-test@v1
         with:
-          args: "-race;-count=100;-timeout=30m;-failfast"
+          args: "-count=50;-timeout=30m;-failfast"
+          skip-go-install: true
+          show-package-output: true
+      - name: test-race
+        uses: n8maninger/action-golang-test@v1
+        with:
+          args: "-race;-count=50;-timeout=30m;-failfast"
           skip-go-install: true
           show-package-output: true
