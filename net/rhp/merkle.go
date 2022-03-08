@@ -14,8 +14,10 @@ const (
 	// SectorSize is the size of one sector in bytes.
 	SectorSize = 1 << 22 // 4 MiB
 
-	leafSize        = 64
-	leavesPerSector = SectorSize / leafSize
+	// LeafSize is the size of one leaf in bytes.
+	LeafSize = 64
+
+	leavesPerSector = SectorSize / LeafSize
 )
 
 // A proofAccumulator is a specialized accumulator for building and verifying
@@ -91,15 +93,15 @@ func (sa *sectorAccumulator) appendNode(h types.Hash256) {
 }
 
 func (sa *sectorAccumulator) appendLeaves(leaves []byte) {
-	if len(leaves)%leafSize != 0 {
+	if len(leaves)%LeafSize != 0 {
 		panic("appendLeaves: illegal input size")
 	}
-	rem := len(leaves) % (leafSize * 4)
-	for i := 0; i < len(leaves)-rem; i += leafSize * 4 {
+	rem := len(leaves) % (LeafSize * 4)
+	for i := 0; i < len(leaves)-rem; i += LeafSize * 4 {
 		blake2b.SumLeaves(&sa.nodeBuf, (*[4][64]byte)(unsafe.Pointer(&leaves[i])))
 		sa.mergeNodeBuf()
 	}
-	for i := len(leaves) - rem; i < len(leaves); i += leafSize {
+	for i := len(leaves) - rem; i < len(leaves); i += LeafSize {
 		sa.appendNode(blake2b.SumLeaf((*[64]byte)(unsafe.Pointer(&leaves[i]))))
 	}
 }
@@ -180,16 +182,16 @@ func MetaRoot(roots []types.Hash256) types.Hash256 {
 
 // ReadSector reads a single sector from the reader and calculates its root.
 func ReadSector(r io.Reader) (types.Hash256, *[SectorSize]byte, error) {
-	const segmentSize = leafSize * 16
+	const batchSize = LeafSize * 16
 	var sector [SectorSize]byte
 	var s sectorAccumulator
 	var i int
-	for ; i < SectorSize; i += segmentSize {
-		_, err := io.ReadFull(r, sector[i:i+segmentSize])
+	for ; i < SectorSize; i += batchSize {
+		_, err := io.ReadFull(r, sector[i:i+batchSize])
 		if err != nil {
 			return types.Hash256{}, nil, fmt.Errorf("failed to read sector: %w", err)
 		}
-		s.appendLeaves(sector[i : i+segmentSize])
+		s.appendLeaves(sector[i : i+batchSize])
 	}
 	return s.root(), &sector, nil
 }

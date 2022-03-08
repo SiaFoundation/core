@@ -21,7 +21,7 @@ func nodeHash(left, right types.Hash256) types.Hash256 {
 func refSectorRoot(sector *[SectorSize]byte) types.Hash256 {
 	roots := make([]types.Hash256, leavesPerSector)
 	for i := range roots {
-		roots[i] = leafHash(sector[i*leafSize:][:leafSize])
+		roots[i] = leafHash(sector[i*LeafSize:][:LeafSize])
 	}
 	return recNodeRoot(roots)
 }
