@@ -27,15 +27,19 @@ func refSectorRoot(sector *[SectorSize]byte) types.Hash256 {
 }
 
 func recNodeRoot(roots []types.Hash256) types.Hash256 {
-	if len(roots) == 1 {
+	switch len(roots) {
+	case 0:
+		return types.Hash256{}
+	case 1:
 		return roots[0]
+	default:
+		// split at largest power of two
+		split := 1 << (bits.Len(uint(len(roots)-1)) - 1)
+		return nodeHash(
+			recNodeRoot(roots[:split]),
+			recNodeRoot(roots[split:]),
+		)
 	}
-	// split at largest power of two
-	split := 1 << (bits.Len(uint(len(roots)-1)) - 1)
-	return nodeHash(
-		recNodeRoot(roots[:split]),
-		recNodeRoot(roots[split:]),
-	)
 }
 
 func TestSectorRoot(t *testing.T) {
