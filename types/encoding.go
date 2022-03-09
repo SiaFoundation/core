@@ -409,8 +409,8 @@ func (ren FileContractRenewal) EncodeTo(e *Encoder) {
 func (sp StorageProof) EncodeTo(e *Encoder) {
 	sp.WindowStart.EncodeTo(e)
 	e.writeMerkleProof(sp.WindowProof)
-	e.Write(sp.DataSegment[:])
-	e.writeMerkleProof(sp.SegmentProof)
+	e.Write(sp.Leaf[:])
+	e.writeMerkleProof(sp.Proof)
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -770,8 +770,8 @@ func (ren *FileContractRenewal) DecodeFrom(d *Decoder) {
 func (sp *StorageProof) DecodeFrom(d *Decoder) {
 	sp.WindowStart.DecodeFrom(d)
 	sp.WindowProof = d.readMerkleProof()
-	d.Read(sp.DataSegment[:])
-	sp.SegmentProof = d.readMerkleProof()
+	d.Read(sp.Leaf[:])
+	sp.Proof = d.readMerkleProof()
 }
 
 // DecodeFrom implements types.DecoderFrom.

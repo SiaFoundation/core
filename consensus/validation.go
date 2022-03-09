@@ -38,7 +38,7 @@ var (
 	ErrOverflow = errors.New("sum of currency values overflowed")
 )
 
-// Pool for reducing heap allocations when hashing. This are only necessary
+// Pool for reducing heap allocations when hashing. This is only necessary
 // because blake2b.New256 returns a hash.Hash interface, which prevents the
 // compiler from doing escape analysis. Can be removed if we switch to an
 // implementation whose constructor returns a concrete type.
@@ -177,16 +177,16 @@ func (vc *ValidationContext) FileContractTax(fc types.FileContract) types.Curren
 	return tax.Sub(types.NewCurrency64(r))
 }
 
-// StorageProofSegmentIndex returns the segment index used when computing or
+// StorageProofLeafIndex returns the leaf index used when computing or
 // validating a storage proof.
-func (vc *ValidationContext) StorageProofSegmentIndex(filesize uint64, windowStart types.ChainIndex, fcid types.ElementID) uint64 {
-	const segmentSize = uint64(len(types.StorageProof{}.DataSegment))
-	if filesize <= segmentSize {
+func (vc *ValidationContext) StorageProofLeafIndex(filesize uint64, windowStart types.ChainIndex, fcid types.ElementID) uint64 {
+	const leafSize = uint64(len(types.StorageProof{}.Leaf))
+	if filesize <= leafSize {
 		return 0
 	}
-	numSegments := filesize / segmentSize
-	if filesize%segmentSize != 0 {
-		numSegments++
+	numLeaves := filesize / leafSize
+	if filesize%leafSize != 0 {
+		numLeaves++
 	}
 
 	h := hasherPool.Get().(*types.Hasher)
@@ -198,7 +198,7 @@ func (vc *ValidationContext) StorageProofSegmentIndex(filesize uint64, windowSta
 
 	var r uint64
 	for i := 0; i < len(seed); i += 8 {
-		_, r = bits.Div64(r, binary.BigEndian.Uint64(seed[i:]), numSegments)
+		_, r = bits.Div64(r, binary.BigEndian.Uint64(seed[i:]), numLeaves)
 	}
 	return r
 }
@@ -561,8 +561,8 @@ func (vc *ValidationContext) validFileContractResolutions(txn types.Transaction)
 				// see note on this field in types.StorageProof
 				return fmt.Errorf("storage proof %v has WindowStart (%v) that does not match contract WindowStart (%v)", i, fcr.StorageProof.WindowStart.Height, fc.WindowStart)
 			}
-			segmentIndex := vc.StorageProofSegmentIndex(fc.Filesize, fcr.StorageProof.WindowStart, fcr.Parent.ID)
-			if merkle.StorageProofRoot(fcr.StorageProof, segmentIndex) != fc.FileMerkleRoot {
+			leafIndex := vc.StorageProofLeafIndex(fc.Filesize, fcr.StorageProof.WindowStart, fcr.Parent.ID)
+			if merkle.StorageProofRoot(fcr.StorageProof, leafIndex) != fc.FileMerkleRoot {
 				return fmt.Errorf("storage proof %v has root that does not match contract Merkle root", i)
 			}
 		} else {

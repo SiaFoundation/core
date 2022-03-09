@@ -15,7 +15,7 @@ const (
 	SectorSize = 1 << 22 // 4 MiB
 
 	// LeafSize is the size of one leaf in bytes.
-	LeafSize = 64
+	LeafSize = len(types.StorageProof{}.Leaf)
 
 	leavesPerSector = SectorSize / LeafSize
 )

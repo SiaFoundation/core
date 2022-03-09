@@ -39,17 +39,18 @@ func ProofRoot(leafHash types.Hash256, leafIndex uint64, proof []types.Hash256) 
 	return root
 }
 
-// StorageProofLeafHash computes the leaf hash of a file contract data segment.
-func StorageProofLeafHash(segment []byte) types.Hash256 {
-	const segSize = len(types.StorageProof{}.DataSegment)
-	buf := make([]byte, 1+segSize)
+// StorageProofLeafHash computes the leaf hash of file contract data. If
+// len(leaf) < 64, it will be extended with zeros.
+func StorageProofLeafHash(leaf []byte) types.Hash256 {
+	const leafSize = len(types.StorageProof{}.Leaf)
+	buf := make([]byte, 1+leafSize)
 	buf[0] = leafHashPrefix
-	copy(buf[1:], segment)
+	copy(buf[1:], leaf)
 	return types.HashBytes(buf)
 }
 
 // StorageProofRoot returns the Merkle root derived from the supplied storage
 // proof.
-func StorageProofRoot(sp types.StorageProof, segmentIndex uint64) types.Hash256 {
-	return ProofRoot(StorageProofLeafHash(sp.DataSegment[:]), segmentIndex, sp.SegmentProof)
+func StorageProofRoot(sp types.StorageProof, leafIndex uint64) types.Hash256 {
+	return ProofRoot(StorageProofLeafHash(sp.Leaf[:]), leafIndex, sp.Proof)
 }

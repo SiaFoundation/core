@@ -572,12 +572,12 @@ func TestFileContracts(t *testing.T) {
 		WindowStart: sau.Context.Index,
 		WindowProof: sau.HistoryProof(),
 	}
-	proofIndex := sau.Context.StorageProofSegmentIndex(fc.Filesize, sp.WindowStart, fce.ID)
-	copy(sp.DataSegment[:], data[64*proofIndex:])
+	proofIndex := sau.Context.StorageProofLeafIndex(fc.Filesize, sp.WindowStart, fce.ID)
+	copy(sp.Leaf[:], data[64*proofIndex:])
 	if proofIndex == 0 {
-		sp.SegmentProof = append(sp.SegmentProof, merkle.StorageProofLeafHash(data[64:]))
+		sp.Proof = append(sp.Proof, merkle.StorageProofLeafHash(data[64:]))
 	} else {
-		sp.SegmentProof = append(sp.SegmentProof, merkle.StorageProofLeafHash(data[:64]))
+		sp.Proof = append(sp.Proof, merkle.StorageProofLeafHash(data[:64]))
 	}
 
 	// create valid contract resolution

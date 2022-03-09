@@ -207,7 +207,7 @@ func (fcr *FileContractResolution) HasRenewal() bool {
 func (fcr *FileContractResolution) HasStorageProof() bool {
 	sp := &fcr.StorageProof
 	return sp.WindowStart != (ChainIndex{}) || len(sp.WindowProof) > 0 ||
-		sp.DataSegment != ([64]byte{}) || len(sp.SegmentProof) > 0
+		sp.Leaf != ([64]byte{}) || len(sp.Proof) > 0
 }
 
 // HasFinalization returns true if the resolution contains a finalization.
@@ -227,23 +227,24 @@ type FileContractRenewal struct {
 	HostSignature   Signature
 }
 
-// A StorageProof asserts the presence of a small segment of data within a
-// larger body of contract data.
+// A StorageProof asserts the presence of a randomly-selected leaf within the
+// Merkle tree of a FileContract's data.
 type StorageProof struct {
-	// The proof segment is selected pseudorandomly, which requires a source of
-	// unpredictable entropy; we use the ID of the block at the start of the
-	// proof window. The StorageProof includes this ID, and asserts its presence
-	// in the chain via a separate Merkle proof.
+	// Selecting the leaf requires a source of unpredictable entropy; we use the
+	// ID of the block at the start of the proof window. The StorageProof
+	// includes this ID, and asserts its presence in the chain via a separate
+	// Merkle proof.
 	//
 	// For convenience, WindowStart is a ChainIndex rather than a BlockID.
 	// Consequently, WindowStart.Height MUST match the WindowStart field of the
 	// contract's final revision; otherwise, the prover could use any
-	// WindowStart, giving them control over the segment index.
+	// WindowStart, giving them control over the leaf index.
 	WindowStart ChainIndex
 	WindowProof []Hash256
-	// The segment is always 64 bytes, extended with zeros if necessary.
-	DataSegment  [64]byte
-	SegmentProof []Hash256
+
+	// The leaf is always 64 bytes, extended with zeros if necessary.
+	Leaf  [64]byte
+	Proof []Hash256
 }
 
 // An ElementID uniquely identifies a StateElement.
@@ -394,7 +395,7 @@ func (txn *Transaction) DeepCopy() Transaction {
 	for i := range c.FileContractResolutions {
 		c.FileContractResolutions[i].Parent.MerkleProof = append([]Hash256(nil), c.FileContractResolutions[i].Parent.MerkleProof...)
 		c.FileContractResolutions[i].StorageProof.WindowProof = append([]Hash256(nil), c.FileContractResolutions[i].StorageProof.WindowProof...)
-		c.FileContractResolutions[i].StorageProof.SegmentProof = append([]Hash256(nil), c.FileContractResolutions[i].StorageProof.SegmentProof...)
+		c.FileContractResolutions[i].StorageProof.Proof = append([]Hash256(nil), c.FileContractResolutions[i].StorageProof.Proof...)
 	}
 	for i := range c.Attestations {
 		c.Attestations[i].Value = append([]byte(nil), c.Attestations[i].Value...)

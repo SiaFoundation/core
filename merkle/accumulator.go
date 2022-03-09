@@ -11,7 +11,7 @@ import (
 	"go.sia.tech/core/types"
 )
 
-// Pool for reducing heap allocations when hashing. This are only necessary
+// Pool for reducing heap allocations when hashing. This is only necessary
 // because blake2b.New256 returns a hash.Hash interface, which prevents the
 // compiler from doing escape analysis. Can be removed if we switch to an
 // implementation whose constructor returns a concrete type.

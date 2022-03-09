@@ -253,23 +253,23 @@ func TestValidateTransaction(t *testing.T) {
 		WindowStart: sau.Context.Index,
 		WindowProof: sau.HistoryProof(),
 	}
-	proofIndex := sau.Context.StorageProofSegmentIndex(closedContract.Filesize, closedProof.WindowStart, closedContract.ID)
-	copy(closedProof.DataSegment[:], data[64*proofIndex:])
+	proofIndex := sau.Context.StorageProofLeafIndex(closedContract.Filesize, closedProof.WindowStart, closedContract.ID)
+	copy(closedProof.Leaf[:], data[64*proofIndex:])
 	if proofIndex == 0 {
-		closedProof.SegmentProof = append(closedProof.SegmentProof, merkle.StorageProofLeafHash(data[64:]))
+		closedProof.Proof = append(closedProof.Proof, merkle.StorageProofLeafHash(data[64:]))
 	} else {
-		closedProof.SegmentProof = append(closedProof.SegmentProof, merkle.StorageProofLeafHash(data[:64]))
+		closedProof.Proof = append(closedProof.Proof, merkle.StorageProofLeafHash(data[:64]))
 	}
 	resolvedValidProof := types.StorageProof{
 		WindowStart: sau.Context.Index,
 		WindowProof: sau.HistoryProof(),
 	}
-	proofIndex = sau.Context.StorageProofSegmentIndex(resolvedValidContract.Filesize, resolvedValidProof.WindowStart, resolvedValidContract.ID)
-	copy(resolvedValidProof.DataSegment[:], data[64*proofIndex:])
+	proofIndex = sau.Context.StorageProofLeafIndex(resolvedValidContract.Filesize, resolvedValidProof.WindowStart, resolvedValidContract.ID)
+	copy(resolvedValidProof.Leaf[:], data[64*proofIndex:])
 	if proofIndex == 0 {
-		resolvedValidProof.SegmentProof = append(resolvedValidProof.SegmentProof, merkle.StorageProofLeafHash(data[64:]))
+		resolvedValidProof.Proof = append(resolvedValidProof.Proof, merkle.StorageProofLeafHash(data[64:]))
 	} else {
-		resolvedValidProof.SegmentProof = append(resolvedValidProof.SegmentProof, merkle.StorageProofLeafHash(data[:64]))
+		resolvedValidProof.Proof = append(resolvedValidProof.Proof, merkle.StorageProofLeafHash(data[:64]))
 	}
 
 	// mine a block so that resolvedMissedContract's proof window expires, then
@@ -665,7 +665,7 @@ func TestValidateTransaction(t *testing.T) {
 			"file contract resolution whose storage proof root does not match final Merkle root",
 			func(txn *types.Transaction) {
 				res := &txn.FileContractResolutions[0]
-				res.StorageProof.SegmentProof[0][0] ^= 1
+				res.StorageProof.Proof[0][0] ^= 1
 			},
 		},
 		{
@@ -1275,12 +1275,12 @@ func TestNoDoubleContractUpdates(t *testing.T) {
 		WindowStart: vc.Index,
 		WindowProof: sau.HistoryProof(),
 	}
-	proofIndex := sau.Context.StorageProofSegmentIndex(fc.Filesize, proof.WindowStart, fce.ID)
-	copy(proof.DataSegment[:], data[64*proofIndex:])
+	proofIndex := sau.Context.StorageProofLeafIndex(fc.Filesize, proof.WindowStart, fce.ID)
+	copy(proof.Leaf[:], data[64*proofIndex:])
 	if proofIndex == 0 {
-		proof.SegmentProof = append(proof.SegmentProof, merkle.StorageProofLeafHash(data[64:]))
+		proof.Proof = append(proof.Proof, merkle.StorageProofLeafHash(data[64:]))
 	} else {
-		proof.SegmentProof = append(proof.SegmentProof, merkle.StorageProofLeafHash(data[:64]))
+		proof.Proof = append(proof.Proof, merkle.StorageProofLeafHash(data[:64]))
 	}
 
 	tests = [][]types.Transaction{
