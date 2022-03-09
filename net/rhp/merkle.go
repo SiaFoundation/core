@@ -15,10 +15,15 @@ const (
 	SectorSize = 1 << 22 // 4 MiB
 
 	// LeafSize is the size of one leaf in bytes.
-	LeafSize = len(types.StorageProof{}.Leaf)
+	LeafSize = 64
 
 	leavesPerSector = SectorSize / LeafSize
 )
+
+// Check that LeafSize == len(types.StorageProof{}.Leaf). We *could* define
+// LeafSize = len(types.StorageProof{}.Leaf), but then it would be an int
+// instead of a an untyped constant.
+var _ [LeafSize]byte = [len(types.StorageProof{}.Leaf)]byte{}
 
 // A proofAccumulator is a specialized accumulator for building and verifying
 // Merkle proofs.
