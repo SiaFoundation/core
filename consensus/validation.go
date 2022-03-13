@@ -97,7 +97,7 @@ func (vc *ValidationContext) DecodeFrom(d *types.Decoder) {
 }
 
 // BlockReward returns the reward for mining a child block.
-func (vc *ValidationContext) BlockReward() types.Currency {
+func (vc ValidationContext) BlockReward() types.Currency {
 	const initialCoinbase = 300000
 	const minimumCoinbase = 30000
 	blockHeight := vc.Index.Height + 1
@@ -118,12 +118,12 @@ func (vc *ValidationContext) BlockReward() types.Currency {
 // any transaction that depend on *those* transactions, and so on). Adding a
 // timelock does not completely eliminate this issue -- after all, reorgs can be
 // arbitrarily deep -- but it does make it highly unlikely to occur in practice.
-func (vc *ValidationContext) MaturityHeight() uint64 {
+func (vc ValidationContext) MaturityHeight() uint64 {
 	return (vc.Index.Height + 1) + 144
 }
 
 // FoundationSubsidy returns the Foundation subsidy value for the child block.
-func (vc *ValidationContext) FoundationSubsidy() types.Currency {
+func (vc ValidationContext) FoundationSubsidy() types.Currency {
 	foundationSubsidyPerBlock := types.Siacoins(30000)
 	initialfoundationSubsidy := foundationSubsidyPerBlock.Mul64(blocksPerYear)
 
@@ -137,12 +137,12 @@ func (vc *ValidationContext) FoundationSubsidy() types.Currency {
 }
 
 // MaxBlockWeight is the maximum "weight" of a valid child block.
-func (vc *ValidationContext) MaxBlockWeight() uint64 {
+func (vc ValidationContext) MaxBlockWeight() uint64 {
 	return 2_000_000
 }
 
 // TransactionWeight computes the weight of a txn.
-func (vc *ValidationContext) TransactionWeight(txn types.Transaction) uint64 {
+func (vc ValidationContext) TransactionWeight(txn types.Transaction) uint64 {
 	storage := types.EncodedLen(txn)
 
 	var signatures int
@@ -159,7 +159,7 @@ func (vc *ValidationContext) TransactionWeight(txn types.Transaction) uint64 {
 }
 
 // BlockWeight computes the combined weight of a block's txns.
-func (vc *ValidationContext) BlockWeight(txns []types.Transaction) uint64 {
+func (vc ValidationContext) BlockWeight(txns []types.Transaction) uint64 {
 	var weight uint64
 	for _, txn := range txns {
 		weight += vc.TransactionWeight(txn)
@@ -168,7 +168,7 @@ func (vc *ValidationContext) BlockWeight(txns []types.Transaction) uint64 {
 }
 
 // FileContractTax computes the tax levied on a given contract.
-func (vc *ValidationContext) FileContractTax(fc types.FileContract) types.Currency {
+func (vc ValidationContext) FileContractTax(fc types.FileContract) types.Currency {
 	sum := fc.RenterOutput.Value.Add(fc.HostOutput.Value)
 	tax := sum.Div64(25) // 4%
 	// round down to nearest multiple of SiafundCount
@@ -179,7 +179,7 @@ func (vc *ValidationContext) FileContractTax(fc types.FileContract) types.Curren
 
 // StorageProofLeafIndex returns the leaf index used when computing or
 // validating a storage proof.
-func (vc *ValidationContext) StorageProofLeafIndex(filesize uint64, windowStart types.ChainIndex, fcid types.ElementID) uint64 {
+func (vc ValidationContext) StorageProofLeafIndex(filesize uint64, windowStart types.ChainIndex, fcid types.ElementID) uint64 {
 	const leafSize = uint64(len(types.StorageProof{}.Leaf))
 	if filesize <= leafSize {
 		return 0
@@ -204,7 +204,7 @@ func (vc *ValidationContext) StorageProofLeafIndex(filesize uint64, windowStart 
 }
 
 // Commitment computes the commitment hash for a child block.
-func (vc *ValidationContext) Commitment(minerAddr types.Address, txns []types.Transaction) types.Hash256 {
+func (vc ValidationContext) Commitment(minerAddr types.Address, txns []types.Transaction) types.Hash256 {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
@@ -231,7 +231,7 @@ func (vc *ValidationContext) Commitment(minerAddr types.Address, txns []types.Tr
 }
 
 // InputSigHash returns the hash that must be signed for each transaction input.
-func (vc *ValidationContext) InputSigHash(txn types.Transaction) types.Hash256 {
+func (vc ValidationContext) InputSigHash(txn types.Transaction) types.Hash256 {
 	// NOTE: This currently covers exactly the same fields as txn.ID(), and for
 	// similar reasons.
 	h := hasherPool.Get().(*types.Hasher)
@@ -280,7 +280,7 @@ func (vc *ValidationContext) InputSigHash(txn types.Transaction) types.Hash256 {
 }
 
 // ContractSigHash returns the hash that must be signed for a file contract revision.
-func (vc *ValidationContext) ContractSigHash(fc types.FileContract) types.Hash256 {
+func (vc ValidationContext) ContractSigHash(fc types.FileContract) types.Hash256 {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
@@ -299,7 +299,7 @@ func (vc *ValidationContext) ContractSigHash(fc types.FileContract) types.Hash25
 }
 
 // RenewalSigHash returns the hash that must be signed for a file contract renewal.
-func (vc *ValidationContext) RenewalSigHash(fcr types.FileContractRenewal) types.Hash256 {
+func (vc ValidationContext) RenewalSigHash(fcr types.FileContractRenewal) types.Hash256 {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
@@ -312,7 +312,7 @@ func (vc *ValidationContext) RenewalSigHash(fcr types.FileContractRenewal) types
 }
 
 // AttestationSigHash returns the hash that must be signed for an attestation.
-func (vc *ValidationContext) AttestationSigHash(a types.Attestation) types.Hash256 {
+func (vc ValidationContext) AttestationSigHash(a types.Attestation) types.Hash256 {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
@@ -323,14 +323,14 @@ func (vc *ValidationContext) AttestationSigHash(a types.Attestation) types.Hash2
 	return h.Sum()
 }
 
-func (vc *ValidationContext) numTimestamps() int {
+func (vc ValidationContext) numTimestamps() int {
 	if vc.Index.Height+1 < uint64(len(vc.PrevTimestamps)) {
 		return int(vc.Index.Height + 1)
 	}
 	return len(vc.PrevTimestamps)
 }
 
-func (vc *ValidationContext) medianTimestamp() time.Time {
+func (vc ValidationContext) medianTimestamp() time.Time {
 	prevCopy := vc.PrevTimestamps
 	ts := prevCopy[:vc.numTimestamps()]
 	sort.Slice(ts, func(i, j int) bool { return ts[i].Before(ts[j]) })
@@ -341,7 +341,7 @@ func (vc *ValidationContext) medianTimestamp() time.Time {
 	return l.Add(r.Sub(l) / 2)
 }
 
-func (vc *ValidationContext) validateHeader(h types.BlockHeader) error {
+func (vc ValidationContext) validateHeader(h types.BlockHeader) error {
 	if h.Height != vc.Index.Height+1 {
 		return errors.New("wrong height")
 	} else if h.ParentID != vc.Index.ID {
@@ -358,7 +358,7 @@ func (vc *ValidationContext) validateHeader(h types.BlockHeader) error {
 	return nil
 }
 
-func (vc *ValidationContext) validCurrencyValues(txn types.Transaction) error {
+func (vc ValidationContext) validCurrencyValues(txn types.Transaction) error {
 	// Add up all of the currency values in the transaction and check for
 	// overflow. This allows us to freely add any currency values in later
 	// validation functions without worrying about overflow.
@@ -430,7 +430,7 @@ func (vc *ValidationContext) validCurrencyValues(txn types.Transaction) error {
 	return nil
 }
 
-func (vc *ValidationContext) validTimeLocks(txn types.Transaction) error {
+func (vc ValidationContext) validTimeLocks(txn types.Transaction) error {
 	blockHeight := vc.Index.Height + 1
 	for i, in := range txn.SiacoinInputs {
 		if in.Parent.MaturityHeight > blockHeight {
@@ -440,7 +440,7 @@ func (vc *ValidationContext) validTimeLocks(txn types.Transaction) error {
 	return nil
 }
 
-func (vc *ValidationContext) validateContract(fc types.FileContract) error {
+func (vc ValidationContext) validateContract(fc types.FileContract) error {
 	switch {
 	case fc.WindowEnd <= vc.Index.Height:
 		return fmt.Errorf("has proof window (%v-%v) that ends in the past", fc.WindowStart, fc.WindowEnd)
@@ -460,7 +460,7 @@ func (vc *ValidationContext) validateContract(fc types.FileContract) error {
 	return nil
 }
 
-func (vc *ValidationContext) validateRevision(cur, rev types.FileContract) error {
+func (vc ValidationContext) validateRevision(cur, rev types.FileContract) error {
 	curOutputSum := cur.RenterOutput.Value.Add(cur.HostOutput.Value)
 	revOutputSum := rev.RenterOutput.Value.Add(rev.HostOutput.Value)
 	switch {
@@ -488,7 +488,7 @@ func (vc *ValidationContext) validateRevision(cur, rev types.FileContract) error
 	return nil
 }
 
-func (vc *ValidationContext) validFileContracts(txn types.Transaction) error {
+func (vc ValidationContext) validFileContracts(txn types.Transaction) error {
 	for i, fc := range txn.FileContracts {
 		if err := vc.validateContract(fc); err != nil {
 			return fmt.Errorf("file contract %v %s", i, err)
@@ -497,7 +497,7 @@ func (vc *ValidationContext) validFileContracts(txn types.Transaction) error {
 	return nil
 }
 
-func (vc *ValidationContext) validFileContractRevisions(txn types.Transaction) error {
+func (vc ValidationContext) validFileContractRevisions(txn types.Transaction) error {
 	for i, fcr := range txn.FileContractRevisions {
 		cur, rev := fcr.Parent.FileContract, fcr.Revision
 		if vc.Index.Height > cur.WindowStart {
@@ -509,7 +509,7 @@ func (vc *ValidationContext) validFileContractRevisions(txn types.Transaction) e
 	return nil
 }
 
-func (vc *ValidationContext) validFileContractResolutions(txn types.Transaction) error {
+func (vc ValidationContext) validFileContractResolutions(txn types.Transaction) error {
 	for i, fcr := range txn.FileContractResolutions {
 		fc := fcr.Parent.FileContract
 		if fcr.HasRenewal() {
@@ -575,7 +575,7 @@ func (vc *ValidationContext) validFileContractResolutions(txn types.Transaction)
 	return nil
 }
 
-func (vc *ValidationContext) validAttestations(txn types.Transaction) error {
+func (vc ValidationContext) validAttestations(txn types.Transaction) error {
 	for i, a := range txn.Attestations {
 		switch {
 		case len(a.Key) == 0:
@@ -587,7 +587,7 @@ func (vc *ValidationContext) validAttestations(txn types.Transaction) error {
 	return nil
 }
 
-func (vc *ValidationContext) outputsEqualInputs(txn types.Transaction) error {
+func (vc ValidationContext) outputsEqualInputs(txn types.Transaction) error {
 	var inputSC, outputSC types.Currency
 	for _, in := range txn.SiacoinInputs {
 		inputSC = inputSC.Add(in.Parent.Value)
@@ -629,7 +629,7 @@ func (vc *ValidationContext) outputsEqualInputs(txn types.Transaction) error {
 	return nil
 }
 
-func (vc *ValidationContext) validStateProofs(txn types.Transaction) error {
+func (vc ValidationContext) validStateProofs(txn types.Transaction) error {
 	for i, in := range txn.SiacoinInputs {
 		switch {
 		case in.Parent.LeafIndex == types.EphemeralLeafIndex:
@@ -675,7 +675,7 @@ func (vc *ValidationContext) validStateProofs(txn types.Transaction) error {
 	return nil
 }
 
-func (vc *ValidationContext) validHistoryProofs(txn types.Transaction) error {
+func (vc ValidationContext) validHistoryProofs(txn types.Transaction) error {
 	for i, fcr := range txn.FileContractResolutions {
 		if fcr.HasStorageProof() && !vc.History.Contains(fcr.StorageProof.WindowStart, fcr.StorageProof.WindowProof) {
 			return fmt.Errorf("file contract resolution %v has storage proof with invalid history proof", i)
@@ -684,7 +684,7 @@ func (vc *ValidationContext) validHistoryProofs(txn types.Transaction) error {
 	return nil
 }
 
-func (vc *ValidationContext) validFoundationUpdate(txn types.Transaction) error {
+func (vc ValidationContext) validFoundationUpdate(txn types.Transaction) error {
 	if txn.NewFoundationAddress == types.VoidAddress {
 		return nil
 	}
@@ -696,7 +696,7 @@ func (vc *ValidationContext) validFoundationUpdate(txn types.Transaction) error 
 	return errors.New("transaction changes Foundation address, but does not spend an input controlled by current address")
 }
 
-func (vc *ValidationContext) validSpendPolicies(txn types.Transaction) error {
+func (vc ValidationContext) validSpendPolicies(txn types.Transaction) error {
 	sigHash := vc.InputSigHash(txn)
 	verifyPolicy := func(p types.SpendPolicy, sigs []types.Signature) error {
 		var verify func(types.SpendPolicy) error
@@ -762,7 +762,7 @@ func (vc *ValidationContext) validSpendPolicies(txn types.Transaction) error {
 
 // ValidateTransaction partially validates txn for inclusion in a child block.
 // It does not validate ephemeral outputs.
-func (vc *ValidationContext) ValidateTransaction(txn types.Transaction) error {
+func (vc ValidationContext) ValidateTransaction(txn types.Transaction) error {
 	// check proofs first; that way, subsequent checks can assume that all
 	// parent StateElements are valid
 	if err := vc.validStateProofs(txn); err != nil {
@@ -793,7 +793,7 @@ func (vc *ValidationContext) ValidateTransaction(txn types.Transaction) error {
 	return nil
 }
 
-func (vc *ValidationContext) validEphemeralOutputs(txns []types.Transaction) error {
+func (vc ValidationContext) validEphemeralOutputs(txns []types.Transaction) error {
 	// skip this check if no ephemeral outputs are present
 	for _, txn := range txns {
 		for _, in := range txn.SiacoinInputs {
@@ -837,7 +837,7 @@ validate:
 	return nil
 }
 
-func (vc *ValidationContext) noDoubleSpends(txns []types.Transaction) error {
+func (vc ValidationContext) noDoubleSpends(txns []types.Transaction) error {
 	spent := make(map[types.ElementID]int)
 	for i, txn := range txns {
 		for _, in := range txn.SiacoinInputs {
@@ -856,7 +856,7 @@ func (vc *ValidationContext) noDoubleSpends(txns []types.Transaction) error {
 	return nil
 }
 
-func (vc *ValidationContext) noDoubleContractUpdates(txns []types.Transaction) error {
+func (vc ValidationContext) noDoubleContractUpdates(txns []types.Transaction) error {
 	updated := make(map[types.ElementID]int)
 	for i, txn := range txns {
 		for _, in := range txn.FileContractRevisions {
@@ -876,7 +876,7 @@ func (vc *ValidationContext) noDoubleContractUpdates(txns []types.Transaction) e
 }
 
 // ValidateTransactionSet validates txns in their corresponding validation context.
-func (vc *ValidationContext) ValidateTransactionSet(txns []types.Transaction) error {
+func (vc ValidationContext) ValidateTransactionSet(txns []types.Transaction) error {
 	if vc.BlockWeight(txns) > vc.MaxBlockWeight() {
 		return ErrOverweight
 	} else if err := vc.validEphemeralOutputs(txns); err != nil {
@@ -895,7 +895,7 @@ func (vc *ValidationContext) ValidateTransactionSet(txns []types.Transaction) er
 }
 
 // ValidateBlock validates b in the context of vc.
-func (vc *ValidationContext) ValidateBlock(b types.Block) error {
+func (vc ValidationContext) ValidateBlock(b types.Block) error {
 	h := b.Header
 	if err := vc.validateHeader(h); err != nil {
 		return err
