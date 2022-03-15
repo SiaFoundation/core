@@ -1,7 +1,8 @@
 package rhp
 
 import (
-	"fmt"
+	"bytes"
+	"errors"
 	"io"
 	"math/bits"
 	"unsafe"
@@ -10,6 +11,9 @@ import (
 	"go.sia.tech/core/types"
 )
 
+// Most of these algorithms are derived from "Streaming Merkle Proofs within
+// Binary Numeral Trees", available at https://eprint.iacr.org/2021/038
+
 const (
 	// SectorSize is the size of one sector in bytes.
 	SectorSize = 1 << 22 // 4 MiB
@@ -17,7 +21,8 @@ const (
 	// LeafSize is the size of one leaf in bytes.
 	LeafSize = 64
 
-	leavesPerSector = SectorSize / LeafSize
+	// LeavesPerSector is the number of leaves in one sector.
+	LeavesPerSector = SectorSize / LeafSize
 )
 
 // Check that LeafSize == len(types.StorageProof{}.Leaf). We *could* define
@@ -168,12 +173,44 @@ func SectorRoot(sector *[SectorSize]byte) types.Hash256 {
 	return sa.root()
 }
 
+// ReaderRoot returns the Merkle root of the supplied stream, which must contain
+// an integer multiple of leaves.
+func ReaderRoot(r io.Reader) (types.Hash256, error) {
+	var s sectorAccumulator
+	leafBatch := make([]byte, LeafSize*16)
+	for {
+		n, err := io.ReadFull(r, leafBatch)
+		if err == io.EOF {
+			break
+		} else if err == io.ErrUnexpectedEOF {
+			if n%LeafSize != 0 {
+				return types.Hash256{}, errors.New("stream does not contain integer multiple of leaves")
+			}
+		} else if err != nil {
+			return types.Hash256{}, err
+		}
+		s.appendLeaves(leafBatch[:n])
+	}
+	return s.root(), nil
+}
+
+// ReadSector reads a single sector from r and calculates its root.
+func ReadSector(r io.Reader) (types.Hash256, *[SectorSize]byte, error) {
+	var sector [SectorSize]byte
+	buf := bytes.NewBuffer(sector[:0])
+	root, err := ReaderRoot(io.TeeReader(r, buf))
+	if buf.Len() != SectorSize {
+		return types.Hash256{}, nil, io.ErrUnexpectedEOF
+	}
+	return root, &sector, err
+}
+
 // MetaRoot calculates the root of a set of existing Merkle roots.
 func MetaRoot(roots []types.Hash256) types.Hash256 {
 	// sectorAccumulator is only designed to store one sector's worth of leaves,
 	// so we'll panic if we insert more than leavesPerSector leaves. To
 	// compensate, call MetaRoot recursively.
-	if len(roots) <= leavesPerSector {
+	if len(roots) <= LeavesPerSector {
 		var sa sectorAccumulator
 		for _, r := range roots {
 			sa.appendNode(r)
@@ -185,18 +222,85 @@ func MetaRoot(roots []types.Hash256) types.Hash256 {
 	return blake2b.SumPair(MetaRoot(roots[:split]), MetaRoot(roots[split:]))
 }
 
-// ReadSector reads a single sector from the reader and calculates its root.
-func ReadSector(r io.Reader) (types.Hash256, *[SectorSize]byte, error) {
-	const batchSize = LeafSize * 16
-	var sector [SectorSize]byte
-	var s sectorAccumulator
-	var i int
-	for ; i < SectorSize; i += batchSize {
-		_, err := io.ReadFull(r, sector[i:i+batchSize])
-		if err != nil {
-			return types.Hash256{}, nil, fmt.Errorf("failed to read sector: %w", err)
-		}
-		s.appendLeaves(sector[i : i+batchSize])
+// ProofSize returns the size of a Merkle proof for the leaf i within a tree
+// containing n leaves.
+func ProofSize(n, i int) int {
+	leftHashes := bits.OnesCount(uint(i))
+	pathMask := 1<<uint(bits.Len(uint(n-1))) - 1
+	rightHashes := bits.OnesCount(^uint(n-1) & uint(pathMask))
+	return leftHashes + rightHashes
+}
+
+// RangeProofSize returns the size of a Merkle proof for the leaf range [start,
+// end) within a tree containing n leaves.
+func RangeProofSize(n, start, end int) int {
+	leftHashes := bits.OnesCount(uint(start))
+	pathMask := 1<<uint(bits.Len(uint((end-1)^(n-1)))) - 1
+	rightHashes := bits.OnesCount(^uint(end-1) & uint(pathMask))
+	return leftHashes + rightHashes
+}
+
+// nextSubtreeSize returns the size of the subtree adjacent to start that does
+// not overlap end.
+func nextSubtreeSize(start, end int) int {
+	ideal := bits.TrailingZeros(uint(start))
+	max := bits.Len(uint(end-start)) - 1
+	if ideal > max {
+		return 1 << uint(max)
 	}
-	return s.root(), &sector, nil
+	return 1 << uint(ideal)
+}
+
+// A RangeProofVerifier allows range proofs to be verified in streaming fashion.
+type RangeProofVerifier struct {
+	start, end int
+	roots      []types.Hash256
+}
+
+// ReadFrom implements io.ReaderFrom.
+func (rpv *RangeProofVerifier) ReadFrom(r io.Reader) (int64, error) {
+	var total int64
+	i, j := rpv.start, rpv.end
+	for i < j {
+		subtreeSize := nextSubtreeSize(i, j)
+		n := int64(subtreeSize * LeafSize)
+		root, err := ReaderRoot(io.LimitReader(r, n))
+		if err != nil {
+			return total, err
+		}
+		total += n
+		rpv.roots = append(rpv.roots, root)
+		i += subtreeSize
+	}
+	return total, nil
+}
+
+// Verify verifies the supplied proof, using the data ingested from ReadFrom.
+func (rpv *RangeProofVerifier) Verify(proof []types.Hash256, root types.Hash256) bool {
+	if len(proof) != RangeProofSize(LeavesPerSector, rpv.start, rpv.end) {
+		return false
+	}
+	var acc proofAccumulator
+	consume := func(roots *[]types.Hash256, i, j int) {
+		for i < j && len(*roots) > 0 {
+			subtreeSize := nextSubtreeSize(i, j)
+			height := bits.TrailingZeros(uint(subtreeSize)) // log2
+			acc.insertNode((*roots)[0], height)
+			*roots = (*roots)[1:]
+			i += subtreeSize
+		}
+	}
+	consume(&proof, 0, rpv.start)
+	consume(&rpv.roots, rpv.start, rpv.end)
+	consume(&proof, rpv.end, LeavesPerSector)
+	return acc.root() == root
+}
+
+// NewRangeProofVerifier returns a RangeProofVerifier for the sector range
+// [start, end).
+func NewRangeProofVerifier(start, end int) *RangeProofVerifier {
+	return &RangeProofVerifier{
+		start: start,
+		end:   end,
+	}
 }

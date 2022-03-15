@@ -19,7 +19,7 @@ func nodeHash(left, right types.Hash256) types.Hash256 {
 }
 
 func refSectorRoot(sector *[SectorSize]byte) types.Hash256 {
-	roots := make([]types.Hash256, leavesPerSector)
+	roots := make([]types.Hash256, LeavesPerSector)
 	for i := range roots {
 		roots[i] = leafHash(sector[i*LeafSize:][:LeafSize])
 	}
@@ -114,7 +114,7 @@ func TestMetaRoot(t *testing.T) {
 	}
 	// test some random tree sizes
 	for i := 0; i < 10; i++ {
-		roots := make([]types.Hash256, frand.Intn(leavesPerSector))
+		roots := make([]types.Hash256, frand.Intn(LeavesPerSector))
 		if MetaRoot(roots) != recNodeRoot(roots) {
 			t.Error("MetaRoot does not match reference implementation")
 		}
