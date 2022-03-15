@@ -198,6 +198,19 @@ type (
 	}
 )
 
+// price calculation functions
+
+// RPCReadRenterCost computes the cost of a Read RPC.
+func RPCReadRenterCost(settings HostSettings, sections []RPCReadRequestSection) types.Currency {
+	var bandwidth uint64
+	for _, sec := range sections {
+		proofHashes := RangeProofSize(LeavesPerSector, int(sec.Offset), int(sec.Offset+sec.Length))
+		bandwidth += uint64(sec.Length) + uint64(proofHashes)*32
+	}
+	bandwidthPrice := settings.DownloadBandwidthPrice.Mul64(bandwidth)
+	return settings.InstrReadBaseCost.Add(bandwidthPrice)
+}
+
 // ProtocolObject implementations
 
 func writeMerkleProof(e *types.Encoder, proof []types.Hash256) {
