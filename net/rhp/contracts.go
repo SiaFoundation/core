@@ -2,32 +2,23 @@ package rhp
 
 import (
 	"errors"
-	"fmt"
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
 )
 
 var (
-	// ErrInvalidSignature is returned when a contract's signature is invalid.
-	ErrInvalidSignature = errors.New("signature invalid")
+	// ErrInvalidRenterSignature is returned when a contract's renter signature is invalid.
+	ErrInvalidRenterSignature = errors.New("invalid renter signature")
+
+	// ErrInvalidHostSignature is returned when a contract's host signature is invalid.
+	ErrInvalidHostSignature = errors.New("invalid host signature")
 )
 
-// A Contract pairs the latest revision with signatures from both parties.
+// A Contract pairs a file contract with its ID.
 type Contract struct {
 	ID       types.ElementID
 	Revision types.FileContract
-}
-
-// ValidateSignatures checks that the renter and host signatures are valid.
-func (c *Contract) ValidateSignatures(vc consensus.ValidationContext) (err error) {
-	hash := vc.ContractSigHash(c.Revision)
-	if !c.Revision.HostPublicKey.VerifyHash(hash, c.Revision.HostSignature) {
-		err = fmt.Errorf("failed to validate host signature: %w", ErrInvalidSignature)
-	} else if !c.Revision.RenterPublicKey.VerifyHash(hash, c.Revision.RenterSignature) {
-		err = fmt.Errorf("failed to validate renter signature: %w", ErrInvalidSignature)
-	}
-	return
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -70,6 +61,17 @@ func FinalizeProgramRevision(fc types.FileContract, burn types.Currency) (types.
 	fc.RevisionNumber++
 	fc.MissedHostValue = fc.MissedHostValue.Sub(burn)
 	return fc, nil
+}
+
+// ValidateContractSignatures validates a contract's renter and host signatures.
+func ValidateContractSignatures(vc consensus.ValidationContext, fc types.FileContract) (err error) {
+	hash := vc.ContractSigHash(fc)
+	if !fc.RenterPublicKey.VerifyHash(hash, fc.RenterSignature) {
+		return ErrInvalidRenterSignature
+	} else if !fc.HostPublicKey.VerifyHash(hash, fc.HostSignature) {
+		return ErrInvalidHostSignature
+	}
+	return nil
 }
 
 // ValidateContractFormation verifies that the new contract is valid given the
