@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hdevalence/ed25519consensus"
 	"golang.org/x/crypto/blake2b"
 	"lukechampine.com/frand"
 )
@@ -100,7 +101,7 @@ func (priv PrivateKey) SignHash(h Hash256) (s Signature) {
 
 // VerifyHash verifies that s is a valid signature of h by pk.
 func (pk PublicKey) VerifyHash(h Hash256, s Signature) bool {
-	return ed25519.Verify(pk[:], h[:], s[:])
+	return ed25519consensus.Verify(pk[:], h[:], s[:])
 }
 
 // A SiacoinOutput is the recipient of some of the siacoins spent in a
