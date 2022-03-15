@@ -189,7 +189,7 @@ func TestEncoding(t *testing.T) {
 			Timeout:    frand.Uint64n(100),
 		},
 		&RPCLockResponse{
-			Revision: randomTxn.FileContractRevisions[0],
+			Revision: randomTxn.FileContractRevisions[0].Revision,
 		},
 		&RPCReadRequest{
 			Sections:          []RPCReadRequestSection{{}},

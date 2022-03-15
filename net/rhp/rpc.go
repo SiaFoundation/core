@@ -123,7 +123,7 @@ type (
 	RPCLockResponse struct {
 		Acquired     bool
 		NewChallenge [16]byte
-		Revision     types.FileContractRevision
+		Revision     types.FileContract
 	}
 
 	// RPCReadRequestSection is a section requested in RPCReadRequest.
