@@ -3,6 +3,7 @@ package rhp
 import (
 	"bytes"
 	"math/bits"
+	"reflect"
 	"testing"
 
 	"go.sia.tech/core/types"
@@ -195,6 +196,135 @@ func TestProofAccumulator(t *testing.T) {
 	refRoot := recNodeRoot([]types.Hash256{recNodeRoot(roots[:4]), roots[4]})
 	if pa.root() != refRoot {
 		t.Error("root does not match reference implementation")
+	}
+}
+
+func TestBuildProof(t *testing.T) {
+	// test some known proofs
+	var sector [SectorSize]byte
+	frand.Read(sector[:])
+	sectorRoot := SectorRoot(&sector)
+	segmentRoots := make([]types.Hash256, LeavesPerSector)
+	for i := range segmentRoots {
+		segmentRoots[i] = leafHash(sector[i*LeafSize:][:LeafSize])
+	}
+
+	proof := BuildProof(&sector, 0, LeavesPerSector, nil)
+	if len(proof) != 0 {
+		t.Error("BuildProof constructed an incorrect proof for the entire sector")
+	}
+
+	proof = BuildProof(&sector, 0, 1, nil)
+	hash := leafHash(sector[:64])
+	for i := range proof {
+		hash = nodeHash(hash, proof[i])
+	}
+	if hash != sectorRoot {
+		t.Error("BuildProof constructed an incorrect proof for the first segment")
+	}
+
+	proof = BuildProof(&sector, LeavesPerSector-1, LeavesPerSector, nil)
+	hash = leafHash(sector[len(sector)-64:])
+	for i := range proof {
+		hash = nodeHash(proof[len(proof)-i-1], hash)
+	}
+	if hash != sectorRoot {
+		t.Error("BuildProof constructed an incorrect proof for the last segment")
+	}
+
+	proof = BuildProof(&sector, 10, 11, nil)
+	hash = leafHash(sector[10*64:][:64])
+	hash = nodeHash(hash, proof[2])
+	hash = nodeHash(proof[1], hash)
+	hash = nodeHash(hash, proof[3])
+	hash = nodeHash(proof[0], hash)
+	for i := 4; i < len(proof); i++ {
+		hash = nodeHash(hash, proof[i])
+	}
+	if hash != sectorRoot {
+		t.Error("BuildProof constructed an incorrect proof for a middle segment")
+	}
+
+	// this is the largest possible proof
+	midl, midr := LeavesPerSector/2-1, LeavesPerSector/2+1
+	proof = BuildProof(&sector, midl, midr, nil)
+	left := leafHash(sector[midl*64:][:64])
+	for i := 0; i < len(proof)/2; i++ {
+		left = nodeHash(proof[len(proof)/2-i-1], left)
+	}
+	right := leafHash(sector[(midr-1)*64:][:64])
+	for i := len(proof) / 2; i < len(proof); i++ {
+		right = nodeHash(right, proof[i])
+	}
+	if nodeHash(left, right) != sectorRoot {
+		t.Error("BuildProof constructed an incorrect proof for worst-case inputs")
+	}
+
+	// test a proof with precomputed inputs
+	leftRoots := make([]types.Hash256, LeavesPerSector/2)
+	for i := range leftRoots {
+		leftRoots[i] = leafHash(sector[i*LeafSize:][:LeafSize])
+	}
+	left = MetaRoot(leftRoots)
+	precalc := func(i, j int) (h types.Hash256) {
+		if i == 0 && j == LeavesPerSector/2 {
+			h = left
+		}
+		return
+	}
+	proof = BuildProof(&sector, LeavesPerSector-1, LeavesPerSector, precalc)
+	recalcProof := BuildProof(&sector, LeavesPerSector-1, LeavesPerSector, nil)
+	if !reflect.DeepEqual(proof, recalcProof) {
+		t.Fatal("precalc failed")
+	}
+}
+
+func TestBuildSectorRangeProof(t *testing.T) {
+	// test some known proofs
+	sectorRoots := make([]types.Hash256, 16)
+	for i := range sectorRoots {
+		sectorRoots[i] = frand.Entropy256()
+	}
+
+	proof := BuildSectorRangeProof(sectorRoots, 0, len(sectorRoots))
+	if len(proof) != 0 {
+		t.Error("BuildSectorRangeProof constructed an incorrect proof for the entire tree")
+	}
+
+	proof = BuildSectorRangeProof(sectorRoots[:2], 0, 1)
+	hash := nodeHash(sectorRoots[0], proof[0])
+	if hash != MetaRoot(sectorRoots[:2]) {
+		t.Error("BuildSectorRangeProof constructed an incorrect proof for the first sector")
+	}
+
+	proof = BuildSectorRangeProof(sectorRoots[:4], 0, 2)
+	hash = nodeHash(sectorRoots[0], sectorRoots[1])
+	hash = nodeHash(hash, proof[0])
+	if hash != MetaRoot(sectorRoots[:4]) {
+		t.Error("BuildSectorRangeProof constructed an incorrect proof for the first two sectors")
+	}
+
+	proof = BuildSectorRangeProof(sectorRoots[:5], 0, 2)
+	hash = nodeHash(sectorRoots[0], sectorRoots[1])
+	hash = nodeHash(hash, proof[0])
+	hash = nodeHash(hash, proof[1])
+	if hash != MetaRoot(sectorRoots[:5]) {
+		t.Error("BuildSectorRangeProof constructed an incorrect proof for the first two sectors")
+	}
+
+	// this is the largest possible proof
+	proof = BuildSectorRangeProof(sectorRoots, 7, 9)
+	left := sectorRoots[7]
+	left = nodeHash(proof[2], left)
+	left = nodeHash(proof[1], left)
+	left = nodeHash(proof[0], left)
+	right := sectorRoots[8]
+	right = nodeHash(right, proof[3])
+	right = nodeHash(right, proof[4])
+	right = nodeHash(right, proof[5])
+	hash = nodeHash(left, right)
+	if hash != MetaRoot(sectorRoots) {
+		t.Error("BuildProof constructed an incorrect proof for worst-case inputs")
 	}
 }
 
