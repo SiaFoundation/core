@@ -216,6 +216,8 @@ func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinEl
 				renter, host = fce.RenterOutput, fce.HostOutput
 			} else if fcr.HasFinalization() {
 				renter, host = fcr.Finalization.RenterOutput, fcr.Finalization.HostOutput
+			} else if fce.Filesize == 0 {
+				renter, host = fce.RenterOutput, fce.HostOutput
 			} else {
 				renter, host = fce.RenterOutput, fce.MissedHostOutput()
 			}

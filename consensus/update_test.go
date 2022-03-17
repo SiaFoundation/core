@@ -541,6 +541,7 @@ func TestFileContracts(t *testing.T) {
 		merkle.StorageProofLeafHash(data[64:]),
 	)
 	finalRev.Revision.RevisionNumber++
+	finalRev.Revision.Filesize = uint64(len(data))
 	contractHash = sau.Context.ContractSigHash(finalRev.Revision)
 	finalRev.Revision.RenterSignature = renterPrivkey.SignHash(contractHash)
 	finalRev.Revision.HostSignature = hostPrivkey.SignHash(contractHash)
@@ -572,7 +573,7 @@ func TestFileContracts(t *testing.T) {
 		WindowStart: sau.Context.Index,
 		WindowProof: sau.HistoryProof(),
 	}
-	proofIndex := sau.Context.StorageProofLeafIndex(fc.Filesize, sp.WindowStart, fce.ID)
+	proofIndex := sau.Context.StorageProofLeafIndex(finalRev.Revision.Filesize, sp.WindowStart, fce.ID)
 	copy(sp.Leaf[:], data[64*proofIndex:])
 	if proofIndex == 0 {
 		sp.Proof = append(sp.Proof, merkle.StorageProofLeafHash(data[64:]))

@@ -554,10 +554,8 @@ func (vc ValidationContext) validFileContractResolutions(txn types.Transaction) 
 		} else if fcr.HasStorageProof() {
 			// we must be within the proof window
 			if vc.Index.Height < fc.WindowStart || fc.WindowEnd < vc.Index.Height {
-				return fmt.Errorf("storage proof %v attempts to claim valid outputs, but proof window (%v - %v) has expired", i, fc.WindowStart, fc.WindowEnd)
-			}
-			// validate storage proof
-			if fcr.StorageProof.WindowStart.Height != fc.WindowStart {
+				return fmt.Errorf("storage proof %v attempts to claim valid outputs outside the proof window (%v - %v)", i, fc.WindowStart, fc.WindowEnd)
+			} else if fcr.StorageProof.WindowStart.Height != fc.WindowStart {
 				// see note on this field in types.StorageProof
 				return fmt.Errorf("storage proof %v has WindowStart (%v) that does not match contract WindowStart (%v)", i, fcr.StorageProof.WindowStart.Height, fc.WindowStart)
 			}
@@ -565,10 +563,15 @@ func (vc ValidationContext) validFileContractResolutions(txn types.Transaction) 
 			if merkle.StorageProofRoot(fcr.StorageProof, leafIndex) != fc.FileMerkleRoot {
 				return fmt.Errorf("storage proof %v has root that does not match contract Merkle root", i)
 			}
+		} else if fc.Filesize == 0 {
+			// empty contract; can claim valid outputs after WindowStart
+			if vc.Index.Height < fc.WindowStart {
+				return fmt.Errorf("file contract expiration %v attempts to claim valid outputs, but proof window (%v - %v) has not begun", i, fc.WindowStart, fc.WindowEnd)
+			}
 		} else {
-			// contract must have expired
+			// non-empty contract; can claim missed outputs after WindowEnd
 			if vc.Index.Height <= fc.WindowEnd {
-				return fmt.Errorf("file contract resolution %v attempts to claim missed outputs, but proof window (%v - %v) has not expired", i, fc.WindowStart, fc.WindowEnd)
+				return fmt.Errorf("file contract expiration %v attempts to claim missed outputs, but proof window (%v - %v) has not expired", i, fc.WindowStart, fc.WindowEnd)
 			}
 		}
 	}
