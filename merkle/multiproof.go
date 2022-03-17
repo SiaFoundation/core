@@ -292,14 +292,40 @@ type compressedFileContractResolution types.FileContractResolution
 
 func (res compressedFileContractResolution) EncodeTo(e *types.Encoder) {
 	(compressedFileContractElement)(res.Parent).EncodeTo(e)
-	res.StorageProof.EncodeTo(e)
-	res.Finalization.EncodeTo(e)
+	var fields uint8
+	for i, b := range [...]bool{
+		(*types.FileContractResolution)(&res).HasRenewal(),
+		(*types.FileContractResolution)(&res).HasStorageProof(),
+		(*types.FileContractResolution)(&res).HasFinalization(),
+	} {
+		if b {
+			fields |= 1 << i
+		}
+	}
+	e.WriteUint8(fields)
+	if fields&(1<<0) != 0 {
+		res.Renewal.EncodeTo(e)
+	}
+	if fields&(1<<1) != 0 {
+		res.StorageProof.EncodeTo(e)
+	}
+	if fields&(1<<2) != 0 {
+		res.Finalization.EncodeTo(e)
+	}
 }
 
 func (res *compressedFileContractResolution) DecodeFrom(d *types.Decoder) {
 	(*compressedFileContractElement)(&res.Parent).DecodeFrom(d)
-	res.StorageProof.DecodeFrom(d)
-	res.Finalization.DecodeFrom(d)
+	fields := d.ReadUint8()
+	if fields&(1<<0) != 0 {
+		res.Renewal.DecodeFrom(d)
+	}
+	if fields&(1<<1) != 0 {
+		res.StorageProof.DecodeFrom(d)
+	}
+	if fields&(1<<2) != 0 {
+		res.Finalization.DecodeFrom(d)
+	}
 }
 
 type compressedTransaction types.Transaction

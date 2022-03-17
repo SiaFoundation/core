@@ -200,11 +200,10 @@ type FileContractResolution struct {
 
 // HasRenewal returns true if the resolution contains a renewal.
 func (fcr *FileContractResolution) HasRenewal() bool {
-	return fcr.Renewal.FinalRevision.RevisionNumber == MaxRevisionNumber
+	return fcr.Renewal != (FileContractRenewal{})
 }
 
-// HasStorageProof returns true if any fields in the resolution's StorageProof
-// are non-zero.
+// HasStorageProof returns true if the resolution contains a storage proof.
 func (fcr *FileContractResolution) HasStorageProof() bool {
 	sp := &fcr.StorageProof
 	return sp.WindowStart != (ChainIndex{}) || len(sp.WindowProof) > 0 ||
@@ -213,7 +212,7 @@ func (fcr *FileContractResolution) HasStorageProof() bool {
 
 // HasFinalization returns true if the resolution contains a finalization.
 func (fcr *FileContractResolution) HasFinalization() bool {
-	return fcr.Finalization.RevisionNumber == MaxRevisionNumber
+	return fcr.Finalization != (FileContract{})
 }
 
 // A FileContractRenewal renews a file contract.
