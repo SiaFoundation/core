@@ -416,9 +416,26 @@ func (sp StorageProof) EncodeTo(e *Encoder) {
 // EncodeTo implements types.EncoderTo.
 func (res FileContractResolution) EncodeTo(e *Encoder) {
 	res.Parent.EncodeTo(e)
-	res.Renewal.EncodeTo(e)
-	res.StorageProof.EncodeTo(e)
-	res.Finalization.EncodeTo(e)
+	var fields uint8
+	for i, b := range [...]bool{
+		res.HasRenewal(),
+		res.HasStorageProof(),
+		res.HasFinalization(),
+	} {
+		if b {
+			fields |= 1 << i
+		}
+	}
+	e.WriteUint8(fields)
+	if fields&(1<<0) != 0 {
+		res.Renewal.EncodeTo(e)
+	}
+	if fields&(1<<1) != 0 {
+		res.StorageProof.EncodeTo(e)
+	}
+	if fields&(1<<2) != 0 {
+		res.Finalization.EncodeTo(e)
+	}
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -777,9 +794,16 @@ func (sp *StorageProof) DecodeFrom(d *Decoder) {
 // DecodeFrom implements types.DecoderFrom.
 func (res *FileContractResolution) DecodeFrom(d *Decoder) {
 	res.Parent.DecodeFrom(d)
-	res.Renewal.DecodeFrom(d)
-	res.StorageProof.DecodeFrom(d)
-	res.Finalization.DecodeFrom(d)
+	fields := d.ReadUint8()
+	if fields&(1<<0) != 0 {
+		res.Renewal.DecodeFrom(d)
+	}
+	if fields&(1<<1) != 0 {
+		res.StorageProof.DecodeFrom(d)
+	}
+	if fields&(1<<2) != 0 {
+		res.Finalization.DecodeFrom(d)
+	}
 }
 
 // DecodeFrom implements types.DecoderFrom.

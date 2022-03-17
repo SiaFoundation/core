@@ -511,6 +511,21 @@ func (vc ValidationContext) validFileContractRevisions(txn types.Transaction) er
 
 func (vc ValidationContext) validFileContractResolutions(txn types.Transaction) error {
 	for i, fcr := range txn.FileContractResolutions {
+		// only one resolution type should be present
+		var typs int
+		for _, b := range [...]bool{
+			fcr.HasRenewal(),
+			fcr.HasStorageProof(),
+			fcr.HasFinalization(),
+		} {
+			if b {
+				typs++
+			}
+		}
+		if typs > 1 {
+			return fmt.Errorf("file contract resolution %v has multiple resolution types", i)
+		}
+
 		fc := fcr.Parent.FileContract
 		if fcr.HasRenewal() {
 			// renter and host want to renew the contract, carrying over some
@@ -519,6 +534,8 @@ func (vc ValidationContext) validFileContractResolutions(txn types.Transaction) 
 			old, renewed := fcr.Renewal.FinalRevision, fcr.Renewal.InitialRevision
 			if fc.WindowEnd < vc.Index.Height {
 				return fmt.Errorf("file contract renewal %v cannot be applied to contract whose proof window (%v - %v) has expired", i, fc.WindowStart, fc.WindowEnd)
+			} else if old.RevisionNumber != types.MaxRevisionNumber {
+				return fmt.Errorf("file contract renewal %v does not finalize old contract", i)
 			} else if err := vc.validateRevision(fc, old); err != nil {
 				return fmt.Errorf("file contract renewal %v has final revision that %s", i, err)
 			} else if err := vc.validateContract(renewed); err != nil {
@@ -548,6 +565,8 @@ func (vc ValidationContext) validFileContractResolutions(txn types.Transaction) 
 			// before WindowStart)
 			if fc.WindowEnd < vc.Index.Height {
 				return fmt.Errorf("file contract finalization %v cannot be applied to contract whose proof window (%v - %v) has expired", i, fc.WindowStart, fc.WindowEnd)
+			} else if fcr.Finalization.RevisionNumber != types.MaxRevisionNumber {
+				return fmt.Errorf("file contract finalization %v does not set maximum revision number", i)
 			} else if err := vc.validateRevision(fc, fcr.Finalization); err != nil {
 				return fmt.Errorf("file contract finalization %v %s", i, err)
 			}
