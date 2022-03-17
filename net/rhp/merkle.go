@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"math"
 	"math/bits"
 	"unsafe"
 
@@ -86,6 +87,10 @@ type sectorAccumulator struct {
 // trees field. This should always be true -- there's no reason for a compiler
 // to insert padding between them -- but it doesn't hurt to check.
 var _ [unsafe.Offsetof(sectorAccumulator{}.nodeBuf)]struct{} = [unsafe.Sizeof(sectorAccumulator{}.trees)]struct{}{}
+
+func (sa *sectorAccumulator) reset() {
+	sa.numLeaves = 0
+}
 
 func (sa *sectorAccumulator) hasNodeAtHeight(i int) bool {
 	// not as simple as in proofAccumulator; order is reversed, and sa.numLeaves
@@ -198,7 +203,7 @@ func ReaderRoot(r io.Reader) (types.Hash256, error) {
 func ReadSector(r io.Reader) (types.Hash256, *[SectorSize]byte, error) {
 	var sector [SectorSize]byte
 	buf := bytes.NewBuffer(sector[:0])
-	root, err := ReaderRoot(io.TeeReader(r, buf))
+	root, err := ReaderRoot(io.TeeReader(io.LimitReader(r, SectorSize), buf))
 	if buf.Len() != SectorSize {
 		return types.Hash256{}, nil, io.ErrUnexpectedEOF
 	}
@@ -255,6 +260,87 @@ func nextSubtreeSize(start, end int) int {
 		return 1 << uint(max)
 	}
 	return 1 << uint(ideal)
+}
+
+// BuildProof constructs a proof for the segment range [start, end). If a non-
+// nil precalc function is provided, it will be used to supply precalculated
+// subtree Merkle roots. For example, if the root of the left half of the
+// Merkle tree is precomputed, precalc should return it for i == 0 and j ==
+// SegmentsPerSector/2. If a precalculated root is not available, precalc
+// should return the zero hash.
+func BuildProof(sector *[SectorSize]byte, start, end int, precalc func(i, j int) types.Hash256) []types.Hash256 {
+	if start < 0 || end > LeavesPerSector || start > end || start == end {
+		panic("BuildProof: illegal proof range")
+	}
+	if precalc == nil {
+		precalc = func(i, j int) (h types.Hash256) { return }
+	}
+
+	// define a helper function for later
+	var s sectorAccumulator
+	subtreeRoot := func(i, j int) types.Hash256 {
+		s.reset()
+		s.appendLeaves(sector[i*LeafSize : j*LeafSize])
+		return s.root()
+	}
+
+	// we build the proof by recursively enumerating subtrees, left to right.
+	// If a subtree is inside the segment range, we can skip it (because the
+	// verifier has the segments); otherwise, we add its Merkle root to the
+	// proof.
+	//
+	// NOTE: this operation might be a little tricky to understand because
+	// it's a recursive function with side effects (appending to proof), but
+	// this is the simplest way I was able to implement it. Namely, it has the
+	// important advantage of being symmetrical to the Verify operation.
+	proof := make([]types.Hash256, 0, ProofSize(LeavesPerSector, start))
+	var rec func(int, int)
+	rec = func(i, j int) {
+		if i >= start && j <= end {
+			// this subtree contains only data segments; skip it
+		} else if j <= start || i >= end {
+			// this subtree does not contain any data segments; add its Merkle
+			// root to the proof. If we have a precalculated root, use that;
+			// otherwise, calculate it from scratch.
+			if h := precalc(i, j); h != (types.Hash256{}) {
+				proof = append(proof, h)
+			} else {
+				proof = append(proof, subtreeRoot(i, j))
+			}
+		} else {
+			// this subtree partially overlaps the data segments; split it
+			// into two subtrees and recurse on each
+			mid := (i + j) / 2
+			rec(i, mid)
+			rec(mid, j)
+		}
+	}
+	rec(0, LeavesPerSector)
+	return proof
+}
+
+// BuildSectorRangeProof constructs a proof for the sector range [start, end).
+func BuildSectorRangeProof(sectorRoots []types.Hash256, start, end int) []types.Hash256 {
+	if len(sectorRoots) == 0 {
+		return nil
+	} else if start < 0 || end > len(sectorRoots) || start > end || start == end {
+		panic("BuildSectorRangeProof: illegal proof range")
+	}
+
+	proof := make([]types.Hash256, 0, ProofSize(len(sectorRoots), start))
+	buildRange := func(i, j int) {
+		for i < j && i < len(sectorRoots) {
+			subtreeSize := nextSubtreeSize(i, j)
+			if i+subtreeSize > len(sectorRoots) {
+				subtreeSize = len(sectorRoots) - i
+			}
+			proof = append(proof, MetaRoot(sectorRoots[i:][:subtreeSize]))
+			i += subtreeSize
+		}
+	}
+	buildRange(0, start)
+	buildRange(end, math.MaxInt32)
+	return proof
 }
 
 // A RangeProofVerifier allows range proofs to be verified in streaming fashion.
