@@ -211,6 +211,56 @@ func RPCReadRenterCost(settings HostSettings, sections []RPCReadRequestSection) 
 	return settings.InstrReadBaseCost.Add(bandwidthPrice)
 }
 
+// RPCWriteRenterCost computes the cost of a Write RPC.
+func RPCWriteRenterCost(settings HostSettings, fc types.FileContract, actions []RPCWriteAction) types.Currency {
+	var sectorsAdded, sectorsRemoved uint64
+	for _, action := range actions {
+		switch action.Type {
+		case RPCWriteActionAppend:
+			sectorsAdded++
+		case RPCWriteActionTrim:
+			sectorsRemoved -= action.A
+		case RPCWriteActionSwap:
+		default:
+			panic("unhanbled action type")
+		}
+	}
+	var storageCost types.Currency
+	if sectorsAdded > sectorsRemoved {
+		storageDuration := fc.WindowEnd - settings.BlockHeight
+		sectorStoragePrice := settings.StoragePrice.Mul64(SectorSize).Mul64(storageDuration)
+		storageCost = sectorStoragePrice.Mul64(sectorsAdded - sectorsRemoved)
+	}
+	proofSize := DiffProofSize(int(fc.Filesize/SectorSize), actions)
+	downloadBandwidth := uint64(proofSize) * 32
+	return settings.InstrWriteBaseCost.
+		Add(settings.UploadBandwidthPrice.Mul64(sectorsAdded * SectorSize)).
+		Add(settings.DownloadBandwidthPrice.Mul64(downloadBandwidth)).
+		Add(storageCost)
+}
+
+// RPCWriteHostCollateral computes the collateral for a Write RPC.
+func RPCWriteHostCollateral(settings HostSettings, fc types.FileContract, actions []RPCWriteAction) types.Currency {
+	var sectorsAdded, sectorsRemoved uint64
+	for _, action := range actions {
+		switch action.Type {
+		case RPCWriteActionAppend:
+			sectorsAdded++
+		case RPCWriteActionTrim:
+			sectorsRemoved -= action.A
+		case RPCWriteActionSwap:
+		default:
+			panic("unhandled action type")
+		}
+	}
+	if sectorsAdded < sectorsRemoved {
+		return types.ZeroCurrency
+	}
+	collateralDuration := fc.WindowEnd - settings.BlockHeight
+	sectorCollateral := settings.Collateral.Mul64(SectorSize).Mul64(collateralDuration)
+	return sectorCollateral.Mul64(sectorsAdded - sectorsRemoved)
+}
+
 // ProtocolObject implementations
 
 func writeMerkleProof(e *types.Encoder, proof []types.Hash256) {

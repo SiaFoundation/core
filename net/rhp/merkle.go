@@ -33,8 +33,8 @@ var _ [LeafSize]byte = [len(types.StorageProof{}.Leaf)]byte{}
 // A proofAccumulator is a specialized accumulator for building and verifying
 // Merkle proofs.
 type proofAccumulator struct {
-	trees     [17]types.Hash256 // log2(leavesPerSector) = 16
-	numLeaves uint32
+	trees     [64]types.Hash256
+	numLeaves uint64
 }
 
 func (pa *proofAccumulator) hasNodeAtHeight(height int) bool {
@@ -51,8 +51,8 @@ func (pa *proofAccumulator) insertNode(h types.Hash256, height int) {
 }
 
 func (pa *proofAccumulator) root() types.Hash256 {
-	i := bits.TrailingZeros32(pa.numLeaves)
-	if i == 32 {
+	i := bits.TrailingZeros64(pa.numLeaves)
+	if i == 64 {
 		return types.Hash256{}
 	}
 	root := pa.trees[i]
@@ -240,6 +240,12 @@ func RangeProofSize(n, start, end int) int {
 	return leftHashes + rightHashes
 }
 
+// DiffProofSize returns the size of a Merkle diff proof for the specified
+// actions within a tree containing n leaves.
+func DiffProofSize(n int, actions []RPCWriteAction) int {
+	return 128 // TODO
+}
+
 // nextSubtreeSize returns the size of the subtree adjacent to start that does
 // not overlap end.
 func nextSubtreeSize(start, end int) int {
@@ -303,4 +309,20 @@ func NewRangeProofVerifier(start, end int) *RangeProofVerifier {
 		start: start,
 		end:   end,
 	}
+}
+
+// VerifyAppendProof verifies a proof produced by BuildAppendProof.
+func VerifyAppendProof(numLeaves uint64, treeHashes []types.Hash256, sectorRoot, oldRoot, newRoot types.Hash256) bool {
+	acc := proofAccumulator{numLeaves: numLeaves}
+	for i := range acc.trees {
+		if acc.hasNodeAtHeight(i) && len(treeHashes) > 0 {
+			acc.trees[i] = treeHashes[0]
+			treeHashes = treeHashes[1:]
+		}
+	}
+	if acc.root() != oldRoot {
+		return false
+	}
+	acc.insertNode(sectorRoot, 0)
+	return acc.root() == newRoot
 }
