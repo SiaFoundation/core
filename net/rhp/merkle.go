@@ -203,7 +203,7 @@ func ReaderRoot(r io.Reader) (types.Hash256, error) {
 func ReadSector(r io.Reader) (types.Hash256, *[SectorSize]byte, error) {
 	var sector [SectorSize]byte
 	buf := bytes.NewBuffer(sector[:0])
-	root, err := ReaderRoot(io.TeeReader(r, buf))
+	root, err := ReaderRoot(io.TeeReader(io.LimitReader(r, SectorSize), buf))
 	if buf.Len() != SectorSize {
 		return types.Hash256{}, nil, io.ErrUnexpectedEOF
 	}
