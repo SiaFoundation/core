@@ -923,7 +923,7 @@ func TestValidateSpendPolicy(t *testing.T) {
 		}
 		sigHash := vc.InputSigHash(txn)
 		txn.SiacoinInputs[0].Signatures = tt.sign(sigHash)
-		if err := vc.validSpendPolicies(txn); (err != nil) != tt.wantErr {
+		if err := vc.validateSpendPolicies(txn); (err != nil) != tt.wantErr {
 			t.Fatalf("case %q failed: %v", tt.desc, err)
 		}
 	}

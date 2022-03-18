@@ -358,7 +358,7 @@ func (vc ValidationContext) validateHeader(h types.BlockHeader) error {
 	return nil
 }
 
-func (vc ValidationContext) validCurrencyValues(txn types.Transaction) error {
+func (vc ValidationContext) validateCurrencyValues(txn types.Transaction) error {
 	// Add up all of the currency values in the transaction and check for
 	// overflow. This allows us to freely add any currency values in later
 	// validation functions without worrying about overflow.
@@ -430,7 +430,7 @@ func (vc ValidationContext) validCurrencyValues(txn types.Transaction) error {
 	return nil
 }
 
-func (vc ValidationContext) validTimeLocks(txn types.Transaction) error {
+func (vc ValidationContext) validateTimeLocks(txn types.Transaction) error {
 	blockHeight := vc.Index.Height + 1
 	for i, in := range txn.SiacoinInputs {
 		if in.Parent.MaturityHeight > blockHeight {
@@ -488,7 +488,7 @@ func (vc ValidationContext) validateRevision(cur, rev types.FileContract) error 
 	return nil
 }
 
-func (vc ValidationContext) validFileContracts(txn types.Transaction) error {
+func (vc ValidationContext) validateFileContracts(txn types.Transaction) error {
 	for i, fc := range txn.FileContracts {
 		if err := vc.validateContract(fc); err != nil {
 			return fmt.Errorf("file contract %v %s", i, err)
@@ -497,7 +497,7 @@ func (vc ValidationContext) validFileContracts(txn types.Transaction) error {
 	return nil
 }
 
-func (vc ValidationContext) validFileContractRevisions(txn types.Transaction) error {
+func (vc ValidationContext) validateFileContractRevisions(txn types.Transaction) error {
 	for i, fcr := range txn.FileContractRevisions {
 		cur, rev := fcr.Parent.FileContract, fcr.Revision
 		if vc.Index.Height > cur.WindowStart {
@@ -509,7 +509,7 @@ func (vc ValidationContext) validFileContractRevisions(txn types.Transaction) er
 	return nil
 }
 
-func (vc ValidationContext) validFileContractResolutions(txn types.Transaction) error {
+func (vc ValidationContext) validateFileContractResolutions(txn types.Transaction) error {
 	for i, fcr := range txn.FileContractResolutions {
 		// only one resolution type should be present
 		var typs int
@@ -597,7 +597,7 @@ func (vc ValidationContext) validFileContractResolutions(txn types.Transaction) 
 	return nil
 }
 
-func (vc ValidationContext) validAttestations(txn types.Transaction) error {
+func (vc ValidationContext) validateAttestations(txn types.Transaction) error {
 	for i, a := range txn.Attestations {
 		switch {
 		case len(a.Key) == 0:
@@ -651,7 +651,7 @@ func (vc ValidationContext) outputsEqualInputs(txn types.Transaction) error {
 	return nil
 }
 
-func (vc ValidationContext) validStateProofs(txn types.Transaction) error {
+func (vc ValidationContext) validateStateProofs(txn types.Transaction) error {
 	for i, in := range txn.SiacoinInputs {
 		switch {
 		case in.Parent.LeafIndex == types.EphemeralLeafIndex:
@@ -697,7 +697,7 @@ func (vc ValidationContext) validStateProofs(txn types.Transaction) error {
 	return nil
 }
 
-func (vc ValidationContext) validHistoryProofs(txn types.Transaction) error {
+func (vc ValidationContext) validateHistoryProofs(txn types.Transaction) error {
 	for i, fcr := range txn.FileContractResolutions {
 		if fcr.HasStorageProof() && !vc.History.Contains(fcr.StorageProof.WindowStart, fcr.StorageProof.WindowProof) {
 			return fmt.Errorf("file contract resolution %v has storage proof with invalid history proof", i)
@@ -706,7 +706,7 @@ func (vc ValidationContext) validHistoryProofs(txn types.Transaction) error {
 	return nil
 }
 
-func (vc ValidationContext) validFoundationUpdate(txn types.Transaction) error {
+func (vc ValidationContext) validateFoundationUpdate(txn types.Transaction) error {
 	if txn.NewFoundationAddress == types.VoidAddress {
 		return nil
 	}
@@ -718,7 +718,7 @@ func (vc ValidationContext) validFoundationUpdate(txn types.Transaction) error {
 	return errors.New("transaction changes Foundation address, but does not spend an input controlled by current address")
 }
 
-func (vc ValidationContext) validSpendPolicies(txn types.Transaction) error {
+func (vc ValidationContext) validateSpendPolicies(txn types.Transaction) error {
 	sigHash := vc.InputSigHash(txn)
 	verifyPolicy := func(p types.SpendPolicy, sigs []types.Signature) error {
 		var verify func(types.SpendPolicy) error
@@ -787,35 +787,35 @@ func (vc ValidationContext) validSpendPolicies(txn types.Transaction) error {
 func (vc ValidationContext) ValidateTransaction(txn types.Transaction) error {
 	// check proofs first; that way, subsequent checks can assume that all
 	// parent StateElements are valid
-	if err := vc.validStateProofs(txn); err != nil {
+	if err := vc.validateStateProofs(txn); err != nil {
 		return err
-	} else if err := vc.validHistoryProofs(txn); err != nil {
+	} else if err := vc.validateHistoryProofs(txn); err != nil {
 		return err
 	}
 
-	if err := vc.validCurrencyValues(txn); err != nil {
+	if err := vc.validateCurrencyValues(txn); err != nil {
 		return err
-	} else if err := vc.validTimeLocks(txn); err != nil {
+	} else if err := vc.validateTimeLocks(txn); err != nil {
 		return err
 	} else if err := vc.outputsEqualInputs(txn); err != nil {
 		return err
-	} else if err := vc.validFoundationUpdate(txn); err != nil {
+	} else if err := vc.validateFoundationUpdate(txn); err != nil {
 		return err
-	} else if err := vc.validFileContracts(txn); err != nil {
+	} else if err := vc.validateFileContracts(txn); err != nil {
 		return err
-	} else if err := vc.validFileContractRevisions(txn); err != nil {
+	} else if err := vc.validateFileContractRevisions(txn); err != nil {
 		return err
-	} else if err := vc.validFileContractResolutions(txn); err != nil {
+	} else if err := vc.validateFileContractResolutions(txn); err != nil {
 		return err
-	} else if err := vc.validAttestations(txn); err != nil {
+	} else if err := vc.validateAttestations(txn); err != nil {
 		return err
-	} else if err := vc.validSpendPolicies(txn); err != nil {
+	} else if err := vc.validateSpendPolicies(txn); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (vc ValidationContext) validEphemeralOutputs(txns []types.Transaction) error {
+func (vc ValidationContext) validateEphemeralOutputs(txns []types.Transaction) error {
 	// skip this check if no ephemeral outputs are present
 	for _, txn := range txns {
 		for _, in := range txn.SiacoinInputs {
@@ -901,7 +901,7 @@ func (vc ValidationContext) noDoubleContractUpdates(txns []types.Transaction) er
 func (vc ValidationContext) ValidateTransactionSet(txns []types.Transaction) error {
 	if vc.BlockWeight(txns) > vc.MaxBlockWeight() {
 		return ErrOverweight
-	} else if err := vc.validEphemeralOutputs(txns); err != nil {
+	} else if err := vc.validateEphemeralOutputs(txns); err != nil {
 		return err
 	} else if err := vc.noDoubleSpends(txns); err != nil {
 		return err
