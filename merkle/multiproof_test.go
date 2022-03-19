@@ -87,7 +87,6 @@ func TestBlockCompression(t *testing.T) {
 		}
 		e.Flush()
 		uncompressed := buf.Len()
-		println(uncompressed)
 
 		buf.Reset()
 		(*merkle.CompressedBlock)(&b).EncodeTo(e)

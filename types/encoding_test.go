@@ -2,6 +2,7 @@ package types
 
 import (
 	"bytes"
+	"encoding"
 	"io"
 	"math"
 	"math/rand"
@@ -137,5 +138,36 @@ func BenchmarkEncoding(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		txn.EncodeTo(e)
+	}
+}
+
+func TestMarshalTextRoundtrip(t *testing.T) {
+	tests := []encoding.TextMarshaler{
+		Hash256{0: 0xAA, 31: 0xBB},
+		ChainIndex{
+			Height: 555,
+			ID:     BlockID{0: 0xAA, 31: 0xBB},
+		},
+		ElementID{
+			Source: Hash256{0: 0xAA, 31: 0xBB},
+			Index:  5000,
+		},
+		Address{0: 0xAA, 31: 0xBB},
+		BlockID{0: 0xAA, 31: 0xBB},
+		PublicKey{0: 0xAA, 31: 0xBB},
+		TransactionID{0: 0xAA, 31: 0xBB},
+		Signature{0: 0xAA, 31: 0xBB},
+	}
+	for _, val := range tests {
+		b, _ := val.MarshalText()
+		decptr := reflect.New(reflect.TypeOf(val))
+		if err := decptr.Interface().(encoding.TextUnmarshaler).UnmarshalText(b); err != nil {
+			t.Errorf("could not decode %T value: %v", val, err)
+			continue
+		}
+		dec := decptr.Elem().Interface()
+		if !reflect.DeepEqual(dec, val) {
+			t.Errorf("%T value did not survive roundtrip: expected %v, got %v", val, val, dec)
+		}
 	}
 }
