@@ -212,7 +212,7 @@ type compressedSiacoinInput types.SiacoinInput
 
 func (in compressedSiacoinInput) EncodeTo(e *types.Encoder) {
 	(compressedSiacoinElement)(in.Parent).EncodeTo(e)
-	e.WritePolicy(in.SpendPolicy)
+	in.SpendPolicy.EncodeTo(e)
 	e.WritePrefix(len(in.Signatures))
 	for _, sig := range in.Signatures {
 		sig.EncodeTo(e)
@@ -221,7 +221,7 @@ func (in compressedSiacoinInput) EncodeTo(e *types.Encoder) {
 
 func (in *compressedSiacoinInput) DecodeFrom(d *types.Decoder) {
 	(*compressedSiacoinElement)(&in.Parent).DecodeFrom(d)
-	in.SpendPolicy = d.ReadPolicy()
+	in.SpendPolicy.DecodeFrom(d)
 	in.Signatures = make([]types.Signature, d.ReadPrefix())
 	for i := range in.Signatures {
 		in.Signatures[i].DecodeFrom(d)
@@ -247,7 +247,7 @@ type compressedSiafundInput types.SiafundInput
 func (in compressedSiafundInput) EncodeTo(e *types.Encoder) {
 	(compressedSiafundElement)(in.Parent).EncodeTo(e)
 	in.ClaimAddress.EncodeTo(e)
-	e.WritePolicy(in.SpendPolicy)
+	in.SpendPolicy.EncodeTo(e)
 	e.WritePrefix(len(in.Signatures))
 	for _, sig := range in.Signatures {
 		sig.EncodeTo(e)
@@ -257,7 +257,7 @@ func (in compressedSiafundInput) EncodeTo(e *types.Encoder) {
 func (in *compressedSiafundInput) DecodeFrom(d *types.Decoder) {
 	(*compressedSiafundElement)(&in.Parent).DecodeFrom(d)
 	in.ClaimAddress.DecodeFrom(d)
-	in.SpendPolicy = d.ReadPolicy()
+	in.SpendPolicy.DecodeFrom(d)
 	in.Signatures = make([]types.Signature, d.ReadPrefix())
 	for i := range in.Signatures {
 		in.Signatures[i].DecodeFrom(d)

@@ -723,13 +723,13 @@ func (vc ValidationContext) validateSpendPolicies(txn types.Transaction) error {
 	verifyPolicy := func(p types.SpendPolicy, sigs []types.Signature) error {
 		var verify func(types.SpendPolicy) error
 		verify = func(p types.SpendPolicy) error {
-			switch p := p.(type) {
-			case types.PolicyAbove:
+			switch p := p.Type.(type) {
+			case types.PolicyTypeAbove:
 				if vc.Index.Height > uint64(p) {
 					return nil
 				}
 				return fmt.Errorf("height not above %v", uint64(p))
-			case types.PolicyPublicKey:
+			case types.PolicyTypePublicKey:
 				for i := range sigs {
 					if types.PublicKey(p).VerifyHash(sigHash, sigs[i]) {
 						sigs = sigs[i+1:]
@@ -737,7 +737,7 @@ func (vc ValidationContext) validateSpendPolicies(txn types.Transaction) error {
 					}
 				}
 				return errors.New("no signatures matching pubkey")
-			case types.PolicyThreshold:
+			case types.PolicyTypeThreshold:
 				for i := 0; i < len(p.Of) && p.N > 0 && len(p.Of[i:]) >= int(p.N); i++ {
 					if verify(p.Of[i]) == nil {
 						p.N--
@@ -747,18 +747,16 @@ func (vc ValidationContext) validateSpendPolicies(txn types.Transaction) error {
 					return errors.New("threshold not reached")
 				}
 				return nil
-			case types.PolicyUnlockConditions:
+			case types.PolicyTypeUnlockConditions:
 				if err := verify(types.PolicyAbove(p.Timelock)); err != nil {
 					return err
 				}
-				thresh := types.PolicyThreshold{
-					N:  p.SignaturesRequired,
-					Of: make([]types.SpendPolicy, len(p.PublicKeys)),
-				}
+				n := p.SignaturesRequired
+				of := make([]types.SpendPolicy, len(p.PublicKeys))
 				for i, pk := range p.PublicKeys {
-					thresh.Of[i] = types.PolicyPublicKey(pk)
+					of[i] = types.PolicyPublicKey(pk)
 				}
-				return verify(thresh)
+				return verify(types.PolicyThreshold(n, of))
 			}
 			panic("invalid policy type") // developer error
 		}
@@ -766,14 +764,14 @@ func (vc ValidationContext) validateSpendPolicies(txn types.Transaction) error {
 	}
 
 	for i, in := range txn.SiacoinInputs {
-		if types.PolicyAddress(in.SpendPolicy) != in.Parent.Address {
+		if in.SpendPolicy.Address() != in.Parent.Address {
 			return fmt.Errorf("siacoin input %v claims incorrect policy for parent address", i)
 		} else if err := verifyPolicy(in.SpendPolicy, in.Signatures); err != nil {
 			return fmt.Errorf("siacoin input %v failed to satisfy spend policy: %w", i, err)
 		}
 	}
 	for i, in := range txn.SiafundInputs {
-		if types.PolicyAddress(in.SpendPolicy) != in.Parent.Address {
+		if in.SpendPolicy.Address() != in.Parent.Address {
 			return fmt.Errorf("siafund input %v claims incorrect policy for parent address", i)
 		} else if err := verifyPolicy(in.SpendPolicy, in.Signatures); err != nil {
 			return fmt.Errorf("siafund input %v failed to satisfy spend policy: %w", i, err)

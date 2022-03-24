@@ -111,8 +111,6 @@ func EncodedLen(v interface{}) int {
 		case []byte:
 			e.WritePrefix(len(v))
 			e.Write(v)
-		case SpendPolicy:
-			e.WritePolicy(v)
 		default:
 			panic(fmt.Sprintf("cannot encode type %T", v))
 		}
@@ -334,7 +332,7 @@ func (se StateElement) EncodeTo(e *Encoder) {
 // EncodeTo implements types.EncoderTo.
 func (in SiacoinInput) EncodeTo(e *Encoder) {
 	in.Parent.EncodeTo(e)
-	e.WritePolicy(in.SpendPolicy)
+	in.SpendPolicy.EncodeTo(e)
 	e.WritePrefix(len(in.Signatures))
 	for _, sig := range in.Signatures {
 		sig.EncodeTo(e)
@@ -352,7 +350,7 @@ func (sce SiacoinElement) EncodeTo(e *Encoder) {
 func (in SiafundInput) EncodeTo(e *Encoder) {
 	in.Parent.EncodeTo(e)
 	in.ClaimAddress.EncodeTo(e)
-	e.WritePolicy(in.SpendPolicy)
+	in.SpendPolicy.EncodeTo(e)
 	e.WritePrefix(len(in.Signatures))
 	for _, sig := range in.Signatures {
 		sig.EncodeTo(e)
@@ -454,27 +452,26 @@ const (
 	opUnlockConditions
 )
 
-// WritePolicy writes a SpendPolicy to the underlying stream.
-func (e *Encoder) WritePolicy(p SpendPolicy) {
+// EncodeTo implements types.EncoderTo.
+func (p SpendPolicy) EncodeTo(e *Encoder) {
 	writeUint8 := func(u uint8) { e.Write([]byte{u}) }
-
 	var writePolicy func(SpendPolicy)
 	writePolicy = func(p SpendPolicy) {
-		switch p := p.(type) {
-		case PolicyAbove:
+		switch p := p.Type.(type) {
+		case PolicyTypeAbove:
 			writeUint8(opAbove)
 			e.WriteUint64(uint64(p))
-		case PolicyPublicKey:
+		case PolicyTypePublicKey:
 			writeUint8(opPublicKey)
 			PublicKey(p).EncodeTo(e)
-		case PolicyThreshold:
+		case PolicyTypeThreshold:
 			writeUint8(opThreshold)
 			writeUint8(p.N)
 			writeUint8(uint8(len(p.Of)))
 			for i := range p.Of {
 				writePolicy(p.Of[i])
 			}
-		case PolicyUnlockConditions:
+		case PolicyTypeUnlockConditions:
 			writeUint8(opUnlockConditions)
 			e.WriteUint64(p.Timelock)
 			writeUint8(uint8(len(p.PublicKeys)))
@@ -483,10 +480,9 @@ func (e *Encoder) WritePolicy(p SpendPolicy) {
 			}
 			writeUint8(p.SignaturesRequired)
 		default:
-			panic(fmt.Sprintf("unhandled policy type, %T", p))
+			panic(fmt.Sprintf("unhandled policy type %T", p))
 		}
 	}
-
 	const version = 1
 	writeUint8(version)
 	writePolicy(p)
@@ -634,8 +630,8 @@ func (sfo *SiafundOutput) DecodeFrom(d *Decoder) {
 	sfo.Address.DecodeFrom(d)
 }
 
-// ReadPolicy reads a SpendPolicy from the underlying stream.
-func (d *Decoder) ReadPolicy() (p SpendPolicy) {
+// DecodeFrom implements types.DecoderFrom.
+func (p *SpendPolicy) DecodeFrom(d *Decoder) {
 	var buf [1]byte
 	readUint8 := func() uint8 {
 		d.Read(buf[:1])
@@ -654,24 +650,22 @@ func (d *Decoder) ReadPolicy() (p SpendPolicy) {
 			pk.DecodeFrom(d)
 			return PolicyPublicKey(pk), nil
 		case opThreshold:
-			thresh := PolicyThreshold{
-				N:  readUint8(),
-				Of: make([]SpendPolicy, readUint8()),
-			}
-			totalPolicies += len(thresh.Of)
+			n := readUint8()
+			of := make([]SpendPolicy, readUint8())
+			totalPolicies += len(of)
 			if totalPolicies > maxPolicies {
-				return nil, errors.New("policy is too complex")
+				return SpendPolicy{}, errors.New("policy is too complex")
 			}
 			var err error
-			for i := range thresh.Of {
-				thresh.Of[i], err = readPolicy()
+			for i := range of {
+				of[i], err = readPolicy()
 				if err != nil {
-					return nil, err
+					return SpendPolicy{}, err
 				}
 			}
-			return thresh, nil
+			return PolicyThreshold(n, of), nil
 		case opUnlockConditions:
-			uc := PolicyUnlockConditions{
+			uc := PolicyTypeUnlockConditions{
 				Timelock:   d.ReadUint64(),
 				PublicKeys: make([]PublicKey, readUint8()),
 			}
@@ -679,9 +673,9 @@ func (d *Decoder) ReadPolicy() (p SpendPolicy) {
 				uc.PublicKeys[i].DecodeFrom(d)
 			}
 			uc.SignaturesRequired = readUint8()
-			return uc, nil
+			return SpendPolicy{uc}, nil
 		default:
-			return nil, fmt.Errorf("unknown policy (opcode %v)", op)
+			return SpendPolicy{}, fmt.Errorf("unknown policy (opcode %v)", op)
 		}
 	}
 
@@ -689,9 +683,9 @@ func (d *Decoder) ReadPolicy() (p SpendPolicy) {
 		d.SetErr(fmt.Errorf("unsupported policy version (%v)", version))
 		return
 	}
-	p, err := readPolicy()
+	var err error
+	*p, err = readPolicy()
 	d.SetErr(err)
-	return p
 }
 
 func (d *Decoder) readMerkleProof() []Hash256 {
@@ -712,7 +706,7 @@ func (se *StateElement) DecodeFrom(d *Decoder) {
 // DecodeFrom implements types.DecoderFrom.
 func (in *SiacoinInput) DecodeFrom(d *Decoder) {
 	in.Parent.DecodeFrom(d)
-	in.SpendPolicy = d.ReadPolicy()
+	in.SpendPolicy.DecodeFrom(d)
 	in.Signatures = make([]Signature, d.ReadPrefix())
 	for i := range in.Signatures {
 		in.Signatures[i].DecodeFrom(d)
@@ -730,7 +724,7 @@ func (sce *SiacoinElement) DecodeFrom(d *Decoder) {
 func (in *SiafundInput) DecodeFrom(d *Decoder) {
 	in.Parent.DecodeFrom(d)
 	in.ClaimAddress.DecodeFrom(d)
-	in.SpendPolicy = d.ReadPolicy()
+	in.SpendPolicy.DecodeFrom(d)
 	in.Signatures = make([]Signature, d.ReadPrefix())
 	for i := range in.Signatures {
 		in.Signatures[i].DecodeFrom(d)

@@ -2,44 +2,61 @@ package types
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"math/bits"
+	"strconv"
+	"strings"
 )
 
 // A SpendPolicy describes the conditions under which an input may be spent.
-type SpendPolicy interface {
-	isPolicy()
+type SpendPolicy struct {
+	Type interface{ isPolicy() }
 }
 
-// AnyoneCanSpend returns a policy that has no requirements.
-func AnyoneCanSpend() SpendPolicy { return PolicyThreshold{N: 0} }
+// PolicyTypeAbove requires the input to be spent above a given block height.
+type PolicyTypeAbove uint64
 
-// PolicyAbove requires the input to be spent above a given block height.
-type PolicyAbove uint64
+// PolicyAbove returns a policy that requires the input to be spent above a
+// given block height.
+func PolicyAbove(height uint64) SpendPolicy { return SpendPolicy{PolicyTypeAbove(height)} }
 
-// PolicyPublicKey requires the input to be signed by a given key.
-type PolicyPublicKey PublicKey
+// PolicyTypePublicKey requires the input to be signed by a given key.
+type PolicyTypePublicKey PublicKey
 
-// PolicyThreshold requires at least N sub-policies to be satisfied.
-type PolicyThreshold struct {
+// PolicyPublicKey returns a policy that requires the input to be signed by a
+// given key.
+func PolicyPublicKey(pk PublicKey) SpendPolicy { return SpendPolicy{PolicyTypePublicKey(pk)} }
+
+// PolicyTypeThreshold requires at least N sub-policies to be satisfied.
+type PolicyTypeThreshold struct {
 	N  uint8
 	Of []SpendPolicy
 }
 
-// PolicyUnlockConditions reproduces the requirements imposed by Sia's original
-// "UnlockConditions" type. It exists for compatibility purposes and should not
-// be used to construct new policies.
-type PolicyUnlockConditions struct {
+// PolicyThreshold returns a policy that requires at least N sub-policies to be
+// satisfied.
+func PolicyThreshold(n uint8, of []SpendPolicy) SpendPolicy {
+	return SpendPolicy{PolicyTypeThreshold{n, of}}
+}
+
+// AnyoneCanSpend returns a policy that has no requirements.
+func AnyoneCanSpend() SpendPolicy { return PolicyThreshold(0, nil) }
+
+// PolicyTypeUnlockConditions reproduces the requirements imposed by Sia's
+// original "UnlockConditions" type. It exists for compatibility purposes and
+// should not be used to construct new policies.
+type PolicyTypeUnlockConditions struct {
 	Timelock           uint64
 	PublicKeys         []PublicKey
 	SignaturesRequired uint8
 }
 
-func (PolicyAbove) isPolicy()            {}
-func (PolicyPublicKey) isPolicy()        {}
-func (PolicyThreshold) isPolicy()        {}
-func (PolicyUnlockConditions) isPolicy() {}
+func (PolicyTypeAbove) isPolicy()            {}
+func (PolicyTypePublicKey) isPolicy()        {}
+func (PolicyTypeThreshold) isPolicy()        {}
+func (PolicyTypeUnlockConditions) isPolicy() {}
 
-func unlockConditionsRoot(uc PolicyUnlockConditions) Hash256 {
+func (uc PolicyTypeUnlockConditions) root() Hash256 {
 	buf := make([]byte, 65)
 	uint64Leaf := func(u uint64) Hash256 {
 		buf[0] = 0
@@ -88,22 +105,68 @@ func unlockConditionsRoot(uc PolicyUnlockConditions) Hash256 {
 	return treeRoot()
 }
 
-// PolicyAddress computes the opaque address for a given policy.
-func PolicyAddress(p SpendPolicy) Address {
-	if uc, ok := p.(PolicyUnlockConditions); ok {
+// Address computes the opaque address for a given policy.
+func (p SpendPolicy) Address() Address {
+	if uc, ok := p.Type.(PolicyTypeUnlockConditions); ok {
 		// NOTE: to preserve compatibility, we use the original address
 		// derivation code for these policies
-		return Address(unlockConditionsRoot(uc))
+		return Address(uc.root())
 	}
 	h := hasherPool.Get().(*Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
 	h.E.WriteString("sia/address")
-	h.E.WritePolicy(p)
+	p.EncodeTo(h.E)
 	return Address(h.Sum())
 }
 
 // StandardAddress computes the address for a single public key policy.
-func StandardAddress(pk PublicKey) Address {
-	return PolicyAddress(PolicyPublicKey(pk))
+func StandardAddress(pk PublicKey) Address { return PolicyPublicKey(pk).Address() }
+
+// String implements fmt.Stringer.
+func (p SpendPolicy) String() string {
+	var sb strings.Builder
+	switch p := p.Type.(type) {
+	case PolicyTypeAbove:
+		sb.WriteString("above(")
+		sb.WriteString(strconv.FormatUint(uint64(p), 10))
+		sb.WriteByte(')')
+
+	case PolicyTypePublicKey:
+		sb.WriteString("pk(")
+		sb.WriteString(hex.EncodeToString(p[:]))
+		sb.WriteByte(')')
+
+	case PolicyTypeThreshold:
+		sb.WriteString("thresh(")
+		sb.WriteString(strconv.FormatUint(uint64(p.N), 10))
+		sb.WriteString(",[")
+		for i, sp := range p.Of {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			sb.WriteString(sp.String())
+		}
+		sb.WriteString("])")
+
+	case PolicyTypeUnlockConditions:
+		sb.WriteString("uc(")
+		sb.WriteString(strconv.FormatUint(p.Timelock, 10))
+		sb.WriteString(",[")
+		for i, pk := range p.PublicKeys {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			sb.WriteString(hex.EncodeToString(pk[:]))
+		}
+		sb.WriteString("],")
+		sb.WriteString(strconv.FormatUint(uint64(p.SignaturesRequired), 10))
+		sb.WriteByte(')')
+	}
+	return sb.String()
+}
+
+// MarshalJSON implements json.Marshaler.
+func (p SpendPolicy) MarshalJSON() ([]byte, error) {
+	return []byte(`"` + p.String() + `"`), nil
 }
