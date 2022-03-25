@@ -412,3 +412,17 @@ func VerifyAppendProof(numLeaves uint64, treeHashes []types.Hash256, sectorRoot,
 	acc.insertNode(sectorRoot, 0)
 	return acc.root() == newRoot
 }
+
+// BuildAppendProof constructs a proof for an append sector instruction
+func BuildAppendProof(roots []types.Hash256) (treeHashes []types.Hash256) {
+	var acc proofAccumulator
+	for _, r := range roots {
+		acc.insertNode(r, 0)
+	}
+	for i := range acc.trees {
+		if acc.hasNodeAtHeight(i) {
+			treeHashes = append(treeHashes, acc.trees[i])
+		}
+	}
+	return
+}
