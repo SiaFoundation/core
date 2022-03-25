@@ -83,6 +83,19 @@ func TestEncoderRoundtrip(t *testing.T) {
 
 func TestEncoderCompleteness(t *testing.T) {
 	checkFn := func(txn Transaction) bool {
+		// NOTE: the compressed Transaction encoding will cause 0-length slices
+		// to decode as nil, so normalize any 0-length slices to nil now to
+		// ensure that DeepEqual will work.
+		txn.SiacoinInputs = append([]SiacoinInput(nil), txn.SiacoinInputs...)
+		txn.SiacoinOutputs = append([]SiacoinOutput(nil), txn.SiacoinOutputs...)
+		txn.SiafundInputs = append([]SiafundInput(nil), txn.SiafundInputs...)
+		txn.SiafundOutputs = append([]SiafundOutput(nil), txn.SiafundOutputs...)
+		txn.FileContracts = append([]FileContract(nil), txn.FileContracts...)
+		txn.FileContractRevisions = append([]FileContractRevision(nil), txn.FileContractRevisions...)
+		txn.FileContractResolutions = append([]FileContractResolution(nil), txn.FileContractResolutions...)
+		txn.Attestations = append([]Attestation(nil), txn.Attestations...)
+		txn.ArbitraryData = append([]byte(nil), txn.ArbitraryData...)
+
 		var buf bytes.Buffer
 		e := NewEncoder(&buf)
 		txn.EncodeTo(e)
