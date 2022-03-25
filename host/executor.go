@@ -91,7 +91,7 @@ func (pe *ProgramExecutor) executeHasSector(root types.Hash256) error {
 
 // executeAppendSector appends a new sector to the executor's sector roots and
 // adds it to the sector store.
-func (pe *ProgramExecutor) executeAppendSector(root types.Hash256, sector *[rhp.SectorSize]byte, requiresProof bool) ([]types.Hash256, error) {
+func (pe *ProgramExecutor) executeAppendSector(root types.Hash256, sector *[rhp.SectorSize]byte, requiresProof bool) (proof []types.Hash256, _ error) {
 	if err := pe.payForExecution(rhp.AppendSectorCost(pe.settings, pe.duration)); err != nil {
 		return nil, fmt.Errorf("failed to pay append sector cost: %w", err)
 	}
@@ -100,13 +100,16 @@ func (pe *ProgramExecutor) executeAppendSector(root types.Hash256, sector *[rhp.
 		return nil, fmt.Errorf("failed to add sector: %w", err)
 	}
 
+	// calculate the diff proof
+	if requiresProof {
+		proof = rhp.BuildAppendProof(pe.newRoots)
+	}
 	// update the program's state
 	pe.newRoots = append(pe.newRoots, root)
 	pe.newMerkleRoot = rhp.MetaRoot(pe.newRoots)
 	pe.newFileSize += rhp.SectorSize
 	pe.gainedSectors[root]++
-	// TODO: calculate optional proof.
-	return nil, nil
+	return
 }
 
 // executeUpdateSector updates an existing sector.
@@ -175,7 +178,6 @@ func (pe *ProgramExecutor) executeSwapSectors(indexA, indexB uint64, requiresPro
 	pe.newMerkleRoot = rhp.MetaRoot(pe.newRoots)
 	pe.newRoots[indexA].EncodeTo(pe.encoder)
 	pe.newRoots[indexA].EncodeTo(pe.encoder)
-
 	// TODO: calculate optional proof.
 	return nil, nil
 }

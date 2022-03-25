@@ -58,7 +58,6 @@ type HostSettings struct {
 	RPCFundAccountCost    types.Currency `json:"rpcFundAccountCost"`
 	RPCHostSettingsCost   types.Currency `json:"rpcHostSettingsCost"`
 	RPCLatestRevisionCost types.Currency `json:"rpcLatestRevisionCost"`
-	RPCRenewContractCost  types.Currency `json:"rpcRenewContractCost"`
 
 	// ProgInitBaseCost is the cost in Hastings that is incurred when an MDM
 	// program starts to run. This doesn't include the memory used by the
@@ -114,7 +113,6 @@ func (p *HostSettings) EncodeTo(e *types.Encoder) {
 	p.RPCAccountBalanceCost.EncodeTo(e)
 	p.RPCFundAccountCost.EncodeTo(e)
 	p.RPCLatestRevisionCost.EncodeTo(e)
-	p.RPCRenewContractCost.EncodeTo(e)
 	p.RPCHostSettingsCost.EncodeTo(e)
 	p.ProgInitBaseCost.EncodeTo(e)
 	p.ProgMemoryTimeCost.EncodeTo(e)
@@ -155,7 +153,6 @@ func (p *HostSettings) DecodeFrom(d *types.Decoder) {
 	p.RPCAccountBalanceCost.DecodeFrom(d)
 	p.RPCFundAccountCost.DecodeFrom(d)
 	p.RPCLatestRevisionCost.DecodeFrom(d)
-	p.RPCRenewContractCost.DecodeFrom(d)
 	p.RPCHostSettingsCost.DecodeFrom(d)
 	p.ProgInitBaseCost.DecodeFrom(d)
 	p.ProgMemoryTimeCost.DecodeFrom(d)

@@ -11,6 +11,7 @@ import (
 
 const defaultMaxLen = 10e3 // for revisions, proofs, etc.
 const largeMaxLen = 1e6    // for transactions
+const dataMaxLen = 1 << 24 // for upload RPC
 
 // ContractOutputs contains the output values for a FileContract. Because the
 // revisions negotiated by the renter and host typically do not modify the
@@ -145,9 +146,7 @@ type (
 
 	// RPCReadResponse contains the response data for the Read RPC.
 	RPCReadResponse struct {
-		Signature   types.Signature
-		Data        []byte
-		MerkleProof []types.Hash256
+		Signature types.Signature
 	}
 
 	// RPCSectorRootsRequest contains the request parameters for the SectorRoots RPC.
@@ -212,7 +211,7 @@ func RPCReadRenterCost(settings HostSettings, sections []RPCReadRequestSection) 
 }
 
 // RPCWriteRenterCost computes the cost of a Write RPC.
-func RPCWriteRenterCost(settings HostSettings, fc types.FileContract, actions []RPCWriteAction) types.Currency {
+func RPCWriteRenterCost(settings HostSettings, fc types.FileContract, actions []RPCWriteAction) (storage, usage types.Currency) {
 	var sectorsAdded, sectorsRemoved uint64
 	for _, action := range actions {
 		switch action.Type {
@@ -225,18 +224,17 @@ func RPCWriteRenterCost(settings HostSettings, fc types.FileContract, actions []
 			panic("unhanbled action type")
 		}
 	}
-	var storageCost types.Currency
 	if sectorsAdded > sectorsRemoved {
 		storageDuration := fc.WindowEnd - settings.BlockHeight
 		sectorStoragePrice := settings.StoragePrice.Mul64(SectorSize).Mul64(storageDuration)
-		storageCost = sectorStoragePrice.Mul64(sectorsAdded - sectorsRemoved)
+		storage = sectorStoragePrice.Mul64(sectorsAdded - sectorsRemoved)
 	}
 	proofSize := DiffProofSize(int(fc.Filesize/SectorSize), actions)
 	downloadBandwidth := uint64(proofSize) * 32
-	return settings.InstrWriteBaseCost.
+	usage = settings.InstrWriteBaseCost.
 		Add(settings.UploadBandwidthPrice.Mul64(sectorsAdded * SectorSize)).
-		Add(settings.DownloadBandwidthPrice.Mul64(downloadBandwidth)).
-		Add(storageCost)
+		Add(settings.DownloadBandwidthPrice.Mul64(downloadBandwidth))
+	return
 }
 
 // RPCWriteHostCollateral computes the collateral for a Write RPC.
@@ -558,27 +556,11 @@ func (r *RPCReadRequest) MaxLen() int {
 // EncodeTo implements rpc.Object.
 func (r *RPCReadResponse) EncodeTo(e *types.Encoder) {
 	r.Signature.EncodeTo(e)
-	e.WriteBytes(r.Data)
-	writeMerkleProof(e, r.MerkleProof)
 }
 
 // DecodeFrom implements rpc.Object.
 func (r *RPCReadResponse) DecodeFrom(d *types.Decoder) {
 	r.Signature.DecodeFrom(d)
-
-	// r.Data will typically be large (4 MiB), so reuse the existing capacity if
-	// possible.
-	//
-	// NOTE: for maximum efficiency, we should be doing this for every slice,
-	// but in most cases the extra performance isn't worth the aliasing risk.
-	dataLen := d.ReadPrefix()
-	if cap(r.Data) < dataLen {
-		r.Data = make([]byte, dataLen)
-	}
-	r.Data = r.Data[:dataLen]
-	d.Read(r.Data)
-
-	r.MerkleProof = readMerkleProof(d)
 }
 
 // MaxLen implements rpc.Object.
@@ -668,7 +650,7 @@ func (r *RPCWriteRequest) DecodeFrom(d *types.Decoder) {
 
 // MaxLen implements rpc.Object.
 func (r *RPCWriteRequest) MaxLen() int {
-	return defaultMaxLen
+	return dataMaxLen
 }
 
 // EncodeTo implements rpc.Object.

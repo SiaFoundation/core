@@ -197,9 +197,7 @@ func TestEncoding(t *testing.T) {
 			Signature:         randSignature(),
 		},
 		&RPCReadResponse{
-			Signature:   randSignature(),
-			Data:        frand.Bytes(8),
-			MerkleProof: randomTxn.SiacoinInputs[0].Parent.MerkleProof,
+			Signature: randSignature(),
 		},
 		&RPCSectorRootsRequest{
 			RootOffset:        frand.Uint64n(100),

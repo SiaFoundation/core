@@ -25,7 +25,6 @@ var testSettings = HostSettings{
 
 	RPCFundAccountCost:    types.NewCurrency64(1),
 	RPCAccountBalanceCost: types.NewCurrency64(1),
-	RPCRenewContractCost:  types.NewCurrency64(1),
 	RPCHostSettingsCost:   types.NewCurrency64(1),
 	RPCLatestRevisionCost: types.NewCurrency64(1),
 }

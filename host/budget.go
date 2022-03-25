@@ -11,6 +11,7 @@ import (
 
 // A Budget provides helpers for managing the RPC budget.
 type Budget struct {
+	spent types.Currency
 	value types.Currency
 }
 
@@ -25,11 +26,24 @@ func (b *Budget) Remaining() types.Currency {
 	return b.value
 }
 
+// Refund returns the remaining budget and sets the budget to 0.
+func (b *Budget) Refund() (v types.Currency) {
+	v = b.value
+	b.value = types.ZeroCurrency
+	return
+}
+
+// Spent returns the amount of the budget spent by the renter.
+func (b *Budget) Spent() types.Currency {
+	return b.spent
+}
+
 // Spend subtracts amount from the remaining budget.
 func (b *Budget) Spend(amount types.Currency) error {
 	if amount.Cmp(b.value) > 0 {
 		return fmt.Errorf("unable to spend %d, %d remaining: %w", amount, b.value, ErrInsufficientBudget)
 	}
+	b.spent = b.spent.Add(amount)
 	b.value = b.value.Sub(amount)
 	return nil
 }
@@ -54,8 +68,11 @@ type BudgetedStream struct {
 	rw     io.ReadWriter
 	budget *Budget
 
-	uploadBandwidthPrice   types.Currency
-	downloadBandwidthPrice types.Currency
+	readPrice  types.Currency
+	writePrice types.Currency
+
+	readSpending  types.Currency
+	writeSpending types.Currency
 }
 
 // Read reads data from the underlying stream. Implements io.Reader.
@@ -64,10 +81,11 @@ func (l *BudgetedStream) Read(buf []byte) (n int, err error) {
 	if err != nil {
 		return
 	}
-	cost := l.uploadBandwidthPrice.Mul64(uint64(n))
+	cost := l.readPrice.Mul64(uint64(n))
 	if err = l.budget.Spend(cost); err != nil {
 		return
 	}
+	l.readSpending = l.readSpending.Add(cost)
 	return
 }
 
@@ -77,11 +95,17 @@ func (l *BudgetedStream) Write(buf []byte) (n int, err error) {
 	if err != nil {
 		return
 	}
-	cost := l.downloadBandwidthPrice.Mul64(uint64(n))
+	cost := l.writePrice.Mul64(uint64(n))
 	if err = l.budget.Spend(cost); err != nil {
 		return
 	}
+	l.writeSpending = l.writeSpending.Add(cost)
 	return
+}
+
+// Spending returns the amount of the budget spent by reading and writing to the stream
+func (l *BudgetedStream) Spending() (read, write types.Currency) {
+	return l.readSpending, l.writeSpending
 }
 
 // NewBudgetedStream initializes a new stream limited by the budget.
@@ -90,7 +114,7 @@ func NewBudgetedStream(rw io.ReadWriter, budget *Budget, settings rhp.HostSettin
 		rw:     rw,
 		budget: budget,
 
-		uploadBandwidthPrice:   settings.UploadBandwidthPrice,
-		downloadBandwidthPrice: settings.DownloadBandwidthPrice,
+		readPrice:  settings.UploadBandwidthPrice,
+		writePrice: settings.DownloadBandwidthPrice,
 	}
 }

@@ -166,7 +166,9 @@ func ValidateContractFinalization(current, final types.FileContract) error {
 	return nil
 }
 
-func validateStdRevision(current, revision types.FileContract) error {
+// ValidateStdRevision verifies that a new contract revision is valid given the
+// existing revision.
+func ValidateStdRevision(current, revision types.FileContract) error {
 	switch {
 	case revision.RevisionNumber <= current.RevisionNumber:
 		return errors.New("revision number must increase")
@@ -195,7 +197,7 @@ func validateStdRevision(current, revision types.FileContract) error {
 func ValidateProgramRevision(current, revision types.FileContract, additionalStorage, additionalCollateral types.Currency) error {
 	// verify the new revision is valid given the existing revision and the
 	// public keys have not changed
-	if err := validateStdRevision(current, revision); err != nil {
+	if err := ValidateStdRevision(current, revision); err != nil {
 		return err
 	}
 
@@ -222,7 +224,7 @@ func ValidateProgramRevision(current, revision types.FileContract, additionalSto
 func ValidatePaymentRevision(current, revision types.FileContract, amount types.Currency) error {
 	// verify the new revision is valid given the existing revision and the
 	// public keys have not changed.
-	if err := validateStdRevision(current, revision); err != nil {
+	if err := ValidateStdRevision(current, revision); err != nil {
 		return err
 	}
 

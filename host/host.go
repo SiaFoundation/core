@@ -68,7 +68,56 @@ type (
 		Cap() uint64
 	}
 
-	// A ContractStore stores contracts, metadata, and proofs for the host.
+	// A SettingsReporter returns the host's current settings.
+	SettingsReporter interface {
+		Settings() rhp.HostSettings
+	}
+
+	// A TransactionPool broadcasts transaction sets to miners for inclusion in
+	// an upcoming block.
+	TransactionPool interface {
+		AddTransaction(txn types.Transaction) error
+		RecommendedFee() types.Currency
+		Transactions() []types.Transaction
+	}
+
+	// A Wallet provides addresses and funds and signs transactions.
+	Wallet interface {
+		Address() types.Address
+		FundTransaction(txn *types.Transaction, amount types.Currency, pool []types.Transaction) ([]types.ElementID, func(), error)
+		SignTransaction(vc consensus.ValidationContext, txn *types.Transaction, toSign []types.ElementID) error
+	}
+)
+
+type (
+	// ContractState is the current lifecycle stage of a contract.
+	ContractState string
+
+	// A Contract contains metadata on the current lifecycle stage of a file
+	// contract.
+	Contract struct {
+		rhp.Contract
+		Parent types.FileContractElement
+		// FormationTransaction is the transaction created by the host and
+		// renter during contract formation. A reference is kept in case it
+		// needs to be rebroadcast. Transaction proofs should be updated by the
+		// contract store if the transaction is not confirmed.
+		Confirmed            bool
+		FormationTransaction types.Transaction
+
+		// StorageProof is the future storage proof for the contract.
+		// WindowStart and WindowProof are expected to be kept updated by the
+		// contract store.
+		StorageProof types.StorageProof
+
+		// ResolutionHeight is the height the contract was resolved, or 0 if the
+		// contract is unresolved.
+		ResolutionHeight uint64
+		// State is the current lifecycle state of the contract.
+		State ContractState
+	}
+
+	// A ContractStore stores contracts and manages proofs for the host.
 	ContractStore interface {
 		chain.Subscriber
 
@@ -76,9 +125,11 @@ type (
 		Exists(types.ElementID) bool
 		// Get returns the contract with the given ID.
 		Get(types.ElementID) (rhp.Contract, error)
-		// Add stores the provided contract, overwriting any previous contract
-		// with the same ID.
+		// Add stores the provided contract, should error if the contract
+		// already exists in the store.
 		Add(rhp.Contract, types.Transaction) error
+		// Delete removes the contract with the given ID from the store.
+		Delete(types.ElementID) error
 		// ReviseContract updates the current revision associated with a contract.
 		Revise(rhp.Contract) error
 
@@ -86,6 +137,10 @@ type (
 		Roots(types.ElementID) ([]types.Hash256, error)
 		// SetRoots sets the stored roots of the contract.
 		SetRoots(types.ElementID, []types.Hash256) error
+
+		// ContractAction calls contractFn on every contract in the store that
+		// needs a lifecycle action performed.
+		ContractAction(vc consensus.ValidationContext, contractFn func(consensus.ValidationContext, Contract)) error
 	}
 
 	// A ContractManager manages a hosts active contracts.
@@ -105,24 +160,35 @@ type (
 		// SetRoots updates the roots of the contract.
 		SetRoots(types.ElementID, []types.Hash256) error
 	}
-
-	// A SettingsReporter returns the host's current settings.
-	SettingsReporter interface {
-		Settings() rhp.HostSettings
-	}
-
-	// A TransactionPool broadcasts transaction sets to miners for inclusion in
-	// an upcoming block.
-	TransactionPool interface {
-		AddTransaction(txn types.Transaction) error
-		RecommendedFee() types.Currency
-	}
-
-	// A Wallet provides addresses and funds and signs transactions.
-	Wallet interface {
-		Address() types.Address
-		SpendPolicy(types.Address) (types.SpendPolicy, bool)
-		FundTransaction(txn *types.Transaction, amount types.Currency, pool []types.Transaction) ([]types.ElementID, func(), error)
-		SignTransaction(vc consensus.ValidationContext, txn *types.Transaction, toSign []types.ElementID) error
-	}
 )
+
+var (
+	// ContractStateUnresolved is a contract that has not yet been resolved.
+	ContractStateUnresolved ContractState = "unresolved"
+	// ContractStateFinalized is a contract that has been finalized early.
+	ContractStateFinalized ContractState = "finalized"
+	// ContractStateRenewed is a contract that has been renewed.
+	ContractStateRenewed ContractState = "renewed"
+	// ContractStateValid is a contract with a successfully confirmed storage proof.
+	ContractStateValid ContractState = "valid"
+	// ContractStateMissed is a contract that was resolved after the proof window
+	// ended.
+	ContractStateMissed ContractState = "missed"
+)
+
+// ShouldSubmitRevision returns true if the host should broadcast the final
+// revision. The final revision should be broadcast if the height is within 6
+// blocks of the proof window and the host's current revision number is higher
+// than the parent's.
+func (c *Contract) ShouldSubmitRevision(index types.ChainIndex) bool {
+	return index.Height >= c.Parent.WindowStart-6 && index.Height < c.Parent.WindowStart && c.Revision.RevisionNumber > c.Parent.RevisionNumber
+}
+
+// ShouldSubmitResolution returns true if the host should broadcast a contract
+// resolution. The contract resolution should be broadcast if the contract is in
+// the proof window and has not already been resolved.
+func (c *Contract) ShouldSubmitResolution(index types.ChainIndex) bool {
+	// if the current index is past window start and the contract has not been resolved, attempt to resolve it. If the
+	// resolution fails, retry every 6 blocks.
+	return c.ResolutionHeight == 0 && c.Parent.WindowStart <= index.Height && (index.Height-c.Parent.WindowStart)%6 == 0
+}
