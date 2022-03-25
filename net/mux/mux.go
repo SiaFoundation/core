@@ -364,6 +364,8 @@ type Stream struct {
 	established bool      // has the first frame been sent?
 	err         error
 	readBuf     []byte
+	readBytes   uint64
+	writeBytes  uint64
 	rd, wd      time.Time // deadlines
 }
 
@@ -467,6 +469,7 @@ func (s *Stream) Read(p []byte) (int, error) {
 	n := copy(p, s.readBuf)
 	s.readBuf = s.readBuf[n:]
 	s.cond.Broadcast() // wake consumeFrame
+	s.readBytes += uint64(n)
 	return n, nil
 }
 
@@ -497,6 +500,7 @@ func (s *Stream) Write(p []byte) (int, error) {
 			return len(p) - buf.Len(), err
 		}
 	}
+	s.writeBytes += uint64(len(p))
 	return len(p), nil
 }
 
@@ -530,6 +534,11 @@ func (s *Stream) Close() error {
 	delete(s.m.streams, s.id)
 	s.m.mu.Unlock()
 	return nil
+}
+
+// Usage returns the number of bytes written and read by the Stream.
+func (s *Stream) Usage() (uint64, uint64) {
+	return s.readBytes, s.writeBytes
 }
 
 var _ net.Conn = (*Stream)(nil)
