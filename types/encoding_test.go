@@ -4,67 +4,42 @@ import (
 	"bytes"
 	"encoding"
 	"io"
-	"math"
 	"math/rand"
 	"reflect"
 	"testing"
 	"testing/quick"
-
-	"lukechampine.com/frand"
 )
 
-// testing/quick isn't able to generate random spend policies; we have to do
-// that ourselves
-func randPolicy(rand *rand.Rand) SpendPolicy {
+// Generate implements quick.Generator.
+func (p SpendPolicy) Generate(rand *rand.Rand, size int) reflect.Value {
 	switch rand.Intn(4) + 1 {
 	case opAbove:
-		return PolicyAbove(rand.Uint64())
+		return reflect.ValueOf(PolicyAbove(rand.Uint64()))
 	case opPublicKey:
 		var p PublicKey
 		rand.Read(p[:])
-		return PolicyPublicKey(p)
+		return reflect.ValueOf(PolicyPublicKey(p))
 	case opThreshold:
-		var p PolicyThreshold
-		p.Of = make([]SpendPolicy, rand.Intn(5))
-		if len(p.Of) > 0 {
-			p.N = uint8(rand.Intn(len(p.Of)))
-			for i := range p.Of {
-				p.Of[i] = randPolicy(rand)
+		n := uint8(0)
+		of := make([]SpendPolicy, rand.Intn(5))
+		if len(of) > 0 {
+			n = uint8(rand.Intn(len(of)))
+			for i := range of {
+				of[i] = p.Generate(rand, size).Interface().(SpendPolicy)
 			}
 		}
-		return p
+		return reflect.ValueOf(PolicyThreshold(n, of))
 	case opUnlockConditions:
-		var p PolicyUnlockConditions
+		var p PolicyTypeUnlockConditions
 		p.Timelock = rand.Uint64()
 		p.PublicKeys = make([]PublicKey, rand.Intn(5)+1)
 		p.SignaturesRequired = uint8(rand.Intn(len(p.PublicKeys)))
 		for i := range p.PublicKeys {
 			rand.Read(p.PublicKeys[i][:])
 		}
-		return p
+		return reflect.ValueOf(SpendPolicy{p})
 	}
 	panic("unreachable")
-}
-
-func quickValue(t reflect.Type, rand *rand.Rand) reflect.Value {
-	if t.String() == "types.SpendPolicy" {
-		return reflect.ValueOf(randPolicy(rand))
-	}
-	v := reflect.New(t).Elem()
-	switch t.Kind() {
-	default:
-		v, _ = quick.Value(t, rand)
-	case reflect.Slice:
-		v.Set(reflect.MakeSlice(t, 10, 10))
-		for i := 0; i < v.Len(); i++ {
-			v.Index(i).Set(quickValue(t.Elem(), rand))
-		}
-	case reflect.Struct:
-		for i := 0; i < v.NumField(); i++ {
-			v.Field(i).Set(quickValue(t.Field(i).Type, rand))
-		}
-	}
-	return v
 }
 
 func TestEncoderRoundtrip(t *testing.T) {
@@ -107,16 +82,20 @@ func TestEncoderRoundtrip(t *testing.T) {
 }
 
 func TestEncoderCompleteness(t *testing.T) {
-	// this test ensures that we keep the encoder in sync with the Transaction
-	// type by populating its fields with reflection
-	seed := int64(frand.Uint64n(math.MaxInt64))
-	cfg := &quick.Config{
-		Rand: rand.New(rand.NewSource(seed)),
-		Values: func(v []reflect.Value, r *rand.Rand) {
-			v[0] = quickValue(reflect.TypeOf(Transaction{}), r)
-		},
-	}
 	checkFn := func(txn Transaction) bool {
+		// NOTE: the compressed Transaction encoding will cause 0-length slices
+		// to decode as nil, so normalize any 0-length slices to nil now to
+		// ensure that DeepEqual will work.
+		txn.SiacoinInputs = append([]SiacoinInput(nil), txn.SiacoinInputs...)
+		txn.SiacoinOutputs = append([]SiacoinOutput(nil), txn.SiacoinOutputs...)
+		txn.SiafundInputs = append([]SiafundInput(nil), txn.SiafundInputs...)
+		txn.SiafundOutputs = append([]SiafundOutput(nil), txn.SiafundOutputs...)
+		txn.FileContracts = append([]FileContract(nil), txn.FileContracts...)
+		txn.FileContractRevisions = append([]FileContractRevision(nil), txn.FileContractRevisions...)
+		txn.FileContractResolutions = append([]FileContractResolution(nil), txn.FileContractResolutions...)
+		txn.Attestations = append([]Attestation(nil), txn.Attestations...)
+		txn.ArbitraryData = append([]byte(nil), txn.ArbitraryData...)
+
 		var buf bytes.Buffer
 		e := NewEncoder(&buf)
 		txn.EncodeTo(e)
@@ -125,13 +104,17 @@ func TestEncoderCompleteness(t *testing.T) {
 		decTxn.DecodeFrom(NewBufDecoder(buf.Bytes()))
 		return reflect.DeepEqual(txn, decTxn)
 	}
-	if quick.Check(checkFn, cfg) != nil {
-		t.Fatalf("roundtrip test failed; did you forget to update transaction encoder? (seed = %v)", seed)
+	if quick.Check(checkFn, nil) != nil {
+		t.Fatal("roundtrip test failed; did you forget to update transaction encoder?")
 	}
 }
 
 func BenchmarkEncoding(b *testing.B) {
-	txn := quickValue(reflect.TypeOf(Transaction{}), rand.New(rand.NewSource(0))).Interface().(Transaction)
+	v, ok := quick.Value(reflect.TypeOf(Transaction{}), rand.New(rand.NewSource(0)))
+	if !ok {
+		b.Fatal("could not generate value")
+	}
+	txn := v.Interface().(Transaction)
 	e := NewEncoder(io.Discard)
 
 	b.ReportAllocs()

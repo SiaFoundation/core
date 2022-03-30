@@ -36,57 +36,57 @@ func TestPolicyAddressString(t *testing.T) {
 			"addr:a1b418e9905dd086e2d0c25ec3675568f849c18f401512d704eceafe1574ee19c48049c5f2b3",
 		},
 		{
-			PolicyThreshold{},
+			PolicyThreshold(0, nil),
 			"addr:a1b418e9905dd086e2d0c25ec3675568f849c18f401512d704eceafe1574ee19c48049c5f2b3",
 		},
 		{
-			PolicyThreshold{
-				N: 1,
-				Of: []SpendPolicy{
+			PolicyThreshold(
+				1,
+				[]SpendPolicy{
 					PolicyPublicKey(publicKeys[0]),
 				},
-			},
+			),
 			"addr:88a889bd46420209db5a41b164956e53ff3da9c4b3d1491d81f9c374f742dd3b0a7c72f58aff",
 		},
 		{
-			PolicyThreshold{
-				N: 1,
-				Of: []SpendPolicy{
+			PolicyThreshold(
+				1,
+				[]SpendPolicy{
 					PolicyPublicKey(publicKeys[0]),
-					PolicyThreshold{
-						N: 2,
-						Of: []SpendPolicy{
+					PolicyThreshold(
+						2,
+						[]SpendPolicy{
 							PolicyAbove(50),
 							PolicyPublicKey(publicKeys[1]),
 						},
-					},
+					),
 				},
-			},
+			),
 			"addr:2ce609abbd8bc26d0f22c8f6447d3144bc2ae2391f9b09685aca03237329c339ba3ec4a35133",
 		},
 		{
-			PolicyThreshold{
-				N: 2,
-				Of: []SpendPolicy{
+			PolicyThreshold(
+				2,
+				[]SpendPolicy{
 					PolicyPublicKey(publicKeys[0]),
 					PolicyPublicKey(publicKeys[1]),
 					PolicyPublicKey(publicKeys[2]),
 				},
-			},
+			),
 			"addr:0ca4d365f06ebf0de342ed617498521f0c0bcdc133c414428480e8826875c0a565ccaee80fb6",
 		},
 		{
-			policy: PolicyUnlockConditions{
+			policy: SpendPolicy{PolicyTypeUnlockConditions{
 				PublicKeys: []PublicKey{
 					publicKeys[0],
 				},
 				SignaturesRequired: 1,
-			},
+			}},
 			want: "addr:2f4a4a64712545bde8d38776377da2794d54685284a3768f78884643dad33a9a3822a0f4dc39",
 		},
 	}
 	for _, tt := range tests {
-		if got := PolicyAddress(tt.policy).String(); got != tt.want {
+		if got := tt.policy.Address().String(); got != tt.want {
 			t.Errorf("wrong address for %T(%v)", tt.policy, tt.policy)
 		}
 	}

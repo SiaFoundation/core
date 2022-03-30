@@ -713,13 +713,13 @@ func TestValidateSpendPolicy(t *testing.T) {
 	}{
 		{
 			desc: "not enough signatures",
-			policy: types.PolicyThreshold{
-				N: 2,
-				Of: []types.SpendPolicy{
+			policy: types.PolicyThreshold(
+				2,
+				[]types.SpendPolicy{
 					types.PolicyPublicKey(pubkey(0)),
 					types.PolicyPublicKey(pubkey(1)),
 				},
-			},
+			),
 			sign: func(sigHash types.Hash256) []types.Signature {
 				return []types.Signature{privkey(0).SignHash(sigHash)}
 			},
@@ -739,14 +739,14 @@ func TestValidateSpendPolicy(t *testing.T) {
 		},
 		{
 			desc: "multiple public key signatures",
-			policy: types.PolicyThreshold{
-				N: 3,
-				Of: []types.SpendPolicy{
+			policy: types.PolicyThreshold(
+				3,
+				[]types.SpendPolicy{
 					types.PolicyPublicKey(pubkey(0)),
 					types.PolicyPublicKey(pubkey(1)),
 					types.PolicyPublicKey(pubkey(2)),
 				},
-			},
+			),
 			sign: func(sigHash types.Hash256) []types.Signature {
 				return []types.Signature{
 					privkey(0).SignHash(sigHash),
@@ -758,27 +758,27 @@ func TestValidateSpendPolicy(t *testing.T) {
 		},
 		{
 			desc: "invalid foundation failsafe",
-			policy: types.PolicyThreshold{
-				N: 1,
-				Of: []types.SpendPolicy{
-					types.PolicyThreshold{
-						N: 2,
-						Of: []types.SpendPolicy{
+			policy: types.PolicyThreshold(
+				1,
+				[]types.SpendPolicy{
+					types.PolicyThreshold(
+						2,
+						[]types.SpendPolicy{
 							types.PolicyPublicKey(pubkey(0)),
 							types.PolicyPublicKey(pubkey(1)),
 							types.PolicyPublicKey(pubkey(2)),
 						},
-					},
+					),
 					// failsafe policy is not satisfied because the current height is 100
-					types.PolicyThreshold{
-						N: 2,
-						Of: []types.SpendPolicy{
+					types.PolicyThreshold(
+						2,
+						[]types.SpendPolicy{
 							types.PolicyPublicKey(pubkey(3)),
 							types.PolicyAbove(150),
 						},
-					},
+					),
 				},
-			},
+			),
 			sign: func(sigHash types.Hash256) []types.Signature {
 				return []types.Signature{privkey(3).SignHash(sigHash)}
 			},
@@ -786,27 +786,27 @@ func TestValidateSpendPolicy(t *testing.T) {
 		},
 		{
 			desc: "valid foundation primary",
-			policy: types.PolicyThreshold{
-				N: 1,
-				Of: []types.SpendPolicy{
-					types.PolicyThreshold{
-						N: 2,
-						Of: []types.SpendPolicy{
+			policy: types.PolicyThreshold(
+				1,
+				[]types.SpendPolicy{
+					types.PolicyThreshold(
+						2,
+						[]types.SpendPolicy{
 							types.PolicyPublicKey(pubkey(0)),
 							types.PolicyPublicKey(pubkey(1)),
 							types.PolicyPublicKey(pubkey(2)),
 						},
-					},
+					),
 					// failsafe policy is not satisfied because the current height is 100
-					types.PolicyThreshold{
-						N: 2,
-						Of: []types.SpendPolicy{
+					types.PolicyThreshold(
+						2,
+						[]types.SpendPolicy{
 							types.PolicyPublicKey(pubkey(3)),
 							types.PolicyAbove(150),
 						},
-					},
+					),
 				},
-			},
+			),
 			sign: func(sigHash types.Hash256) []types.Signature {
 				return []types.Signature{
 					privkey(1).SignHash(sigHash),
@@ -817,27 +817,27 @@ func TestValidateSpendPolicy(t *testing.T) {
 		},
 		{
 			desc: "valid foundation failsafe",
-			policy: types.PolicyThreshold{
-				N: 1,
-				Of: []types.SpendPolicy{
-					types.PolicyThreshold{
-						N: 2,
-						Of: []types.SpendPolicy{
+			policy: types.PolicyThreshold(
+				1,
+				[]types.SpendPolicy{
+					types.PolicyThreshold(
+						2,
+						[]types.SpendPolicy{
 							types.PolicyPublicKey(pubkey(0)),
 							types.PolicyPublicKey(pubkey(1)),
 							types.PolicyPublicKey(pubkey(2)),
 						},
-					},
+					),
 					// failsafe policy is satisfied because the current height is 100
-					types.PolicyThreshold{
-						N: 2,
-						Of: []types.SpendPolicy{
+					types.PolicyThreshold(
+						2,
+						[]types.SpendPolicy{
 							types.PolicyPublicKey(pubkey(3)),
 							types.PolicyAbove(80),
 						},
-					},
+					),
 				},
-			},
+			),
 			sign: func(sigHash types.Hash256) []types.Signature {
 				return []types.Signature{privkey(3).SignHash(sigHash)}
 			},
@@ -845,14 +845,14 @@ func TestValidateSpendPolicy(t *testing.T) {
 		},
 		{
 			desc: "invalid legacy unlock hash",
-			policy: types.PolicyUnlockConditions{
+			policy: types.SpendPolicy{Type: types.PolicyTypeUnlockConditions{
 				PublicKeys: []types.PublicKey{
 					pubkey(0),
 					pubkey(1),
 					pubkey(2),
 				},
 				SignaturesRequired: 2,
-			},
+			}},
 			sign: func(sigHash types.Hash256) []types.Signature {
 				return []types.Signature{
 					privkey(0).SignHash(sigHash),
@@ -862,13 +862,13 @@ func TestValidateSpendPolicy(t *testing.T) {
 		},
 		{
 			desc: "invalid timelocked legacy unlock conditions",
-			policy: types.PolicyUnlockConditions{
+			policy: types.SpendPolicy{Type: types.PolicyTypeUnlockConditions{
 				PublicKeys: []types.PublicKey{
 					pubkey(0),
 				},
 				Timelock:           150,
 				SignaturesRequired: 1,
-			},
+			}},
 			sign: func(sigHash types.Hash256) []types.Signature {
 				return []types.Signature{
 					privkey(0).SignHash(sigHash),
@@ -878,14 +878,14 @@ func TestValidateSpendPolicy(t *testing.T) {
 		},
 		{
 			desc: "valid legacy unlock hash",
-			policy: types.PolicyUnlockConditions{
+			policy: types.SpendPolicy{Type: types.PolicyTypeUnlockConditions{
 				PublicKeys: []types.PublicKey{
 					pubkey(0),
 					pubkey(1),
 					pubkey(2),
 				},
 				SignaturesRequired: 2,
-			},
+			}},
 			sign: func(sigHash types.Hash256) []types.Signature {
 				return []types.Signature{
 					privkey(0).SignHash(sigHash),
@@ -896,13 +896,13 @@ func TestValidateSpendPolicy(t *testing.T) {
 		},
 		{
 			desc: "valid timelocked legacy unlock conditions",
-			policy: types.PolicyUnlockConditions{
+			policy: types.SpendPolicy{Type: types.PolicyTypeUnlockConditions{
 				PublicKeys: []types.PublicKey{
 					pubkey(0),
 				},
 				Timelock:           80,
 				SignaturesRequired: 1,
-			},
+			}},
 			sign: func(sigHash types.Hash256) []types.Signature {
 				return []types.Signature{privkey(0).SignHash(sigHash)}
 			},
@@ -915,7 +915,7 @@ func TestValidateSpendPolicy(t *testing.T) {
 			SiacoinInputs: []types.SiacoinInput{{
 				Parent: types.SiacoinElement{
 					SiacoinOutput: types.SiacoinOutput{
-						Address: types.PolicyAddress(tt.policy),
+						Address: tt.policy.Address(),
 					},
 				},
 				SpendPolicy: tt.policy,
