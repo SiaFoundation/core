@@ -340,8 +340,8 @@ func TestContext(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				// wait 100ms before reading
-				time.Sleep(100 * time.Millisecond)
+				// wait 250ms before reading
+				time.Sleep(250 * time.Millisecond)
 				var n uint64
 				if err := binary.Read(s, binary.LittleEndian, &n); err != nil {
 					return err
@@ -354,8 +354,8 @@ func TestContext(t *testing.T) {
 					return err
 				}
 
-				// wait 100ms before replying
-				time.Sleep(100 * time.Millisecond)
+				// wait 250ms before replying
+				time.Sleep(250 * time.Millisecond)
 				echo := make([]byte, len(buf)+8)
 				binary.LittleEndian.PutUint64(echo, n)
 				copy(echo[8:], buf)
@@ -395,11 +395,11 @@ func TestContext(t *testing.T) {
 		}},
 		{context.Canceled, func() context.Context {
 			ctx, cancel := context.WithCancel(context.Background())
-			time.AfterFunc(time.Millisecond*10, cancel)
+			time.AfterFunc(time.Millisecond*5, cancel)
 			return ctx
 		}},
 		{context.DeadlineExceeded, func() context.Context {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*10)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*5)
 			t.Cleanup(cancel)
 			return ctx
 		}},
