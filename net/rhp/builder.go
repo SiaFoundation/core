@@ -27,8 +27,8 @@ func (pb *ProgramBuilder) addUsage(usage ResourceUsage) {
 }
 
 func (pb *ProgramBuilder) appendInstruction(instr Instruction) {
-	pb.requiresContract = pb.requiresContract || instr.RequiresContract()
-	pb.requiresFinalization = pb.requiresFinalization || instr.RequiresFinalization()
+	pb.requiresContract = pb.requiresContract || InstructionRequiresContract(instr)
+	pb.requiresFinalization = pb.requiresFinalization || InstructionRequiresFinalization(instr)
 	pb.instructions = append(pb.instructions, instr)
 }
 

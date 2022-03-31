@@ -800,42 +800,68 @@ func (r *RPCSettingsRegisteredResponse) DecodeFrom(d *types.Decoder) {
 	d.Read(r.ID[:])
 }
 
-func writeInstruction(e *types.Encoder, instr Instruction) {
-	specifier := instr.Specifier()
-	e.Write(specifier[:])
-	instr.EncodeTo(e)
+func writeInstruction(e *types.Encoder, i Instruction) {
+	var spec rpc.Specifier
+	switch i.(type) {
+	case *InstrAppendSector:
+		spec = SpecInstrAppendSector
+	case *InstrUpdateSector:
+		spec = SpecInstrUpdateSector
+	case *InstrContractRevision:
+		spec = SpecInstrContractRevision
+	case *InstrSectorRoots:
+		spec = SpecInstrSectorRoots
+	case *InstrDropSectors:
+		spec = SpecInstrDropSectors
+	case *InstrHasSector:
+		spec = SpecInstrHasSector
+	case *InstrReadOffset:
+		spec = SpecInstrReadOffset
+	case *InstrReadRegistry:
+		spec = SpecInstrReadRegistry
+	case *InstrReadSector:
+		spec = SpecInstrReadSector
+	case *InstrSwapSector:
+		spec = SpecInstrSwapSector
+	case *InstrUpdateRegistry:
+		spec = SpecInstrUpdateRegistry
+	default:
+		panic("unhandled instruction")
+	}
+	spec.EncodeTo(e)
+	i.EncodeTo(e)
 }
 
-func readInstruction(d *types.Decoder) (instr Instruction) {
+func readInstruction(d *types.Decoder) (i Instruction) {
 	var spec rpc.Specifier
 	d.Read(spec[:])
 
 	switch spec {
 	case SpecInstrAppendSector:
-		instr = new(InstrAppendSector)
+		i = new(InstrAppendSector)
 	case SpecInstrUpdateSector:
-		instr = new(InstrUpdateSector)
+		i = new(InstrUpdateSector)
 	case SpecInstrDropSectors:
-		instr = new(InstrDropSectors)
+		i = new(InstrDropSectors)
 	case SpecInstrHasSector:
-		instr = new(InstrHasSector)
+		i = new(InstrHasSector)
 	case SpecInstrReadOffset:
-		instr = new(InstrReadOffset)
+		i = new(InstrReadOffset)
 	case SpecInstrReadSector:
-		instr = new(InstrReadSector)
+		i = new(InstrReadSector)
 	case SpecInstrContractRevision:
-		instr = new(InstrContractRevision)
+		i = new(InstrContractRevision)
 	case SpecInstrSwapSector:
-		instr = new(InstrSwapSector)
+		i = new(InstrSwapSector)
 	case SpecInstrUpdateRegistry:
-		instr = new(InstrUpdateRegistry)
+		i = new(InstrUpdateRegistry)
 	case SpecInstrReadRegistry:
-		instr = new(InstrReadRegistry)
+		i = new(InstrReadRegistry)
 	default:
 		d.SetErr(fmt.Errorf("uknown instruction specifier, %v", spec))
 		return
 	}
-	instr.DecodeFrom(d)
+	i.DecodeFrom(d)
 	return
 }
 

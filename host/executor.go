@@ -404,7 +404,7 @@ func (pe *ProgramExecutor) ExecuteInstruction(r io.Reader, w io.Writer, instruct
 			// update the registry value
 			return nil, pe.executeUpdateRegistry(value)
 		default:
-			return nil, fmt.Errorf("unknown instruction: %s", instruction.Specifier())
+			return nil, fmt.Errorf("unknown instruction: %T", instruction)
 		}
 	}()
 

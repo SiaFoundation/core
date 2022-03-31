@@ -9,7 +9,7 @@ const (
 	blocksPerYear = 144 * 365
 )
 
-// Specifiers for execute program instructions
+// Specifiers for MDM instructions
 var (
 	SpecInstrAppendSector     = rpc.NewSpecifier("AppendSector")
 	SpecInstrUpdateSector     = rpc.NewSpecifier("UpdateSector")
@@ -25,42 +25,70 @@ var (
 	SpecInstrReadRegistrySID  = rpc.NewSpecifier("ReadRegistrySID")
 )
 
-// Instruction is a single instruction in a program.
+// An Instruction is a single instruction in an MDM program.
 type Instruction interface {
+	isInstruction()
 	rpc.Object
+}
 
-	// Specifier returns the specifier for the instruction.
-	Specifier() rpc.Specifier
-	// RequiresFinalization returns true if the instruction results need to be
-	// committed to a contract, false otherwise.
-	RequiresFinalization() bool
-	// RequiresContract returns true if the instruction requires a contract to
-	// be locked, false otherwise. If RequiresFinalization is true,
-	// RequiresContract must also be true.
-	RequiresContract() bool
+func (InstrAppendSector) isInstruction()     {}
+func (InstrUpdateSector) isInstruction()     {}
+func (InstrContractRevision) isInstruction() {}
+func (InstrSectorRoots) isInstruction()      {}
+func (InstrDropSectors) isInstruction()      {}
+func (InstrHasSector) isInstruction()        {}
+func (InstrReadOffset) isInstruction()       {}
+func (InstrReadRegistry) isInstruction()     {}
+func (InstrReadSector) isInstruction()       {}
+func (InstrSwapSector) isInstruction()       {}
+func (InstrUpdateRegistry) isInstruction()   {}
+
+// InstructionRequiresContract returns true if the instruction requires a
+// contract to be locked.
+func InstructionRequiresContract(i Instruction) bool {
+	switch i.(type) {
+	case *InstrAppendSector,
+		*InstrUpdateSector,
+		*InstrContractRevision,
+		*InstrSectorRoots,
+		*InstrDropSectors,
+		*InstrSwapSector:
+		return true
+	case *InstrHasSector,
+		*InstrReadOffset,
+		*InstrReadRegistry,
+		*InstrReadSector,
+		*InstrUpdateRegistry:
+		return false
+	}
+	panic("unahndled instruction")
+}
+
+// InstructionRequiresFinalization returns true if the instruction results need
+// to be committed to a contract.
+func InstructionRequiresFinalization(i Instruction) bool {
+	switch i.(type) {
+	case *InstrAppendSector,
+		*InstrUpdateSector,
+		*InstrDropSectors,
+		*InstrSwapSector:
+		return true
+	case *InstrContractRevision,
+		*InstrSectorRoots,
+		*InstrHasSector,
+		*InstrReadOffset,
+		*InstrReadRegistry,
+		*InstrReadSector,
+		*InstrUpdateRegistry:
+		return false
+	}
+	panic("unahndled instruction")
 }
 
 // InstrAppendSector uploads and appends a new sector to a contract
 type InstrAppendSector struct {
 	SectorDataOffset uint64
 	ProofRequired    bool
-}
-
-// Specifier returns the specifier for the append sector instruction.
-func (i *InstrAppendSector) Specifier() rpc.Specifier {
-	return SpecInstrAppendSector
-}
-
-// RequiresFinalization returns true for AppendSector to commit the added sector
-// roots.
-func (i *InstrAppendSector) RequiresFinalization() bool {
-	return true
-}
-
-// RequiresContract returns true if the instruction requires a contract to be
-// locked, false otherwise.
-func (i *InstrAppendSector) RequiresContract() bool {
-	return true
 }
 
 // MaxLen implements rpc.Object
@@ -90,23 +118,6 @@ type InstrUpdateSector struct {
 	ProofRequired bool
 }
 
-// Specifier returns the specifier for the update sector instruction.
-func (i *InstrUpdateSector) Specifier() rpc.Specifier {
-	return SpecInstrUpdateSector
-}
-
-// RequiresFinalization returns true for AppendSector to commit the added sector
-// roots.
-func (i *InstrUpdateSector) RequiresFinalization() bool {
-	return true
-}
-
-// RequiresContract returns true if the instruction requires a contract to be
-// locked, false otherwise.
-func (i *InstrUpdateSector) RequiresContract() bool {
-	return true
-}
-
 // MaxLen implements rpc.Object
 func (i *InstrUpdateSector) MaxLen() int {
 	return 25
@@ -134,23 +145,6 @@ func (i *InstrUpdateSector) DecodeFrom(d *types.Decoder) {
 type InstrContractRevision struct {
 }
 
-// Specifier returns the specifier for the contract revision instruction.
-func (i *InstrContractRevision) Specifier() rpc.Specifier {
-	return SpecInstrContractRevision
-}
-
-// RequiresFinalization returns false - returning the latest revision does not
-// require updating the contract.
-func (i *InstrContractRevision) RequiresFinalization() bool {
-	return false
-}
-
-// RequiresContract returns true if the instruction requires a contract to be
-// locked, false otherwise.
-func (i *InstrContractRevision) RequiresContract() bool {
-	return true
-}
-
 // MaxLen implements rpc.Object
 func (i *InstrContractRevision) MaxLen() int {
 	return 0
@@ -168,23 +162,6 @@ func (i *InstrContractRevision) DecodeFrom(d *types.Decoder) {
 
 // InstrSectorRoots returns the program's sector roots
 type InstrSectorRoots struct {
-}
-
-// Specifier returns the specifier for the contract revision instruction.
-func (i *InstrSectorRoots) Specifier() rpc.Specifier {
-	return SpecInstrSectorRoots
-}
-
-// RequiresFinalization returns false - returning sector roots does not require
-// updating the contract.
-func (i *InstrSectorRoots) RequiresFinalization() bool {
-	return false
-}
-
-// RequiresContract returns true - a contract must be locked to return its
-// roots.
-func (i *InstrSectorRoots) RequiresContract() bool {
-	return true
 }
 
 // MaxLen implements rpc.Object
@@ -206,21 +183,6 @@ func (i *InstrSectorRoots) DecodeFrom(d *types.Decoder) {
 type InstrDropSectors struct {
 	SectorCountOffset uint64
 	ProofRequired     bool
-}
-
-// Specifier returns the specifier for the drop sectors instruction.
-func (i *InstrDropSectors) Specifier() rpc.Specifier {
-	return SpecInstrDropSectors
-}
-
-// RequiresFinalization returns true - dropping sectors requires updating the contract roots.
-func (i *InstrDropSectors) RequiresFinalization() bool {
-	return true
-}
-
-// RequiresContract returns true if the instruction requires a contract to be locked, false otherwise.
-func (i *InstrDropSectors) RequiresContract() bool {
-	return true
 }
 
 // MaxLen implements rpc.Object
@@ -247,23 +209,6 @@ type InstrHasSector struct {
 	SectorRootOffset uint64
 }
 
-// Specifier returns the specifier for the has sector instruction.
-func (i *InstrHasSector) Specifier() rpc.Specifier {
-	return SpecInstrHasSector
-}
-
-// RequiresFinalization returns false - HasSector does not require modifying the
-// contract.
-func (i *InstrHasSector) RequiresFinalization() bool {
-	return false
-}
-
-// RequiresContract returns true if the instruction requires a contract to be
-// locked, false otherwise.
-func (i *InstrHasSector) RequiresContract() bool {
-	return false
-}
-
 // MaxLen implements rpc.Object
 func (i *InstrHasSector) MaxLen() int {
 	return 8
@@ -286,23 +231,6 @@ type InstrReadOffset struct {
 	DataOffset    uint64
 	LengthOffset  uint64
 	ProofRequired bool
-}
-
-// Specifier returns the specifier for the read offset instruction.
-func (i *InstrReadOffset) Specifier() rpc.Specifier {
-	return SpecInstrReadOffset
-}
-
-// RequiresFinalization returns false - reading data does not require modifying
-// the contract.
-func (i *InstrReadOffset) RequiresFinalization() bool {
-	return false
-}
-
-// RequiresContract returns true if the instruction requires a contract to be
-// locked, false otherwise.
-func (i *InstrReadOffset) RequiresContract() bool {
-	return false
 }
 
 // MaxLen implements rpc.Object
@@ -332,23 +260,6 @@ type InstrReadRegistry struct {
 	TweakOffset     uint64
 }
 
-// Specifier returns the specifier for the read registry instruction.
-func (i *InstrReadRegistry) Specifier() rpc.Specifier {
-	return SpecInstrReadRegistry
-}
-
-// RequiresFinalization returns false - reading registry entries does not
-// require modifying the contract.
-func (i *InstrReadRegistry) RequiresFinalization() bool {
-	return false
-}
-
-// RequiresContract returns true if the instruction requires a contract to be
-// locked, false otherwise.
-func (i *InstrReadRegistry) RequiresContract() bool {
-	return false
-}
-
 // MaxLen implements rpc.Object
 func (i *InstrReadRegistry) MaxLen() int {
 	return 16
@@ -374,23 +285,6 @@ type InstrReadSector struct {
 	SectorOffset  uint64
 	LengthOffset  uint64
 	ProofRequired bool
-}
-
-// Specifier returns the specifier for the read sector instruction.
-func (i *InstrReadSector) Specifier() rpc.Specifier {
-	return SpecInstrReadSector
-}
-
-// RequiresFinalization returns false - reading data does not require modifying
-// the contract.
-func (i *InstrReadSector) RequiresFinalization() bool {
-	return false
-}
-
-// RequiresContract returns true if the instruction requires a contract to be
-// locked, false otherwise.
-func (i *InstrReadSector) RequiresContract() bool {
-	return false
 }
 
 // MaxLen implements rpc.Object
@@ -423,23 +317,6 @@ type InstrSwapSector struct {
 	ProofRequired bool
 }
 
-// Specifier returns the specifier for the swap sector instruction.
-func (i *InstrSwapSector) Specifier() rpc.Specifier {
-	return SpecInstrSwapSector
-}
-
-// RequiresFinalization returns true - swapping sectors requires modifying the
-// contract roots.
-func (i *InstrSwapSector) RequiresFinalization() bool {
-	return true
-}
-
-// RequiresContract returns true if the instruction requires a contract to be
-// locked, false otherwise.
-func (i *InstrSwapSector) RequiresContract() bool {
-	return true
-}
-
 // MaxLen implements rpc.Object
 func (i *InstrSwapSector) MaxLen() int {
 	return 17
@@ -464,23 +341,6 @@ func (i *InstrSwapSector) DecodeFrom(d *types.Decoder) {
 // InstrUpdateRegistry updates a registry entry.
 type InstrUpdateRegistry struct {
 	EntryOffset uint64
-}
-
-// Specifier returns the specifier for the AppendSector instruction.
-func (i *InstrUpdateRegistry) Specifier() rpc.Specifier {
-	return SpecInstrUpdateRegistry
-}
-
-// RequiresFinalization returns false - updating a registry value does not
-// require modifying the contract.
-func (i *InstrUpdateRegistry) RequiresFinalization() bool {
-	return false
-}
-
-// RequiresContract returns true if the instruction requires a contract to be
-// locked, false otherwise.
-func (i *InstrUpdateRegistry) RequiresContract() bool {
-	return false
 }
 
 // MaxLen implements rpc.Object
