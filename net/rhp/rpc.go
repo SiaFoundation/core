@@ -204,8 +204,8 @@ type (
 func RPCReadRenterCost(settings HostSettings, sections []RPCReadRequestSection) types.Currency {
 	var bandwidth uint64
 	for _, sec := range sections {
-		proofHashes := RangeProofSize(LeavesPerSector, int(sec.Offset), int(sec.Offset+sec.Length))
-		bandwidth += uint64(sec.Length) + uint64(proofHashes)*32
+		proofHashes := RangeProofSize(LeavesPerSector, sec.Offset, sec.Offset+sec.Length)
+		bandwidth += sec.Length + proofHashes*32
 	}
 	bandwidthPrice := settings.DownloadBandwidthPrice.Mul64(bandwidth)
 	return settings.InstrReadBaseCost.Add(bandwidthPrice)
