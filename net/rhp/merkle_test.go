@@ -246,7 +246,7 @@ func TestBuildProof(t *testing.T) {
 	}
 
 	// this is the largest possible proof
-	midl, midr := LeavesPerSector/2-1, LeavesPerSector/2+1
+	var midl, midr uint64 = LeavesPerSector/2 - 1, LeavesPerSector/2 + 1
 	proof = BuildProof(&sector, midl, midr, nil)
 	left := leafHash(sector[midl*64:][:64])
 	for i := 0; i < len(proof)/2; i++ {
@@ -266,7 +266,7 @@ func TestBuildProof(t *testing.T) {
 		leftRoots[i] = leafHash(sector[i*LeafSize:][:LeafSize])
 	}
 	left = MetaRoot(leftRoots)
-	precalc := func(i, j int) (h types.Hash256) {
+	precalc := func(i, j uint64) (h types.Hash256) {
 		if i == 0 && j == LeavesPerSector/2 {
 			h = left
 		}
@@ -286,7 +286,7 @@ func TestBuildSectorRangeProof(t *testing.T) {
 		sectorRoots[i] = frand.Entropy256()
 	}
 
-	proof := BuildSectorRangeProof(sectorRoots, 0, len(sectorRoots))
+	proof := BuildSectorRangeProof(sectorRoots, 0, uint64(len(sectorRoots)))
 	if len(proof) != 0 {
 		t.Error("BuildSectorRangeProof constructed an incorrect proof for the entire tree")
 	}

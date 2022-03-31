@@ -229,20 +229,20 @@ func MetaRoot(roots []types.Hash256) types.Hash256 {
 
 // ProofSize returns the size of a Merkle proof for the leaf i within a tree
 // containing n leaves.
-func ProofSize(n, i int) int {
-	leftHashes := bits.OnesCount(uint(i))
-	pathMask := 1<<uint(bits.Len(uint(n-1))) - 1
-	rightHashes := bits.OnesCount(^uint(n-1) & uint(pathMask))
-	return leftHashes + rightHashes
+func ProofSize(n, i uint64) uint64 {
+	leftHashes := bits.OnesCount64(i)
+	pathMask := 1<<bits.Len64(n-1) - 1
+	rightHashes := bits.OnesCount64(^(n - 1)) & pathMask
+	return uint64(leftHashes + rightHashes)
 }
 
 // RangeProofSize returns the size of a Merkle proof for the leaf range [start,
 // end) within a tree containing n leaves.
-func RangeProofSize(n, start, end int) int {
-	leftHashes := bits.OnesCount(uint(start))
-	pathMask := 1<<uint(bits.Len(uint((end-1)^(n-1)))) - 1
-	rightHashes := bits.OnesCount(^uint(end-1) & uint(pathMask))
-	return leftHashes + rightHashes
+func RangeProofSize(n, start, end uint64) uint64 {
+	leftHashes := bits.OnesCount64(start)
+	pathMask := 1<<bits.Len64((end-1)^(n-1)) - 1
+	rightHashes := bits.OnesCount64(^(end - 1)) & pathMask
+	return uint64(leftHashes + rightHashes)
 }
 
 // DiffProofSize returns the size of a Merkle diff proof for the specified
@@ -253,13 +253,13 @@ func DiffProofSize(n int, actions []RPCWriteAction) int {
 
 // nextSubtreeSize returns the size of the subtree adjacent to start that does
 // not overlap end.
-func nextSubtreeSize(start, end int) int {
-	ideal := bits.TrailingZeros(uint(start))
-	max := bits.Len(uint(end-start)) - 1
+func nextSubtreeSize(start, end uint64) uint64 {
+	ideal := bits.TrailingZeros64(start)
+	max := bits.Len64(end-start) - 1
 	if ideal > max {
-		return 1 << uint(max)
+		return 1 << max
 	}
-	return 1 << uint(ideal)
+	return 1 << ideal
 }
 
 // BuildProof constructs a proof for the segment range [start, end). If a non-
@@ -268,17 +268,17 @@ func nextSubtreeSize(start, end int) int {
 // Merkle tree is precomputed, precalc should return it for i == 0 and j ==
 // SegmentsPerSector/2. If a precalculated root is not available, precalc
 // should return the zero hash.
-func BuildProof(sector *[SectorSize]byte, start, end int, precalc func(i, j int) types.Hash256) []types.Hash256 {
-	if start < 0 || end > LeavesPerSector || start > end || start == end {
+func BuildProof(sector *[SectorSize]byte, start, end uint64, precalc func(i, j uint64) types.Hash256) []types.Hash256 {
+	if end > LeavesPerSector || start > end || start == end {
 		panic("BuildProof: illegal proof range")
 	}
 	if precalc == nil {
-		precalc = func(i, j int) (h types.Hash256) { return }
+		precalc = func(i, j uint64) (h types.Hash256) { return }
 	}
 
 	// define a helper function for later
 	var s sectorAccumulator
-	subtreeRoot := func(i, j int) types.Hash256 {
+	subtreeRoot := func(i, j uint64) types.Hash256 {
 		s.reset()
 		s.appendLeaves(sector[i*LeafSize : j*LeafSize])
 		return s.root()
@@ -294,8 +294,8 @@ func BuildProof(sector *[SectorSize]byte, start, end int, precalc func(i, j int)
 	// this is the simplest way I was able to implement it. Namely, it has the
 	// important advantage of being symmetrical to the Verify operation.
 	proof := make([]types.Hash256, 0, ProofSize(LeavesPerSector, start))
-	var rec func(int, int)
-	rec = func(i, j int) {
+	var rec func(uint64, uint64)
+	rec = func(i, j uint64) {
 		if i >= start && j <= end {
 			// this subtree contains only data segments; skip it
 		} else if j <= start || i >= end {
@@ -320,19 +320,20 @@ func BuildProof(sector *[SectorSize]byte, start, end int, precalc func(i, j int)
 }
 
 // BuildSectorRangeProof constructs a proof for the sector range [start, end).
-func BuildSectorRangeProof(sectorRoots []types.Hash256, start, end int) []types.Hash256 {
-	if len(sectorRoots) == 0 {
+func BuildSectorRangeProof(sectorRoots []types.Hash256, start, end uint64) []types.Hash256 {
+	numLeaves := uint64(len(sectorRoots))
+	if numLeaves == 0 {
 		return nil
-	} else if start < 0 || end > len(sectorRoots) || start > end || start == end {
+	} else if end > numLeaves || start > end || start == end {
 		panic("BuildSectorRangeProof: illegal proof range")
 	}
 
-	proof := make([]types.Hash256, 0, ProofSize(len(sectorRoots), start))
-	buildRange := func(i, j int) {
-		for i < j && i < len(sectorRoots) {
+	proof := make([]types.Hash256, 0, ProofSize(numLeaves, start))
+	buildRange := func(i, j uint64) {
+		for i < j && i < numLeaves {
 			subtreeSize := nextSubtreeSize(i, j)
-			if i+subtreeSize > len(sectorRoots) {
-				subtreeSize = len(sectorRoots) - i
+			if i+subtreeSize > numLeaves {
+				subtreeSize = numLeaves - i
 			}
 			proof = append(proof, MetaRoot(sectorRoots[i:][:subtreeSize]))
 			i += subtreeSize
@@ -345,7 +346,7 @@ func BuildSectorRangeProof(sectorRoots []types.Hash256, start, end int) []types.
 
 // A RangeProofVerifier allows range proofs to be verified in streaming fashion.
 type RangeProofVerifier struct {
-	start, end int
+	start, end uint64
 	roots      []types.Hash256
 }
 
@@ -369,11 +370,11 @@ func (rpv *RangeProofVerifier) ReadFrom(r io.Reader) (int64, error) {
 
 // Verify verifies the supplied proof, using the data ingested from ReadFrom.
 func (rpv *RangeProofVerifier) Verify(proof []types.Hash256, root types.Hash256) bool {
-	if len(proof) != RangeProofSize(LeavesPerSector, rpv.start, rpv.end) {
+	if uint64(len(proof)) != RangeProofSize(LeavesPerSector, rpv.start, rpv.end) {
 		return false
 	}
 	var acc proofAccumulator
-	consume := func(roots *[]types.Hash256, i, j int) {
+	consume := func(roots *[]types.Hash256, i, j uint64) {
 		for i < j && len(*roots) > 0 {
 			subtreeSize := nextSubtreeSize(i, j)
 			height := bits.TrailingZeros(uint(subtreeSize)) // log2
@@ -390,7 +391,7 @@ func (rpv *RangeProofVerifier) Verify(proof []types.Hash256, root types.Hash256)
 
 // NewRangeProofVerifier returns a RangeProofVerifier for the sector range
 // [start, end).
-func NewRangeProofVerifier(start, end int) *RangeProofVerifier {
+func NewRangeProofVerifier(start, end uint64) *RangeProofVerifier {
 	return &RangeProofVerifier{
 		start: start,
 		end:   end,
