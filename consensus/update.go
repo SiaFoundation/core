@@ -283,6 +283,28 @@ func (au *ApplyUpdate) FileContractElementWasResolved(fce types.FileContractElem
 	return false
 }
 
+// UpdateTransactionProofs updates the element proofs and window proofs of a
+// transaction.
+func (au *ApplyUpdate) UpdateTransactionProofs(txn *types.Transaction) {
+	for i := range txn.SiacoinInputs {
+		if txn.SiacoinInputs[i].Parent.LeafIndex != types.EphemeralLeafIndex {
+			au.UpdateElementProof(&txn.SiacoinInputs[i].Parent.StateElement)
+		}
+	}
+	for i := range txn.SiafundInputs {
+		if txn.SiafundInputs[i].Parent.LeafIndex != types.EphemeralLeafIndex {
+			au.UpdateElementProof(&txn.SiafundInputs[i].Parent.StateElement)
+		}
+	}
+	for i := range txn.FileContractRevisions {
+		au.UpdateElementProof(&txn.FileContractRevisions[i].Parent.StateElement)
+	}
+	for i := range txn.FileContractResolutions {
+		au.UpdateElementProof(&txn.FileContractResolutions[i].Parent.StateElement)
+		au.UpdateWindowProof(&txn.FileContractResolutions[i].StorageProof)
+	}
+}
+
 // ApplyBlock integrates a block into the current consensus state, producing an
 // ApplyUpdate detailing the resulting changes. The block is assumed to be fully
 // validated.
@@ -384,6 +406,28 @@ func (ru *RevertUpdate) SiafundElementWasRemoved(sfe types.SiafundElement) bool 
 // FileContractElement was reverted.
 func (ru *RevertUpdate) FileContractElementWasRemoved(fce types.FileContractElement) bool {
 	return fce.LeafIndex != types.EphemeralLeafIndex && fce.LeafIndex >= ru.Context.State.NumLeaves
+}
+
+// UpdateTransactionProofs updates the element proofs and window proofs of a
+// transaction.
+func (ru *RevertUpdate) UpdateTransactionProofs(txn *types.Transaction) {
+	for i := range txn.SiacoinInputs {
+		if txn.SiacoinInputs[i].Parent.LeafIndex != types.EphemeralLeafIndex {
+			ru.UpdateElementProof(&txn.SiacoinInputs[i].Parent.StateElement)
+		}
+	}
+	for i := range txn.SiafundInputs {
+		if txn.SiafundInputs[i].Parent.LeafIndex != types.EphemeralLeafIndex {
+			ru.UpdateElementProof(&txn.SiafundInputs[i].Parent.StateElement)
+		}
+	}
+	for i := range txn.FileContractRevisions {
+		ru.UpdateElementProof(&txn.FileContractRevisions[i].Parent.StateElement)
+	}
+	for i := range txn.FileContractResolutions {
+		ru.UpdateElementProof(&txn.FileContractResolutions[i].Parent.StateElement)
+		ru.UpdateWindowProof(&txn.FileContractResolutions[i].StorageProof)
+	}
 }
 
 // RevertBlock produces a RevertUpdate from a block and the ValidationContext
