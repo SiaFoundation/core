@@ -115,6 +115,7 @@ func TestSlowRead(t *testing.T) {
 				return err
 			}
 			defer s.Close()
+			time.Sleep(10 * time.Second)
 			for i := 0; i < sendCount; i++ {
 				buf := make([]byte, 13)
 				if _, err := io.ReadFull(s, buf); err != nil {
@@ -123,7 +124,6 @@ func TestSlowRead(t *testing.T) {
 				if string(buf) != "hello, world!" {
 					return errors.New("bad hello")
 				}
-				time.Sleep(time.Second / 1000)
 			}
 			return s.Close()
 		}()
