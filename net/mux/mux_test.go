@@ -86,6 +86,94 @@ func TestMux(t *testing.T) {
 	}
 }
 
+func TestSlowRead(t *testing.T) {
+	if testing.Short() {
+		t.SkipNow()
+	}
+
+	serverKey := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
+	l, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const sendCount = 5000
+	serverCh := make(chan error, 1)
+	go func() {
+		serverCh <- func() error {
+			conn, err := l.Accept()
+			if err != nil {
+				return err
+			}
+			m, err := Accept(conn, serverKey)
+			if err != nil {
+				return err
+			}
+			defer m.Close()
+			s, err := m.AcceptStream()
+			if err != nil {
+				return err
+			}
+			defer s.Close()
+			for i := 0; i < sendCount; i++ {
+				buf := make([]byte, 13)
+				if _, err := io.ReadFull(s, buf); err != nil {
+					return err
+				}
+				if string(buf) != "hello, world!" {
+					return errors.New("bad hello")
+				}
+				time.Sleep(time.Second / 1000)
+			}
+			return s.Close()
+		}()
+	}()
+
+	conn, err := net.Dial("tcp", l.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := Dial(conn, serverKey.Public().(ed25519.PublicKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	s, err := m.DialStream()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	blocked := false
+	for i := 0; i < sendCount; i++ {
+		start := time.Now()
+		if _, err := s.Write([]byte("hello, world!")); err != nil {
+			t.Fatal(err)
+		}
+		if time.Since(start) > time.Second {
+			blocked = true
+		}
+	}
+	if !blocked {
+		t.Fatal("s.Write did not block after sending large amounts of data")
+	}
+	if err := s.Close(); err != nil && err != ErrPeerClosedConn {
+		t.Fatal(err)
+	}
+
+	if err := <-serverCh; err != nil && err != ErrPeerClosedStream {
+		t.Fatal(err)
+	}
+
+	// all streams should have been deleted
+	time.Sleep(time.Millisecond * 100)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.streams) != 0 {
+		t.Error("streams not closed")
+	}
+}
+
 func TestManyStreams(t *testing.T) {
 	serverKey := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
 	l, err := net.Listen("tcp", ":0")
