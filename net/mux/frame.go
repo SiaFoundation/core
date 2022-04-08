@@ -65,7 +65,7 @@ func readFrame(r io.Reader, buf []byte) (frameHeader, []byte, error) {
 	return h, payload, nil
 }
 
-var ourVersion = []byte{1}
+var ourVersion = []byte{2}
 
 func initiateVersionHandshake(conn net.Conn) error {
 	theirVersion := make([]byte, 1)
@@ -73,7 +73,7 @@ func initiateVersionHandshake(conn net.Conn) error {
 		return fmt.Errorf("could not write our version: %w", err)
 	} else if _, err := io.ReadFull(conn, theirVersion); err != nil {
 		return fmt.Errorf("could not read peer version: %w", err)
-	} else if theirVersion[0] != 1 {
+	} else if theirVersion[0] != ourVersion[0] {
 		return errors.New("bad version")
 	}
 	return nil
@@ -85,7 +85,7 @@ func acceptVersionHandshake(conn net.Conn) error {
 		return fmt.Errorf("could not read peer version: %w", err)
 	} else if _, err := conn.Write(ourVersion); err != nil {
 		return fmt.Errorf("could not write our version: %w", err)
-	} else if theirVersion[0] != 1 {
+	} else if theirVersion[0] != ourVersion[0] {
 		return errors.New("bad version")
 	}
 	return nil
