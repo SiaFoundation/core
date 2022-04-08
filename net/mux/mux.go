@@ -169,44 +169,40 @@ func (m *Mux) readLoop() {
 			m.setErr(err)
 			return
 		}
-		switch h.id {
-		case idErrorBadInit, idEstablishEncryption, idUpdateSettings:
-			// peer is behaving weirdly; after initialization, we shouldn't
-			// receive any of these IDs
-			m.setErr(errors.New("peer sent invalid frame ID"))
-			return
-		case idKeepalive:
+		if h.id == idKeepalive {
 			continue // no action required
-		default:
-			// look for matching Stream
-			if curStream == nil || h.id != curStream.id {
-				m.mu.Lock()
-				if s := m.streams[h.id]; s != nil {
-					curStream = s
-				} else {
-					if h.flags&flagFirst == 0 {
-						// we don't recognize the frame's ID, but it's not the
-						// first frame of a new stream either; we must have
-						// already closed the stream this frame belongs to, so
-						// ignore it
-						m.mu.Unlock()
-						continue
-					}
-					// create a new stream
-					curStream = &Stream{
-						m:           m,
-						id:          h.id,
-						needAccept:  true,
-						cond:        sync.Cond{L: new(sync.Mutex)},
-						established: true,
-					}
-					m.streams[h.id] = curStream
-					m.cond.Broadcast() // wake (*Mux).AcceptStream
-				}
-				m.mu.Unlock()
-			}
-			curStream.consumeFrame(h, payload)
+		} else if h.id < 1<<8 {
+			m.setErr(fmt.Errorf("peer sent invalid frame ID (%v)", h.id))
+			return
 		}
+		// look for matching Stream
+		if curStream == nil || h.id != curStream.id {
+			m.mu.Lock()
+			if s := m.streams[h.id]; s != nil {
+				curStream = s
+			} else {
+				if h.flags&flagFirst == 0 {
+					// we don't recognize the frame's ID, but it's not the
+					// first frame of a new stream either; we must have
+					// already closed the stream this frame belongs to, so
+					// ignore it
+					m.mu.Unlock()
+					continue
+				}
+				// create a new stream
+				curStream = &Stream{
+					m:           m,
+					id:          h.id,
+					needAccept:  true,
+					cond:        sync.Cond{L: new(sync.Mutex)},
+					established: true,
+				}
+				m.streams[h.id] = curStream
+				m.cond.Broadcast() // wake (*Mux).AcceptStream
+			}
+			m.mu.Unlock()
+		}
+		curStream.consumeFrame(h, payload)
 	}
 }
 

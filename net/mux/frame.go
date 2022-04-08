@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
-	"time"
+
+	"golang.org/x/crypto/blake2b"
+	"golang.org/x/crypto/chacha20poly1305"
+	"golang.org/x/crypto/curve25519"
+	"lukechampine.com/frand"
 )
 
 const (
@@ -17,10 +20,14 @@ const (
 )
 
 const (
-	idErrorBadInit        = iota // should never be seen
-	idEstablishEncryption        // encryption handshake frame
-	idUpdateSettings             // settings handshake frame
-	idKeepalive                  // empty frame to keep connection open
+	idErrorBadInit = iota // should never be seen
+	idKeepalive           // empty frame to keep connection open
+)
+
+const (
+	chachaPoly1305NonceSize = 12
+	chachaPoly1305TagSize   = 16
+	chachaOverhead          = chachaPoly1305NonceSize + chachaPoly1305TagSize
 )
 
 type frameHeader struct {
@@ -45,159 +52,84 @@ func decodeFrameHeader(buf []byte) (h frameHeader) {
 	return
 }
 
-func readFrame(r io.Reader, buf []byte) (frameHeader, []byte, error) {
-	// read and decode header
-	if _, err := io.ReadFull(r, buf[:frameHeaderSize]); err != nil {
-		return frameHeader{}, nil, fmt.Errorf("unable to read frame header: %w", err)
-	}
-	h := decodeFrameHeader(buf)
-	if h.length > uint32(len(buf)) {
-		return frameHeader{}, nil, errors.New("peer sent too-large unencrypted frame")
-	}
-	// read payload
-	payload := buf[:h.length]
-	if _, err := io.ReadFull(r, payload); err != nil {
-		return frameHeader{}, nil, fmt.Errorf("unable to read frame payload: %w", err)
-	}
-	if h.flags&flagError != 0 {
-		return h, nil, errors.New(string(payload))
-	}
-	return h, payload, nil
-}
-
-var ourVersion = []byte{2}
-
-func initiateVersionHandshake(conn net.Conn) error {
-	theirVersion := make([]byte, 1)
-	if _, err := conn.Write(ourVersion); err != nil {
-		return fmt.Errorf("could not write our version: %w", err)
-	} else if _, err := io.ReadFull(conn, theirVersion); err != nil {
-		return fmt.Errorf("could not read peer version: %w", err)
-	} else if theirVersion[0] != ourVersion[0] {
-		return errors.New("bad version")
-	}
-	return nil
-}
-
-func acceptVersionHandshake(conn net.Conn) error {
-	theirVersion := make([]byte, 1)
-	if _, err := io.ReadFull(conn, theirVersion); err != nil {
-		return fmt.Errorf("could not read peer version: %w", err)
-	} else if _, err := conn.Write(ourVersion); err != nil {
-		return fmt.Errorf("could not write our version: %w", err)
-	} else if theirVersion[0] != ourVersion[0] {
-		return errors.New("bad version")
-	}
-	return nil
-}
-
-type connSettings struct {
-	RequestedPacketSize int
-	MaxFrameSizePackets int
-	MaxTimeout          time.Duration
-}
-
-func (cs connSettings) maxFrameSize() int {
-	return cs.MaxFrameSizePackets * cs.RequestedPacketSize
-}
-
-func (cs connSettings) maxPayloadSize() int {
-	return cs.maxFrameSize() - encryptedHeaderSize - chachaOverhead
-}
-
-var defaultConnSettings = connSettings{
-	RequestedPacketSize: 1440, // IPv6 MTU
-	MaxFrameSizePackets: 10,
-	MaxTimeout:          20 * time.Minute,
-}
-
-const connSettingsSize = 24
-
-func encodeConnSettings(buf []byte, cs connSettings) {
-	binary.LittleEndian.PutUint64(buf[0:], uint64(cs.RequestedPacketSize))
-	binary.LittleEndian.PutUint64(buf[8:], uint64(cs.MaxFrameSizePackets))
-	binary.LittleEndian.PutUint64(buf[16:], uint64(cs.MaxTimeout.Seconds()))
-}
-
-func decodeConnSettings(buf []byte) (cs connSettings) {
-	cs.RequestedPacketSize = int(binary.LittleEndian.Uint64(buf[0:]))
-	cs.MaxFrameSizePackets = int(binary.LittleEndian.Uint64(buf[8:]))
-	cs.MaxTimeout = time.Second * time.Duration(binary.LittleEndian.Uint64(buf[16:]))
+func generateX25519KeyPair() (xsk, xpk [32]byte) {
+	frand.Read(xsk[:])
+	curve25519.ScalarBaseMult(&xpk, &xsk)
 	return
 }
 
-func initiateSettingsHandshake(conn net.Conn, ours connSettings, aead cipher.AEAD) (connSettings, error) {
-	// encode + write request
-	frameBuf := make([]byte, encryptedHeaderSize+connSettingsSize+chachaOverhead)
-	payload := make([]byte, connSettingsSize)
-	encodeConnSettings(payload, ours)
-	frame := encryptFrame(frameBuf, frameHeader{
-		id:     idUpdateSettings,
-		length: uint32(len(payload)),
-	}, payload, len(frameBuf), aead)
-	if _, err := conn.Write(frame); err != nil {
-		return connSettings{}, fmt.Errorf("write settings frame: %w", err)
-	}
-	// read + decode response
-	h, payload, err := readEncryptedFrame(conn, frameBuf, len(frameBuf), aead)
+func deriveSharedAEAD(xsk, xpk [32]byte) (cipher.AEAD, error) {
+	// NOTE: an error is only possible here if xpk is a "low-order point."
+	// Basically, if the other party chooses one of these points as their public
+	// key, then the resulting "secret" can be derived by anyone who observes
+	// the handshake, effectively rendering the protocol unencrypted. This would
+	// be a strange thing to do; the other party can decrypt the messages
+	// anyway, so if they want to make the messages public, nothing can stop
+	// them from doing so. Consequently, some people (notably djb himself) will
+	// tell you not to bother checking for low-order points at all. But why
+	// would we want to talk to a peer that's behaving weirdly?
+	secret, err := curve25519.X25519(xsk[:], xpk[:])
 	if err != nil {
-		return connSettings{}, err
-	} else if h.id != idUpdateSettings {
-		return connSettings{}, errors.New("invalid settings ID")
-	} else if h.length != connSettingsSize {
-		return connSettings{}, errors.New("invalid settings payload")
+		return nil, err
 	}
-	theirs := decodeConnSettings(payload)
-	return mergeSettings(ours, theirs)
+	key := blake2b.Sum256(secret)
+	return chacha20poly1305.New(key[:])
 }
 
-func acceptSettingsHandshake(conn net.Conn, ours connSettings, aead cipher.AEAD) (connSettings, error) {
-	// read + decode request
-	frameBuf := make([]byte, encryptedHeaderSize+connSettingsSize+chachaOverhead)
-	h, payload, err := readEncryptedFrame(conn, frameBuf, len(frameBuf), aead)
-	if err != nil {
-		return connSettings{}, err
-	} else if h.id != idUpdateSettings {
-		return connSettings{}, errors.New("invalid settings ID")
-	} else if h.length != connSettingsSize {
-		return connSettings{}, errors.New("invalid settings payload")
-	}
-	theirs := decodeConnSettings(payload)
-	// encode + write response
-	payload = make([]byte, connSettingsSize)
-	encodeConnSettings(payload, ours)
-	frame := encryptFrame(frameBuf, frameHeader{
-		id:     idUpdateSettings,
-		length: uint32(len(payload)),
-	}, payload, len(frameBuf), aead)
-	if _, err := conn.Write(frame); err != nil {
-		return connSettings{}, fmt.Errorf("write settings frame: %w", err)
-	}
-	return mergeSettings(ours, theirs)
+func encryptInPlace(buf []byte, aead cipher.AEAD) {
+	nonce, plaintext := buf[:chachaPoly1305NonceSize], buf[chachaPoly1305NonceSize:len(buf)-chachaPoly1305TagSize]
+	frand.Read(nonce)
+	aead.Seal(plaintext[:0], nonce, plaintext, nil)
 }
 
-func mergeSettings(ours, theirs connSettings) (connSettings, error) {
-	// use smaller value for all settings
-	merged := ours
-	if theirs.RequestedPacketSize < merged.RequestedPacketSize {
-		merged.RequestedPacketSize = theirs.RequestedPacketSize
+func decryptInPlace(buf []byte, aead cipher.AEAD) ([]byte, error) {
+	nonce, ciphertext := buf[:chachaPoly1305NonceSize], buf[chachaPoly1305NonceSize:]
+	return aead.Open(ciphertext[:0], nonce, ciphertext, nil)
+}
+
+func encryptFrame(buf []byte, h frameHeader, payload []byte, packetSize int, aead cipher.AEAD) []byte {
+	// pad frame to packet boundary
+	numPackets := (encryptedHeaderSize + (len(payload) + chachaOverhead) + (packetSize - 1)) / packetSize
+	frame := buf[:numPackets*packetSize]
+	// encode + encrypt header
+	encodeFrameHeader(frame[chachaPoly1305NonceSize:][:frameHeaderSize], h)
+	encryptInPlace(frame[:encryptedHeaderSize], aead)
+	// pad + encrypt payload
+	copy(frame[encryptedHeaderSize+chachaPoly1305NonceSize:], payload)
+	encryptInPlace(frame[encryptedHeaderSize:], aead)
+	return frame
+}
+
+func decryptFrameHeader(buf []byte, aead cipher.AEAD) (frameHeader, error) {
+	buf, err := decryptInPlace(buf, aead)
+	if err != nil {
+		return frameHeader{}, err
 	}
-	if theirs.MaxFrameSizePackets < merged.MaxFrameSizePackets {
-		merged.MaxFrameSizePackets = theirs.MaxFrameSizePackets
+	return decodeFrameHeader(buf), nil
+}
+
+func readEncryptedFrame(r io.Reader, buf []byte, packetSize int, aead cipher.AEAD) (frameHeader, []byte, error) {
+	// read, decrypt, and decode header
+	if _, err := io.ReadFull(r, buf[:encryptedHeaderSize]); err != nil {
+		return frameHeader{}, nil, fmt.Errorf("could not read frame header: %w", err)
 	}
-	if theirs.MaxTimeout < merged.MaxTimeout {
-		merged.MaxTimeout = theirs.MaxTimeout
+	h, err := decryptFrameHeader(buf[:encryptedHeaderSize], aead)
+	if err != nil {
+		return frameHeader{}, nil, fmt.Errorf("could not decrypt header: %w", err)
 	}
-	// enforce minimums and maximums
-	switch {
-	case merged.RequestedPacketSize < 1220:
-		return connSettings{}, errors.New("requested packet size is too small")
-	case merged.MaxFrameSizePackets < 10:
-		return connSettings{}, errors.New("maximum frame size is too small")
-	case merged.MaxFrameSizePackets > 64:
-		return connSettings{}, errors.New("maximum frame size is too large")
-	case merged.MaxTimeout < 2*time.Minute:
-		return connSettings{}, errors.New("maximum timeout is too short")
+	numPackets := (encryptedHeaderSize + (int(h.length) + chachaOverhead) + (packetSize - 1)) / packetSize
+	paddedSize := numPackets*packetSize - encryptedHeaderSize
+	if h.length > uint32(len(buf)) || paddedSize > len(buf) {
+		return frameHeader{}, nil, errors.New("peer sent too-large frame")
 	}
-	return merged, nil
+	// read (padded) payload
+	if _, err := io.ReadFull(r, buf[:paddedSize]); err != nil {
+		return frameHeader{}, nil, fmt.Errorf("could not read frame payload: %w", err)
+	}
+	// decrypt payload
+	payload, err := decryptInPlace(buf[:paddedSize], aead)
+	if err != nil {
+		return frameHeader{}, nil, fmt.Errorf("could not decrypt payload: %w", err)
+	}
+	return h, payload[:h.length], nil
 }
