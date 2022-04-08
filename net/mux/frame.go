@@ -111,7 +111,6 @@ var defaultConnSettings = connSettings{
 	MaxTimeout:          20 * time.Minute,
 }
 
-const settingsFrameSize = 1024
 const connSettingsSize = 24
 
 func encodeConnSettings(buf []byte, cs connSettings) {
@@ -129,18 +128,18 @@ func decodeConnSettings(buf []byte) (cs connSettings) {
 
 func initiateSettingsHandshake(conn net.Conn, ours connSettings, aead cipher.AEAD) (connSettings, error) {
 	// encode + write request
-	frameBuf := make([]byte, settingsFrameSize)
+	frameBuf := make([]byte, encryptedHeaderSize+connSettingsSize+chachaOverhead)
 	payload := make([]byte, connSettingsSize)
 	encodeConnSettings(payload, ours)
 	frame := encryptFrame(frameBuf, frameHeader{
 		id:     idUpdateSettings,
 		length: uint32(len(payload)),
-	}, payload, settingsFrameSize, aead)
+	}, payload, len(frameBuf), aead)
 	if _, err := conn.Write(frame); err != nil {
 		return connSettings{}, fmt.Errorf("write settings frame: %w", err)
 	}
 	// read + decode response
-	h, payload, err := readEncryptedFrame(conn, frameBuf, settingsFrameSize, aead)
+	h, payload, err := readEncryptedFrame(conn, frameBuf, len(frameBuf), aead)
 	if err != nil {
 		return connSettings{}, err
 	} else if h.id != idUpdateSettings {
@@ -154,8 +153,8 @@ func initiateSettingsHandshake(conn net.Conn, ours connSettings, aead cipher.AEA
 
 func acceptSettingsHandshake(conn net.Conn, ours connSettings, aead cipher.AEAD) (connSettings, error) {
 	// read + decode request
-	frameBuf := make([]byte, settingsFrameSize)
-	h, payload, err := readEncryptedFrame(conn, frameBuf, settingsFrameSize, aead)
+	frameBuf := make([]byte, encryptedHeaderSize+connSettingsSize+chachaOverhead)
+	h, payload, err := readEncryptedFrame(conn, frameBuf, len(frameBuf), aead)
 	if err != nil {
 		return connSettings{}, err
 	} else if h.id != idUpdateSettings {
@@ -170,7 +169,7 @@ func acceptSettingsHandshake(conn net.Conn, ours connSettings, aead cipher.AEAD)
 	frame := encryptFrame(frameBuf, frameHeader{
 		id:     idUpdateSettings,
 		length: uint32(len(payload)),
-	}, payload, settingsFrameSize, aead)
+	}, payload, len(frameBuf), aead)
 	if _, err := conn.Write(frame); err != nil {
 		return connSettings{}, fmt.Errorf("write settings frame: %w", err)
 	}
