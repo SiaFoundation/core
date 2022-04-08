@@ -61,10 +61,7 @@ func TestMux(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer m.Close()
-	s, err := m.DialStream()
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := m.DialStream()
 	defer s.Close()
 	if _, err := s.Write([]byte("hello, world!")); err != nil {
 		t.Fatal(err)
@@ -137,11 +134,7 @@ func TestManyStreams(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			s, err := m.DialStream()
-			if err != nil {
-				errChan <- err
-				return
-			}
+			s := m.DialStream()
 			defer s.Close()
 			msg := fmt.Sprintf("hello, %v!", i)
 			buf := make([]byte, len(msg))
@@ -233,10 +226,7 @@ func TestDeadline(t *testing.T) {
 	defer m.Close()
 
 	// a Read deadline should not timeout a Write
-	s, err := m.DialStream()
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := m.DialStream()
 	buf := []byte("hello, world!")
 	s.SetReadDeadline(time.Now().Add(time.Millisecond))
 	time.Sleep(2 * time.Millisecond)
@@ -283,10 +273,7 @@ func TestDeadline(t *testing.T) {
 	}
 	for i, test := range tests {
 		err := func() error {
-			s, err := m.DialStream()
-			if err != nil {
-				return err
-			}
+			s := m.DialStream()
 			defer s.Close()
 			test.fn(s) // set deadlines
 
@@ -406,11 +393,7 @@ func TestContext(t *testing.T) {
 	}
 	for i, test := range tests {
 		err := func() error {
-			ctx := test.context()
-			s, err := m.DialStreamContext(ctx)
-			if err != nil {
-				return err
-			}
+			s := m.DialStreamContext(test.context())
 			defer s.Close()
 
 			msg := make([]byte, m.settings.PacketSize+8)
@@ -505,10 +488,7 @@ func BenchmarkMux(b *testing.B) {
 			for j := 0; j < numStreams; j++ {
 				go func() {
 					defer wg.Done()
-					s, err := m.DialStream()
-					if err != nil {
-						panic(err)
-					}
+					s := m.DialStream()
 					defer s.Close()
 					for i := 0; i < b.N; i++ {
 						if _, err := s.Write(buf); err != nil {

@@ -259,22 +259,20 @@ func (m *Mux) AcceptStream() (*Stream, error) {
 //
 // Unlike e.g. net.Dial, this does not perform any I/O; the peer will not be
 // aware of the new Stream until Write is called.
-func (m *Mux) DialStream() (*Stream, error) {
+func (m *Mux) DialStream() *Stream {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.err != nil {
-		return nil, m.err
-	}
 	s := &Stream{
 		m:           m,
 		id:          m.nextID,
 		needAccept:  false,
 		cond:        sync.Cond{L: new(sync.Mutex)},
 		established: false,
+		err:         m.err, // stream is unusable if m.err is set
 	}
 	m.nextID += 2
 	m.streams[s.id] = s
-	return s, nil
+	return s
 }
 
 // DialStreamContext creates a new Stream with the provided context. When the
@@ -284,11 +282,8 @@ func (m *Mux) DialStream() (*Stream, error) {
 //
 // Unlike e.g. net.Dial, this does not perform any I/O; the peer will not be
 // aware of the new Stream until Write is called.
-func (m *Mux) DialStreamContext(ctx context.Context) (*Stream, error) {
-	s, err := m.DialStream()
-	if err != nil {
-		return nil, err
-	}
+func (m *Mux) DialStreamContext(ctx context.Context) *Stream {
+	s := m.DialStream()
 	go func() {
 		<-ctx.Done()
 		s.cond.L.Lock()
@@ -298,7 +293,7 @@ func (m *Mux) DialStreamContext(ctx context.Context) (*Stream, error) {
 			s.cond.Broadcast()
 		}
 	}()
-	return s, nil
+	return s
 }
 
 // newMux initializes a Mux and spawns its readLoop and writeLoop goroutines.
