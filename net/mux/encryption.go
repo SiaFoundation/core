@@ -3,12 +3,12 @@ package mux
 import (
 	"crypto/cipher"
 	"crypto/ed25519"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 
+	"github.com/hdevalence/ed25519consensus"
 	"golang.org/x/crypto/blake2b"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/curve25519"
@@ -106,16 +106,13 @@ func initiateEncryptionHandshake(conn net.Conn, theirKey ed25519.PublicKey) (cip
 	xsk, xpk := generateX25519KeyPair()
 
 	// write request
-	buf := make([]byte, 112) // large enough to hold request + response
-	frameBuf := buf[:frameHeaderSize+32+8+16]
-	payload := frameBuf[frameHeaderSize:]
+	buf := make([]byte, 32+64) // large enough to hold request + response
+	frameBuf := buf[:frameHeaderSize+len(xpk)]
 	encodeFrameHeader(frameBuf, frameHeader{
 		id:     idEstablishEncryption,
-		length: uint32(len(payload)),
+		length: uint32(len(xpk)),
 	})
-	copy(payload[:32], xpk[:])
-	binary.LittleEndian.PutUint64(payload[32:], 1) // number of ciphers we're offering
-	copy(payload[40:], cipherChaCha20Poly1305)
+	copy(frameBuf[frameHeaderSize:], xpk[:])
 	if _, err := conn.Write(frameBuf); err != nil {
 		return nil, fmt.Errorf("could not write establish encryption frame: %w", err)
 	}
@@ -126,10 +123,8 @@ func initiateEncryptionHandshake(conn net.Conn, theirKey ed25519.PublicKey) (cip
 		return nil, err
 	} else if h.id != idEstablishEncryption {
 		return nil, errors.New("invalid handshake ID")
-	} else if h.length < 32+64+16 {
-		return nil, errors.New("handshake payload is too short")
-	} else if string(payload[32+64:]) != cipherChaCha20Poly1305 {
-		return nil, errors.New("invalid cipher selected")
+	} else if h.length != 32+64 {
+		return nil, errors.New("handshake payload has wrong length")
 	}
 	var rxpk [32]byte
 	copy(rxpk[:], payload[:32])
@@ -137,7 +132,7 @@ func initiateEncryptionHandshake(conn net.Conn, theirKey ed25519.PublicKey) (cip
 
 	// verify signature
 	sigHash := blake2b.Sum256(append(rxpk[:], xpk[:]...))
-	if !ed25519.Verify(theirKey, sigHash[:], sig) {
+	if !ed25519consensus.Verify(theirKey, sigHash[:], sig) {
 		return nil, errors.New("invalid signature")
 	}
 
@@ -157,36 +152,22 @@ func acceptEncryptionHandshake(conn net.Conn, ourKey ed25519.PrivateKey) (cipher
 	xsk, xpk := generateX25519KeyPair()
 
 	// read request
-	buf := make([]byte, 1024) // large enough to hold many ciphers
+	buf := make([]byte, frameHeaderSize+32+64)
 	h, payload, err := readFrame(conn, buf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read handshake frame: %w", err)
 	} else if h.id != idEstablishEncryption {
 		return nil, errors.New("invalid handshake ID")
-	} else if h.length < 8+32+16 {
-		return nil, errors.New("handshake payload is too short")
+	} else if h.length != 32 {
+		return nil, errors.New("handshake payload has wrong length")
 	}
-
-	// parse pubkey
 	var rxpk [32]byte
 	copy(rxpk[:], payload[:32])
-	// select cipher
-	numCiphers := binary.LittleEndian.Uint64(payload[32:])
-	if uint64(h.length-40)/16 < numCiphers {
-		return nil, errors.New("invalid cipher encoding")
-	}
-	var supportsChaCha bool
-	for i := uint64(0); i < numCiphers; i++ {
-		supportsChaCha = supportsChaCha || string(payload[40+16*i:][:16]) == cipherChaCha20Poly1305
-	}
-	if !supportsChaCha {
-		return nil, errors.New("no cipher overlap")
-	}
 
 	// write response
 	sigHash := blake2b.Sum256(append(xpk[:], rxpk[:]...))
 	sig := ed25519.Sign(ourKey, sigHash[:])
-	frameBuf := buf[:frameHeaderSize+32+64+16]
+	frameBuf := buf[:frameHeaderSize+32+64]
 	payload = frameBuf[frameHeaderSize:]
 	encodeFrameHeader(frameBuf, frameHeader{
 		id:     idEstablishEncryption,
@@ -194,7 +175,6 @@ func acceptEncryptionHandshake(conn net.Conn, ourKey ed25519.PrivateKey) (cipher
 	})
 	copy(payload[:32], xpk[:])
 	copy(payload[32:96], sig)
-	copy(payload[96:], cipherChaCha20Poly1305)
 	if _, err := conn.Write(frameBuf); err != nil {
 		return nil, fmt.Errorf("failed to write accept handshake frame: %w", err)
 	}
