@@ -114,7 +114,7 @@ func (m *Mux) writeLoop() {
 	timer := time.AfterFunc(keepaliveInterval, m.cond.Broadcast)
 	defer timer.Stop()
 
-	writeBuf := make([]byte, m.settings.maxFrameSize())
+	writeBuf := make([]byte, m.settings.PacketSize)
 	for {
 		// wait for a frame
 		m.mu.Lock()
@@ -133,7 +133,7 @@ func (m *Mux) writeLoop() {
 		if h.id == 0 {
 			h, payload = frameHeader{id: idKeepalive}, nil
 		}
-		frame := encryptFrame(writeBuf, h, payload, m.settings.RequestedPacketSize, m.aead)
+		frame := encryptFrame(writeBuf, h, payload, m.settings.PacketSize, m.aead)
 		m.mu.Unlock()
 
 		// reset keepalive timer
@@ -162,9 +162,9 @@ func (m *Mux) writeLoop() {
 // the Stream before attempting to Read again.
 func (m *Mux) readLoop() {
 	var curStream *Stream // saves a lock acquisition + map lookup in the common case
-	buf := make([]byte, m.settings.maxFrameSize())
+	buf := make([]byte, m.settings.PacketSize)
 	for {
-		h, payload, err := readEncryptedFrame(m.conn, buf, m.settings.RequestedPacketSize, m.aead)
+		h, payload, err := readEncryptedFrame(m.conn, buf, m.settings.PacketSize, m.aead)
 		if err != nil {
 			m.setErr(err)
 			return
