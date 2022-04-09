@@ -460,17 +460,21 @@ func BenchmarkMux(b *testing.B) {
 					if err != nil {
 						return err
 					}
-					defer m.Close()
-					for {
+					var wg sync.WaitGroup
+					for i := 0; i < b.N*numStreams; i++ {
 						s, err := m.AcceptStream()
 						if err != nil {
 							return err
 						}
+						wg.Add(1)
 						go func() {
+							defer wg.Done()
 							io.Copy(io.Discard, s)
 							s.Close()
 						}()
 					}
+					wg.Wait()
+					return m.Close()
 				}()
 			}()
 			defer func() {

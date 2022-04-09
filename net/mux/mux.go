@@ -29,17 +29,13 @@ type Mux struct {
 	settings connSettings
 
 	// all subsequent fields are guarded by mu
-	mu      sync.Mutex
-	cond    sync.Cond
-	streams map[uint32]*Stream
-	nextID  uint32
-	err     error // sticky and fatal
-	write   struct {
-		header   frameHeader
-		payload  []byte
-		timedOut bool
-		cond     sync.Cond // separate cond for waking a single bufferFrame
-	}
+	mu         sync.Mutex
+	cond       sync.Cond
+	streams    map[uint32]*Stream
+	nextID     uint32
+	err        error // sticky and fatal
+	writeBuf   []byte
+	bufferCond sync.Cond // separate cond for waking a single bufferFrame
 }
 
 // setErr sets the Mux error and wakes up all Mux-related goroutines. If m.err
@@ -66,11 +62,11 @@ func (m *Mux) setErr(err error) error {
 	}
 	m.conn.Close()
 	m.cond.Broadcast()
-	m.write.cond.Broadcast()
+	m.bufferCond.Broadcast()
 	return err
 }
 
-// bufferFrame blocks until it can store its frame in the m.write struct. It
+// bufferFrame blocks until it can store its frame in m.writeBuf. It
 // returns early with an error if m.err is set or if the deadline expires.
 func (m *Mux) bufferFrame(h frameHeader, payload []byte, deadline time.Time) error {
 	m.mu.Lock()
@@ -79,12 +75,13 @@ func (m *Mux) bufferFrame(h frameHeader, payload []byte, deadline time.Time) err
 		if !time.Now().Before(deadline) {
 			return os.ErrDeadlineExceeded
 		}
-		timer := time.AfterFunc(time.Until(deadline), m.write.cond.Broadcast) // nice
+		timer := time.AfterFunc(time.Until(deadline), m.bufferCond.Broadcast) // nice
 		defer timer.Stop()
 	}
-	// wait for current frame to be consumed
-	for m.write.header.id != 0 && m.err == nil && (deadline.IsZero() || time.Now().Before(deadline)) {
-		m.write.cond.Wait()
+	// block until we can add the frame to the buffer
+	maxBufSize := m.settings.maxPayloadSize() * 10
+	for len(m.writeBuf)+frameHeaderSize+len(payload) > maxBufSize && m.err == nil && (deadline.IsZero() || time.Now().Before(deadline)) {
+		m.bufferCond.Wait()
 	}
 	if m.err != nil {
 		return m.err
@@ -93,18 +90,29 @@ func (m *Mux) bufferFrame(h frameHeader, payload []byte, deadline time.Time) err
 	}
 	// queue our frame and wake the writeLoop
 	//
-	// NOTE: it is not necessary to wait for the writeLoop to flush our frame. A
-	// successful write() syscall doesn't mean that the peer actually received
-	// the data, just that the packets are sitting in a kernel buffer somewhere.
-	m.write.header = h
-	m.write.payload = append(m.write.payload[:0], payload...)
+	// NOTE: it is not necessary to wait for the writeLoop to flush our frame.
+	// After all, a successful write() syscall doesn't mean that the peer
+	// actually received the data, just that the packets are sitting in a kernel
+	// buffer somewhere.
+	m.writeBuf = appendFrame(m.writeBuf, h, payload)
 	m.cond.Broadcast()
+
+	// wake at most one bufferFrame call
+	//
+	// NOTE: it's possible that we'll wake the "wrong" bufferFrame call, i.e.
+	// one whose payload is too large to fit in the buffer. This means we won't
+	// buffer any additional frames until the writeLoop flushes the buffer.
+	// Calling Broadcast instead of Signal prevents this, but also incurs a
+	// massive performance penalty when there are many concurrent streams. We
+	// could probably get the best of both worlds with a more sophisticated
+	// buffering strategy, but the current implementation is fast enough.
+	m.bufferCond.Signal()
 	return nil
 }
 
-// writeLoop handles the actual Writes to the Mux's net.Conn. It waits for a
-// bufferFrame call to fill the m.write buffer, then Writes the frame and wakes
-// up the next bufferFrame call (if any). It also handles keepalives.
+// writeLoop handles the actual Writes to the Mux's net.Conn. It waits for
+// bufferFrame calls to fill m.writeBuf, then flushes the buffer to the
+// underlying connection. It also handles keepalives.
 func (m *Mux) writeLoop() {
 	// wake cond whenever a keepalive is due
 	//
@@ -114,26 +122,35 @@ func (m *Mux) writeLoop() {
 	timer := time.AfterFunc(keepaliveInterval, m.cond.Broadcast)
 	defer timer.Stop()
 
-	writeBuf := make([]byte, m.settings.PacketSize)
+	// to avoid blocking bufferFrame while we Write, copy into a local buffer
+	buf := make([]byte, m.settings.PacketSize*10)
 	for {
-		// wait for a frame
+		// wait for frames
 		m.mu.Lock()
-		for m.write.header.id == 0 && m.err == nil && time.Now().Before(nextKeepalive) {
+		for len(m.writeBuf) == 0 && m.err == nil && time.Now().Before(nextKeepalive) {
 			m.cond.Wait()
 		}
 		if m.err != nil {
 			m.mu.Unlock()
 			return
 		}
+
 		// if we have a normal frame, use that; otherwise, send a keepalive
 		//
 		// NOTE: even if we were woken by the keepalive timer, there might be a
 		// normal frame ready to send, in which case we don't need a keepalive
-		h, payload := m.write.header, m.write.payload
-		if h.id == 0 {
-			h, payload = frameHeader{id: idKeepalive}, nil
+		if len(m.writeBuf) == 0 {
+			m.writeBuf = appendFrame(m.writeBuf[:0], frameHeader{id: idKeepalive}, nil)
 		}
-		frame := encryptFrame(writeBuf, h, payload, m.settings.PacketSize, m.aead)
+		// pad trailing packet
+		for len(m.writeBuf)%m.settings.maxFrameSize() != 0 {
+			m.writeBuf = append(m.writeBuf, 0)
+		}
+		packets := encryptPackets(buf, m.writeBuf, m.settings.PacketSize, m.aead)
+
+		// clear writeBuf and wake at most one bufferFrame call
+		m.writeBuf = m.writeBuf[:0]
+		m.bufferCond.Signal()
 		m.mu.Unlock()
 
 		// reset keepalive timer
@@ -141,18 +158,11 @@ func (m *Mux) writeLoop() {
 		timer.Reset(keepaliveInterval)
 		nextKeepalive = time.Now().Add(keepaliveInterval)
 
-		// write the frame
-		if _, err := m.conn.Write(frame); err != nil {
+		// write the packet(s)
+		if _, err := m.conn.Write(packets); err != nil {
 			m.setErr(err)
 			return
 		}
-
-		// clear the payload and wake at most one bufferFrame call
-		m.mu.Lock()
-		m.write.header = frameHeader{}
-		m.write.payload = m.write.payload[:0]
-		m.write.cond.Signal()
-		m.mu.Unlock()
 	}
 }
 
@@ -162,9 +172,15 @@ func (m *Mux) writeLoop() {
 // the Stream before attempting to Read again.
 func (m *Mux) readLoop() {
 	var curStream *Stream // saves a lock acquisition + map lookup in the common case
-	buf := make([]byte, m.settings.PacketSize)
+	pr := &packetReader{
+		r:          m.conn,
+		aead:       m.aead,
+		packetSize: m.settings.PacketSize,
+		buf:        make([]byte, 0, m.settings.PacketSize*10),
+	}
+	frameBuf := make([]byte, m.settings.maxPayloadSize())
 	for {
-		h, payload, err := readEncryptedFrame(m.conn, buf, m.settings.PacketSize, m.aead)
+		h, payload, err := pr.nextFrame(frameBuf)
 		if err != nil {
 			m.setErr(err)
 			return
@@ -210,8 +226,8 @@ func (m *Mux) readLoop() {
 func (m *Mux) Close() error {
 	// if there's a buffered Write, wait for it to be sent
 	m.mu.Lock()
-	for m.write.header.id != 0 && m.err == nil {
-		m.write.cond.Wait()
+	for len(m.writeBuf) != 0 && m.err == nil {
+		m.bufferCond.Wait()
 	}
 	m.mu.Unlock()
 	err := m.setErr(ErrClosedConn)
@@ -293,10 +309,11 @@ func newMux(conn net.Conn, aead cipher.AEAD, settings connSettings) *Mux {
 		settings: settings,
 		streams:  make(map[uint32]*Stream),
 		nextID:   1 << 8, // avoid collisions with reserved IDs
+		writeBuf: make([]byte, 0, settings.maxFrameSize()*10),
 	}
 	// both conds use the same mutex
 	m.cond.L = &m.mu
-	m.write.cond.L = &m.mu
+	m.bufferCond.L = &m.mu
 	go m.readLoop()
 	go m.writeLoop()
 	return m
@@ -486,7 +503,7 @@ func (s *Stream) Write(p []byte) (int, error) {
 		payload := buf.Next(s.m.settings.maxPayloadSize())
 		h := frameHeader{
 			id:     s.id,
-			length: uint32(len(payload)),
+			length: uint16(len(payload)),
 			flags:  flags,
 		}
 		if err := s.m.bufferFrame(h, payload, s.wd); err != nil {

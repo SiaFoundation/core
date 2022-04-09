@@ -32,23 +32,22 @@ const (
 
 type frameHeader struct {
 	id     uint32
-	length uint32
+	length uint16
 	flags  uint16
 }
 
-const frameHeaderSize = 10
-const encryptedHeaderSize = frameHeaderSize + chachaOverhead
+const frameHeaderSize = 4 + 2 + 2
 
 func encodeFrameHeader(buf []byte, h frameHeader) {
-	binary.LittleEndian.PutUint32(buf[0:], h.id)
-	binary.LittleEndian.PutUint32(buf[4:], h.length)
-	binary.LittleEndian.PutUint16(buf[8:], h.flags)
+	binary.LittleEndian.PutUint32(buf[0:], (h.id<<1)|1)
+	binary.LittleEndian.PutUint16(buf[4:], h.length)
+	binary.LittleEndian.PutUint16(buf[6:], h.flags)
 }
 
 func decodeFrameHeader(buf []byte) (h frameHeader) {
-	h.id = binary.LittleEndian.Uint32(buf[0:])
-	h.length = binary.LittleEndian.Uint32(buf[4:])
-	h.flags = binary.LittleEndian.Uint16(buf[8:])
+	h.id = binary.LittleEndian.Uint32(buf[0:]) >> 1
+	h.length = binary.LittleEndian.Uint16(buf[4:])
+	h.flags = binary.LittleEndian.Uint16(buf[6:])
 	return
 }
 
@@ -87,49 +86,80 @@ func decryptInPlace(buf []byte, aead cipher.AEAD) ([]byte, error) {
 	return aead.Open(ciphertext[:0], nonce, ciphertext, nil)
 }
 
-func encryptFrame(buf []byte, h frameHeader, payload []byte, packetSize int, aead cipher.AEAD) []byte {
-	// pad frame to packet boundary
-	numPackets := (encryptedHeaderSize + (len(payload) + chachaOverhead) + (packetSize - 1)) / packetSize
-	frame := buf[:numPackets*packetSize]
-	// encode + encrypt header
-	encodeFrameHeader(frame[chachaPoly1305NonceSize:][:frameHeaderSize], h)
-	encryptInPlace(frame[:encryptedHeaderSize], aead)
-	// pad + encrypt payload
-	copy(frame[encryptedHeaderSize+chachaPoly1305NonceSize:], payload)
-	encryptInPlace(frame[encryptedHeaderSize:], aead)
-	return frame
+func appendFrame(buf []byte, h frameHeader, payload []byte) []byte {
+	frame := buf[len(buf):][:frameHeaderSize+len(payload)]
+	encodeFrameHeader(frame[:frameHeaderSize], h)
+	copy(frame[frameHeaderSize:], payload)
+	return buf[:len(buf)+len(frame)]
 }
 
-func decryptFrameHeader(buf []byte, aead cipher.AEAD) (frameHeader, error) {
-	buf, err := decryptInPlace(buf, aead)
-	if err != nil {
-		return frameHeader{}, err
+type packetReader struct {
+	r          io.Reader
+	aead       cipher.AEAD
+	packetSize int
+
+	buf       []byte
+	decrypted []byte
+	partial   []byte
+}
+
+func (pr *packetReader) Read(p []byte) (int, error) {
+	if len(pr.decrypted) == 0 {
+		// read at least one packet
+		pr.buf = append(pr.buf[:0], pr.partial...)
+		n, err := io.ReadAtLeast(pr.r, pr.buf[len(pr.buf):cap(pr.buf)], pr.packetSize-len(pr.partial))
+		if err != nil {
+			return 0, err
+		}
+		pr.buf = pr.buf[:len(pr.buf)+n]
+
+		// decrypt packets
+		pr.decrypted = pr.buf[:0]
+		numPackets := len(pr.buf) / pr.packetSize
+		for i := 0; i < numPackets; i++ {
+			packet := pr.buf[i*pr.packetSize:][:pr.packetSize]
+			nonce, ciphertext := packet[:chachaPoly1305NonceSize], packet[chachaPoly1305NonceSize:]
+			plaintext, err := pr.aead.Open(ciphertext[:0], nonce, ciphertext, nil)
+			if err != nil {
+				return 0, err
+			}
+			pr.decrypted = append(pr.decrypted, plaintext...)
+		}
+		pr.partial = pr.buf[numPackets*pr.packetSize:]
 	}
-	return decodeFrameHeader(buf), nil
+
+	n := copy(p, pr.decrypted)
+	pr.decrypted = pr.decrypted[n:]
+	return n, nil
 }
 
-func readEncryptedFrame(r io.Reader, buf []byte, packetSize int, aead cipher.AEAD) (frameHeader, []byte, error) {
-	// read, decrypt, and decode header
-	if _, err := io.ReadFull(r, buf[:encryptedHeaderSize]); err != nil {
+func (pr *packetReader) nextFrame(buf []byte) (frameHeader, []byte, error) {
+	// skip padding
+	for len(pr.decrypted) > 0 && pr.decrypted[0]&1 == 0 {
+		pr.decrypted = pr.decrypted[1:]
+	}
+
+	if _, err := io.ReadFull(pr, buf[:frameHeaderSize]); err != nil {
 		return frameHeader{}, nil, fmt.Errorf("could not read frame header: %w", err)
 	}
-	h, err := decryptFrameHeader(buf[:encryptedHeaderSize], aead)
-	if err != nil {
-		return frameHeader{}, nil, fmt.Errorf("could not decrypt header: %w", err)
-	}
-	numPackets := (encryptedHeaderSize + (int(h.length) + chachaOverhead) + (packetSize - 1)) / packetSize
-	paddedSize := numPackets*packetSize - encryptedHeaderSize
-	if h.length > uint32(len(buf)) || paddedSize > len(buf) {
+	h := decodeFrameHeader(buf[:frameHeaderSize])
+	if h.length > uint16(pr.packetSize-frameHeaderSize) {
 		return frameHeader{}, nil, errors.New("peer sent too-large frame")
-	}
-	// read (padded) payload
-	if _, err := io.ReadFull(r, buf[:paddedSize]); err != nil {
+	} else if _, err := io.ReadFull(pr, buf[:h.length]); err != nil {
 		return frameHeader{}, nil, fmt.Errorf("could not read frame payload: %w", err)
 	}
-	// decrypt payload
-	payload, err := decryptInPlace(buf[:paddedSize], aead)
-	if err != nil {
-		return frameHeader{}, nil, fmt.Errorf("could not decrypt payload: %w", err)
+	return h, buf[:h.length], nil
+}
+
+func encryptPackets(buf []byte, p []byte, packetSize int, aead cipher.AEAD) []byte {
+	maxFrameSize := packetSize - chachaOverhead
+	numPackets := len(p) / maxFrameSize
+	for i := 0; i < numPackets; i++ {
+		packet := buf[i*packetSize:][:packetSize]
+		plaintext := p[i*maxFrameSize:][:maxFrameSize]
+		nonce, ciphertext := packet[:chachaPoly1305NonceSize], packet[chachaPoly1305NonceSize:]
+		frand.Read(nonce)
+		aead.Seal(ciphertext[:0], nonce, plaintext, nil)
 	}
-	return h, payload[:h.length], nil
+	return buf[:numPackets*packetSize]
 }

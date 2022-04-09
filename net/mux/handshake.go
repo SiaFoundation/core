@@ -91,8 +91,12 @@ type connSettings struct {
 	MaxTimeout time.Duration
 }
 
+func (cs connSettings) maxFrameSize() int {
+	return cs.PacketSize - chachaOverhead
+}
+
 func (cs connSettings) maxPayloadSize() int {
-	return cs.PacketSize - encryptedHeaderSize - chachaOverhead
+	return cs.maxFrameSize() - frameHeaderSize
 }
 
 var defaultConnSettings = connSettings{
