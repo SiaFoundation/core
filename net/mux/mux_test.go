@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -41,12 +42,11 @@ func TestMux(t *testing.T) {
 				return err
 			}
 			defer s.Close()
-			buf := make([]byte, 13)
-			if _, err := io.ReadFull(s, buf); err != nil {
+			buf := make([]byte, 100)
+			if n, err := s.Read(buf); err != nil {
 				return err
-			}
-			if string(buf) != "hello, world!" {
-				return errors.New("bad hello")
+			} else if _, err := fmt.Fprintf(s, "hello, %s!", buf[:n]); err != nil {
+				return err
 			}
 			return s.Close()
 		}()
@@ -63,8 +63,13 @@ func TestMux(t *testing.T) {
 	defer m.Close()
 	s := m.DialStream()
 	defer s.Close()
-	if _, err := s.Write([]byte("hello, world!")); err != nil {
+	buf := make([]byte, 100)
+	if _, err := s.Write([]byte("world")); err != nil {
 		t.Fatal(err)
+	} else if n, err := io.ReadFull(s, buf[:13]); err != nil {
+		t.Fatal(err)
+	} else if string(buf[:n]) != "hello, world!" {
+		t.Fatal("bad hello:", string(buf[:n]))
 	}
 	if err := s.Close(); err != nil && err != ErrPeerClosedConn {
 		t.Fatal(err)
@@ -369,7 +374,6 @@ func TestContext(t *testing.T) {
 		err     error
 		context func() context.Context
 	}{
-		{nil, func() context.Context { return context.Background() }}, // no deadline
 		{nil, func() context.Context {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
 			t.Cleanup(cancel)
@@ -420,6 +424,168 @@ func TestContext(t *testing.T) {
 		t.Fatal(err)
 	} else if err := <-serverCh; err != nil && err != ErrPeerClosedConn && err != ErrPeerClosedStream {
 		t.Fatal(err)
+	}
+}
+
+type statsConn struct {
+	r, w int32
+	net.Conn
+}
+
+func (c *statsConn) Read(b []byte) (int, error) {
+	n, err := c.Conn.Read(b)
+	atomic.AddInt32(&c.r, int32(n))
+	return n, err
+}
+
+func (c *statsConn) Write(b []byte) (int, error) {
+	n, err := c.Conn.Write(b)
+	atomic.AddInt32(&c.w, int32(n))
+	return n, err
+}
+
+func TestCovertStream(t *testing.T) {
+	serverKey := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
+	l, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverCh := make(chan error, 1)
+	go func() {
+		serverCh <- func() error {
+			conn, err := l.Accept()
+			if err != nil {
+				return err
+			}
+			m, err := Accept(conn, serverKey)
+			if err != nil {
+				return err
+			}
+			defer m.Close()
+			// accept covert stream
+			cs, err := m.AcceptStream()
+			if err != nil {
+				return err
+			}
+			covertCh := make(chan error)
+			go func() {
+				defer cs.Close()
+				buf := make([]byte, 100)
+				if n, err := cs.Read(buf); err != nil {
+					covertCh <- err
+				} else if _, err := fmt.Fprintf(cs, "hello, %s!", buf[:n]); err != nil {
+					covertCh <- err
+				} else {
+					covertCh <- cs.Close()
+				}
+			}()
+			// accept regular stream
+			s, err := m.AcceptStream()
+			if err != nil {
+				return err
+			}
+			defer s.Close()
+			buf := make([]byte, 100)
+			n, err := s.Read(buf)
+			if err != nil {
+				return err
+			}
+			// wait for covert stream to buffer before writing
+			if err := <-covertCh; err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(s, "hello, %s!", buf[:n]); err != nil {
+				return err
+			} else if err := s.Close(); err != nil {
+				return err
+			}
+			return m.Close()
+		}()
+	}()
+
+	conn, err := net.Dial("tcp", l.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn = &statsConn{Conn: conn} // track raw number of bytes on wire
+
+	m, err := Dial(conn, serverKey.Public().(ed25519.PublicKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+
+	covertCh := make(chan error, 1)
+	bufChan := make(chan struct{})
+	go func() {
+		s := m.DialCovertStream()
+		defer s.Close()
+		buf := make([]byte, 100)
+		if _, err := s.Write([]byte("covert")); err != nil {
+			covertCh <- err
+			return
+		}
+		bufChan <- struct{}{}
+		if n, err := io.ReadFull(s, buf[:14]); err != nil {
+			covertCh <- err
+		} else if string(buf[:n]) != "hello, covert!" {
+			covertCh <- fmt.Errorf("bad hello: %s %x", buf[:n], buf[:n])
+		} else {
+			covertCh <- s.Close()
+		}
+	}()
+
+	// to generate padding for covert stream, send a regular packet
+	s := m.DialStream()
+	<-bufChan // wait for covert stream to buffer
+	buf := make([]byte, 100)
+	if _, err := s.Write([]byte("world")); err != nil {
+		t.Log(<-serverCh)
+		t.Fatal(err)
+	} else if n, err := io.ReadFull(s, buf[:13]); err != nil {
+		t.Log(<-serverCh)
+		t.Fatal(err)
+	} else if string(buf[:n]) != "hello, world!" {
+		t.Fatalf("bad hello: %s", buf[:n])
+	}
+
+	if err := <-covertCh; err != nil && err != ErrPeerClosedConn {
+		t.Fatal(err)
+	} else if err := m.Close(); err != nil {
+		t.Fatal(err)
+	} else if err := <-serverCh; err != nil && err != ErrPeerClosedStream {
+		t.Fatal(err)
+	}
+	// wait for read/write goroutines to exit
+	time.Sleep(time.Second)
+
+	// amount of data transferred should be the same as without covert stream
+	expWritten := 1 + // version
+		32 + // key exchange
+		connSettingsSize + chachaOverhead + // settings
+		m.settings.PacketSize // "world"
+
+	expRead := 1 + // version
+		32 + 64 + // key exchange
+		connSettingsSize + chachaOverhead + // settings
+		m.settings.PacketSize // "hello, world!"
+
+	w := int(atomic.LoadInt32(&conn.(*statsConn).w))
+	r := int(atomic.LoadInt32(&conn.(*statsConn).r))
+
+	// NOTE: either peer may have sent the Close packet, or both; we don't care
+	// either way
+	if w > expWritten {
+		expWritten += m.settings.PacketSize
+	}
+	if r > expRead {
+		expRead += m.settings.PacketSize
+	}
+	if w != expWritten {
+		t.Errorf("wrote %v bytes, expected %v", w, expWritten)
+	}
+	if r != expRead {
+		t.Errorf("read %v bytes, expected %v", r, expRead)
 	}
 }
 
@@ -554,4 +720,96 @@ func BenchmarkConn(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+}
+
+func BenchmarkCovertStream(b *testing.B) {
+	serverKey := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
+	l, err := net.Listen("tcp", ":0")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer l.Close()
+	serverCh := make(chan error, 1)
+	go func() {
+		serverCh <- func() error {
+			conn, err := l.Accept()
+			if err != nil {
+				return err
+			}
+			m, err := Accept(conn, serverKey)
+			if err != nil {
+				return err
+			}
+
+			// background stream, to provide padding for covert streams
+			bs, err := m.AcceptStream()
+			if err != nil {
+				return err
+			}
+			defer bs.Close()
+			go io.Copy(bs, bs)
+
+			cs, err := m.AcceptStream()
+			if err != nil {
+				return err
+			}
+
+			for n := 0; n < b.N*defaultConnSettings.maxPayloadSize(); {
+				buf := make([]byte, defaultConnSettings.maxPayloadSize())
+				r, err := cs.Read(buf)
+				if err != nil {
+					return err
+				}
+				n += r
+			}
+			cs.Write([]byte{1})
+			cs.Close()
+			return m.Close()
+		}()
+	}()
+	defer func() {
+		if err := <-serverCh; err != nil && err != ErrPeerClosedConn {
+			b.Fatal(err)
+		}
+	}()
+
+	conn, err := net.Dial("tcp", l.Addr().String())
+	if err != nil {
+		b.Fatal(err)
+	}
+	m, err := Dial(conn, serverKey.Public().(ed25519.PublicKey))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer m.Close()
+
+	// background stream, to provide padding for covert streams
+	backBuf := make([]byte, 100)
+	for i := range backBuf {
+		backBuf[i] = 0x77
+	}
+	bs := m.DialStream()
+	defer bs.Close()
+	if _, err := bs.Write(backBuf); err != nil {
+		b.Fatal(err)
+	}
+	go io.Copy(bs, bs)
+
+	// open each stream in a separate goroutine
+	bufSize := defaultConnSettings.maxPayloadSize()
+	buf := make([]byte, bufSize)
+	for i := range buf {
+		buf[i] = 0xFF
+	}
+	b.ResetTimer()
+	b.SetBytes(int64(bufSize))
+	b.ReportAllocs()
+	cs := m.DialCovertStream()
+	defer cs.Close()
+	for i := 0; i < b.N; i++ {
+		if _, err := cs.Write(buf); err != nil {
+			b.Fatal(err)
+		}
+	}
+	cs.Read(buf[:1])
 }

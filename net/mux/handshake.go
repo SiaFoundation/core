@@ -12,6 +12,9 @@ import (
 
 	"github.com/hdevalence/ed25519consensus"
 	"golang.org/x/crypto/blake2b"
+	"golang.org/x/crypto/chacha20poly1305"
+	"golang.org/x/crypto/curve25519"
+	"lukechampine.com/frand"
 )
 
 var ourVersion = []byte{2}
@@ -38,6 +41,30 @@ func acceptVersionHandshake(conn net.Conn) error {
 		return errors.New("bad version")
 	}
 	return nil
+}
+
+func generateX25519KeyPair() (xsk, xpk [32]byte) {
+	frand.Read(xsk[:])
+	curve25519.ScalarBaseMult(&xpk, &xsk)
+	return
+}
+
+func deriveSharedAEAD(xsk, xpk [32]byte) (cipher.AEAD, error) {
+	// NOTE: an error is only possible here if xpk is a "low-order point."
+	// Basically, if the other party chooses one of these points as their public
+	// key, then the resulting "secret" can be derived by anyone who observes
+	// the handshake, effectively rendering the protocol unencrypted. This would
+	// be a strange thing to do; the other party can decrypt the messages
+	// anyway, so if they want to make the messages public, nothing can stop
+	// them from doing so. Consequently, some people (notably djb himself) will
+	// tell you not to bother checking for low-order points at all. But why
+	// would we want to talk to a peer that's behaving weirdly?
+	secret, err := curve25519.X25519(xsk[:], xpk[:])
+	if err != nil {
+		return nil, err
+	}
+	key := blake2b.Sum256(secret)
+	return chacha20poly1305.New(key[:])
 }
 
 func initiateEncryptionHandshake(conn net.Conn, theirKey ed25519.PublicKey) (cipher.AEAD, error) {

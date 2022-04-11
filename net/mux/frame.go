@@ -3,13 +3,9 @@ package mux
 import (
 	"crypto/cipher"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 
-	"golang.org/x/crypto/blake2b"
-	"golang.org/x/crypto/chacha20poly1305"
-	"golang.org/x/crypto/curve25519"
 	"lukechampine.com/frand"
 )
 
@@ -51,30 +47,6 @@ func decodeFrameHeader(buf []byte) (h frameHeader) {
 	return
 }
 
-func generateX25519KeyPair() (xsk, xpk [32]byte) {
-	frand.Read(xsk[:])
-	curve25519.ScalarBaseMult(&xpk, &xsk)
-	return
-}
-
-func deriveSharedAEAD(xsk, xpk [32]byte) (cipher.AEAD, error) {
-	// NOTE: an error is only possible here if xpk is a "low-order point."
-	// Basically, if the other party chooses one of these points as their public
-	// key, then the resulting "secret" can be derived by anyone who observes
-	// the handshake, effectively rendering the protocol unencrypted. This would
-	// be a strange thing to do; the other party can decrypt the messages
-	// anyway, so if they want to make the messages public, nothing can stop
-	// them from doing so. Consequently, some people (notably djb himself) will
-	// tell you not to bother checking for low-order points at all. But why
-	// would we want to talk to a peer that's behaving weirdly?
-	secret, err := curve25519.X25519(xsk[:], xpk[:])
-	if err != nil {
-		return nil, err
-	}
-	key := blake2b.Sum256(secret)
-	return chacha20poly1305.New(key[:])
-}
-
 func encryptInPlace(buf []byte, aead cipher.AEAD) {
 	nonce, plaintext := buf[:chachaPoly1305NonceSize], buf[chachaPoly1305NonceSize:len(buf)-chachaPoly1305TagSize]
 	frand.Read(nonce)
@@ -99,33 +71,30 @@ type packetReader struct {
 	packetSize int
 
 	buf       []byte
-	decrypted []byte
-	partial   []byte
+	encrypted []byte // aliases buf
+	decrypted []byte // aliases buf
+	covert    []byte
 }
 
 func (pr *packetReader) Read(p []byte) (int, error) {
 	if len(pr.decrypted) == 0 {
-		// read at least one packet
-		pr.buf = append(pr.buf[:0], pr.partial...)
-		n, err := io.ReadAtLeast(pr.r, pr.buf[len(pr.buf):cap(pr.buf)], pr.packetSize-len(pr.partial))
-		if err != nil {
-			return 0, err
-		}
-		pr.buf = pr.buf[:len(pr.buf)+n]
-
-		// decrypt packets
-		pr.decrypted = pr.buf[:0]
-		numPackets := len(pr.buf) / pr.packetSize
-		for i := 0; i < numPackets; i++ {
-			packet := pr.buf[i*pr.packetSize:][:pr.packetSize]
-			nonce, ciphertext := packet[:chachaPoly1305NonceSize], packet[chachaPoly1305NonceSize:]
-			plaintext, err := pr.aead.Open(ciphertext[:0], nonce, ciphertext, nil)
+		if len(pr.encrypted) < pr.packetSize {
+			pr.buf = append(pr.buf[:0], pr.encrypted...)
+			n, err := io.ReadAtLeast(pr.r, pr.buf[len(pr.buf):cap(pr.buf)], pr.packetSize-len(pr.encrypted))
 			if err != nil {
 				return 0, err
 			}
-			pr.decrypted = append(pr.decrypted, plaintext...)
+			pr.buf = pr.buf[:len(pr.buf)+n]
+			pr.encrypted = pr.buf
 		}
-		pr.partial = pr.buf[numPackets*pr.packetSize:]
+
+		// decrypt next packet
+		decrypted, err := decryptInPlace(pr.encrypted[:pr.packetSize], pr.aead)
+		if err != nil {
+			return 0, err
+		}
+		pr.decrypted = decrypted
+		pr.encrypted = pr.encrypted[pr.packetSize:]
 	}
 
 	n := copy(p, pr.decrypted)
@@ -133,22 +102,52 @@ func (pr *packetReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-func (pr *packetReader) nextFrame(buf []byte) (frameHeader, []byte, error) {
-	// skip padding
-	for len(pr.decrypted) > 0 && pr.decrypted[0]&1 == 0 {
-		pr.decrypted = pr.decrypted[1:]
+func (pr *packetReader) skipPadding() {
+	if len(pr.decrypted) == 0 || pr.decrypted[0]&1 != 0 {
+		return
+	}
+	if pr.decrypted[0]&2 != 0 {
+		pr.covert = append(pr.covert, pr.decrypted[1:]...)
+	}
+	pr.decrypted = pr.decrypted[len(pr.decrypted):]
+}
+
+func (pr *packetReader) covertFrame() (frameHeader, []byte, bool) {
+	if len(pr.covert) < frameHeaderSize {
+		return frameHeader{}, nil, false
+	}
+	h := decodeFrameHeader(pr.covert[:frameHeaderSize])
+	if len(pr.covert[frameHeaderSize:]) < int(h.length) {
+		return frameHeader{}, nil, false
+	}
+	payload := pr.covert[frameHeaderSize:][:h.length]
+	// handle remaining data in packet
+	if rest := pr.covert[frameHeaderSize+h.length:]; len(rest) > 0 && rest[0]&1 != 0 {
+		// another covert frame
+		pr.covert = rest
+	} else {
+		// padding
+		pr.covert = pr.covert[:0]
+	}
+	return h, payload, true
+}
+
+func (pr *packetReader) nextFrame(buf []byte) (frameHeader, []byte, bool, error) {
+	pr.skipPadding()
+	if h, payload, ok := pr.covertFrame(); ok {
+		return h, payload, true, nil
 	}
 
 	if _, err := io.ReadFull(pr, buf[:frameHeaderSize]); err != nil {
-		return frameHeader{}, nil, fmt.Errorf("could not read frame header: %w", err)
+		return frameHeader{}, nil, false, fmt.Errorf("could not read frame header: %w", err)
 	}
 	h := decodeFrameHeader(buf[:frameHeaderSize])
 	if h.length > uint16(pr.packetSize-frameHeaderSize) {
-		return frameHeader{}, nil, errors.New("peer sent too-large frame")
+		return frameHeader{}, nil, false, fmt.Errorf("peer sent too-large frame (%v bytes)", h.length)
 	} else if _, err := io.ReadFull(pr, buf[:h.length]); err != nil {
-		return frameHeader{}, nil, fmt.Errorf("could not read frame payload: %w", err)
+		return frameHeader{}, nil, false, fmt.Errorf("could not read frame payload: %w", err)
 	}
-	return h, buf[:h.length], nil
+	return h, buf[:h.length], false, nil
 }
 
 func encryptPackets(buf []byte, p []byte, packetSize int, aead cipher.AEAD) []byte {
@@ -157,9 +156,8 @@ func encryptPackets(buf []byte, p []byte, packetSize int, aead cipher.AEAD) []by
 	for i := 0; i < numPackets; i++ {
 		packet := buf[i*packetSize:][:packetSize]
 		plaintext := p[i*maxFrameSize:][:maxFrameSize]
-		nonce, ciphertext := packet[:chachaPoly1305NonceSize], packet[chachaPoly1305NonceSize:]
-		frand.Read(nonce)
-		aead.Seal(ciphertext[:0], nonce, plaintext, nil)
+		copy(packet[chachaPoly1305NonceSize:], plaintext)
+		encryptInPlace(packet, aead)
 	}
 	return buf[:numPackets*packetSize]
 }
