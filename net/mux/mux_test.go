@@ -664,7 +664,7 @@ func BenchmarkMux(b *testing.B) {
 				}()
 			}
 			wg.Wait()
-			b.ReportMetric(float64(b.N*numStreams)/time.Since(start).Seconds(), "conns/sec")
+			b.ReportMetric(float64(b.N*numStreams)/time.Since(start).Seconds(), "frames/sec")
 		})
 	}
 }
@@ -804,6 +804,7 @@ func BenchmarkCovertStream(b *testing.B) {
 	b.ResetTimer()
 	b.SetBytes(int64(bufSize))
 	b.ReportAllocs()
+	start := time.Now()
 	cs := m.DialCovertStream()
 	defer cs.Close()
 	for i := 0; i < b.N; i++ {
@@ -811,5 +812,6 @@ func BenchmarkCovertStream(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
-	cs.Read(buf[:1])
+	cs.Read(buf[:1]) // ensure that server received all frames
+	b.ReportMetric(float64(b.N)/time.Since(start).Seconds(), "frames/sec")
 }
