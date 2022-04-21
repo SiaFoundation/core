@@ -121,12 +121,11 @@ func (pr *packetReader) covertFrame() (frameHeader, []byte, bool) {
 		return frameHeader{}, nil, false
 	}
 	payload := pr.covert[frameHeaderSize:][:h.length]
-	// handle remaining data in packet
+	// check for another covert frame
 	if rest := pr.covert[frameHeaderSize+h.length:]; len(rest) > 0 && rest[0]&1 != 0 {
-		// another covert frame
 		pr.covert = rest
 	} else {
-		// padding
+		// no more covert data; skip rest of buffer
 		pr.covert = pr.covert[:0]
 	}
 	return h, payload, true

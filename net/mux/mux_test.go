@@ -815,3 +815,67 @@ func BenchmarkCovertStream(b *testing.B) {
 	cs.Read(buf[:1]) // ensure that server received all frames
 	b.ReportMetric(float64(b.N)/time.Since(start).Seconds(), "frames/sec")
 }
+
+func BenchmarkPackets(b *testing.B) {
+	for _, packetSize := range []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20} {
+		b.Run(fmt.Sprintf("1440x%d", packetSize), func(b *testing.B) {
+			defaultConnSettings.PacketSize = 1440 * packetSize
+
+			serverKey := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
+			l, err := net.Listen("tcp", ":0")
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer l.Close()
+			serverCh := make(chan error, 1)
+			go func() {
+				serverCh <- func() error {
+					conn, err := l.Accept()
+					if err != nil {
+						return err
+					}
+					m, err := Accept(conn, serverKey)
+					if err != nil {
+						return err
+					}
+					s, err := m.AcceptStream()
+					if err != nil {
+						return err
+					}
+					io.Copy(io.Discard, s)
+					s.Close()
+					return m.Close()
+				}()
+			}()
+			defer func() {
+				if err := <-serverCh; err != nil && err != ErrPeerClosedConn {
+					b.Fatal(err)
+				}
+			}()
+
+			conn, err := net.Dial("tcp", l.Addr().String())
+			if err != nil {
+				b.Fatal(err)
+			}
+			m, err := Dial(conn, serverKey.Public().(ed25519.PublicKey))
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer m.Close()
+
+			// open each stream in a separate goroutine
+			bufSize := defaultConnSettings.maxPayloadSize()
+			buf := make([]byte, bufSize)
+			b.ResetTimer()
+			b.SetBytes(int64(bufSize))
+			b.ReportAllocs()
+			s := m.DialStream()
+			defer s.Close()
+			for i := 0; i < b.N; i++ {
+				if _, err := s.Write(buf); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
