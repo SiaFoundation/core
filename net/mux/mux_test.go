@@ -818,8 +818,8 @@ func BenchmarkCovertStream(b *testing.B) {
 
 func BenchmarkPackets(b *testing.B) {
 	for _, packetSize := range []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20} {
-		b.Run(fmt.Sprintf("1440x%d", packetSize), func(b *testing.B) {
-			defaultConnSettings.PacketSize = 1440 * packetSize
+		b.Run(fmt.Sprintf("%dx%d", ipv6MTU, packetSize), func(b *testing.B) {
+			defaultConnSettings.PacketSize = ipv6MTU * packetSize
 
 			serverKey := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
 			l, err := net.Listen("tcp", ":0")

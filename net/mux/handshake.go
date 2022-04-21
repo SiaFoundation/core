@@ -126,8 +126,10 @@ func (cs connSettings) maxPayloadSize() int {
 	return cs.maxFrameSize() - frameHeaderSize
 }
 
+const ipv6MTU = 1440 // 1500-byte Ethernet frame - 40-byte IPv6 header - 20-byte TCP header
+
 var defaultConnSettings = connSettings{
-	PacketSize: 1440, // IPv6 MTU
+	PacketSize: ipv6MTU * 3, // chosen empirically via BenchmarkPackets
 	MaxTimeout: 20 * time.Minute,
 }
 
