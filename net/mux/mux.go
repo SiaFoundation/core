@@ -359,32 +359,18 @@ func newMux(conn net.Conn, aead cipher.AEAD, settings connSettings) *Mux {
 
 // Dial initiates a mux protocol handshake on the provided conn.
 func Dial(conn net.Conn, theirKey ed25519.PublicKey) (*Mux, error) {
-	if err := initiateVersionHandshake(conn); err != nil {
-		return nil, fmt.Errorf("version handshake failed: %w", err)
-	}
-	aead, err := initiateEncryptionHandshake(conn, theirKey)
+	aead, settings, err := initiateHandshake(conn, theirKey, defaultConnSettings)
 	if err != nil {
-		return nil, fmt.Errorf("encryption handshake failed: %w", err)
-	}
-	settings, err := initiateSettingsHandshake(conn, defaultConnSettings, aead)
-	if err != nil {
-		return nil, fmt.Errorf("settings handshake failed: %w", err)
+		return nil, fmt.Errorf("handshake failed: %w", err)
 	}
 	return newMux(conn, aead, settings), nil
 }
 
 // Accept reciprocates a mux protocol handshake on the provided conn.
 func Accept(conn net.Conn, ourKey ed25519.PrivateKey) (*Mux, error) {
-	if err := acceptVersionHandshake(conn); err != nil {
-		return nil, fmt.Errorf("version handshake failed: %w", err)
-	}
-	aead, err := acceptEncryptionHandshake(conn, ourKey)
+	aead, settings, err := acceptHandshake(conn, ourKey, defaultConnSettings)
 	if err != nil {
-		return nil, fmt.Errorf("encryption handshake failed: %w", err)
-	}
-	settings, err := acceptSettingsHandshake(conn, defaultConnSettings, aead)
-	if err != nil {
-		return nil, fmt.Errorf("settings handshake failed: %w", err)
+		return nil, fmt.Errorf("handshake failed: %w", err)
 	}
 	m := newMux(conn, aead, settings)
 	m.nextID++ // avoid collisions with Dialing peer

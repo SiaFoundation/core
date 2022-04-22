@@ -17,31 +17,7 @@ import (
 	"lukechampine.com/frand"
 )
 
-var ourVersion = []byte{2}
-
-func initiateVersionHandshake(conn net.Conn) error {
-	theirVersion := make([]byte, 1)
-	if _, err := conn.Write(ourVersion); err != nil {
-		return fmt.Errorf("could not write our version: %w", err)
-	} else if _, err := io.ReadFull(conn, theirVersion); err != nil {
-		return fmt.Errorf("could not read peer version: %w", err)
-	} else if theirVersion[0] != ourVersion[0] {
-		return errors.New("bad version")
-	}
-	return nil
-}
-
-func acceptVersionHandshake(conn net.Conn) error {
-	theirVersion := make([]byte, 1)
-	if _, err := io.ReadFull(conn, theirVersion); err != nil {
-		return fmt.Errorf("could not read peer version: %w", err)
-	} else if _, err := conn.Write(ourVersion); err != nil {
-		return fmt.Errorf("could not write our version: %w", err)
-	} else if theirVersion[0] != ourVersion[0] {
-		return errors.New("bad version")
-	}
-	return nil
-}
+const ourVersion = 2
 
 func generateX25519KeyPair() (xsk, xpk [32]byte) {
 	frand.Read(xsk[:])
@@ -65,52 +41,6 @@ func deriveSharedAEAD(xsk, xpk [32]byte) (cipher.AEAD, error) {
 	}
 	key := blake2b.Sum256(secret)
 	return chacha20poly1305.New(key[:])
-}
-
-func initiateEncryptionHandshake(conn net.Conn, theirKey ed25519.PublicKey) (cipher.AEAD, error) {
-	xsk, xpk := generateX25519KeyPair()
-
-	buf := make([]byte, 32+64)
-	if _, err := conn.Write(xpk[:]); err != nil {
-		return nil, fmt.Errorf("could not write encryption handshake request: %w", err)
-	} else if _, err := io.ReadFull(conn, buf); err != nil {
-		return nil, fmt.Errorf("could not read encryption handshake response: %w", err)
-	}
-	var rxpk [32]byte
-	copy(rxpk[:], buf[:32])
-	sig := buf[32:96]
-
-	// verify signature
-	sigHash := blake2b.Sum256(append(rxpk[:], xpk[:]...))
-	if !ed25519consensus.Verify(theirKey, sigHash[:], sig) {
-		return nil, errors.New("invalid signature")
-	}
-
-	cipher, err := deriveSharedAEAD(xsk, rxpk)
-	if err != nil {
-		return nil, fmt.Errorf("failed to derive shared cipher: %w", err)
-	}
-	return cipher, nil
-}
-
-func acceptEncryptionHandshake(conn net.Conn, ourKey ed25519.PrivateKey) (cipher.AEAD, error) {
-	xsk, xpk := generateX25519KeyPair()
-
-	var rxpk [32]byte
-	if _, err := io.ReadFull(conn, rxpk[:]); err != nil {
-		return nil, fmt.Errorf("could not read encryption handshake request: %w", err)
-	}
-	sigHash := blake2b.Sum256(append(xpk[:], rxpk[:]...))
-	sig := ed25519.Sign(ourKey, sigHash[:])
-	if _, err := conn.Write(append(xpk[:], sig...)); err != nil {
-		return nil, fmt.Errorf("could not write encryption handshake response: %w", err)
-	}
-
-	cipher, err := deriveSharedAEAD(xsk, rxpk)
-	if err != nil {
-		return nil, fmt.Errorf("failed to derive shared cipher: %w", err)
-	}
-	return cipher, nil
 }
 
 type connSettings struct {
@@ -169,42 +99,106 @@ func mergeSettings(ours, theirs connSettings) (connSettings, error) {
 	return merged, nil
 }
 
-func initiateSettingsHandshake(conn net.Conn, ours connSettings, aead cipher.AEAD) (connSettings, error) {
-	// encode + encrypt + write request
-	buf := make([]byte, connSettingsSize+chachaOverhead)
-	encodeConnSettings(buf[chachaPoly1305NonceSize:], ours)
-	encryptInPlace(buf, aead)
-	if _, err := conn.Write(buf); err != nil {
-		return connSettings{}, fmt.Errorf("could not write settings request: %w", err)
+func initiateHandshake(conn net.Conn, theirKey ed25519.PublicKey, ourSettings connSettings) (cipher.AEAD, connSettings, error) {
+	xsk, xpk := generateX25519KeyPair()
+
+	// write version and pubkey
+	buf := make([]byte, 1+32+64+connSettingsSize+chachaOverhead)
+	buf[0] = ourVersion
+	copy(buf[1:], xpk[:])
+	if _, err := conn.Write(buf[:1+32]); err != nil {
+		return nil, connSettings{}, fmt.Errorf("could not write handshake request: %w", err)
 	}
-	// read + decrypt + decode response
-	if _, err := io.ReadFull(conn, buf); err != nil {
-		return connSettings{}, fmt.Errorf("could not read settings response: %w", err)
+	// read version, pubkey, signature, and settings
+	if n, err := io.ReadAtLeast(conn, buf, 1); err != nil {
+		return nil, connSettings{}, fmt.Errorf("could not read version: %w", err)
+	} else if buf[0] != ourVersion {
+		// respond with our version even if we're incompatible
+		buf[0] = ourVersion
+		conn.Write(buf[:1])
+		return nil, connSettings{}, fmt.Errorf("incompatible version (%d)", buf[0])
+	} else if _, err := io.ReadFull(conn, buf[n:]); err != nil {
+		return nil, connSettings{}, fmt.Errorf("could not read handshake response: %w", err)
 	}
-	plaintext, err := decryptInPlace(buf, aead)
+
+	// verify signature
+	var rxpk [32]byte
+	copy(rxpk[:], buf[1:][:32])
+	sig := buf[1+32:][:64]
+	sigHash := blake2b.Sum256(append(xpk[:], rxpk[:]...))
+	if !ed25519consensus.Verify(theirKey, sigHash[:], sig) {
+		return nil, connSettings{}, errors.New("invalid signature")
+	}
+
+	// derive shared cipher
+	aead, err := deriveSharedAEAD(xsk, rxpk)
 	if err != nil {
-		return connSettings{}, fmt.Errorf("could not decrypt settings response: %w", err)
+		return nil, connSettings{}, fmt.Errorf("failed to derive shared cipher: %w", err)
 	}
-	theirs := decodeConnSettings(plaintext)
-	return mergeSettings(ours, theirs)
+
+	// decrypt settings
+	var mergedSettings connSettings
+	if plaintext, err := decryptInPlace(buf[1+32+64:], aead); err != nil {
+		return nil, connSettings{}, fmt.Errorf("could not decrypt settings response: %w", err)
+	} else if mergedSettings, err = mergeSettings(ourSettings, decodeConnSettings(plaintext)); err != nil {
+		return nil, connSettings{}, fmt.Errorf("peer sent unacceptable settings: %w", err)
+	}
+
+	// encrypt + write our settings
+	encodeConnSettings(buf[chachaPoly1305NonceSize:], ourSettings)
+	encryptInPlace(buf[:connSettingsSize+chachaOverhead], aead)
+	if _, err := conn.Write(buf[:connSettingsSize+chachaOverhead]); err != nil {
+		return nil, connSettings{}, fmt.Errorf("could not write settings: %w", err)
+	}
+
+	return aead, mergedSettings, nil
 }
 
-func acceptSettingsHandshake(conn net.Conn, ours connSettings, aead cipher.AEAD) (connSettings, error) {
-	// read + decrypt + decode request
-	buf := make([]byte, connSettingsSize+chachaOverhead)
-	if _, err := io.ReadFull(conn, buf); err != nil {
-		return connSettings{}, fmt.Errorf("could not read settings response: %w", err)
+func acceptHandshake(conn net.Conn, ourKey ed25519.PrivateKey, ourSettings connSettings) (cipher.AEAD, connSettings, error) {
+	xsk, xpk := generateX25519KeyPair()
+
+	// read version and pubkey
+	buf := make([]byte, 1+32+64+connSettingsSize+chachaOverhead)
+	if n, err := io.ReadAtLeast(conn, buf[:1+32], 1); err != nil {
+		return nil, connSettings{}, fmt.Errorf("could not read version: %w", err)
+	} else if buf[0] != ourVersion {
+		// respond with our version even if we're incompatible
+		buf[0] = ourVersion
+		conn.Write(buf[:1])
+		return nil, connSettings{}, fmt.Errorf("incompatible version (%d)", buf[0])
+	} else if _, err := io.ReadFull(conn, buf[n:1+32]); err != nil {
+		return nil, connSettings{}, fmt.Errorf("could not read handshake request: %w", err)
 	}
-	plaintext, err := decryptInPlace(buf, aead)
+
+	// derive shared cipher
+	var rxpk [32]byte
+	copy(rxpk[:], buf[1:][:32])
+	aead, err := deriveSharedAEAD(xsk, rxpk)
 	if err != nil {
-		return connSettings{}, fmt.Errorf("could not decrypt settings response: %w", err)
+		return nil, connSettings{}, fmt.Errorf("failed to derive shared cipher: %w", err)
 	}
-	theirs := decodeConnSettings(plaintext)
-	// encode + encrypt + write response
-	encodeConnSettings(buf[chachaPoly1305NonceSize:], ours)
-	encryptInPlace(buf, aead)
+
+	// write version, pubkey, signature, and settings
+	sigHash := blake2b.Sum256(append(rxpk[:], xpk[:]...))
+	sig := ed25519.Sign(ourKey, sigHash[:])
+	buf[0] = ourVersion
+	copy(buf[1:], xpk[:])
+	copy(buf[1+32:], sig)
+	encodeConnSettings(buf[1+32+64+chachaPoly1305NonceSize:], ourSettings)
+	encryptInPlace(buf[1+32+64:], aead)
 	if _, err := conn.Write(buf); err != nil {
-		return connSettings{}, fmt.Errorf("could not write settings request: %w", err)
+		return nil, connSettings{}, fmt.Errorf("could not write handshake response: %w", err)
 	}
-	return mergeSettings(ours, theirs)
+
+	// read + decrypt settings
+	var settings connSettings
+	if _, err := io.ReadFull(conn, buf[:connSettingsSize+chachaOverhead]); err != nil {
+		return nil, connSettings{}, fmt.Errorf("could not read settings response: %w", err)
+	} else if plaintext, err := decryptInPlace(buf[:connSettingsSize+chachaOverhead], aead); err != nil {
+		return nil, connSettings{}, fmt.Errorf("could not decrypt settings response: %w", err)
+	} else if settings, err = mergeSettings(ourSettings, decodeConnSettings(plaintext)); err != nil {
+		return nil, connSettings{}, fmt.Errorf("peer sent unacceptable settings: %w", err)
+	}
+
+	return aead, settings, nil
 }
