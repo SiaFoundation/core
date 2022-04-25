@@ -43,10 +43,16 @@ func (sc *ScratchChain) ApplyBlock(b types.Block) (Checkpoint, error) {
 	}, nil
 }
 
-// Index returns the header at the specified height. The returned header may or
-// may not have a corresponding validated block.
+// Index returns the chain index at the specified height. The index may or may
+// not have a corresponding validated block.
 func (sc *ScratchChain) Index(height uint64) types.ChainIndex {
-	return sc.headers[height-sc.Base().Height-1].Index()
+	// if the height matches our current tip, return that
+	if height == sc.Tip().Height {
+		return sc.Tip()
+	}
+	// otherwise, we should have a child header, so we can use its ParentIndex
+	// instead of re-hashing the actual header
+	return sc.headers[height-sc.Base().Height].ParentIndex()
 }
 
 // Base returns the base of the header chain, i.e. the parent of the first
@@ -101,7 +107,7 @@ func (sc *ScratchChain) Unvalidated() []types.ChainIndex {
 	headers := sc.headers[sc.ts.Index.Height-sc.Base().Height:]
 	indices := make([]types.ChainIndex, len(headers))
 	for i := range indices {
-		indices[i] = headers[i].Index()
+		indices[i] = sc.Index(headers[i].Height)
 	}
 	return indices
 }
