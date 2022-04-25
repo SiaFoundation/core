@@ -54,6 +54,13 @@ func TestScratchChain(t *testing.T) {
 	sau := GenesisUpdate(b, testingDifficulty)
 
 	sc := NewScratchChain(sau.State)
+	if sc.Base() != sau.State.Index {
+		t.Fatal("wrong base:", sc.Base())
+	} else if sc.Tip() != sau.State.Index {
+		t.Fatal("wrong tip:", sc.Tip())
+	} else if sc.UnvalidatedBase() != sau.State.Index {
+		t.Fatal("wrong unvalidated base:", sc.UnvalidatedBase())
+	}
 	var blocks []types.Block
 	origOutputs := sau.NewSiacoinElements
 	toSpend := origOutputs[5:10]
@@ -77,8 +84,20 @@ func TestScratchChain(t *testing.T) {
 	signAllInputs(&txn, sau.State, privkey)
 
 	b = mineBlock(sau.State, b, txn)
-	if err := sc.AppendHeader(b.Header); err != nil {
+	if sc.Contains(b.Index()) {
+		t.Fatal("scratch chain should not contain the header yet")
+	} else if _, err := sc.ApplyBlock(b); err == nil {
+		t.Fatal("shouldn't be able to apply a block without a corresponding header")
+	} else if err := sc.AppendHeader(b.Header); err != nil {
 		t.Fatal(err)
+	} else if sc.Tip() != b.Index() {
+		t.Fatal("wrong tip:", sc.Tip())
+	} else if sc.UnvalidatedBase() != sc.Base() {
+		t.Fatal("wrong unvalidated base:", sc.UnvalidatedBase())
+	} else if !sc.Contains(b.Index()) {
+		t.Fatal("scratch chain should contain the header")
+	} else if sc.TotalWork() != testingDifficulty {
+		t.Fatal("wrong total work:", sc.TotalWork())
 	}
 	blocks = append(blocks, b)
 
@@ -155,11 +174,34 @@ func TestScratchChain(t *testing.T) {
 	}
 	blocks = append(blocks, b)
 
+	// should have one unvalidated header for each block
+	if sc.FullyValidated() {
+		t.Fatal("scratch chain should not be fully validated yet")
+	} else if len(sc.Unvalidated()) != len(blocks) {
+		t.Fatal("unvalidated headers not equal to blocks")
+	}
+	for i, index := range sc.Unvalidated() {
+		if index != blocks[i].Index() {
+			t.Fatal("unvalidated header not equal to block")
+		} else if sc.Index(index.Height) != index {
+			t.Fatal("inconsistent index:", sc.Index(index.Height), index)
+		}
+	}
+
 	// validate all blocks
 	for _, b := range blocks {
 		if _, err := sc.ApplyBlock(b); err != nil {
 			t.Fatal(err)
+		} else if sc.ValidTip() != b.Index() {
+			t.Fatal("wrong valid tip:", sc.ValidTip())
+		} else if len(sc.Unvalidated()) > 0 && sc.UnvalidatedBase() != sc.Index(b.Header.Height+1) {
+			t.Fatal("wrong unvalidated base:", sc.UnvalidatedBase())
 		}
+	}
+	if !sc.FullyValidated() {
+		t.Fatal("scratch chain should be fully validated")
+	} else if len(sc.Unvalidated()) != 0 {
+		t.Fatal("scratch chain should not have any unvalidated headers")
 	}
 }
 
