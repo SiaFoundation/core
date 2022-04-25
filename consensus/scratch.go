@@ -11,20 +11,19 @@ import (
 type ScratchChain struct {
 	base    types.ChainIndex
 	headers []types.BlockHeader
-	// for validating headers
-	hvc ValidationContext
-	// for validating transactions
-	tvc ValidationContext
+
+	hs State // for validating headers
+	ts State // for validating transactions
 }
 
 // AppendHeader validates the supplied header and appends it to the chain.
 // Headers must be appended before their transactions can be filled in with
 // AppendBlockTransactions.
 func (sc *ScratchChain) AppendHeader(h types.BlockHeader) error {
-	if err := sc.hvc.validateHeader(h); err != nil {
+	if err := sc.hs.validateHeader(h); err != nil {
 		return err
 	}
-	applyHeader(&sc.hvc, h)
+	applyHeader(&sc.hs, h)
 	sc.headers = append(sc.headers, h)
 	return nil
 }
@@ -32,15 +31,15 @@ func (sc *ScratchChain) AppendHeader(h types.BlockHeader) error {
 // ApplyBlock applies b to the chain. The block's validated header must already
 // exist in the chain.
 func (sc *ScratchChain) ApplyBlock(b types.Block) (Checkpoint, error) {
-	if sc.tvc.Index.Height+1 > sc.hvc.Index.Height {
+	if sc.ts.Index.Height+1 > sc.hs.Index.Height {
 		return Checkpoint{}, errors.New("more blocks than headers")
-	} else if err := sc.tvc.ValidateBlock(b); err != nil {
+	} else if err := sc.ts.ValidateBlock(b); err != nil {
 		return Checkpoint{}, err
 	}
-	sc.tvc = ApplyBlock(sc.tvc, b).Context
+	sc.ts = ApplyBlock(sc.ts, b).State
 	return Checkpoint{
-		Block:   b,
-		Context: sc.tvc,
+		Block: b,
+		State: sc.ts,
 	}, nil
 }
 
@@ -59,33 +58,33 @@ func (sc *ScratchChain) Base() types.ChainIndex {
 // Tip returns the tip of the header chain, which may or may not have a
 // corresponding validated block.
 func (sc *ScratchChain) Tip() types.ChainIndex {
-	return sc.hvc.Index
+	return sc.hs.Index
 }
 
 // UnvalidatedBase returns the base of the unvalidated header chain, i.e. the
 // lowest index for which there is no validated block. If all of the blocks have
 // been validated, UnvalidatedBase panics.
 func (sc *ScratchChain) UnvalidatedBase() types.ChainIndex {
-	if sc.tvc.Index.Height == sc.base.Height {
+	if sc.ts.Index.Height == sc.base.Height {
 		return sc.base
 	}
-	return sc.Index(sc.tvc.Index.Height + 1)
+	return sc.Index(sc.ts.Index.Height + 1)
 }
 
 // ValidTip returns the tip of the validated header chain, i.e. the highest
 // index for which there is a known validated block.
 func (sc *ScratchChain) ValidTip() types.ChainIndex {
-	return sc.tvc.Index
+	return sc.ts.Index
 }
 
 // FullyValidated is equivalent to sc.Tip() == sc.ValidTip().
 func (sc *ScratchChain) FullyValidated() bool {
-	return sc.tvc.Index == sc.hvc.Index
+	return sc.ts.Index == sc.hs.Index
 }
 
 // TotalWork returns the total work of the header chain.
 func (sc *ScratchChain) TotalWork() types.Work {
-	return sc.hvc.TotalWork
+	return sc.hs.TotalWork
 }
 
 // Contains returns whether the chain contains the specified index. It does not
@@ -99,7 +98,7 @@ func (sc *ScratchChain) Contains(index types.ChainIndex) bool {
 
 // Unvalidated returns the indexes of all the unvalidated blocks in the chain.
 func (sc *ScratchChain) Unvalidated() []types.ChainIndex {
-	headers := sc.headers[sc.tvc.Index.Height-sc.Base().Height:]
+	headers := sc.headers[sc.ts.Index.Height-sc.Base().Height:]
 	indices := make([]types.ChainIndex, len(headers))
 	for i := range indices {
 		indices[i] = headers[i].Index()
@@ -107,12 +106,11 @@ func (sc *ScratchChain) Unvalidated() []types.ChainIndex {
 	return indices
 }
 
-// NewScratchChain initializes a ScratchChain with the provided validation
-// context.
-func NewScratchChain(vc ValidationContext) *ScratchChain {
+// NewScratchChain initializes a ScratchChain with the provided State.
+func NewScratchChain(vc State) *ScratchChain {
 	return &ScratchChain{
 		base: vc.Index,
-		hvc:  vc,
-		tvc:  vc,
+		hs:   vc,
+		ts:   vc,
 	}
 }

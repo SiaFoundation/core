@@ -43,8 +43,8 @@ func TestChainSim(t *testing.T) {
 		if height != block.Header.Height {
 			t.Fatalf("invalid block height: expected %d, got %d", height, block.Header.Height)
 		}
-		if block.Index() != sim.Context.Index {
-			t.Fatalf("simulation index not updated, expected %v, got %v", block.Index(), sim.Context.Index)
+		if block.Index() != sim.State.Index {
+			t.Fatalf("simulation index not updated, expected %v, got %v", block.Index(), sim.State.Index)
 		}
 	}
 
@@ -68,19 +68,19 @@ func TestChainSim(t *testing.T) {
 	}
 
 	fork := sim.Fork()
-	if sim.Context.Index != fork.Context.Index {
-		t.Fatalf("forked chain did not have same index as original chain, expected %v, got %v", sim.Context.Index, fork.Context.Index)
+	if sim.State.Index != fork.State.Index {
+		t.Fatalf("forked chain did not have same index as original chain, expected %v, got %v", sim.State.Index, fork.State.Index)
 	}
 
-	lastIndex := sim.Context.Index
+	lastIndex := sim.State.Index
 	sim.MineBlock()
-	if sim.Context.Index == fork.Context.Index {
-		t.Fatalf("fork incorrectly updated along with original chain, expected %v, got %v", lastIndex, fork.Context.Index)
+	if sim.State.Index == fork.State.Index {
+		t.Fatalf("fork incorrectly updated along with original chain, expected %v, got %v", lastIndex, fork.State.Index)
 	}
 
-	lastIndex = sim.Context.Index
+	lastIndex = sim.State.Index
 	fork.MineBlocks(2)
-	if sim.Context.Index == fork.Context.Index {
-		t.Fatalf("original chain incorrectly updated along with fork chain, expected %v, got %v", lastIndex, sim.Context.Index)
+	if sim.State.Index == fork.State.Index {
+		t.Fatalf("original chain incorrectly updated along with fork chain, expected %v, got %v", lastIndex, sim.State.Index)
 	}
 }

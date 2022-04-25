@@ -30,11 +30,11 @@ func TestFlatStoreRecovery(t *testing.T) {
 	blocks := sim.MineBlocks(5)
 	for _, block := range blocks {
 		if err := fs.AddCheckpoint(consensus.Checkpoint{
-			Block:   block,
-			Context: sim.Context,
+			Block: block,
+			State: sim.State,
 		}); err != nil {
 			t.Fatal(err)
-		} else if err := fs.ExtendBest(sim.Context.Index); err != nil {
+		} else if err := fs.ExtendBest(sim.State.Index); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -43,8 +43,8 @@ func TestFlatStoreRecovery(t *testing.T) {
 	}
 
 	// compare tips
-	if fs.meta.tip != sim.Context.Index {
-		t.Fatal("meta tip mismatch", fs.meta.tip, sim.Context.Index)
+	if fs.meta.tip != sim.State.Index {
+		t.Fatal("meta tip mismatch", fs.meta.tip, sim.State.Index)
 	} else if index, err := fs.BestIndex(fs.meta.tip.Height); err != nil || index != fs.meta.tip {
 		t.Fatal("tip mismatch", index, fs.meta.tip)
 	}
@@ -54,11 +54,11 @@ func TestFlatStoreRecovery(t *testing.T) {
 	blocks = sim.MineBlocks(5)
 	for _, block := range blocks {
 		if err := fs.AddCheckpoint(consensus.Checkpoint{
-			Block:   block,
-			Context: sim.Context,
+			Block: block,
+			State: sim.State,
 		}); err != nil {
 			t.Fatal(err)
-		} else if err := fs.ExtendBest(sim.Context.Index); err != nil {
+		} else if err := fs.ExtendBest(sim.State.Index); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -82,8 +82,8 @@ func TestFlatStoreRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tip.Context.Index != goodTip || fs.meta.tip != goodTip {
-		t.Fatal("tip mismatch", tip.Context.Index, fs.meta.tip, goodTip)
+	if tip.State.Index != goodTip || fs.meta.tip != goodTip {
+		t.Fatal("tip mismatch", tip.State.Index, fs.meta.tip, goodTip)
 	} else if index, err := fs.BestIndex(goodTip.Height); err != nil || index != goodTip {
 		t.Fatal("tip mismatch", index, goodTip)
 	}
@@ -98,11 +98,11 @@ func TestEphemeralStore(t *testing.T) {
 	blocks := sim.MineBlocks(5)
 	for _, block := range blocks {
 		if err := es.AddCheckpoint(consensus.Checkpoint{
-			Block:   block,
-			Context: sim.Context,
+			Block: block,
+			State: sim.State,
 		}); err != nil {
 			t.Fatal(err)
-		} else if err := es.ExtendBest(sim.Context.Index); err != nil {
+		} else if err := es.ExtendBest(sim.State.Index); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -111,13 +111,13 @@ func TestEphemeralStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tip, err := es.Header(sim.Context.Index)
+	tip, err := es.Header(sim.State.Index)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// compare tips
-	if tip.Index() != sim.Context.Index {
-		t.Fatal("tip mismatch", tip.Index(), sim.Context.Index)
+	if tip.Index() != sim.State.Index {
+		t.Fatal("tip mismatch", tip.Index(), sim.State.Index)
 	} else if index, err := es.BestIndex(tip.Height); err != nil || index != tip.Index() {
 		t.Fatal("tip mismatch", index, tip)
 	}

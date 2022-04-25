@@ -18,7 +18,7 @@ func findBlockNonce(h *types.BlockHeader, target types.BlockID) {
 	}
 }
 
-func mineBlock(vc ValidationContext, parent types.Block, txns ...types.Transaction) types.Block {
+func mineBlock(s State, parent types.Block, txns ...types.Transaction) types.Block {
 	b := types.Block{
 		Header: types.BlockHeader{
 			Height:    parent.Header.Height + 1,
@@ -27,8 +27,8 @@ func mineBlock(vc ValidationContext, parent types.Block, txns ...types.Transacti
 		},
 		Transactions: txns,
 	}
-	b.Header.Commitment = vc.Commitment(b.Header.MinerAddress, b.Transactions)
-	findBlockNonce(&b.Header, types.HashRequiringWork(vc.Difficulty))
+	b.Header.Commitment = s.Commitment(b.Header.MinerAddress, b.Transactions)
+	findBlockNonce(&b.Header, types.HashRequiringWork(s.Difficulty))
 	return b
 }
 
@@ -53,7 +53,7 @@ func TestScratchChain(t *testing.T) {
 	}...)
 	sau := GenesisUpdate(b, testingDifficulty)
 
-	sc := NewScratchChain(sau.Context)
+	sc := NewScratchChain(sau.State)
 	var blocks []types.Block
 	origOutputs := sau.NewSiacoinElements
 	toSpend := origOutputs[5:10]
@@ -74,15 +74,15 @@ func TestScratchChain(t *testing.T) {
 			SpendPolicy: types.PolicyPublicKey(pubkey),
 		})
 	}
-	signAllInputs(&txn, sau.Context, privkey)
+	signAllInputs(&txn, sau.State, privkey)
 
-	b = mineBlock(sau.Context, b, txn)
+	b = mineBlock(sau.State, b, txn)
 	if err := sc.AppendHeader(b.Header); err != nil {
 		t.Fatal(err)
 	}
 	blocks = append(blocks, b)
 
-	sau = ApplyBlock(sau.Context, b)
+	sau = ApplyBlock(sau.State, b)
 	sau.UpdateElementProof(&origOutputs[2].StateElement)
 	newOutputs := sau.NewSiacoinElements
 
@@ -97,14 +97,14 @@ func TestScratchChain(t *testing.T) {
 		}},
 		MinerFee: types.Siacoins(1),
 	}
-	signAllInputs(&txn, sau.Context, privkey)
+	signAllInputs(&txn, sau.State, privkey)
 
-	b = mineBlock(sau.Context, b, txn)
+	b = mineBlock(sau.State, b, txn)
 	if err := sc.AppendHeader(b.Header); err != nil {
 		t.Fatal(err)
 	}
 	blocks = append(blocks, b)
-	sau = ApplyBlock(sau.Context, b)
+	sau = ApplyBlock(sau.State, b)
 	for i := range origOutputs {
 		sau.UpdateElementProof(&origOutputs[i].StateElement)
 	}
@@ -123,7 +123,7 @@ func TestScratchChain(t *testing.T) {
 			Address: ourAddr,
 		}},
 	}
-	signAllInputs(&parentTxn, sau.Context, privkey)
+	signAllInputs(&parentTxn, sau.State, privkey)
 	childTxn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
 			Parent: types.SiacoinElement{
@@ -147,9 +147,9 @@ func TestScratchChain(t *testing.T) {
 		}},
 		MinerFee: types.Siacoins(1),
 	}
-	signAllInputs(&childTxn, sau.Context, privkey)
+	signAllInputs(&childTxn, sau.State, privkey)
 
-	b = mineBlock(sau.Context, b, parentTxn, childTxn)
+	b = mineBlock(sau.State, b, parentTxn, childTxn)
 	if err := sc.AppendHeader(b.Header); err != nil {
 		t.Fatal(err)
 	}
@@ -165,26 +165,26 @@ func TestScratchChain(t *testing.T) {
 
 func TestScratchChainDifficultyAdjustment(t *testing.T) {
 	b := genesisWithSiacoinOutputs()
-	vc := GenesisUpdate(b, testingDifficulty).Context
+	s := GenesisUpdate(b, testingDifficulty).State
 
 	// mine a block, triggering adjustment
-	sc := NewScratchChain(vc)
-	b = mineBlock(vc, b)
+	sc := NewScratchChain(s)
+	b = mineBlock(s, b)
 	if err := sc.AppendHeader(b.Header); err != nil {
 		t.Fatal(err)
 	} else if _, err := sc.ApplyBlock(b); err != nil {
 		t.Fatal(err)
 	}
-	vc = ApplyBlock(vc, b).Context
+	s = ApplyBlock(s, b).State
 
 	// difficulty should have changed
-	currentDifficulty := sc.tvc.Difficulty
+	currentDifficulty := sc.ts.Difficulty
 	if currentDifficulty.Cmp(testingDifficulty) <= 0 {
 		t.Fatal("difficulty should have increased")
 	}
 
 	// mine a block with less than the minimum work; it should be rejected
-	b = mineBlock(vc, b)
+	b = mineBlock(s, b)
 	for types.WorkRequiredForHash(b.ID()).Cmp(currentDifficulty) >= 0 {
 		b.Header.Nonce = frand.Uint64n(math.MaxUint32) * NonceFactor
 	}
@@ -193,11 +193,11 @@ func TestScratchChainDifficultyAdjustment(t *testing.T) {
 	}
 
 	// mine at actual difficulty
-	findBlockNonce(&b.Header, types.HashRequiringWork(vc.Difficulty))
+	findBlockNonce(&b.Header, types.HashRequiringWork(s.Difficulty))
 	if err := sc.AppendHeader(b.Header); err != nil {
 		t.Fatal(err)
 	} else if _, err := sc.ApplyBlock(b); err != nil {
 		t.Fatal(err)
 	}
-	vc = ApplyBlock(vc, b).Context
+	s = ApplyBlock(s, b).State
 }

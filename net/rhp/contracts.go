@@ -64,8 +64,8 @@ func FinalizeProgramRevision(fc types.FileContract, burn types.Currency) (types.
 }
 
 // ValidateContractSignatures validates a contract's renter and host signatures.
-func ValidateContractSignatures(vc consensus.ValidationContext, fc types.FileContract) (err error) {
-	hash := vc.ContractSigHash(fc)
+func ValidateContractSignatures(cs consensus.State, fc types.FileContract) (err error) {
+	hash := cs.ContractSigHash(fc)
 	if !fc.RenterPublicKey.VerifyHash(hash, fc.RenterSignature) {
 		return ErrInvalidRenterSignature
 	} else if !fc.HostPublicKey.VerifyHash(hash, fc.HostSignature) {
