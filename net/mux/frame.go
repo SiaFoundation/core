@@ -9,6 +9,30 @@ import (
 	"lukechampine.com/frand"
 )
 
+// The SiaMux protocol multiplexes many independent streams of data over a
+// single connection by chunking them into "frames." A frame consists of a
+// header (indicating which stream the frame belongs to) followed by raw stream
+// data.
+//
+// SiaMux also encrypts the underlying transport at the packet level. Here, a
+// "packet" does not necessarily correspond to the actual IP packets sent over
+// the wire; it is merely our atomic unit of transfer. A sender must pad their
+// messages to the next packet boundary, and a receiver must read a full packet
+// before it can perform any processing. Thus, to keep latency low, a single
+// frame should not be split across multiple packets.
+//
+// However, multiple frames may be stored within a single packet. After a
+// receiver decodes a frame, it checks for the presence of another frame within
+// the packet by inspecting the next unread bit. A 1 bit indicates another
+// frame. (This bit is "stolen" from the stream ID; see encodeFrameHeader.) If
+// the bit is 0, the next unread bit is inspected. A 0 bit indicates padding:
+// the rest of the packet is discarded. A 1 bit indicates "covert stream data:"
+// the remaining 6 bits of the byte are discarded, and the remainder of the
+// packet is treated as a distinct stream of raw data. This data is buffered
+// until it comprises a full frame, whereupon it is decoded and processed as
+// usual and the covert buffer is reset. Since this covert data is only ever
+// sent in place of padding, it cannot be detected by traffic analysis.
+
 const (
 	flagFirst = 1 << iota // first frame in stream
 	flagLast              // stream is being closed gracefully
@@ -75,10 +99,14 @@ type packetReader struct {
 	buf       []byte
 	encrypted []byte // aliases buf
 	decrypted []byte // aliases buf
-	covert    []byte
+	covert    []byte // separate buffer; grows until we have a full frame
 }
 
 func (pr *packetReader) Read(p []byte) (int, error) {
+	// if we have decrypted data, use that; otherwise, if we have an encrypted
+	// packet, decrypt it and use that; otherwise, read at least one more packet,
+	// decrypt it, and use that
+
 	if len(pr.decrypted) == 0 {
 		if len(pr.encrypted) < pr.packetSize {
 			pr.buf = append(pr.buf[:0], pr.encrypted...)
@@ -89,8 +117,6 @@ func (pr *packetReader) Read(p []byte) (int, error) {
 			pr.buf = pr.buf[:len(pr.buf)+n]
 			pr.encrypted = pr.buf
 		}
-
-		// decrypt next packet
 		decrypted, err := decryptInPlace(pr.encrypted[:pr.packetSize], pr.aead)
 		if err != nil {
 			return 0, err
@@ -105,10 +131,12 @@ func (pr *packetReader) Read(p []byte) (int, error) {
 }
 
 func (pr *packetReader) skipPadding() {
+	// the first bit tells us if we have a regular frame
 	if len(pr.decrypted) == 0 || pr.decrypted[0]&1 != 0 {
 		return
 	}
-	if pr.decrypted[0]&2 != 0 {
+	// the second bit tells us if we have covert data or padding
+	if pr.decrypted[0]&0b10 != 0 {
 		pr.covert = append(pr.covert, pr.decrypted[1:]...)
 	}
 	pr.decrypted = pr.decrypted[len(pr.decrypted):]
@@ -135,6 +163,7 @@ func (pr *packetReader) covertFrame() (frameHeader, []byte, bool) {
 
 func (pr *packetReader) nextFrame(buf []byte) (frameHeader, []byte, bool, error) {
 	pr.skipPadding()
+	// if we've buffered a full covert frame, return it
 	if h, payload, ok := pr.covertFrame(); ok {
 		return h, payload, true, nil
 	}

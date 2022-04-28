@@ -15,6 +15,14 @@ import (
 	"time"
 )
 
+// NOTE: This package makes heavy use of sync.Cond to manage concurrent streams
+// multiplexed onto a single connection. sync.Cond is rarely used (since it is
+// almost never the right tool for the job), and consequently, Go programmers
+// tend to be unfamiliar with its semantics. Nevertheless, it is currently the
+// only way to achieve optimal throughput in a stream multiplexer, so we make
+// careful use of it here. Please make sure you understand sync.Cond thoroughly
+// before attempting to modify this code.
+
 // Errors relating to stream or mux shutdown.
 var (
 	ErrClosedConn       = errors.New("underlying connection was closed")
@@ -170,7 +178,7 @@ func (m *Mux) writeLoop() {
 			}
 			// replace padding with covert data, if available
 			if len(m.covertBuf) > 0 && len(pad) > 1 {
-				pad[0] = 0b10 // sentinel byte
+				pad[0] = 0b10 // sentinel byte; see packetReader
 				n := copy(pad[1:], m.covertBuf)
 				m.covertBuf = append(m.covertBuf[:0], m.covertBuf[n:]...)
 			}
