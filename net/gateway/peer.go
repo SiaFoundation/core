@@ -11,7 +11,7 @@ import (
 	"lukechampine.com/frand"
 )
 
-const protocolVersion = 1
+const protocolVersion = 2
 
 // A UniqueID is a randomly-generated nonce that helps prevent self-connections
 // and double-connections.
