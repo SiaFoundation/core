@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
 	"sync"
@@ -216,7 +217,7 @@ func (m *Mux) readLoop() {
 		}
 		if h.id == idKeepalive {
 			continue // no action required
-		} else if h.id < 1<<8 {
+		} else if h.id < idLowestStream {
 			m.setErr(fmt.Errorf("peer sent invalid frame ID (%v) (covert=%v, length=%v, flags=%v)", h.id, covert, h.length, h.flags))
 			return
 		}
@@ -300,8 +301,15 @@ func (m *Mux) DialStream() *Stream {
 		established: false,
 		err:         m.err, // stream is unusable if m.err is set
 	}
-	m.nextID += 2
 	m.streams[s.id] = s
+	m.nextID += 2
+	// wraparound when nextID grows too large
+	if m.nextID >= math.MaxUint32>>2 {
+		m.nextID = idLowestStream + m.nextID&1 // preserve dial/accept bit
+		// NOTE: the above assumes that idLowestStream & 1 == 0, which we enforce
+		// at compile time using the following declaration:
+		var _ [idLowestStream & 1]struct{} = [0]struct{}{}
+	}
 	return s
 }
 
@@ -345,7 +353,7 @@ func newMux(conn net.Conn, aead cipher.AEAD, settings connSettings) *Mux {
 		aead:      aead,
 		settings:  settings,
 		streams:   make(map[uint32]*Stream),
-		nextID:    1 << 8, // avoid collisions with reserved IDs
+		nextID:    idLowestStream,
 		writeBuf:  make([]byte, 0, settings.maxFrameSize()*10),
 		covertBuf: make([]byte, 0, settings.maxPayloadSize()*2),
 	}

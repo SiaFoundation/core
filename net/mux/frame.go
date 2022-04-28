@@ -18,6 +18,8 @@ const (
 const (
 	idErrorBadInit = iota // should never be seen
 	idKeepalive           // empty frame to keep connection open
+
+	idLowestStream = 1 << 8 // IDs below this value are reserved
 )
 
 const (
