@@ -244,6 +244,12 @@ func (m *Mux) readLoop() {
 					continue
 				}
 				// create a new stream
+				const maxStreams = 1 << 20
+				if len(m.streams) > maxStreams {
+					m.mu.Unlock()
+					m.setErr(fmt.Errorf("exceeded concurrent stream limit (%v streams)", maxStreams))
+					return
+				}
 				curStream = &Stream{
 					m:           m,
 					id:          h.id,
