@@ -192,6 +192,7 @@ func TestPolicyJSON(t *testing.T) {
 		`uc(1, [])`,
 		`uc(1, [],)`,
 		`uc(1, [],a)`,
+		`uc(1, [aa], 1)`,
 	}
 	for _, test := range testStrings {
 		var p SpendPolicy

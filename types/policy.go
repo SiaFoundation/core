@@ -170,151 +170,136 @@ func (p SpendPolicy) String() string {
 }
 
 // ParseSpendPolicy parses a spend policy from a string.
-func ParseSpendPolicy(p string) (SpendPolicy, error) {
-	parenBegin := strings.IndexByte(p, '(')
-	if parenBegin == -1 {
-		return SpendPolicy{}, errors.New("policy missing begin parentheses")
+func ParseSpendPolicy(s string) (SpendPolicy, error) {
+	sp, rem, err := parseSpendPolicy(s)
+	if err != nil {
+		return SpendPolicy{}, err
+	} else if rem != "" {
+		return SpendPolicy{}, fmt.Errorf("trailing bytes: %q", rem)
 	}
-	parenEnd := strings.LastIndexByte(p, ')')
-	if parenEnd == -1 {
-		return SpendPolicy{}, errors.New("policy missing end parentheses")
-	}
-	if parenBegin > parenEnd {
-		return SpendPolicy{}, errors.New("close parentheses before open parentheses")
-	}
+	return sp, nil
+}
 
-	policyType := p[:parenBegin]
-	between := p[parenBegin+1 : parenEnd]
-
-	switch policyType {
-	case "above":
-		n, err := strconv.ParseUint(between, 10, 64)
-		if err != nil {
-			return SpendPolicy{}, err
+func parseSpendPolicy(s string) (SpendPolicy, string, error) {
+	var sp SpendPolicy
+	nextToken := func() string {
+		s = strings.TrimSpace(s)
+		i := strings.IndexAny(s, "(),[]")
+		if i == -1 {
+			return ""
 		}
-		return PolicyAbove(n), nil
+		t := s[:i]
+		s = s[i:]
+		return t
+	}
+	consume := func(b byte) error {
+		if len(s) == 0 {
+			return errors.New("string has no characters remaining")
+		}
+
+		s = strings.TrimSpace(s)
+		if s[0] != b {
+			return fmt.Errorf("expected %c, got %c", b, s[0])
+		}
+		s = s[1:]
+		return nil
+	}
+
+	typ := nextToken()
+	if err := consume('('); err != nil {
+		return SpendPolicy{}, "", err
+	}
+	switch typ {
+	case "above":
+		n, err := strconv.ParseUint(nextToken(), 10, 64)
+		if err != nil {
+			return SpendPolicy{}, "", err
+		}
+		sp = PolicyAbove(n)
 	case "pk":
-		if len(between) != 64 {
-			return SpendPolicy{}, errors.New("invalid public key provided")
+		key := nextToken()
+		if len(key) != 64 {
+			return SpendPolicy{}, "", errors.New("hex encoded public key string length should be 64")
 		}
 		var pk PublicKey
-		if _, err := hex.Decode(pk[:], []byte(between)); err != nil {
-			return SpendPolicy{}, err
+		if _, err := hex.Decode(pk[:], []byte(key)); err != nil {
+			return SpendPolicy{}, "", err
 		}
-		return PolicyPublicKey(pk), nil
+		sp = PolicyPublicKey(pk)
 	case "thresh":
-		comma := strings.IndexByte(between, ',')
-		if comma == -1 {
-			return SpendPolicy{}, errors.New("threshold policy missing comma")
-		}
-
-		n, err := strconv.ParseUint(string(between[:comma]), 10, 8)
+		n, err := strconv.ParseUint(nextToken(), 10, 8)
 		if err != nil {
-			return SpendPolicy{}, err
+			return SpendPolicy{}, "", err
 		}
-		if n == 0 {
-			return PolicyThreshold(0, nil), nil
+		if err := consume(','); err != nil {
+			return SpendPolicy{}, "", err
 		}
-		afterComma := between[comma:]
-
-		bracketBegin := strings.IndexByte(afterComma, '[')
-		if bracketBegin == -1 {
-			return SpendPolicy{}, errors.New("threshold policy missing open bracket")
-		}
-		bracketEnd := strings.LastIndexByte(afterComma, ']')
-		if bracketEnd == -1 {
-			return SpendPolicy{}, errors.New("threshold policy missing close bracket")
-		}
-		if bracketEnd < bracketBegin {
-			return SpendPolicy{}, errors.New("threshold policy has close bracket before open bracket")
-		}
-
-		var policyStrings []string
-		var current strings.Builder
-		var openParen, closeParen int
-		policys := afterComma[bracketBegin+1 : bracketEnd]
-		for _, c := range policys {
-			// don't write leading commas
-			if !(openParen == 0 && c == ',') {
-				current.WriteRune(c)
-			}
-
-			if c == '(' {
-				openParen++
-			} else if c == ')' {
-				closeParen++
-			}
-
-			if (openParen != 0 && closeParen != 0) && (openParen == closeParen) {
-				openParen, closeParen = 0, 0
-				policyStrings = append(policyStrings, current.String())
-				current.Reset()
-			}
+		if err := consume('['); err != nil {
+			return SpendPolicy{}, "", err
 		}
 
 		var policies []SpendPolicy
-		for _, str := range policyStrings {
-			policy, err := ParseSpendPolicy(str)
+		for consume(']') != nil {
+			var policy SpendPolicy
+			policy, s, err = parseSpendPolicy(s)
 			if err != nil {
-				return SpendPolicy{}, err
+				return SpendPolicy{}, "", err
 			}
 			policies = append(policies, policy)
-		}
 
-		return PolicyThreshold(uint8(n), policies), nil
+			// last policy in list will not have comma after it
+			// so don't check for error
+			consume(',')
+		}
+		sp = PolicyThreshold(uint8(n), policies)
 	case "uc":
-		comma := strings.IndexByte(between, ',')
-		if comma == -1 {
-			return SpendPolicy{}, errors.New("unlock conditions policy missing comma")
-		}
-
-		timelock, err := strconv.ParseUint(string(between[:comma]), 10, 8)
+		timelock, err := strconv.ParseUint(nextToken(), 10, 8)
 		if err != nil {
-			return SpendPolicy{}, err
+			return SpendPolicy{}, "", err
 		}
-		afterComma := between[comma:]
-
-		bracketBegin := strings.IndexByte(afterComma, '[')
-		if bracketBegin == -1 {
-			return SpendPolicy{}, errors.New("unlock conditions policy missing open bracket")
+		if err := consume(','); err != nil {
+			return SpendPolicy{}, "", err
 		}
-		bracketEnd := strings.IndexByte(afterComma, ']')
-		if bracketEnd == -1 {
-			return SpendPolicy{}, errors.New("unlock conditions policy missing close bracket")
-		}
-		if bracketEnd < bracketBegin {
-			return SpendPolicy{}, errors.New("unlock conditions policy has close bracket before open bracket")
+		if err := consume('['); err != nil {
+			return SpendPolicy{}, "", err
 		}
 
 		var pks []PublicKey
-		pkStrs := strings.Split(afterComma[bracketBegin+1:bracketEnd], ",")
-		for _, str := range pkStrs {
-			if len(str) == 0 {
-				continue
+		for consume(']') != nil {
+			next := nextToken()
+			if len(next) != 64 {
+				return SpendPolicy{}, "", errors.New("hex encoded public key string length should be 64")
 			}
+
 			var pk PublicKey
-			if _, err := hex.Decode(pk[:], []byte(str)); err != nil {
-				return SpendPolicy{}, err
+			if _, err := hex.Decode(pk[:], []byte(next)); err != nil {
+				return SpendPolicy{}, "", err
 			}
 			pks = append(pks, pk)
 		}
 
-		finalComma := strings.IndexByte(afterComma[bracketEnd:], ',')
-		if finalComma == -1 {
-			return SpendPolicy{}, errors.New("unlock conditions policy missing comma after public keys")
+		if err := consume(','); err != nil {
+			return SpendPolicy{}, "", err
 		}
 
-		signaturesRequired, err := strconv.ParseUint(afterComma[bracketEnd:][finalComma+1:], 10, 8)
+		signaturesRequired, err := strconv.ParseUint(nextToken(), 10, 8)
 		if err != nil {
-			return SpendPolicy{}, err
+			return SpendPolicy{}, "", err
 		}
-		return SpendPolicy{PolicyTypeUnlockConditions{
-			Timelock:           timelock,
-			PublicKeys:         pks,
-			SignaturesRequired: uint8(signaturesRequired),
-		}}, nil
+
+		sp = SpendPolicy{
+			PolicyTypeUnlockConditions{
+				Timelock:           timelock,
+				PublicKeys:         pks,
+				SignaturesRequired: uint8(signaturesRequired),
+			},
+		}
 	}
-	return SpendPolicy{}, fmt.Errorf("unknown type of policy provided: %s", policyType)
+	if err := consume(')'); err != nil {
+		return SpendPolicy{}, "", err
+	}
+
+	return sp, s, nil
 }
 
 // MarshalJSON implements json.Marshaler.
