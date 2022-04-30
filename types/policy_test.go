@@ -1,6 +1,8 @@
 package types
 
 import (
+	"encoding/json"
+	"reflect"
 	"testing"
 )
 
@@ -88,6 +90,113 @@ func TestPolicyAddressString(t *testing.T) {
 	for _, tt := range tests {
 		if got := tt.policy.Address().String(); got != tt.want {
 			t.Errorf("wrong address for %T(%v)", tt.policy, tt.policy)
+		}
+	}
+}
+
+func TestPolicyJSON(t *testing.T) {
+	publicKeys := []PublicKey{
+		mustParsePublicKey("ed25519:42d33219eb9e7d52d4a4edff215e36535d9d82c9439497a05ab7712193d43282"),
+		mustParsePublicKey("ed25519:b908477c624679a2dc934a662e43c22844595902f1c8dc29b7f8caf2e0369cc9"),
+		mustParsePublicKey("ed25519:11aa63482223329fb8b8313da78cc58820f2933cc621e0ef275c305092ea3704"),
+	}
+
+	tests := []SpendPolicy{
+		PolicyAbove(50),
+		PolicyPublicKey(publicKeys[0]),
+		AnyoneCanSpend(),
+		PolicyThreshold(0, nil),
+		PolicyThreshold(
+			1,
+			[]SpendPolicy{
+				PolicyPublicKey(publicKeys[0]),
+			},
+		),
+		PolicyThreshold(
+			1,
+			[]SpendPolicy{
+				PolicyPublicKey(publicKeys[0]),
+				PolicyThreshold(
+					2,
+					[]SpendPolicy{
+						PolicyAbove(50),
+						PolicyPublicKey(publicKeys[1]),
+					},
+				),
+			},
+		),
+		PolicyThreshold(
+			2,
+			[]SpendPolicy{
+				PolicyPublicKey(publicKeys[0]),
+				PolicyThreshold(
+					2,
+					[]SpendPolicy{
+						PolicyAbove(50),
+						PolicyPublicKey(publicKeys[1]),
+						PolicyThreshold(
+							2,
+							[]SpendPolicy{
+								PolicyAbove(50),
+								PolicyPublicKey(publicKeys[1]),
+							},
+						),
+					},
+				),
+				PolicyPublicKey(publicKeys[1]),
+				PolicyPublicKey(publicKeys[2]),
+			},
+		),
+		{PolicyTypeUnlockConditions{
+			PublicKeys: []PublicKey{
+				publicKeys[0],
+			},
+			SignaturesRequired: 1,
+		}},
+		{PolicyTypeUnlockConditions{}},
+	}
+
+	for _, test := range tests {
+		data, err := json.Marshal(test)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var p SpendPolicy
+		if err := json.Unmarshal(data, &p); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(p, test) {
+			t.Fatalf("expected %v got %v", test, p)
+		}
+	}
+
+	testStrings := []string{
+		"",
+		")(",
+		"aaa(5)",
+		"above()",
+		"above(zzz)",
+		"pk()",
+		"pk(zzz)",
+		"thresh(zzz)",
+		"thresh(1)",
+		"thresh(a)",
+		"thresh(1, [)",
+		"thresh(1, ][)",
+		"thresh(1, a)",
+		`thresh(1, [aaa(50)])`,
+		`uc(1)`,
+		`uc(1,)`,
+		`uc(1, [)`,
+		`uc(1, ][)`,
+		`uc(1, [])`,
+		`uc(1, [],)`,
+		`uc(1, [],a)`,
+	}
+	for _, test := range testStrings {
+		var p SpendPolicy
+		if err := json.Unmarshal([]byte(`"`+test+`"`), &p); err == nil {
+			t.Fatalf("unmarshal should have errored on input %s", test)
 		}
 	}
 }
