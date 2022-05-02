@@ -72,10 +72,7 @@ func TestHandshake(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer sess.Close()
-	stream, err := sess.DialStream()
-	if err != nil {
-		t.Fatal(err)
-	}
+	stream := sess.DialStream()
 	defer stream.Close()
 
 	name := objString("foo")

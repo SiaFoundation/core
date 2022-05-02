@@ -11,9 +11,7 @@ import (
 	"lukechampine.com/frand"
 )
 
-const protocolVersion = 1
-
-var errRejectedVersion = errors.New("peer rejected our version")
+const protocolVersion = 2
 
 // A UniqueID is a randomly-generated nonce that helps prevent self-connections
 // and double-connections.
@@ -72,10 +70,7 @@ func DialSession(conn net.Conn, genesisID types.BlockID, uid UniqueID) (_ *Sessi
 			m.Close()
 		}
 	}()
-	s, err := m.DialStream()
-	if err != nil {
-		return nil, err
-	}
+	s := m.DialStream()
 	defer s.Close()
 
 	// exchange versions

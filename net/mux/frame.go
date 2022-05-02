@@ -3,12 +3,35 @@ package mux
 import (
 	"crypto/cipher"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
-	"net"
-	"time"
+
+	"lukechampine.com/frand"
 )
+
+// The SiaMux protocol multiplexes many independent streams of data over a
+// single connection by chunking them into "frames." A frame consists of a
+// header (indicating which stream the frame belongs to) followed by raw stream
+// data.
+//
+// SiaMux also encrypts the underlying transport at the packet level. Here, a
+// "packet" does not necessarily correspond to the actual IP packets sent over
+// the wire; it is merely our atomic unit of transfer. A sender must pad their
+// messages to the next packet boundary, and a receiver must read a full packet
+// before it can perform any processing. Thus, to keep latency low, a single
+// frame should not be split across multiple packets.
+//
+// However, multiple frames may be stored within a single packet. After a
+// receiver decodes a frame, it checks for the presence of another frame within
+// the packet by inspecting the next unread bit. A 1 bit indicates another
+// frame. (This bit is "stolen" from the stream ID; see encodeFrameHeader.) If
+// the bit is 0, the next unread bit is inspected. A 0 bit indicates padding:
+// the rest of the packet is discarded. A 1 bit indicates "covert stream data:"
+// the remaining 6 bits of the byte are discarded, and the remainder of the
+// packet is treated as a distinct stream of raw data. This data is buffered
+// until it comprises a full frame, whereupon it is decoded and processed as
+// usual and the covert buffer is reset. Since this covert data is only ever
+// sent in place of padding, it cannot be detected by traffic analysis.
 
 const (
 	flagFirst = 1 << iota // first frame in stream
@@ -17,188 +40,154 @@ const (
 )
 
 const (
-	idErrorBadInit        = iota // should never be seen
-	idEstablishEncryption        // encryption handshake frame
-	idUpdateSettings             // settings handshake frame
-	idKeepalive                  // empty frame to keep connection open
+	idErrorBadInit = iota // should never be seen
+	idKeepalive           // empty frame to keep connection open
+
+	idLowestStream = 1 << 8 // IDs below this value are reserved
+)
+
+const (
+	chachaPoly1305NonceSize = 12
+	chachaPoly1305TagSize   = 16
+	chachaOverhead          = chachaPoly1305NonceSize + chachaPoly1305TagSize
 )
 
 type frameHeader struct {
 	id     uint32
-	length uint32
+	length uint16
 	flags  uint16
 }
 
-const frameHeaderSize = 10
-const encryptedHeaderSize = frameHeaderSize + chachaOverhead
+const frameHeaderSize = 4 + 2 + 2
 
 func encodeFrameHeader(buf []byte, h frameHeader) {
-	binary.LittleEndian.PutUint32(buf[0:], h.id)
-	binary.LittleEndian.PutUint32(buf[4:], h.length)
-	binary.LittleEndian.PutUint16(buf[8:], h.flags)
+	binary.LittleEndian.PutUint32(buf[0:], (h.id<<1)|1)
+	binary.LittleEndian.PutUint16(buf[4:], h.length)
+	binary.LittleEndian.PutUint16(buf[6:], h.flags)
 }
 
 func decodeFrameHeader(buf []byte) (h frameHeader) {
-	h.id = binary.LittleEndian.Uint32(buf[0:])
-	h.length = binary.LittleEndian.Uint32(buf[4:])
-	h.flags = binary.LittleEndian.Uint16(buf[8:])
+	h.id = binary.LittleEndian.Uint32(buf[0:]) >> 1
+	h.length = binary.LittleEndian.Uint16(buf[4:])
+	h.flags = binary.LittleEndian.Uint16(buf[6:])
 	return
 }
 
-func readFrame(r io.Reader, buf []byte) (frameHeader, []byte, error) {
-	// read and decode header
-	if _, err := io.ReadFull(r, buf[:frameHeaderSize]); err != nil {
-		return frameHeader{}, nil, fmt.Errorf("unable to read frame header: %w", err)
-	}
-	h := decodeFrameHeader(buf)
-	if h.length > uint32(len(buf)) {
-		return frameHeader{}, nil, errors.New("peer sent too-large unencrypted frame")
-	}
-	// read payload
-	payload := buf[:h.length]
-	if _, err := io.ReadFull(r, payload); err != nil {
-		return frameHeader{}, nil, fmt.Errorf("unable to read frame payload: %w", err)
-	}
-	if h.flags&flagError != 0 {
-		return h, nil, errors.New(string(payload))
-	}
-	return h, payload, nil
+func encryptInPlace(buf []byte, aead cipher.AEAD) {
+	nonce, plaintext := buf[:chachaPoly1305NonceSize], buf[chachaPoly1305NonceSize:len(buf)-chachaPoly1305TagSize]
+	frand.Read(nonce)
+	aead.Seal(plaintext[:0], nonce, plaintext, nil)
 }
 
-var ourVersion = []byte{1}
-
-func initiateVersionHandshake(conn net.Conn) error {
-	theirVersion := make([]byte, 1)
-	if _, err := conn.Write(ourVersion); err != nil {
-		return fmt.Errorf("could not write our version: %w", err)
-	} else if _, err := io.ReadFull(conn, theirVersion); err != nil {
-		return fmt.Errorf("could not read peer version: %w", err)
-	} else if theirVersion[0] != 1 {
-		return errors.New("bad version")
-	}
-	return nil
+func decryptInPlace(buf []byte, aead cipher.AEAD) ([]byte, error) {
+	nonce, ciphertext := buf[:chachaPoly1305NonceSize], buf[chachaPoly1305NonceSize:]
+	return aead.Open(ciphertext[:0], nonce, ciphertext, nil)
 }
 
-func acceptVersionHandshake(conn net.Conn) error {
-	theirVersion := make([]byte, 1)
-	if _, err := io.ReadFull(conn, theirVersion); err != nil {
-		return fmt.Errorf("could not read peer version: %w", err)
-	} else if _, err := conn.Write(ourVersion); err != nil {
-		return fmt.Errorf("could not write our version: %w", err)
-	} else if theirVersion[0] != 1 {
-		return errors.New("bad version")
-	}
-	return nil
+func appendFrame(buf []byte, h frameHeader, payload []byte) []byte {
+	frame := buf[len(buf):][:frameHeaderSize+len(payload)]
+	encodeFrameHeader(frame[:frameHeaderSize], h)
+	copy(frame[frameHeaderSize:], payload)
+	return buf[:len(buf)+len(frame)]
 }
 
-type connSettings struct {
-	RequestedPacketSize int
-	MaxFrameSizePackets int
-	MaxTimeout          time.Duration
+type packetReader struct {
+	r          io.Reader
+	aead       cipher.AEAD
+	packetSize int
+
+	buf       []byte
+	encrypted []byte // aliases buf
+	decrypted []byte // aliases buf
+	covert    []byte // separate buffer; grows until we have a full frame
 }
 
-func (cs connSettings) maxFrameSize() int {
-	return cs.MaxFrameSizePackets * cs.RequestedPacketSize
+func (pr *packetReader) Read(p []byte) (int, error) {
+	// if we have decrypted data, use that; otherwise, if we have an encrypted
+	// packet, decrypt it and use that; otherwise, read at least one more packet,
+	// decrypt it, and use that
+
+	if len(pr.decrypted) == 0 {
+		if len(pr.encrypted) < pr.packetSize {
+			pr.buf = append(pr.buf[:0], pr.encrypted...)
+			n, err := io.ReadAtLeast(pr.r, pr.buf[len(pr.buf):cap(pr.buf)], pr.packetSize-len(pr.encrypted))
+			if err != nil {
+				return 0, err
+			}
+			pr.buf = pr.buf[:len(pr.buf)+n]
+			pr.encrypted = pr.buf
+		}
+		decrypted, err := decryptInPlace(pr.encrypted[:pr.packetSize], pr.aead)
+		if err != nil {
+			return 0, err
+		}
+		pr.decrypted = decrypted
+		pr.encrypted = pr.encrypted[pr.packetSize:]
+	}
+
+	n := copy(p, pr.decrypted)
+	pr.decrypted = pr.decrypted[n:]
+	return n, nil
 }
 
-func (cs connSettings) maxPayloadSize() int {
-	return cs.maxFrameSize() - encryptedHeaderSize - chachaOverhead
+func (pr *packetReader) skipPadding() {
+	// the first bit tells us if we have a regular frame
+	if len(pr.decrypted) == 0 || pr.decrypted[0]&1 != 0 {
+		return
+	}
+	// the second bit tells us if we have covert data or padding
+	if pr.decrypted[0]&0b10 != 0 {
+		pr.covert = append(pr.covert, pr.decrypted[1:]...)
+	}
+	pr.decrypted = pr.decrypted[len(pr.decrypted):]
 }
 
-var defaultConnSettings = connSettings{
-	RequestedPacketSize: 1440, // IPv6 MTU
-	MaxFrameSizePackets: 10,
-	MaxTimeout:          20 * time.Minute,
+func (pr *packetReader) covertFrame() (frameHeader, []byte, bool) {
+	if len(pr.covert) < frameHeaderSize {
+		return frameHeader{}, nil, false
+	}
+	h := decodeFrameHeader(pr.covert[:frameHeaderSize])
+	if len(pr.covert[frameHeaderSize:]) < int(h.length) {
+		return frameHeader{}, nil, false
+	}
+	payload := pr.covert[frameHeaderSize:][:h.length]
+	// check for another covert frame
+	if rest := pr.covert[frameHeaderSize+h.length:]; len(rest) > 0 && rest[0]&1 != 0 {
+		pr.covert = rest
+	} else {
+		// no more covert data; skip rest of buffer
+		pr.covert = pr.covert[:0]
+	}
+	return h, payload, true
 }
 
-const settingsFrameSize = 1024
-const connSettingsSize = 24
+func (pr *packetReader) nextFrame(buf []byte) (frameHeader, []byte, bool, error) {
+	pr.skipPadding()
+	// if we've buffered a full covert frame, return it
+	if h, payload, ok := pr.covertFrame(); ok {
+		return h, payload, true, nil
+	}
 
-func encodeConnSettings(buf []byte, cs connSettings) {
-	binary.LittleEndian.PutUint64(buf[0:], uint64(cs.RequestedPacketSize))
-	binary.LittleEndian.PutUint64(buf[8:], uint64(cs.MaxFrameSizePackets))
-	binary.LittleEndian.PutUint64(buf[16:], uint64(cs.MaxTimeout.Seconds()))
+	if _, err := io.ReadFull(pr, buf[:frameHeaderSize]); err != nil {
+		return frameHeader{}, nil, false, fmt.Errorf("could not read frame header: %w", err)
+	}
+	h := decodeFrameHeader(buf[:frameHeaderSize])
+	if h.length > uint16(pr.packetSize-frameHeaderSize) {
+		return frameHeader{}, nil, false, fmt.Errorf("peer sent too-large frame (%v bytes)", h.length)
+	} else if _, err := io.ReadFull(pr, buf[:h.length]); err != nil {
+		return frameHeader{}, nil, false, fmt.Errorf("could not read frame payload: %w", err)
+	}
+	return h, buf[:h.length], false, nil
 }
 
-func decodeConnSettings(buf []byte) (cs connSettings) {
-	cs.RequestedPacketSize = int(binary.LittleEndian.Uint64(buf[0:]))
-	cs.MaxFrameSizePackets = int(binary.LittleEndian.Uint64(buf[8:]))
-	cs.MaxTimeout = time.Second * time.Duration(binary.LittleEndian.Uint64(buf[16:]))
-	return
-}
-
-func initiateSettingsHandshake(conn net.Conn, ours connSettings, aead cipher.AEAD) (connSettings, error) {
-	// encode + write request
-	frameBuf := make([]byte, settingsFrameSize)
-	payload := make([]byte, connSettingsSize)
-	encodeConnSettings(payload, ours)
-	frame := encryptFrame(frameBuf, frameHeader{
-		id:     idUpdateSettings,
-		length: uint32(len(payload)),
-	}, payload, settingsFrameSize, aead)
-	if _, err := conn.Write(frame); err != nil {
-		return connSettings{}, fmt.Errorf("write settings frame: %w", err)
+func encryptPackets(buf []byte, p []byte, packetSize int, aead cipher.AEAD) []byte {
+	maxFrameSize := packetSize - chachaOverhead
+	numPackets := len(p) / maxFrameSize
+	for i := 0; i < numPackets; i++ {
+		packet := buf[i*packetSize:][:packetSize]
+		plaintext := p[i*maxFrameSize:][:maxFrameSize]
+		copy(packet[chachaPoly1305NonceSize:], plaintext)
+		encryptInPlace(packet, aead)
 	}
-	// read + decode response
-	h, payload, err := readEncryptedFrame(conn, frameBuf, settingsFrameSize, aead)
-	if err != nil {
-		return connSettings{}, err
-	} else if h.id != idUpdateSettings {
-		return connSettings{}, errors.New("invalid settings ID")
-	} else if h.length != connSettingsSize {
-		return connSettings{}, errors.New("invalid settings payload")
-	}
-	theirs := decodeConnSettings(payload)
-	return mergeSettings(ours, theirs)
-}
-
-func acceptSettingsHandshake(conn net.Conn, ours connSettings, aead cipher.AEAD) (connSettings, error) {
-	// read + decode request
-	frameBuf := make([]byte, settingsFrameSize)
-	h, payload, err := readEncryptedFrame(conn, frameBuf, settingsFrameSize, aead)
-	if err != nil {
-		return connSettings{}, err
-	} else if h.id != idUpdateSettings {
-		return connSettings{}, errors.New("invalid settings ID")
-	} else if h.length != connSettingsSize {
-		return connSettings{}, errors.New("invalid settings payload")
-	}
-	theirs := decodeConnSettings(payload)
-	// encode + write response
-	payload = make([]byte, connSettingsSize)
-	encodeConnSettings(payload, ours)
-	frame := encryptFrame(frameBuf, frameHeader{
-		id:     idUpdateSettings,
-		length: uint32(len(payload)),
-	}, payload, settingsFrameSize, aead)
-	if _, err := conn.Write(frame); err != nil {
-		return connSettings{}, fmt.Errorf("write settings frame: %w", err)
-	}
-	return mergeSettings(ours, theirs)
-}
-
-func mergeSettings(ours, theirs connSettings) (connSettings, error) {
-	// use smaller value for all settings
-	merged := ours
-	if theirs.RequestedPacketSize < merged.RequestedPacketSize {
-		merged.RequestedPacketSize = theirs.RequestedPacketSize
-	}
-	if theirs.MaxFrameSizePackets < merged.MaxFrameSizePackets {
-		merged.MaxFrameSizePackets = theirs.MaxFrameSizePackets
-	}
-	if theirs.MaxTimeout < merged.MaxTimeout {
-		merged.MaxTimeout = theirs.MaxTimeout
-	}
-	// enforce minimums and maximums
-	switch {
-	case merged.RequestedPacketSize < 1220:
-		return connSettings{}, errors.New("requested packet size is too small")
-	case merged.MaxFrameSizePackets < 10:
-		return connSettings{}, errors.New("maximum frame size is too small")
-	case merged.MaxFrameSizePackets > 64:
-		return connSettings{}, errors.New("maximum frame size is too large")
-	case merged.MaxTimeout < 2*time.Minute:
-		return connSettings{}, errors.New("maximum timeout is too short")
-	}
-	return merged, nil
+	return buf[:numPackets*packetSize]
 }

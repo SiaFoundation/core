@@ -100,10 +100,7 @@ func DialSession(conn net.Conn, pub types.PublicKey) (_ *Session, err error) {
 		}
 	}()
 	// exchange versions and read host's initial challenge
-	s, err := m.DialStream()
-	if err != nil {
-		return nil, err
-	}
+	s := m.DialStream()
 	defer s.Close()
 	var buf [1]byte
 	if _, err := s.Write([]byte{protocolVersion}); err != nil {
