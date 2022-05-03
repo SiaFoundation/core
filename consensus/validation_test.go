@@ -33,8 +33,8 @@ func genesisWithSiacoinOutputs(scos ...types.SiacoinOutput) types.Block {
 	}
 }
 
-func signAllInputs(txn *types.Transaction, vc ValidationContext, priv types.PrivateKey) {
-	sigHash := vc.InputSigHash(*txn)
+func signAllInputs(txn *types.Transaction, s State, priv types.PrivateKey) {
+	sigHash := s.InputSigHash(*txn)
 	for i := range txn.SiacoinInputs {
 		txn.SiacoinInputs[i].Signatures = []types.Signature{priv.SignHash(sigHash)}
 	}
@@ -45,7 +45,7 @@ func signAllInputs(txn *types.Transaction, vc ValidationContext, priv types.Priv
 
 func TestBlockRewardValue(t *testing.T) {
 	reward := func(height uint64) types.Currency {
-		return (&ValidationContext{Index: types.ChainIndex{Height: height - 1}}).BlockReward()
+		return (&State{Index: types.ChainIndex{Height: height - 1}}).BlockReward()
 	}
 
 	tests := []struct {
@@ -86,7 +86,7 @@ func TestEphemeralOutputs(t *testing.T) {
 			Value:   types.Siacoins(1),
 		}},
 	}
-	signAllInputs(&parentTxn, sau.Context, privkey)
+	signAllInputs(&parentTxn, sau.State, privkey)
 	ephemeralOutput := types.SiacoinElement{
 		StateElement: types.StateElement{
 			ID: types.ElementID{
@@ -112,10 +112,10 @@ func TestEphemeralOutputs(t *testing.T) {
 			Value:   ephemeralOutput.Value,
 		}},
 	}
-	signAllInputs(&childTxn, sau.Context, privkey)
+	signAllInputs(&childTxn, sau.State, privkey)
 
 	// the transaction set should be valid
-	if err := sau.Context.ValidateTransactionSet([]types.Transaction{parentTxn, childTxn}); err != nil {
+	if err := sau.State.ValidateTransactionSet([]types.Transaction{parentTxn, childTxn}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -123,26 +123,26 @@ func TestEphemeralOutputs(t *testing.T) {
 	mintTxn := childTxn.DeepCopy()
 	mintTxn.SiacoinInputs[0].Parent.Value = types.Siacoins(1e6)
 	mintTxn.SiacoinOutputs[0].Value = mintTxn.SiacoinInputs[0].Parent.Value
-	signAllInputs(&mintTxn, sau.Context, privkey)
+	signAllInputs(&mintTxn, sau.State, privkey)
 
-	if err := sau.Context.ValidateTransactionSet([]types.Transaction{parentTxn, mintTxn}); err == nil {
+	if err := sau.State.ValidateTransactionSet([]types.Transaction{parentTxn, mintTxn}); err == nil {
 		t.Fatal("ephemeral output with wrong value should be rejected")
 	}
 
 	// add another transaction to the set that double-spends the output
 	doubleSpendTxn := childTxn.DeepCopy()
 	doubleSpendTxn.SiacoinOutputs[0].Address = types.VoidAddress
-	signAllInputs(&doubleSpendTxn, sau.Context, privkey)
+	signAllInputs(&doubleSpendTxn, sau.State, privkey)
 
-	if err := sau.Context.ValidateTransactionSet([]types.Transaction{parentTxn, childTxn, doubleSpendTxn}); err == nil {
+	if err := sau.State.ValidateTransactionSet([]types.Transaction{parentTxn, childTxn, doubleSpendTxn}); err == nil {
 		t.Fatal("ephemeral output double-spend not rejected")
 	}
 
 	invalidTxn := childTxn.DeepCopy()
 	invalidTxn.SiacoinInputs[0].Parent.Address = types.VoidAddress
-	signAllInputs(&invalidTxn, sau.Context, privkey)
+	signAllInputs(&invalidTxn, sau.State, privkey)
 
-	if err := sau.Context.ValidateTransactionSet([]types.Transaction{parentTxn, invalidTxn}); err == nil {
+	if err := sau.State.ValidateTransactionSet([]types.Transaction{parentTxn, invalidTxn}); err == nil {
 		t.Fatal("transaction claims wrong address for ephemeral output")
 	}
 }
@@ -250,10 +250,10 @@ func TestValidateTransaction(t *testing.T) {
 	resolvedValidContract := sau.NewFileContracts[2]
 	resolvedMissedContract := sau.NewFileContracts[3]
 	closedProof := types.StorageProof{
-		WindowStart: sau.Context.Index,
+		WindowStart: sau.State.Index,
 		WindowProof: sau.HistoryProof(),
 	}
-	proofIndex := sau.Context.StorageProofLeafIndex(closedContract.Filesize, closedProof.WindowStart, closedContract.ID)
+	proofIndex := sau.State.StorageProofLeafIndex(closedContract.Filesize, closedProof.WindowStart, closedContract.ID)
 	copy(closedProof.Leaf[:], data[64*proofIndex:])
 	if proofIndex == 0 {
 		closedProof.Proof = append(closedProof.Proof, merkle.StorageProofLeafHash(data[64:]))
@@ -261,10 +261,10 @@ func TestValidateTransaction(t *testing.T) {
 		closedProof.Proof = append(closedProof.Proof, merkle.StorageProofLeafHash(data[:64]))
 	}
 	resolvedValidProof := types.StorageProof{
-		WindowStart: sau.Context.Index,
+		WindowStart: sau.State.Index,
 		WindowProof: sau.HistoryProof(),
 	}
-	proofIndex = sau.Context.StorageProofLeafIndex(resolvedValidContract.Filesize, resolvedValidProof.WindowStart, resolvedValidContract.ID)
+	proofIndex = sau.State.StorageProofLeafIndex(resolvedValidContract.Filesize, resolvedValidProof.WindowStart, resolvedValidContract.ID)
 	copy(resolvedValidProof.Leaf[:], data[64*proofIndex:])
 	if proofIndex == 0 {
 		resolvedValidProof.Proof = append(resolvedValidProof.Proof, merkle.StorageProofLeafHash(data[64:]))
@@ -275,11 +275,11 @@ func TestValidateTransaction(t *testing.T) {
 	// mine a block so that resolvedMissedContract's proof window expires, then
 	// construct a setup transaction that spends some of the outputs and
 	// resolves some of the contracts
-	b := mineBlock(sau.Context, genesisBlock)
-	if err := sau.Context.ValidateBlock(b); err != nil {
+	b := mineBlock(sau.State, genesisBlock)
+	if err := sau.State.ValidateBlock(b); err != nil {
 		t.Fatal(err)
 	}
-	sau = ApplyBlock(sau.Context, b)
+	sau = ApplyBlock(sau.State, b)
 	sau.UpdateElementProof(&spentSC.StateElement)
 	sau.UpdateElementProof(&unspentSC.StateElement)
 	sau.UpdateElementProof(&spentSF.StateElement)
@@ -317,12 +317,12 @@ func TestValidateTransaction(t *testing.T) {
 			},
 		},
 	}
-	signAllInputs(&resolveTxn, sau.Context, privkey)
-	b = mineBlock(sau.Context, b, resolveTxn)
-	if err := sau.Context.ValidateBlock(b); err != nil {
+	signAllInputs(&resolveTxn, sau.State, privkey)
+	b = mineBlock(sau.State, b, resolveTxn)
+	if err := sau.State.ValidateBlock(b); err != nil {
 		t.Fatal(err)
 	}
-	sau = ApplyBlock(sau.Context, b)
+	sau = ApplyBlock(sau.State, b)
 	sau.UpdateElementProof(&spentSC.StateElement)
 	sau.UpdateElementProof(&unspentSC.StateElement)
 	sau.UpdateElementProof(&spentSF.StateElement)
@@ -332,7 +332,7 @@ func TestValidateTransaction(t *testing.T) {
 	sau.UpdateElementProof(&resolvedValidContract.StateElement)
 	sau.UpdateElementProof(&resolvedMissedContract.StateElement)
 	sau.UpdateWindowProof(&closedProof)
-	vc := sau.Context
+	s := sau.State
 
 	// finally, create the valid transaction, which spends the remaining outputs
 	// and revises/resolves the remaining contracts
@@ -385,17 +385,17 @@ func TestValidateTransaction(t *testing.T) {
 		MinerFee: types.Siacoins(48).Div64(10),
 	}
 	fc := &txn.FileContracts[0]
-	contractHash := vc.ContractSigHash(*fc)
+	contractHash := s.ContractSigHash(*fc)
 	fc.RenterSignature = renterPrivkey.SignHash(contractHash)
 	fc.HostSignature = hostPrivkey.SignHash(contractHash)
 	rev := &txn.FileContractRevisions[0]
-	contractHash = vc.ContractSigHash(rev.Revision)
+	contractHash = s.ContractSigHash(rev.Revision)
 	rev.Revision.RenterSignature = renterPrivkey.SignHash(contractHash)
 	rev.Revision.HostSignature = hostPrivkey.SignHash(contractHash)
-	txn.Attestations[0].Signature = privkey.SignHash(vc.AttestationSigHash(txn.Attestations[0]))
-	signAllInputs(&txn, vc, privkey)
+	txn.Attestations[0].Signature = privkey.SignHash(s.AttestationSigHash(txn.Attestations[0]))
+	signAllInputs(&txn, s, privkey)
 
-	if err := vc.ValidateTransaction(txn); err != nil {
+	if err := s.ValidateTransaction(txn); err != nil {
 		t.Fatal(err)
 	}
 
@@ -441,7 +441,7 @@ func TestValidateTransaction(t *testing.T) {
 					Parent:      overflowSC,
 					SpendPolicy: types.PolicyPublicKey(pubkey),
 				})
-				signAllInputs(txn, vc, privkey)
+				signAllInputs(txn, s, privkey)
 			},
 		},
 		{
@@ -465,7 +465,7 @@ func TestValidateTransaction(t *testing.T) {
 					Parent:      overflowSF,
 					SpendPolicy: types.PolicyPublicKey(pubkey),
 				})
-				signAllInputs(txn, vc, privkey)
+				signAllInputs(txn, s, privkey)
 			},
 		},
 		{
@@ -684,15 +684,15 @@ func TestValidateTransaction(t *testing.T) {
 	for _, test := range tests {
 		corruptTxn := txn.DeepCopy()
 		test.corrupt(&corruptTxn)
-		if err := vc.ValidateTransaction(corruptTxn); err == nil {
+		if err := s.ValidateTransaction(corruptTxn); err == nil {
 			t.Fatalf("accepted transaction with %v", test.desc)
 		}
 	}
 }
 
 func TestValidateSpendPolicy(t *testing.T) {
-	// create a validation context with a height above 0
-	vc := ValidationContext{
+	// create a State with a height above 0
+	s := State{
 		Index: types.ChainIndex{Height: 100},
 	}
 
@@ -921,9 +921,9 @@ func TestValidateSpendPolicy(t *testing.T) {
 				SpendPolicy: tt.policy,
 			}},
 		}
-		sigHash := vc.InputSigHash(txn)
+		sigHash := s.InputSigHash(txn)
 		txn.SiacoinInputs[0].Signatures = tt.sign(sigHash)
-		if err := vc.validateSpendPolicies(txn); (err != nil) != tt.wantErr {
+		if err := s.validateSpendPolicies(txn); (err != nil) != tt.wantErr {
 			t.Fatalf("case %q failed: %v", tt.desc, err)
 		}
 	}
@@ -941,7 +941,7 @@ func TestValidateTransactionSet(t *testing.T) {
 		Value:   100,
 	}}
 	sau := GenesisUpdate(genesisBlock, testingDifficulty)
-	vc := sau.Context
+	s := sau.State
 
 	txn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
@@ -961,9 +961,9 @@ func TestValidateTransactionSet(t *testing.T) {
 			Value:   sau.NewSiafundElements[0].Value,
 		}},
 	}
-	signAllInputs(&txn, vc, privkey)
+	signAllInputs(&txn, s, privkey)
 
-	if err := sau.Context.ValidateTransactionSet([]types.Transaction{txn, txn}); err == nil {
+	if err := sau.State.ValidateTransactionSet([]types.Transaction{txn, txn}); err == nil {
 		t.Fatal("accepted transaction set with repeated txn")
 	}
 
@@ -977,9 +977,9 @@ func TestValidateTransactionSet(t *testing.T) {
 			Value:   sau.NewSiacoinElements[1].Value,
 		}},
 	}
-	signAllInputs(&doubleSpendSCTxn, vc, privkey)
+	signAllInputs(&doubleSpendSCTxn, s, privkey)
 
-	if err := sau.Context.ValidateTransactionSet([]types.Transaction{txn, doubleSpendSCTxn}); err == nil {
+	if err := sau.State.ValidateTransactionSet([]types.Transaction{txn, doubleSpendSCTxn}); err == nil {
 		t.Fatal("accepted transaction set with double spent siacoin output")
 	}
 
@@ -993,19 +993,19 @@ func TestValidateTransactionSet(t *testing.T) {
 			Value:   sau.NewSiafundElements[0].Value,
 		}},
 	}
-	signAllInputs(&doubleSpendSFTxn, vc, privkey)
+	signAllInputs(&doubleSpendSFTxn, s, privkey)
 
-	if err := sau.Context.ValidateTransactionSet([]types.Transaction{txn, doubleSpendSFTxn}); err == nil {
+	if err := sau.State.ValidateTransactionSet([]types.Transaction{txn, doubleSpendSFTxn}); err == nil {
 		t.Fatal("accepted transaction set with double spent siafund output")
 	}
 
 	// overfill set with copies of txn
-	w := sau.Context.TransactionWeight(txn)
-	txns := make([]types.Transaction, (sau.Context.MaxBlockWeight()/w)+1)
+	w := sau.State.TransactionWeight(txn)
+	txns := make([]types.Transaction, (sau.State.MaxBlockWeight()/w)+1)
 	for i := range txns {
 		txns[i] = txn
 	}
-	if err := sau.Context.ValidateTransactionSet(txns); err == nil {
+	if err := sau.State.ValidateTransactionSet(txns); err == nil {
 		t.Fatal("accepted overweight transaction set")
 	}
 }
@@ -1020,7 +1020,7 @@ func TestValidateBlock(t *testing.T) {
 		Value:   types.Siacoins(1),
 	})
 	sau := GenesisUpdate(genesis, testingDifficulty)
-	vc := sau.Context
+	s := sau.State
 
 	// Mine a block with a few transactions. We are not testing transaction
 	// validity here, but the block should still be valid.
@@ -1043,9 +1043,9 @@ func TestValidateBlock(t *testing.T) {
 			MinerFee: sau.NewSiacoinElements[2].Value,
 		},
 	}
-	signAllInputs(&txns[0], vc, privkey)
-	signAllInputs(&txns[1], vc, privkey)
-	b := mineBlock(vc, genesis, txns...)
+	signAllInputs(&txns[0], s, privkey)
+	signAllInputs(&txns[1], s, privkey)
+	b := mineBlock(s, genesis, txns...)
 
 	tests := []struct {
 		desc    string
@@ -1091,7 +1091,7 @@ func TestValidateBlock(t *testing.T) {
 	for _, test := range tests {
 		corruptBlock := b
 		test.corrupt(&corruptBlock)
-		if err := vc.ValidateBlock(corruptBlock); err == nil {
+		if err := s.ValidateBlock(corruptBlock); err == nil {
 			t.Fatalf("accepted block with %v", test.desc)
 		}
 	}
@@ -1110,10 +1110,10 @@ func TestNoDoubleContractUpdates(t *testing.T) {
 		Value:   types.Siacoins(100),
 	})
 	sau := GenesisUpdate(genesis, testingDifficulty)
-	vc := sau.Context
+	s := sau.State
 
 	signRevision := func(fc *types.FileContract) {
-		sigHash := vc.ContractSigHash(*fc)
+		sigHash := s.ContractSigHash(*fc)
 		fc.HostSignature = hostPriv.SignHash(sigHash)
 		fc.RenterSignature = renterPriv.SignHash(sigHash)
 	}
@@ -1142,19 +1142,19 @@ func TestNoDoubleContractUpdates(t *testing.T) {
 		},
 		SiacoinOutputs: []types.SiacoinOutput{
 			{Address: renterAddr, Value: types.Siacoins(90)},
-			{Address: hostAddr, Value: types.Siacoins(95).Sub(vc.FileContractTax(fc))},
+			{Address: hostAddr, Value: types.Siacoins(95).Sub(s.FileContractTax(fc))},
 		},
 		FileContracts: []types.FileContract{fc},
 	}
-	sigHash := vc.InputSigHash(formationTxn)
+	sigHash := s.InputSigHash(formationTxn)
 	formationTxn.SiacoinInputs[0].Signatures = []types.Signature{renterPriv.SignHash(sigHash)}
 	formationTxn.SiacoinInputs[1].Signatures = []types.Signature{hostPriv.SignHash(sigHash)}
-	b := mineBlock(vc, genesis, formationTxn)
-	if err := vc.ValidateBlock(b); err != nil {
+	b := mineBlock(s, genesis, formationTxn)
+	if err := s.ValidateBlock(b); err != nil {
 		t.Fatal(err)
 	}
-	sau = ApplyBlock(vc, b)
-	vc = sau.Context
+	sau = ApplyBlock(s, b)
+	s = sau.State
 	if len(sau.NewFileContracts) != 1 {
 		t.Fatal("expected 1 new file contract")
 	}
@@ -1162,12 +1162,12 @@ func TestNoDoubleContractUpdates(t *testing.T) {
 
 	// mine additional blocks
 	for i := 0; i < 5; i++ {
-		b = mineBlock(vc, b)
-		if err := vc.ValidateBlock(b); err != nil {
+		b = mineBlock(s, b)
+		if err := s.ValidateBlock(b); err != nil {
 			t.Fatal(err)
 		}
-		sau = ApplyBlock(vc, b)
-		vc = sau.Context
+		sau = ApplyBlock(s, b)
+		s = sau.State
 		sau.UpdateElementProof(&fce.StateElement)
 	}
 
@@ -1224,7 +1224,7 @@ func TestNoDoubleContractUpdates(t *testing.T) {
 	}
 
 	for i, set := range tests {
-		if err := vc.ValidateBlock(mineBlock(vc, b, set...)); err == nil {
+		if err := s.ValidateBlock(mineBlock(s, b, set...)); err == nil {
 			t.Fatalf("test %v: expected invalid block error", i)
 		} else if !strings.Contains(err.Error(), "multiple times (previously updated in transaction") { // TODO: use errors.Is?
 			t.Fatalf("test %v: expected multiple update error, got %v", i, err)
@@ -1243,15 +1243,15 @@ func TestNoDoubleContractUpdates(t *testing.T) {
 		merkle.StorageProofLeafHash(data[64:]),
 	)
 	revisionTxn.FileContractRevisions[0].Revision.RevisionNumber++
-	sigHash = vc.ContractSigHash(revisionTxn.FileContractRevisions[0].Revision)
+	sigHash = s.ContractSigHash(revisionTxn.FileContractRevisions[0].Revision)
 	revisionTxn.FileContractRevisions[0].Revision.RenterSignature = renterPriv.SignHash(sigHash)
 	revisionTxn.FileContractRevisions[0].Revision.HostSignature = hostPriv.SignHash(sigHash)
-	b = mineBlock(vc, b, revisionTxn)
-	if err := vc.ValidateBlock(b); err != nil {
+	b = mineBlock(s, b, revisionTxn)
+	if err := s.ValidateBlock(b); err != nil {
 		t.Fatal(err)
 	}
-	sau = ApplyBlock(vc, b)
-	vc = sau.Context
+	sau = ApplyBlock(s, b)
+	s = sau.State
 	if len(sau.RevisedFileContracts) != 1 {
 		t.Fatal("expected 1 revised file contract")
 	} else if !reflect.DeepEqual(sau.RevisedFileContracts[0].FileContract, revisionTxn.FileContractRevisions[0].Revision) {
@@ -1260,22 +1260,22 @@ func TestNoDoubleContractUpdates(t *testing.T) {
 	fce = sau.RevisedFileContracts[0]
 
 	// mine until the contract proof window
-	for i := vc.Index.Height; i < fc.WindowStart; i++ {
-		b = mineBlock(vc, b)
-		if err := vc.ValidateBlock(b); err != nil {
+	for i := s.Index.Height; i < fc.WindowStart; i++ {
+		b = mineBlock(s, b)
+		if err := s.ValidateBlock(b); err != nil {
 			t.Fatal(err)
 		}
-		sau = ApplyBlock(vc, b)
-		vc = sau.Context
+		sau = ApplyBlock(s, b)
+		s = sau.State
 		sau.UpdateElementProof(&fce.StateElement)
 	}
 
 	// build a vaild proof for the contract
 	proof := types.StorageProof{
-		WindowStart: vc.Index,
+		WindowStart: s.Index,
 		WindowProof: sau.HistoryProof(),
 	}
-	proofIndex := sau.Context.StorageProofLeafIndex(fc.Filesize, proof.WindowStart, fce.ID)
+	proofIndex := sau.State.StorageProofLeafIndex(fc.Filesize, proof.WindowStart, fce.ID)
 	copy(proof.Leaf[:], data[64*proofIndex:])
 	if proofIndex == 0 {
 		proof.Proof = append(proof.Proof, merkle.StorageProofLeafHash(data[64:]))
@@ -1315,7 +1315,7 @@ func TestNoDoubleContractUpdates(t *testing.T) {
 	}
 
 	for i, set := range tests {
-		if err := vc.ValidateBlock(mineBlock(vc, b, set...)); err == nil {
+		if err := s.ValidateBlock(mineBlock(s, b, set...)); err == nil {
 			t.Fatalf("test %v: expected invalid block error", i)
 		} else if !strings.Contains(err.Error(), "multiple times (previously updated in transaction") { // TODO: use errors.Is?
 			t.Fatalf("test %v: expected multiple update error, got %v", i, err)
@@ -1323,13 +1323,13 @@ func TestNoDoubleContractUpdates(t *testing.T) {
 	}
 
 	// mine until after contract proof window
-	for i := vc.Index.Height; i < fc.WindowEnd+1; i++ {
-		b = mineBlock(vc, b)
-		if err := vc.ValidateBlock(b); err != nil {
+	for i := s.Index.Height; i < fc.WindowEnd+1; i++ {
+		b = mineBlock(s, b)
+		if err := s.ValidateBlock(b); err != nil {
 			t.Fatal(err)
 		}
-		sau = ApplyBlock(vc, b)
-		vc = sau.Context
+		sau = ApplyBlock(s, b)
+		s = sau.State
 		sau.UpdateElementProof(&fce.StateElement)
 	}
 
@@ -1365,7 +1365,7 @@ func TestNoDoubleContractUpdates(t *testing.T) {
 	}
 
 	for i, set := range tests {
-		if err := vc.ValidateBlock(mineBlock(vc, b, set...)); err == nil {
+		if err := s.ValidateBlock(mineBlock(s, b, set...)); err == nil {
 			t.Fatalf("test %v: expected invalid block error", i)
 		} else if !strings.Contains(err.Error(), "multiple times (previously updated in transaction") { // TODO: use errors.Is?
 			t.Fatalf("test %v: expected multiple update error, got %v", i, err)

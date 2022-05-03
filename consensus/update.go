@@ -7,27 +7,26 @@ import (
 	"go.sia.tech/core/types"
 )
 
-// SiafundCount is the number of siafunds in existence.
-const SiafundCount = 10000
+func updateOakTotals(s *State, h types.BlockHeader) (time.Duration, types.Work) {
+	parentTimestamp := s.PrevTimestamps[s.numTimestamps()-1]
+	blockTime := h.Timestamp.Sub(parentTimestamp)
+	blockWork := s.Difficulty
 
-// BlockInterval is the expected wall clock time between consecutive blocks.
-const BlockInterval = 10 * time.Minute
-
-func updateOakTotals(oakTime, newTime time.Duration, oakWork, newWork types.Work) (time.Duration, types.Work) {
 	// decay totals by 0.5% before adding the new values
-	decayedTime := oakTime - (oakTime / 200) + newTime
-	decayedWork := oakWork.Sub(oakWork.Div64(200)).Add(newWork)
+	decayedTime := s.OakTime - (s.OakTime / 200) + blockTime
+	decayedWork := s.OakWork.Sub(s.OakWork.Div64(200)).Add(blockWork)
 	return decayedTime, decayedWork
 }
 
-func adjustDifficulty(difficulty types.Work, height uint64, actualTime time.Duration, oakTime time.Duration, oakWork types.Work) types.Work {
+func adjustDifficulty(s *State, h types.BlockHeader) types.Work {
 	// NOTE: To avoid overflow/underflow issues, this function operates on
 	// integer seconds (rather than time.Duration, which uses nanoseconds). This
 	// shouldn't appreciably affect the precision of the algorithm.
 
-	const blockInterval = BlockInterval / time.Second
-	expectedTime := blockInterval * time.Duration(height)
-	delta := (expectedTime - actualTime) / time.Second
+	blockInterval := s.BlockInterval() / time.Second
+	expectedTime := s.BlockInterval() * time.Duration(h.Height)
+	actualTime := h.Timestamp.Sub(s.GenesisTimestamp) / time.Second
+	delta := expectedTime - actualTime
 	// square the delta and preserve its sign
 	shift := delta * delta
 	if delta < 0 {
@@ -47,10 +46,10 @@ func adjustDifficulty(difficulty types.Work, height uint64, actualTime time.Dura
 
 	// estimate the hashrate from the (decayed) total work and the (decayed,
 	// clamped) total time
-	if oakTime <= time.Second {
-		oakTime = time.Second
+	if s.OakTime <= time.Second {
+		s.OakTime = time.Second
 	}
-	estimatedHashrate := oakWork.Div64(uint64(oakTime / time.Second))
+	estimatedHashrate := s.OakWork.Div64(uint64(s.OakTime / time.Second))
 
 	// multiply the estimated hashrate by the target block time; this is the
 	// expected number of hashes required to produce the next block, i.e. the
@@ -58,36 +57,35 @@ func adjustDifficulty(difficulty types.Work, height uint64, actualTime time.Dura
 	newDifficulty := estimatedHashrate.Mul64(uint64(targetBlockTime))
 
 	// clamp the adjustment to 0.4%
-	maxAdjust := difficulty.Div64(250)
-	if min := difficulty.Sub(maxAdjust); newDifficulty.Cmp(min) < 0 {
+	maxAdjust := s.Difficulty.Div64(250)
+	if min := s.Difficulty.Sub(maxAdjust); newDifficulty.Cmp(min) < 0 {
 		newDifficulty = min
-	} else if max := difficulty.Add(maxAdjust); newDifficulty.Cmp(max) > 0 {
+	} else if max := s.Difficulty.Add(maxAdjust); newDifficulty.Cmp(max) > 0 {
 		newDifficulty = max
 	}
 	return newDifficulty
 }
 
-func applyHeader(vc *ValidationContext, h types.BlockHeader) {
+func applyHeader(s *State, h types.BlockHeader) {
 	if h.Height == 0 {
 		// special handling for GenesisUpdate
-		vc.PrevTimestamps[0] = h.Timestamp
-		vc.Index = h.Index()
+		s.PrevTimestamps[0] = h.Timestamp
+		s.Index = h.Index()
 		return
 	}
-	vc.TotalWork = vc.TotalWork.Add(vc.Difficulty)
-	parentTimestamp := vc.PrevTimestamps[vc.numTimestamps()-1]
-	vc.OakTime, vc.OakWork = updateOakTotals(vc.OakTime, h.Timestamp.Sub(parentTimestamp), vc.OakWork, vc.Difficulty)
-	vc.Difficulty = adjustDifficulty(vc.Difficulty, h.Height, h.Timestamp.Sub(vc.GenesisTimestamp), vc.OakTime, vc.OakWork)
-	if vc.numTimestamps() < len(vc.PrevTimestamps) {
-		vc.PrevTimestamps[vc.numTimestamps()] = h.Timestamp
+	s.TotalWork = s.TotalWork.Add(s.Difficulty)
+	s.OakTime, s.OakWork = updateOakTotals(s, h)
+	s.Difficulty = adjustDifficulty(s, h)
+	if s.numTimestamps() < len(s.PrevTimestamps) {
+		s.PrevTimestamps[s.numTimestamps()] = h.Timestamp
 	} else {
-		copy(vc.PrevTimestamps[:], vc.PrevTimestamps[1:])
-		vc.PrevTimestamps[len(vc.PrevTimestamps)-1] = h.Timestamp
+		copy(s.PrevTimestamps[:], s.PrevTimestamps[1:])
+		s.PrevTimestamps[len(s.PrevTimestamps)-1] = h.Timestamp
 	}
-	vc.Index = h.Index()
+	s.Index = h.Index()
 }
 
-func updatedInBlock(vc ValidationContext, b types.Block, apply bool) (scos []types.SiacoinElement, sfos []types.SiafundElement, revised, resolved []types.FileContractElement, leaves []merkle.ElementLeaf) {
+func updatedInBlock(s State, b types.Block, apply bool) (scos []types.SiacoinElement, sfos []types.SiafundElement, revised, resolved []types.FileContractElement, leaves []merkle.ElementLeaf) {
 	addLeaf := func(l merkle.ElementLeaf) {
 		// copy proofs so we don't mutate transaction data
 		l.MerkleProof = append([]types.Hash256(nil), l.MerkleProof...)
@@ -130,33 +128,27 @@ func updatedInBlock(vc ValidationContext, b types.Block, apply bool) (scos []typ
 	return
 }
 
-func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinElement, sfes []types.SiafundElement, fces []types.FileContractElement) {
+func createdInBlock(s State, b types.Block) (sces []types.SiacoinElement, sfes []types.SiafundElement, fces []types.FileContractElement) {
 	sces = append(sces, types.SiacoinElement{
 		StateElement: types.StateElement{
-			ID: types.ElementID{
-				Source: types.Hash256(b.ID()),
-				Index:  0,
-			},
+			ID: b.MinerOutputID(),
 		},
 		SiacoinOutput: types.SiacoinOutput{
-			Value:   vc.BlockReward(),
+			Value:   s.BlockReward(),
 			Address: b.Header.MinerAddress,
 		},
-		MaturityHeight: vc.MaturityHeight(),
+		MaturityHeight: s.MaturityHeight(),
 	})
-	if subsidy := vc.FoundationSubsidy(); !subsidy.IsZero() {
+	if subsidy := s.FoundationSubsidy(); !subsidy.IsZero() {
 		sces = append(sces, types.SiacoinElement{
 			StateElement: types.StateElement{
-				ID: types.ElementID{
-					Source: types.Hash256(b.ID()),
-					Index:  1,
-				},
+				ID: b.FoundationOutputID(),
 			},
 			SiacoinOutput: types.SiacoinOutput{
 				Value:   subsidy,
-				Address: vc.FoundationAddress,
+				Address: s.FoundationAddress,
 			},
-			MaturityHeight: vc.MaturityHeight(),
+			MaturityHeight: s.MaturityHeight(),
 		})
 	}
 	for _, txn := range b.Transactions {
@@ -182,17 +174,17 @@ func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinEl
 			sces = append(sces, types.SiacoinElement{
 				StateElement: nextElement(),
 				SiacoinOutput: types.SiacoinOutput{
-					Value:   vc.SiafundPool.Sub(in.Parent.ClaimStart).Div64(SiafundCount).Mul64(in.Parent.Value),
+					Value:   s.SiafundPool.Sub(in.Parent.ClaimStart).Div64(s.SiafundCount()).Mul64(in.Parent.Value),
 					Address: in.ClaimAddress,
 				},
-				MaturityHeight: vc.MaturityHeight(),
+				MaturityHeight: s.MaturityHeight(),
 			})
 		}
 		for _, out := range txn.SiafundOutputs {
 			sfes = append(sfes, types.SiafundElement{
 				StateElement:  nextElement(),
 				SiafundOutput: out,
-				ClaimStart:    vc.SiafundPool,
+				ClaimStart:    s.SiafundPool,
 			})
 		}
 		for _, fc := range txn.FileContracts {
@@ -224,12 +216,12 @@ func createdInBlock(vc ValidationContext, b types.Block) (sces []types.SiacoinEl
 			sces = append(sces, types.SiacoinElement{
 				StateElement:   nextElement(),
 				SiacoinOutput:  renter,
-				MaturityHeight: vc.MaturityHeight(),
+				MaturityHeight: s.MaturityHeight(),
 			})
 			sces = append(sces, types.SiacoinElement{
 				StateElement:   nextElement(),
 				SiacoinOutput:  host,
-				MaturityHeight: vc.MaturityHeight(),
+				MaturityHeight: s.MaturityHeight(),
 			})
 		}
 	}
@@ -243,7 +235,7 @@ type ApplyUpdate struct {
 	merkle.ElementApplyUpdate
 	merkle.HistoryApplyUpdate
 
-	Context               ValidationContext
+	State                 State
 	SpentSiacoins         []types.SiacoinElement
 	SpentSiafunds         []types.SiafundElement
 	RevisedFileContracts  []types.FileContractElement
@@ -308,15 +300,15 @@ func (au *ApplyUpdate) UpdateTransactionProofs(txn *types.Transaction) {
 // ApplyBlock integrates a block into the current consensus state, producing an
 // ApplyUpdate detailing the resulting changes. The block is assumed to be fully
 // validated.
-func ApplyBlock(vc ValidationContext, b types.Block) (au ApplyUpdate) {
-	if vc.Index.Height > 0 && vc.Index != b.Header.ParentIndex() {
+func ApplyBlock(s State, b types.Block) (au ApplyUpdate) {
+	if s.Index.Height > 0 && s.Index != b.Header.ParentIndex() {
 		panic("consensus: cannot apply non-child block")
 	}
 
 	// update elements
 	var updated, created []merkle.ElementLeaf
-	au.SpentSiacoins, au.SpentSiafunds, au.RevisedFileContracts, au.ResolvedFileContracts, updated = updatedInBlock(vc, b, true)
-	au.NewSiacoinElements, au.NewSiafundElements, au.NewFileContracts = createdInBlock(vc, b)
+	au.SpentSiacoins, au.SpentSiafunds, au.RevisedFileContracts, au.ResolvedFileContracts, updated = updatedInBlock(s, b, true)
+	au.NewSiacoinElements, au.NewSiafundElements, au.NewFileContracts = createdInBlock(s, b)
 	spent := make(map[types.ElementID]bool)
 	for _, txn := range b.Transactions {
 		for _, in := range txn.SiacoinInputs {
@@ -334,7 +326,7 @@ func ApplyBlock(vc ValidationContext, b types.Block) (au ApplyUpdate) {
 	for _, fce := range au.NewFileContracts {
 		created = append(created, merkle.FileContractLeaf(fce, spent[fce.ID]))
 	}
-	au.ElementApplyUpdate = vc.State.ApplyBlock(updated, created)
+	au.ElementApplyUpdate = s.Elements.ApplyBlock(updated, created)
 	for i := range au.NewSiacoinElements {
 		au.NewSiacoinElements[i].StateElement = created[0].StateElement
 		created = created[1:]
@@ -349,26 +341,26 @@ func ApplyBlock(vc ValidationContext, b types.Block) (au ApplyUpdate) {
 	}
 
 	// update history
-	au.HistoryApplyUpdate = vc.History.ApplyBlock(b.Index())
+	au.HistoryApplyUpdate = s.History.ApplyBlock(b.Index())
 
-	// update context
-	applyHeader(&vc, b.Header)
+	// update state
+	applyHeader(&s, b.Header)
 	for _, txn := range b.Transactions {
 		for _, fc := range txn.FileContracts {
-			vc.SiafundPool = vc.SiafundPool.Add(vc.FileContractTax(fc))
+			s.SiafundPool = s.SiafundPool.Add(s.FileContractTax(fc))
 		}
 		if txn.NewFoundationAddress != types.VoidAddress {
-			vc.FoundationAddress = txn.NewFoundationAddress
+			s.FoundationAddress = txn.NewFoundationAddress
 		}
 	}
-	au.Context = vc
+	au.State = s
 
 	return
 }
 
 // GenesisUpdate returns the ApplyUpdate for the genesis block b.
 func GenesisUpdate(b types.Block, initialDifficulty types.Work) ApplyUpdate {
-	return ApplyBlock(ValidationContext{
+	return ApplyBlock(State{
 		Difficulty:       initialDifficulty,
 		GenesisTimestamp: b.Header.Timestamp,
 	}, b)
@@ -380,7 +372,7 @@ type RevertUpdate struct {
 	merkle.ElementRevertUpdate
 	merkle.HistoryRevertUpdate
 
-	Context               ValidationContext
+	State                 State
 	SpentSiacoins         []types.SiacoinElement
 	SpentSiafunds         []types.SiafundElement
 	RevisedFileContracts  []types.FileContractElement
@@ -393,19 +385,19 @@ type RevertUpdate struct {
 // SiacoinElementWasRemoved returns true if the specified SiacoinElement was
 // reverted.
 func (ru *RevertUpdate) SiacoinElementWasRemoved(sce types.SiacoinElement) bool {
-	return sce.LeafIndex != types.EphemeralLeafIndex && sce.LeafIndex >= ru.Context.State.NumLeaves
+	return sce.LeafIndex != types.EphemeralLeafIndex && sce.LeafIndex >= ru.State.Elements.NumLeaves
 }
 
 // SiafundElementWasRemoved returns true if the specified SiafundElement was
 // reverted.
 func (ru *RevertUpdate) SiafundElementWasRemoved(sfe types.SiafundElement) bool {
-	return sfe.LeafIndex != types.EphemeralLeafIndex && sfe.LeafIndex >= ru.Context.State.NumLeaves
+	return sfe.LeafIndex != types.EphemeralLeafIndex && sfe.LeafIndex >= ru.State.Elements.NumLeaves
 }
 
 // FileContractElementWasRemoved returns true if the specified
 // FileContractElement was reverted.
 func (ru *RevertUpdate) FileContractElementWasRemoved(fce types.FileContractElement) bool {
-	return fce.LeafIndex != types.EphemeralLeafIndex && fce.LeafIndex >= ru.Context.State.NumLeaves
+	return fce.LeafIndex != types.EphemeralLeafIndex && fce.LeafIndex >= ru.State.Elements.NumLeaves
 }
 
 // UpdateTransactionProofs updates the element proofs and window proofs of a
@@ -430,20 +422,20 @@ func (ru *RevertUpdate) UpdateTransactionProofs(txn *types.Transaction) {
 	}
 }
 
-// RevertBlock produces a RevertUpdate from a block and the ValidationContext
+// RevertBlock produces a RevertUpdate from a block and the State
 // prior to that block.
-func RevertBlock(vc ValidationContext, b types.Block) (ru RevertUpdate) {
+func RevertBlock(s State, b types.Block) (ru RevertUpdate) {
 	if b.Header.Height == 0 {
 		panic("consensus: cannot revert genesis block")
-	} else if vc.Index != b.Header.ParentIndex() {
+	} else if s.Index != b.Header.ParentIndex() {
 		panic("consensus: cannot revert non-child block")
 	}
 
-	ru.Context = vc
-	ru.HistoryRevertUpdate = ru.Context.History.RevertBlock(b.Index())
+	ru.State = s
+	ru.HistoryRevertUpdate = ru.State.History.RevertBlock(b.Index())
 	var updated []merkle.ElementLeaf
-	ru.SpentSiacoins, ru.SpentSiafunds, ru.RevisedFileContracts, ru.ResolvedFileContracts, updated = updatedInBlock(vc, b, false)
-	ru.NewSiacoinElements, ru.NewSiafundElements, ru.NewFileContracts = createdInBlock(vc, b)
-	ru.ElementRevertUpdate = ru.Context.State.RevertBlock(updated)
+	ru.SpentSiacoins, ru.SpentSiafunds, ru.RevisedFileContracts, ru.ResolvedFileContracts, updated = updatedInBlock(s, b, false)
+	ru.NewSiacoinElements, ru.NewSiafundElements, ru.NewFileContracts = createdInBlock(s, b)
+	ru.ElementRevertUpdate = ru.State.Elements.RevertBlock(updated)
 	return
 }

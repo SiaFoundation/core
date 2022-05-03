@@ -123,6 +123,6 @@ type (
 		Address() types.Address
 		SpendPolicy(types.Address) (types.SpendPolicy, bool)
 		FundTransaction(txn *types.Transaction, amount types.Currency, pool []types.Transaction) ([]types.ElementID, func(), error)
-		SignTransaction(vc consensus.ValidationContext, txn *types.Transaction, toSign []types.ElementID) error
+		SignTransaction(cs consensus.State, txn *types.Transaction, toSign []types.ElementID) error
 	}
 )

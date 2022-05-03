@@ -18,7 +18,7 @@ func findBlockNonce(h *types.BlockHeader, target types.BlockID) {
 	}
 }
 
-func mineBlock(vc ValidationContext, parent types.Block, txns ...types.Transaction) types.Block {
+func mineBlock(s State, parent types.Block, txns ...types.Transaction) types.Block {
 	b := types.Block{
 		Header: types.BlockHeader{
 			Height:    parent.Header.Height + 1,
@@ -27,8 +27,8 @@ func mineBlock(vc ValidationContext, parent types.Block, txns ...types.Transacti
 		},
 		Transactions: txns,
 	}
-	b.Header.Commitment = vc.Commitment(b.Header.MinerAddress, b.Transactions)
-	findBlockNonce(&b.Header, types.HashRequiringWork(vc.Difficulty))
+	b.Header.Commitment = s.Commitment(b.Header.MinerAddress, b.Transactions)
+	findBlockNonce(&b.Header, types.HashRequiringWork(s.Difficulty))
 	return b
 }
 
@@ -53,7 +53,14 @@ func TestScratchChain(t *testing.T) {
 	}...)
 	sau := GenesisUpdate(b, testingDifficulty)
 
-	sc := NewScratchChain(sau.Context)
+	sc := NewScratchChain(sau.State)
+	if sc.Base() != sau.State.Index {
+		t.Fatal("wrong base:", sc.Base())
+	} else if sc.Tip() != sau.State.Index {
+		t.Fatal("wrong tip:", sc.Tip())
+	} else if sc.UnvalidatedBase() != sau.State.Index {
+		t.Fatal("wrong unvalidated base:", sc.UnvalidatedBase())
+	}
 	var blocks []types.Block
 	origOutputs := sau.NewSiacoinElements
 	toSpend := origOutputs[5:10]
@@ -74,15 +81,27 @@ func TestScratchChain(t *testing.T) {
 			SpendPolicy: types.PolicyPublicKey(pubkey),
 		})
 	}
-	signAllInputs(&txn, sau.Context, privkey)
+	signAllInputs(&txn, sau.State, privkey)
 
-	b = mineBlock(sau.Context, b, txn)
-	if err := sc.AppendHeader(b.Header); err != nil {
+	b = mineBlock(sau.State, b, txn)
+	if sc.Contains(b.Index()) {
+		t.Fatal("scratch chain should not contain the header yet")
+	} else if _, err := sc.ApplyBlock(b); err == nil {
+		t.Fatal("shouldn't be able to apply a block without a corresponding header")
+	} else if err := sc.AppendHeader(b.Header); err != nil {
 		t.Fatal(err)
+	} else if sc.Tip() != b.Index() {
+		t.Fatal("wrong tip:", sc.Tip())
+	} else if sc.UnvalidatedBase() != sc.Base() {
+		t.Fatal("wrong unvalidated base:", sc.UnvalidatedBase())
+	} else if !sc.Contains(b.Index()) {
+		t.Fatal("scratch chain should contain the header")
+	} else if sc.TotalWork() != testingDifficulty {
+		t.Fatal("wrong total work:", sc.TotalWork())
 	}
 	blocks = append(blocks, b)
 
-	sau = ApplyBlock(sau.Context, b)
+	sau = ApplyBlock(sau.State, b)
 	sau.UpdateElementProof(&origOutputs[2].StateElement)
 	newOutputs := sau.NewSiacoinElements
 
@@ -97,14 +116,14 @@ func TestScratchChain(t *testing.T) {
 		}},
 		MinerFee: types.Siacoins(1),
 	}
-	signAllInputs(&txn, sau.Context, privkey)
+	signAllInputs(&txn, sau.State, privkey)
 
-	b = mineBlock(sau.Context, b, txn)
+	b = mineBlock(sau.State, b, txn)
 	if err := sc.AppendHeader(b.Header); err != nil {
 		t.Fatal(err)
 	}
 	blocks = append(blocks, b)
-	sau = ApplyBlock(sau.Context, b)
+	sau = ApplyBlock(sau.State, b)
 	for i := range origOutputs {
 		sau.UpdateElementProof(&origOutputs[i].StateElement)
 	}
@@ -123,7 +142,7 @@ func TestScratchChain(t *testing.T) {
 			Address: ourAddr,
 		}},
 	}
-	signAllInputs(&parentTxn, sau.Context, privkey)
+	signAllInputs(&parentTxn, sau.State, privkey)
 	childTxn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
 			Parent: types.SiacoinElement{
@@ -147,44 +166,67 @@ func TestScratchChain(t *testing.T) {
 		}},
 		MinerFee: types.Siacoins(1),
 	}
-	signAllInputs(&childTxn, sau.Context, privkey)
+	signAllInputs(&childTxn, sau.State, privkey)
 
-	b = mineBlock(sau.Context, b, parentTxn, childTxn)
+	b = mineBlock(sau.State, b, parentTxn, childTxn)
 	if err := sc.AppendHeader(b.Header); err != nil {
 		t.Fatal(err)
 	}
 	blocks = append(blocks, b)
 
+	// should have one unvalidated header for each block
+	if sc.FullyValidated() {
+		t.Fatal("scratch chain should not be fully validated yet")
+	} else if len(sc.Unvalidated()) != len(blocks) {
+		t.Fatal("unvalidated headers not equal to blocks")
+	}
+	for i, index := range sc.Unvalidated() {
+		if index != blocks[i].Index() {
+			t.Fatal("unvalidated header not equal to block")
+		} else if sc.Index(index.Height) != index {
+			t.Fatal("inconsistent index:", sc.Index(index.Height), index)
+		}
+	}
+
 	// validate all blocks
 	for _, b := range blocks {
 		if _, err := sc.ApplyBlock(b); err != nil {
 			t.Fatal(err)
+		} else if sc.ValidTip() != b.Index() {
+			t.Fatal("wrong valid tip:", sc.ValidTip())
+		} else if len(sc.Unvalidated()) > 0 && sc.UnvalidatedBase() != sc.Index(b.Header.Height+1) {
+			t.Fatal("wrong unvalidated base:", sc.UnvalidatedBase())
 		}
+	}
+	if !sc.FullyValidated() {
+		t.Fatal("scratch chain should be fully validated")
+	} else if len(sc.Unvalidated()) != 0 {
+		t.Fatal("scratch chain should not have any unvalidated headers")
 	}
 }
 
 func TestScratchChainDifficultyAdjustment(t *testing.T) {
 	b := genesisWithSiacoinOutputs()
-	vc := GenesisUpdate(b, testingDifficulty).Context
+	s := GenesisUpdate(b, testingDifficulty).State
 
 	// mine a block, triggering adjustment
-	sc := NewScratchChain(vc)
-	b = mineBlock(vc, b)
+	sc := NewScratchChain(s)
+	b = mineBlock(s, b)
 	if err := sc.AppendHeader(b.Header); err != nil {
 		t.Fatal(err)
 	} else if _, err := sc.ApplyBlock(b); err != nil {
 		t.Fatal(err)
 	}
-	vc = ApplyBlock(vc, b).Context
+	s = ApplyBlock(s, b).State
 
 	// difficulty should have changed
-	currentDifficulty := sc.tvc.Difficulty
+	currentDifficulty := sc.ts.Difficulty
 	if currentDifficulty.Cmp(testingDifficulty) <= 0 {
 		t.Fatal("difficulty should have increased")
 	}
 
 	// mine a block with less than the minimum work; it should be rejected
-	b = mineBlock(vc, b)
+	b = mineBlock(s, b)
 	for types.WorkRequiredForHash(b.ID()).Cmp(currentDifficulty) >= 0 {
 		b.Header.Nonce = frand.Uint64n(math.MaxUint32) * NonceFactor
 	}
@@ -193,11 +235,11 @@ func TestScratchChainDifficultyAdjustment(t *testing.T) {
 	}
 
 	// mine at actual difficulty
-	findBlockNonce(&b.Header, types.HashRequiringWork(vc.Difficulty))
+	findBlockNonce(&b.Header, types.HashRequiringWork(s.Difficulty))
 	if err := sc.AppendHeader(b.Header); err != nil {
 		t.Fatal(err)
 	} else if _, err := sc.ApplyBlock(b); err != nil {
 		t.Fatal(err)
 	}
-	vc = ApplyBlock(vc, b).Context
+	s = ApplyBlock(s, b).State
 }

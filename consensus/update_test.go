@@ -40,7 +40,7 @@ func TestApplyBlock(t *testing.T) {
 		{Value: randAmount(), Address: randAddr()},
 	}...)
 	update1 := GenesisUpdate(b, testingDifficulty)
-	acc1 := update1.Context.State
+	acc1 := update1.State.Elements
 	origOutputs := update1.NewSiacoinElements
 	if len(origOutputs) != len(b.Transactions[0].SiacoinOutputs)+1 {
 		t.Fatalf("expected %v new outputs, got %v", len(b.Transactions[0].SiacoinOutputs)+1, len(origOutputs))
@@ -78,8 +78,8 @@ func TestApplyBlock(t *testing.T) {
 		Transactions: []types.Transaction{txn},
 	}
 
-	update2 := ApplyBlock(update1.Context, b)
-	acc2 := update2.Context.State
+	update2 := ApplyBlock(update1.State, b)
+	acc2 := update2.State.Elements
 	for i := range origOutputs {
 		update2.UpdateElementProof(&origOutputs[i].StateElement)
 	}
@@ -105,8 +105,8 @@ func TestApplyBlock(t *testing.T) {
 
 	// if we instead revert that block, we should see the inputs being "created"
 	// again and the outputs being destroyed
-	revertUpdate := RevertBlock(update1.Context, b)
-	revertAcc := revertUpdate.Context.State
+	revertUpdate := RevertBlock(update1.State, b)
+	revertAcc := revertUpdate.State.Elements
 	if len(revertUpdate.SpentSiacoins) != len(txn.SiacoinInputs) {
 		t.Error("number of spent outputs after revert should equal number of inputs")
 	}
@@ -175,8 +175,8 @@ func TestApplyBlock(t *testing.T) {
 		Transactions: []types.Transaction{parentTxn, childTxn},
 	}
 
-	update3 := ApplyBlock(update2.Context, b)
-	acc3 := update3.Context.State
+	update3 := ApplyBlock(update2.State, b)
+	acc3 := update3.State.Elements
 	for i := range origOutputs {
 		update3.UpdateElementProof(&origOutputs[i].StateElement)
 	}
@@ -237,14 +237,14 @@ func TestRevertBlock(t *testing.T) {
 		Transactions: []types.Transaction{txn},
 	}
 
-	update2 := ApplyBlock(update1.Context, b)
+	update2 := ApplyBlock(update1.State, b)
 	for i := range origOutputs {
 		update2.UpdateElementProof(&origOutputs[i].StateElement)
 	}
 
 	// revert the block. We should see the inputs being "created" again
 	// and the outputs being destroyed
-	revertUpdate := RevertBlock(update1.Context, b)
+	revertUpdate := RevertBlock(update1.State, b)
 	if len(revertUpdate.SpentSiacoins) != len(txn.SiacoinInputs) {
 		t.Error("number of spent outputs after revert should equal number of inputs")
 	}
@@ -262,7 +262,7 @@ func TestRevertBlock(t *testing.T) {
 		if update1.SiacoinElementWasSpent(o) {
 			t.Error("update should not mark output as spent:", o)
 		}
-		if !update1.Context.State.ContainsUnspentSiacoinElement(o) {
+		if !update1.State.Elements.ContainsUnspentSiacoinElement(o) {
 			t.Error("output should be in the accumulator, marked as unspent:", o)
 		}
 	}
@@ -292,12 +292,12 @@ func TestSiafunds(t *testing.T) {
 			Value:   100,
 		}},
 	}
-	signAllInputs(&txn, sau.Context, privkey)
-	b = mineBlock(sau.Context, b, txn)
-	if err := sau.Context.ValidateBlock(b); err != nil {
+	signAllInputs(&txn, sau.State, privkey)
+	b = mineBlock(sau.State, b, txn)
+	if err := sau.State.ValidateBlock(b); err != nil {
 		t.Fatal(err)
 	}
-	sau = ApplyBlock(sau.Context, b)
+	sau = ApplyBlock(sau.State, b)
 
 	// should have created a siafund output, a block reward, and a claim output
 	if len(sau.NewSiafundElements) != 1 || sau.NewSiafundElements[0].Value != 100 {
@@ -314,22 +314,22 @@ func TestSiafunds(t *testing.T) {
 		}},
 		MinerFee: sau.NewSiacoinElements[1].Value,
 	}
-	signAllInputs(&txn, sau.Context, claimPrivkey)
-	b = mineBlock(sau.Context, b, txn)
-	if err := sau.Context.ValidateBlock(b); err == nil {
+	signAllInputs(&txn, sau.State, claimPrivkey)
+	b = mineBlock(sau.State, b, txn)
+	if err := sau.State.ValidateBlock(b); err == nil {
 		t.Fatal("expected error when attempting to spend immature claim output")
 	}
 
 	// skip to maturity height and try again
-	sau.Context.Index.Height = sau.NewSiacoinElements[1].MaturityHeight + 1
-	sau.Context.Index.ID = b.ID()
-	for i := range sau.Context.PrevTimestamps {
-		sau.Context.PrevTimestamps[i] = b.Header.Timestamp
+	sau.State.Index.Height = sau.NewSiacoinElements[1].MaturityHeight + 1
+	sau.State.Index.ID = b.ID()
+	for i := range sau.State.PrevTimestamps {
+		sau.State.PrevTimestamps[i] = b.Header.Timestamp
 	}
-	b.Header.Height = sau.Context.Index.Height
-	signAllInputs(&txn, sau.Context, claimPrivkey)
-	b = mineBlock(sau.Context, b, txn)
-	if err := sau.Context.ValidateBlock(b); err != nil {
+	b.Header.Height = sau.State.Index.Height
+	signAllInputs(&txn, sau.State, claimPrivkey)
+	b = mineBlock(sau.State, b, txn)
+	if err := sau.State.ValidateBlock(b); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -343,22 +343,22 @@ func TestFoundationSubsidy(t *testing.T) {
 	})
 	b.Transactions[0].NewFoundationAddress = types.StandardAddress(pubkey)
 	sau := GenesisUpdate(b, testingDifficulty)
-	if sau.Context.FoundationAddress != types.StandardAddress(pubkey) {
+	if sau.State.FoundationAddress != types.StandardAddress(pubkey) {
 		t.Fatal("Foundation address not updated")
 	}
 	initialOutput := sau.NewSiacoinElements[1]
 
 	// skip to Foundation hardfork height; we should receive the initial subsidy
 	b.Header.Height = foundationHardforkHeight - 1
-	sau.Context.Index.Height = foundationHardforkHeight - 1
-	for i := range sau.Context.PrevTimestamps {
-		sau.Context.PrevTimestamps[i] = b.Header.Timestamp
+	sau.State.Index.Height = foundationHardforkHeight - 1
+	for i := range sau.State.PrevTimestamps {
+		sau.State.PrevTimestamps[i] = b.Header.Timestamp
 	}
-	b = mineBlock(sau.Context, b)
-	if err := sau.Context.ValidateBlock(b); err != nil {
+	b = mineBlock(sau.State, b)
+	if err := sau.State.ValidateBlock(b); err != nil {
 		t.Fatal(err)
 	}
-	sau = ApplyBlock(sau.Context, b)
+	sau = ApplyBlock(sau.State, b)
 	sau.UpdateElementProof(&initialOutput.StateElement)
 	subsidyID := types.ElementID{
 		Source: types.Hash256(b.ID()),
@@ -385,19 +385,19 @@ func TestFoundationSubsidy(t *testing.T) {
 		NewFoundationAddress: newAddress,
 		MinerFee:             initialOutput.Value,
 	}
-	signAllInputs(&txn, sau.Context, privkey)
-	b = mineBlock(sau.Context, b, txn)
-	if err := sau.Context.ValidateBlock(b); err != nil {
+	signAllInputs(&txn, sau.State, privkey)
+	b = mineBlock(sau.State, b, txn)
+	if err := sau.State.ValidateBlock(b); err != nil {
 		t.Fatal(err)
 	}
-	sau = ApplyBlock(sau.Context, b)
+	sau = ApplyBlock(sau.State, b)
 	sau.UpdateElementProof(&subsidyOutput.StateElement)
-	if sau.Context.FoundationAddress != newAddress {
+	if sau.State.FoundationAddress != newAddress {
 		t.Fatal("Foundation address not updated")
 	}
 
 	// skip beyond the maturity height of the initial subsidy output, and spend it
-	sau.Context.Index.Height = subsidyOutput.MaturityHeight + 1
+	sau.State.Index.Height = subsidyOutput.MaturityHeight + 1
 	txn = types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
 			Parent:      subsidyOutput,
@@ -405,20 +405,20 @@ func TestFoundationSubsidy(t *testing.T) {
 		}},
 		MinerFee: subsidyOutput.Value,
 	}
-	signAllInputs(&txn, sau.Context, privkey)
-	if err := sau.Context.ValidateTransaction(txn); err != nil {
+	signAllInputs(&txn, sau.State, privkey)
+	if err := sau.State.ValidateTransaction(txn); err != nil {
 		t.Fatal(err)
 	}
 
 	// skip to the next foundation subsidy height; the foundation address should
 	// receive a new subsidy.
-	sau.Context.Index.Height = foundationHardforkHeight + foundationSubsidyFrequency - 1
-	b.Header.Height = sau.Context.Index.Height
-	b = mineBlock(sau.Context, b, txn)
-	if err := sau.Context.ValidateBlock(b); err != nil {
+	sau.State.Index.Height = foundationHardforkHeight + foundationSubsidyFrequency - 1
+	b.Header.Height = sau.State.Index.Height
+	b = mineBlock(sau.State, b, txn)
+	if err := sau.State.ValidateBlock(b); err != nil {
 		t.Fatal(err)
 	}
-	sau = ApplyBlock(sau.Context, b)
+	sau = ApplyBlock(sau.State, b)
 	subsidyID = types.ElementID{
 		Source: types.Hash256(b.ID()),
 		Index:  1,
@@ -445,19 +445,19 @@ func TestUpdateWindowProof(t *testing.T) {
 			b := genesisWithSiacoinOutputs()
 			sau := GenesisUpdate(b, testingDifficulty)
 			for i := 0; i < before; i++ {
-				b = mineBlock(sau.Context, b)
-				sau = ApplyBlock(sau.Context, b)
+				b = mineBlock(sau.State, b)
+				sau = ApplyBlock(sau.State, b)
 			}
 			sp := types.StorageProof{
-				WindowStart: sau.Context.Index,
+				WindowStart: sau.State.Index,
 				WindowProof: sau.HistoryProof(),
 			}
 			for i := 0; i < after; i++ {
-				b = mineBlock(sau.Context, b)
-				sau = ApplyBlock(sau.Context, b)
+				b = mineBlock(sau.State, b)
+				sau = ApplyBlock(sau.State, b)
 				sau.UpdateWindowProof(&sp)
 			}
-			if !sau.Context.History.Contains(sp.WindowStart, sp.WindowProof) {
+			if !sau.State.History.Contains(sp.WindowStart, sp.WindowProof) {
 				t.Fatal("UpdateWindowProof created invalid history proof")
 			}
 		}
@@ -495,7 +495,7 @@ func TestFileContracts(t *testing.T) {
 		RenterPublicKey: renterPubkey,
 		HostPublicKey:   hostPubkey,
 	}
-	outputSum := initialRev.RenterOutput.Value.Add(initialRev.HostOutput.Value).Add(sau.Context.FileContractTax(initialRev))
+	outputSum := initialRev.RenterOutput.Value.Add(initialRev.HostOutput.Value).Add(sau.State.FileContractTax(initialRev))
 	txn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{
 			{Parent: renterOutput, SpendPolicy: types.PolicyPublicKey(renterPubkey)},
@@ -505,27 +505,27 @@ func TestFileContracts(t *testing.T) {
 		MinerFee:      renterOutput.Value.Add(hostOutput.Value).Sub(outputSum),
 	}
 	fc := &txn.FileContracts[0]
-	contractHash := sau.Context.ContractSigHash(*fc)
+	contractHash := sau.State.ContractSigHash(*fc)
 	fc.RenterSignature = renterPrivkey.SignHash(contractHash)
 	fc.HostSignature = hostPrivkey.SignHash(contractHash)
-	sigHash := sau.Context.InputSigHash(txn)
+	sigHash := sau.State.InputSigHash(txn)
 	txn.SiacoinInputs[0].Signatures = []types.Signature{renterPrivkey.SignHash(sigHash)}
 	txn.SiacoinInputs[1].Signatures = []types.Signature{hostPrivkey.SignHash(sigHash)}
 
-	b = mineBlock(sau.Context, b, txn)
-	if err := sau.Context.ValidateBlock(b); err != nil {
+	b = mineBlock(sau.State, b, txn)
+	if err := sau.State.ValidateBlock(b); err != nil {
 		t.Fatal(err)
 	}
-	sau = ApplyBlock(sau.Context, b)
+	sau = ApplyBlock(sau.State, b)
 
 	if len(sau.NewFileContracts) != 1 {
 		t.Fatal("expected one new file contract")
 	}
 	fce := sau.NewFileContracts[0]
-	if !sau.Context.State.ContainsUnresolvedFileContractElement(fce) {
+	if !sau.State.Elements.ContainsUnresolvedFileContractElement(fce) {
 		t.Fatal("accumulator should contain unresolved contract")
 	}
-	if sau.Context.SiafundPool != sau.Context.FileContractTax(initialRev) {
+	if sau.State.SiafundPool != sau.State.FileContractTax(initialRev) {
 		t.Fatal("expected siafund pool to increase")
 	}
 
@@ -542,18 +542,18 @@ func TestFileContracts(t *testing.T) {
 	)
 	finalRev.Revision.RevisionNumber++
 	finalRev.Revision.Filesize = uint64(len(data))
-	contractHash = sau.Context.ContractSigHash(finalRev.Revision)
+	contractHash = sau.State.ContractSigHash(finalRev.Revision)
 	finalRev.Revision.RenterSignature = renterPrivkey.SignHash(contractHash)
 	finalRev.Revision.HostSignature = hostPrivkey.SignHash(contractHash)
 	txn = types.Transaction{
 		FileContractRevisions: []types.FileContractRevision{finalRev},
 	}
 
-	b = mineBlock(sau.Context, b, txn)
-	if err := sau.Context.ValidateBlock(b); err != nil {
+	b = mineBlock(sau.State, b, txn)
+	if err := sau.State.ValidateBlock(b); err != nil {
 		t.Fatal(err)
 	}
-	sau = ApplyBlock(sau.Context, b)
+	sau = ApplyBlock(sau.State, b)
 	if len(sau.RevisedFileContracts) != 1 {
 		t.Fatal("expected one revised file contract")
 	}
@@ -564,16 +564,16 @@ func TestFileContracts(t *testing.T) {
 	//
 	// NOTE: unlike other tests, we can't "cheat" here by fast-forwarding,
 	// because we need to maintain a history proof
-	for sau.Context.Index.Height < fc.WindowStart {
-		b = mineBlock(sau.Context, b)
-		sau = ApplyBlock(sau.Context, b)
+	for sau.State.Index.Height < fc.WindowStart {
+		b = mineBlock(sau.State, b)
+		sau = ApplyBlock(sau.State, b)
 		sau.UpdateElementProof(&fce.StateElement)
 	}
 	sp := types.StorageProof{
-		WindowStart: sau.Context.Index,
+		WindowStart: sau.State.Index,
 		WindowProof: sau.HistoryProof(),
 	}
-	proofIndex := sau.Context.StorageProofLeafIndex(finalRev.Revision.Filesize, sp.WindowStart, fce.ID)
+	proofIndex := sau.State.StorageProofLeafIndex(finalRev.Revision.Filesize, sp.WindowStart, fce.ID)
 	copy(sp.Leaf[:], data[64*proofIndex:])
 	if proofIndex == 0 {
 		sp.Proof = append(sp.Proof, merkle.StorageProofLeafHash(data[64:]))
@@ -589,11 +589,11 @@ func TestFileContracts(t *testing.T) {
 		}},
 	}
 
-	validBlock := mineBlock(sau.Context, b, txn)
-	if err := sau.Context.ValidateBlock(validBlock); err != nil {
+	validBlock := mineBlock(sau.State, b, txn)
+	if err := sau.State.ValidateBlock(validBlock); err != nil {
 		t.Fatal(err)
 	}
-	validSAU := ApplyBlock(sau.Context, validBlock)
+	validSAU := ApplyBlock(sau.State, validBlock)
 	if len(validSAU.ResolvedFileContracts) != 1 {
 		t.Fatal("expected one resolved file contract")
 	} else if len(validSAU.NewSiacoinElements) != 3 {
@@ -605,23 +605,23 @@ func TestFileContracts(t *testing.T) {
 	}
 
 	// revert the block and instead mine past the proof window
-	for sau.Context.Index.Height <= fc.WindowEnd {
-		b = mineBlock(sau.Context, b)
-		sau = ApplyBlock(sau.Context, b)
+	for sau.State.Index.Height <= fc.WindowEnd {
+		b = mineBlock(sau.State, b)
+		sau = ApplyBlock(sau.State, b)
 		sau.UpdateElementProof(&txn.FileContractResolutions[0].Parent.StateElement)
 		sau.UpdateWindowProof(&txn.FileContractResolutions[0].StorageProof)
 	}
 	// storage proof resolution should now be rejected
-	if err := sau.Context.ValidateTransaction(txn); err == nil {
+	if err := sau.State.ValidateTransaction(txn); err == nil {
 		t.Fatal("expected too-late storage proof to be rejected")
 	}
 	// missed resolution should be accepted, though
 	txn.FileContractResolutions[0].StorageProof = types.StorageProof{}
-	b = mineBlock(sau.Context, b, txn)
-	if err := sau.Context.ValidateBlock(b); err != nil {
+	b = mineBlock(sau.State, b, txn)
+	if err := sau.State.ValidateBlock(b); err != nil {
 		t.Fatal(err)
 	}
-	sau = ApplyBlock(sau.Context, b)
+	sau = ApplyBlock(sau.State, b)
 	if len(sau.ResolvedFileContracts) != 1 {
 		t.Fatal("expected one resolved file contract")
 	} else if len(sau.NewSiacoinElements) != 3 {
@@ -668,10 +668,10 @@ func TestContractRenewal(t *testing.T) {
 		RenterPublicKey: renterPubkey,
 		HostPublicKey:   hostPubkey,
 	}
-	contractHash := sau.Context.ContractSigHash(initialRev)
+	contractHash := sau.State.ContractSigHash(initialRev)
 	initialRev.RenterSignature = renterPrivkey.SignHash(contractHash)
 	initialRev.HostSignature = hostPrivkey.SignHash(contractHash)
-	outputSum := initialRev.RenterOutput.Value.Add(initialRev.HostOutput.Value).Add(sau.Context.FileContractTax(initialRev))
+	outputSum := initialRev.RenterOutput.Value.Add(initialRev.HostOutput.Value).Add(sau.State.FileContractTax(initialRev))
 	txn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{
 			{Parent: renterOutput, SpendPolicy: types.PolicyPublicKey(renterPubkey)},
@@ -680,22 +680,22 @@ func TestContractRenewal(t *testing.T) {
 		FileContracts: []types.FileContract{initialRev},
 		MinerFee:      renterOutput.Value.Add(hostOutput.Value).Sub(outputSum),
 	}
-	sigHash := sau.Context.InputSigHash(txn)
+	sigHash := sau.State.InputSigHash(txn)
 	txn.SiacoinInputs[0].Signatures = []types.Signature{renterPrivkey.SignHash(sigHash)}
 	txn.SiacoinInputs[1].Signatures = []types.Signature{hostPrivkey.SignHash(sigHash)}
 
-	b = mineBlock(sau.Context, b, txn)
-	if err := sau.Context.ValidateBlock(b); err != nil {
+	b = mineBlock(sau.State, b, txn)
+	if err := sau.State.ValidateBlock(b); err != nil {
 		t.Fatal(err)
 	}
-	sau = ApplyBlock(sau.Context, b)
+	sau = ApplyBlock(sau.State, b)
 	sau.UpdateElementProof(&renewOutput.StateElement)
 
 	if len(sau.NewFileContracts) != 1 {
 		t.Fatal("expected one new file contract")
 	}
 	fc := sau.NewFileContracts[0]
-	if !sau.Context.State.ContainsUnresolvedFileContractElement(fc) {
+	if !sau.State.Elements.ContainsUnresolvedFileContractElement(fc) {
 		t.Fatal("accumulator should contain unresolved contract")
 	}
 
@@ -703,7 +703,7 @@ func TestContractRenewal(t *testing.T) {
 	// new contract, rolling over some SC into the new contract
 	finalRev := fc.FileContract
 	finalRev.RevisionNumber = types.MaxRevisionNumber
-	contractHash = sau.Context.ContractSigHash(finalRev)
+	contractHash = sau.State.ContractSigHash(finalRev)
 	finalRev.RenterSignature = renterPrivkey.SignHash(contractHash)
 	finalRev.HostSignature = hostPrivkey.SignHash(contractHash)
 
@@ -715,7 +715,7 @@ func TestContractRenewal(t *testing.T) {
 	initialRev.HostOutput.Value = types.Siacoins(100)
 	initialRev.MissedHostValue = types.Siacoins(100)
 	initialRev.TotalCollateral = types.Siacoins(100)
-	contractHash = sau.Context.ContractSigHash(initialRev)
+	contractHash = sau.State.ContractSigHash(initialRev)
 	initialRev.RenterSignature = renterPrivkey.SignHash(contractHash)
 	initialRev.HostSignature = hostPrivkey.SignHash(contractHash)
 
@@ -725,14 +725,14 @@ func TestContractRenewal(t *testing.T) {
 		RenterRollover:  types.Siacoins(3),
 		HostRollover:    types.Siacoins(6),
 	}
-	renewalHash := sau.Context.RenewalSigHash(renewal)
+	renewalHash := sau.State.RenewalSigHash(renewal)
 	renewal.RenterSignature = renterPrivkey.SignHash(renewalHash)
 	renewal.HostSignature = hostPrivkey.SignHash(renewalHash)
 
 	// since we increased the amount of value in the contract, we need to add
 	// more inputs
 	rollover := renewal.RenterRollover.Add(renewal.HostRollover)
-	contractCost := initialRev.RenterOutput.Value.Add(initialRev.HostOutput.Value).Add(sau.Context.FileContractTax(initialRev)).Sub(rollover)
+	contractCost := initialRev.RenterOutput.Value.Add(initialRev.HostOutput.Value).Add(sau.State.FileContractTax(initialRev)).Sub(rollover)
 	txn = types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
 			Parent:      renewOutput,
@@ -744,18 +744,18 @@ func TestContractRenewal(t *testing.T) {
 		}},
 		MinerFee: renewOutput.Value.Sub(contractCost),
 	}
-	sigHash = sau.Context.InputSigHash(txn)
+	sigHash = sau.State.InputSigHash(txn)
 	txn.SiacoinInputs[0].Signatures = []types.Signature{renterPrivkey.SignHash(sigHash)}
 
 	// after applying the transaction, we should observe a number of effects:
 	// - the old contract should be marked resolved
 	// - the new contract should be created
 	// - the old contract payouts, sans rollover, should be created
-	b = mineBlock(sau.Context, b, txn)
-	if err := sau.Context.ValidateBlock(b); err != nil {
+	b = mineBlock(sau.State, b, txn)
+	if err := sau.State.ValidateBlock(b); err != nil {
 		t.Fatal(err)
 	}
-	sau = ApplyBlock(sau.Context, b)
+	sau = ApplyBlock(sau.State, b)
 	expRenterOutput := types.SiacoinOutput{
 		Value:   finalRev.RenterOutput.Value.Sub(renewal.RenterRollover),
 		Address: finalRev.RenterOutput.Address,
@@ -772,15 +772,15 @@ func TestContractRenewal(t *testing.T) {
 		t.Fatal("expected three new siacoin outputs")
 	} else if sau.NewSiacoinElements[1].SiacoinOutput != expRenterOutput {
 		t.Fatal("expected valid renter output to be created", sau.NewSiacoinElements[1].SiacoinOutput, expRenterOutput)
-	} else if sau.NewSiacoinElements[1].MaturityHeight != sau.Context.MaturityHeight()-1 {
+	} else if sau.NewSiacoinElements[1].MaturityHeight != sau.State.MaturityHeight()-1 {
 		t.Fatal("renter output has wrong maturity height")
 	} else if sau.NewSiacoinElements[2].SiacoinOutput != expHostOutput {
 		t.Fatal("expected valid host output to be created", sau.NewSiacoinElements[2].SiacoinOutput, expHostOutput)
-	} else if sau.NewSiacoinElements[2].MaturityHeight != sau.Context.MaturityHeight()-1 {
+	} else if sau.NewSiacoinElements[2].MaturityHeight != sau.State.MaturityHeight()-1 {
 		t.Fatal("host output has wrong maturity height")
 	}
 	fc = sau.NewFileContracts[0]
-	if !sau.Context.State.ContainsUnresolvedFileContractElement(fc) {
+	if !sau.State.Elements.ContainsUnresolvedFileContractElement(fc) {
 		t.Fatal("accumulator should contain unresolved contract")
 	}
 
@@ -788,7 +788,7 @@ func TestContractRenewal(t *testing.T) {
 	// current contract; no additional funding should be required
 	finalRev = fc.FileContract
 	finalRev.RevisionNumber = types.MaxRevisionNumber
-	contractHash = sau.Context.ContractSigHash(finalRev)
+	contractHash = sau.State.ContractSigHash(finalRev)
 	finalRev.RenterSignature = renterPrivkey.SignHash(contractHash)
 	finalRev.HostSignature = hostPrivkey.SignHash(contractHash)
 
@@ -800,17 +800,17 @@ func TestContractRenewal(t *testing.T) {
 	initialRev.HostOutput.Value = types.Siacoins(10)
 	initialRev.MissedHostValue = types.Siacoins(10)
 	initialRev.TotalCollateral = types.Siacoins(10)
-	contractHash = sau.Context.ContractSigHash(initialRev)
+	contractHash = sau.State.ContractSigHash(initialRev)
 	initialRev.RenterSignature = renterPrivkey.SignHash(contractHash)
 	initialRev.HostSignature = hostPrivkey.SignHash(contractHash)
 
 	renewal = types.FileContractRenewal{
 		FinalRevision:   finalRev,
 		InitialRevision: initialRev,
-		RenterRollover:  types.Siacoins(17).Add(sau.Context.FileContractTax(initialRev)),
+		RenterRollover:  types.Siacoins(17).Add(sau.State.FileContractTax(initialRev)),
 		HostRollover:    types.Siacoins(3),
 	}
-	renewalHash = sau.Context.RenewalSigHash(renewal)
+	renewalHash = sau.State.RenewalSigHash(renewal)
 	renewal.RenterSignature = renterPrivkey.SignHash(renewalHash)
 	renewal.HostSignature = hostPrivkey.SignHash(renewalHash)
 
@@ -822,14 +822,11 @@ func TestContractRenewal(t *testing.T) {
 	}
 
 	// apply the transaction
-	b = mineBlock(sau.Context, b, txn)
-	if err := sau.Context.ValidateBlock(b); err != nil {
+	b = mineBlock(sau.State, b, txn)
+	if err := sau.State.ValidateBlock(b); err != nil {
 		t.Fatal(err)
 	}
-	sau = ApplyBlock(sau.Context, b)
-	for i, sce := range sau.NewSiacoinElements {
-		t.Log(i, sce.SiacoinOutput)
-	}
+	sau = ApplyBlock(sau.State, b)
 	expRenterOutput = types.SiacoinOutput{
 		Value:   finalRev.RenterOutput.Value.Sub(renewal.RenterRollover),
 		Address: finalRev.RenterOutput.Address,
@@ -846,11 +843,11 @@ func TestContractRenewal(t *testing.T) {
 		t.Fatal("expected three new siacoin outputs")
 	} else if sau.NewSiacoinElements[1].SiacoinOutput != expRenterOutput {
 		t.Fatal("expected valid renter output to be created", sau.NewSiacoinElements[1].SiacoinOutput, expRenterOutput)
-	} else if sau.NewSiacoinElements[1].MaturityHeight != sau.Context.MaturityHeight()-1 {
+	} else if sau.NewSiacoinElements[1].MaturityHeight != sau.State.MaturityHeight()-1 {
 		t.Fatal("renter output has wrong maturity height")
 	} else if sau.NewSiacoinElements[2].SiacoinOutput != expHostOutput {
 		t.Fatal("expected valid host output to be created", sau.NewSiacoinElements[2].SiacoinOutput, expHostOutput)
-	} else if sau.NewSiacoinElements[2].MaturityHeight != sau.Context.MaturityHeight()-1 {
+	} else if sau.NewSiacoinElements[2].MaturityHeight != sau.State.MaturityHeight()-1 {
 		t.Fatal("host output has wrong maturity height")
 	}
 }
@@ -886,10 +883,10 @@ func TestContractFinalization(t *testing.T) {
 		RenterPublicKey: renterPubkey,
 		HostPublicKey:   hostPubkey,
 	}
-	contractHash := sau.Context.ContractSigHash(initialRev)
+	contractHash := sau.State.ContractSigHash(initialRev)
 	initialRev.RenterSignature = renterPrivkey.SignHash(contractHash)
 	initialRev.HostSignature = hostPrivkey.SignHash(contractHash)
-	outputSum := initialRev.RenterOutput.Value.Add(initialRev.HostOutput.Value).Add(sau.Context.FileContractTax(initialRev))
+	outputSum := initialRev.RenterOutput.Value.Add(initialRev.HostOutput.Value).Add(sau.State.FileContractTax(initialRev))
 	txn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{
 			{Parent: renterOutput, SpendPolicy: types.PolicyPublicKey(renterPubkey)},
@@ -898,31 +895,31 @@ func TestContractFinalization(t *testing.T) {
 		FileContracts: []types.FileContract{initialRev},
 		MinerFee:      renterOutput.Value.Add(hostOutput.Value).Sub(outputSum),
 	}
-	sigHash := sau.Context.InputSigHash(txn)
+	sigHash := sau.State.InputSigHash(txn)
 	txn.SiacoinInputs[0].Signatures = []types.Signature{renterPrivkey.SignHash(sigHash)}
 	txn.SiacoinInputs[1].Signatures = []types.Signature{hostPrivkey.SignHash(sigHash)}
 
-	b = mineBlock(sau.Context, b, txn)
-	if err := sau.Context.ValidateBlock(b); err != nil {
+	b = mineBlock(sau.State, b, txn)
+	if err := sau.State.ValidateBlock(b); err != nil {
 		t.Fatal(err)
 	}
-	sau = ApplyBlock(sau.Context, b)
+	sau = ApplyBlock(sau.State, b)
 
 	if len(sau.NewFileContracts) != 1 {
 		t.Fatal("expected one new file contract")
 	}
 	fc := sau.NewFileContracts[0]
-	if !sau.Context.State.ContainsUnresolvedFileContractElement(fc) {
+	if !sau.State.Elements.ContainsUnresolvedFileContractElement(fc) {
 		t.Fatal("accumulator should contain unresolved contract")
 	}
-	if sau.Context.SiafundPool != sau.Context.FileContractTax(initialRev) {
+	if sau.State.SiafundPool != sau.State.FileContractTax(initialRev) {
 		t.Fatal("expected siafund pool to increase")
 	}
 
 	// finalize the contract
 	finalRev := fc.FileContract
 	finalRev.RevisionNumber = types.MaxRevisionNumber
-	contractHash = sau.Context.ContractSigHash(finalRev)
+	contractHash = sau.State.ContractSigHash(finalRev)
 	finalRev.RenterSignature = renterPrivkey.SignHash(contractHash)
 	finalRev.HostSignature = hostPrivkey.SignHash(contractHash)
 	txn = types.Transaction{
@@ -933,11 +930,11 @@ func TestContractFinalization(t *testing.T) {
 	}
 
 	// after applying the transaction, the contract's outputs should be created immediately
-	b = mineBlock(sau.Context, b, txn)
-	if err := sau.Context.ValidateBlock(b); err != nil {
+	b = mineBlock(sau.State, b, txn)
+	if err := sau.State.ValidateBlock(b); err != nil {
 		t.Fatal(err)
 	}
-	sau = ApplyBlock(sau.Context, b)
+	sau = ApplyBlock(sau.State, b)
 	if len(sau.ResolvedFileContracts) != 1 {
 		t.Fatal("expected one resolved file contract")
 	} else if len(sau.NewSiacoinElements) != 3 {
@@ -963,7 +960,7 @@ func TestRevertFileContractRevision(t *testing.T) {
 	sau := GenesisUpdate(b, testingDifficulty)
 	renterOutput := sau.NewSiacoinElements[1]
 	hostOutput := sau.NewSiacoinElements[2]
-	prevVC, vc := sau.Context, sau.Context
+	prevState, s := sau.State, sau.State
 
 	// form initial contract
 	initialRev := types.FileContract{
@@ -982,10 +979,10 @@ func TestRevertFileContractRevision(t *testing.T) {
 		RenterPublicKey: renterPubkey,
 		HostPublicKey:   hostPubkey,
 	}
-	contractHash := vc.ContractSigHash(initialRev)
+	contractHash := s.ContractSigHash(initialRev)
 	initialRev.RenterSignature = renterPrivkey.SignHash(contractHash)
 	initialRev.HostSignature = hostPrivkey.SignHash(contractHash)
-	outputSum := initialRev.RenterOutput.Value.Add(initialRev.HostOutput.Value).Add(vc.FileContractTax(initialRev))
+	outputSum := initialRev.RenterOutput.Value.Add(initialRev.HostOutput.Value).Add(s.FileContractTax(initialRev))
 	txn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{
 			{Parent: renterOutput, SpendPolicy: types.PolicyPublicKey(renterPubkey)},
@@ -994,24 +991,24 @@ func TestRevertFileContractRevision(t *testing.T) {
 		FileContracts: []types.FileContract{initialRev},
 		MinerFee:      renterOutput.Value.Add(hostOutput.Value).Sub(outputSum),
 	}
-	sigHash := vc.InputSigHash(txn)
+	sigHash := s.InputSigHash(txn)
 	txn.SiacoinInputs[0].Signatures = []types.Signature{renterPrivkey.SignHash(sigHash)}
 	txn.SiacoinInputs[1].Signatures = []types.Signature{hostPrivkey.SignHash(sigHash)}
 
 	// mine a block confirming the contract
-	parent, b = b, mineBlock(vc, b, txn)
-	if err := vc.ValidateBlock(b); err != nil {
+	parent, b = b, mineBlock(s, b, txn)
+	if err := s.ValidateBlock(b); err != nil {
 		t.Fatal(err)
 	}
-	sau = ApplyBlock(vc, b)
-	prevVC, vc = vc, sau.Context
+	sau = ApplyBlock(s, b)
+	prevState, s = s, sau.State
 
 	// verify that the contract is now in the consensus set
 	if len(sau.NewFileContracts) != 1 {
 		t.Fatal("expected one new file contract")
 	}
 	fce := sau.NewFileContracts[0]
-	if !vc.State.ContainsUnresolvedFileContractElement(fce) {
+	if !s.Elements.ContainsUnresolvedFileContractElement(fce) {
 		t.Fatal("accumulator should contain unresolved contract")
 	} else if !reflect.DeepEqual(fce.FileContract, initialRev) {
 		t.Fatal("expected file contract to match initial revision")
@@ -1023,17 +1020,17 @@ func TestRevertFileContractRevision(t *testing.T) {
 		Revision: fce.FileContract,
 	}
 	rev1.Revision.RevisionNumber = 2
-	contractHash = vc.ContractSigHash(rev1.Revision)
+	contractHash = s.ContractSigHash(rev1.Revision)
 	rev1.Revision.RenterSignature = renterPrivkey.SignHash(contractHash)
 	rev1.Revision.HostSignature = hostPrivkey.SignHash(contractHash)
-	parent, b = b, mineBlock(vc, b, types.Transaction{
+	parent, b = b, mineBlock(s, b, types.Transaction{
 		FileContractRevisions: []types.FileContractRevision{rev1},
 	})
-	if err := vc.ValidateBlock(b); err != nil {
+	if err := s.ValidateBlock(b); err != nil {
 		t.Fatal(err)
 	}
-	sau = ApplyBlock(vc, b)
-	prevVC, vc = vc, sau.Context
+	sau = ApplyBlock(s, b)
+	prevState, s = s, sau.State
 	if len(sau.RevisedFileContracts) != 1 {
 		t.Fatal("expected one revised file contract")
 	}
@@ -1049,17 +1046,17 @@ func TestRevertFileContractRevision(t *testing.T) {
 		Revision: fce.FileContract,
 	}
 	rev2.Revision.RevisionNumber = 4
-	contractHash = vc.ContractSigHash(rev2.Revision)
+	contractHash = s.ContractSigHash(rev2.Revision)
 	rev2.Revision.RenterSignature = renterPrivkey.SignHash(contractHash)
 	rev2.Revision.HostSignature = hostPrivkey.SignHash(contractHash)
-	parent, b = b, mineBlock(vc, b, types.Transaction{
+	parent, b = b, mineBlock(s, b, types.Transaction{
 		FileContractRevisions: []types.FileContractRevision{rev2},
 	})
-	if err := vc.ValidateBlock(b); err != nil {
+	if err := s.ValidateBlock(b); err != nil {
 		t.Fatal(err)
 	}
-	sau = ApplyBlock(vc, b)
-	prevVC, vc = vc, sau.Context
+	sau = ApplyBlock(s, b)
+	prevState, s = s, sau.State
 	if len(sau.RevisedFileContracts) != 1 {
 		t.Fatal("expected one revised file contract")
 	}
@@ -1071,9 +1068,9 @@ func TestRevertFileContractRevision(t *testing.T) {
 
 	// revert the revision and confirm that the contract is reverted to it's
 	// rev1 state.
-	sru := RevertBlock(prevVC, b)
+	sru := RevertBlock(prevState, b)
 	b = parent
-	vc = sru.Context
+	s = sru.State
 	fce = sru.RevisedFileContracts[0]
 	if !reflect.DeepEqual(fce.FileContract, rev1.Revision) {
 		t.Fatal("contract should revert to revision 1")
@@ -1086,18 +1083,18 @@ func TestRevertFileContractRevision(t *testing.T) {
 		Revision: fce.FileContract,
 	}
 	rev3.Revision.RevisionNumber = 3
-	contractHash = vc.ContractSigHash(rev3.Revision)
+	contractHash = s.ContractSigHash(rev3.Revision)
 	rev3.Revision.RenterSignature = renterPrivkey.SignHash(contractHash)
 	rev3.Revision.HostSignature = hostPrivkey.SignHash(contractHash)
 	txn = types.Transaction{
 		FileContractRevisions: []types.FileContractRevision{rev3},
 	}
-	parent, b = b, mineBlock(vc, b, txn)
-	if err := vc.ValidateBlock(b); err != nil {
+	parent, b = b, mineBlock(s, b, txn)
+	if err := s.ValidateBlock(b); err != nil {
 		t.Fatal(err)
 	}
-	sau = ApplyBlock(vc, b)
-	prevVC, vc = vc, sau.Context
+	sau = ApplyBlock(s, b)
+	prevState, s = s, sau.State
 	if len(sau.RevisedFileContracts) != 1 {
 		t.Fatal("expected one revised file contract")
 	}
@@ -1122,6 +1119,6 @@ func BenchmarkApplyBlock(b *testing.B) {
 		}},
 	}
 	for i := 0; i < b.N; i++ {
-		ApplyBlock(ValidationContext{}, block)
+		ApplyBlock(State{}, block)
 	}
 }

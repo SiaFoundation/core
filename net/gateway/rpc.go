@@ -57,10 +57,10 @@ type (
 
 	// RPCCheckpointResponse contains the response data for the Checkpoint RPC.
 	RPCCheckpointResponse struct {
-		// NOTE: we don't use a consensus.Checkpoint, because a Checkpoint.Context
-		// is the *child* context for the block, not its parent context.
-		Block         types.Block
-		ParentContext consensus.ValidationContext
+		// NOTE: we don't use a consensus.Checkpoint, because a Checkpoint.State
+		// is the *child* state for the block, not its parent state.
+		Block       types.Block
+		ParentState consensus.State
 	}
 
 	// RPCRelayBlockRequest contains the request parameters for the RelayBlock RPC.
@@ -221,13 +221,13 @@ func (RPCCheckpointRequest) MaxLen() int { return 40 }
 // EncodeTo implements rpc.Object.
 func (r *RPCCheckpointResponse) EncodeTo(e *types.Encoder) {
 	merkle.CompressedBlock(r.Block).EncodeTo(e)
-	r.ParentContext.EncodeTo(e)
+	r.ParentState.EncodeTo(e)
 }
 
 // DecodeFrom implements rpc.Object.
 func (r *RPCCheckpointResponse) DecodeFrom(d *types.Decoder) {
 	(*merkle.CompressedBlock)(&r.Block).DecodeFrom(d)
-	r.ParentContext.DecodeFrom(d)
+	r.ParentState.DecodeFrom(d)
 }
 
 // MaxLen implements rpc.Object.

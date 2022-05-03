@@ -48,7 +48,7 @@ type ProgramExecutor struct {
 	sectors   SectorStore
 	contracts ContractManager
 	registry  *RegistryManager
-	vc        consensus.ValidationContext
+	cs        consensus.State
 	settings  rhp.HostSettings
 	duration  uint64
 	contract  rhp.Contract
@@ -248,7 +248,7 @@ func (pe *ProgramExecutor) executeUpdateRegistry(value rhp.RegistryValue) error 
 	} else if err := rhp.ValidateRegistryEntry(value); err != nil {
 		return fmt.Errorf("invalid registry value: %w", err)
 	}
-	expirationHeight := pe.vc.Index.Height + blocksPerYear
+	expirationHeight := pe.cs.Index.Height + blocksPerYear
 	updated, err := pe.registry.Put(value, expirationHeight)
 	// if err is nil the updated value is returned, otherwise the old value is
 	// returned. Send the entry's current value to the renter.
@@ -452,7 +452,7 @@ func (pe *ProgramExecutor) FinalizeContract(req rhp.RPCFinalizeProgramRequest) (
 		return rhp.Contract{}, fmt.Errorf("failed to validate program revision: %w", err)
 	}
 
-	sigHash := pe.vc.ContractSigHash(revision)
+	sigHash := pe.cs.ContractSigHash(revision)
 	if !pe.contract.Revision.RenterPublicKey.VerifyHash(sigHash, req.Signature) {
 		return rhp.Contract{}, errors.New("invalid renter signature")
 	}
@@ -509,7 +509,7 @@ func (pe *ProgramExecutor) Commit() error {
 }
 
 // NewExecutor initializes the program's executor.
-func NewExecutor(priv types.PrivateKey, ss SectorStore, cm ContractManager, rm *RegistryManager, vc consensus.ValidationContext, settings rhp.HostSettings, budget *Budget) *ProgramExecutor {
+func NewExecutor(priv types.PrivateKey, ss SectorStore, cm ContractManager, rm *RegistryManager, cs consensus.State, settings rhp.HostSettings, budget *Budget) *ProgramExecutor {
 	pe := &ProgramExecutor{
 		settings: settings,
 		budget:   budget,
@@ -519,7 +519,7 @@ func NewExecutor(priv types.PrivateKey, ss SectorStore, cm ContractManager, rm *
 		sectors:   ss,
 		registry:  rm,
 		contracts: cm,
-		vc:        vc,
+		cs:        cs,
 
 		gainedSectors:  make(map[types.Hash256]uint64),
 		removedSectors: make(map[types.Hash256]uint64),
