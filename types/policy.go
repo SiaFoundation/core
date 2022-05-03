@@ -1,11 +1,11 @@
 package types
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
-	"errors"
 	"fmt"
+	"io"
 	"math/bits"
 	"strconv"
 	"strings"
@@ -171,135 +171,123 @@ func (p SpendPolicy) String() string {
 
 // ParseSpendPolicy parses a spend policy from a string.
 func ParseSpendPolicy(s string) (SpendPolicy, error) {
-	sp, rem, err := parseSpendPolicy(s)
-	if err != nil {
-		return SpendPolicy{}, err
-	} else if rem != "" {
-		return SpendPolicy{}, fmt.Errorf("trailing bytes: %q", rem)
-	}
-	return sp, nil
-}
-
-func parseSpendPolicy(s string) (SpendPolicy, string, error) {
-	var sp SpendPolicy
+	var err error // sticky
 	nextToken := func() string {
 		s = strings.TrimSpace(s)
 		i := strings.IndexAny(s, "(),[]")
-		if i == -1 {
+		if err != nil || i == -1 {
 			return ""
 		}
 		t := s[:i]
 		s = s[i:]
 		return t
 	}
-	consume := func(b byte) error {
-		if len(s) == 0 {
-			return errors.New("string has no characters remaining")
+	consume := func(b byte) {
+		if err != nil {
+			return
 		}
-
 		s = strings.TrimSpace(s)
-		if s[0] != b {
-			return fmt.Errorf("expected %c, got %c", b, s[0])
+		if len(s) == 0 {
+			err = io.ErrUnexpectedEOF
+		} else if s[0] != b {
+			err = fmt.Errorf("expected %q, got %q", b, s[0])
+		} else {
+			s = s[1:]
 		}
-		s = s[1:]
-		return nil
 	}
-
-	typ := nextToken()
-	if err := consume('('); err != nil {
-		return SpendPolicy{}, "", err
+	peek := func() byte {
+		if err != nil || len(s) == 0 {
+			return 0
+		}
+		return s[0]
 	}
-	switch typ {
-	case "above":
-		n, err := strconv.ParseUint(nextToken(), 10, 64)
+	parseInt := func(bitSize int) (u uint64) {
+		t := nextToken()
 		if err != nil {
-			return SpendPolicy{}, "", err
+			return 0
 		}
-		sp = PolicyAbove(n)
-	case "pk":
-		key := nextToken()
-		if len(key) != 64 {
-			return SpendPolicy{}, "", errors.New("hex encoded public key string length should be 64")
-		}
-		var pk PublicKey
-		if _, err := hex.Decode(pk[:], []byte(key)); err != nil {
-			return SpendPolicy{}, "", err
-		}
-		sp = PolicyPublicKey(pk)
-	case "thresh":
-		n, err := strconv.ParseUint(nextToken(), 10, 8)
+		u, err = strconv.ParseUint(t, 10, bitSize)
+		return
+	}
+	parsePubkey := func() (pk PublicKey) {
+		t := nextToken()
 		if err != nil {
-			return SpendPolicy{}, "", err
+			return
+		} else if len(t) != 64 {
+			err = fmt.Errorf("invalid pubkey length (%d)", len(t))
+			return
 		}
-		if err := consume(','); err != nil {
-			return SpendPolicy{}, "", err
-		}
-		if err := consume('['); err != nil {
-			return SpendPolicy{}, "", err
-		}
-
-		var policies []SpendPolicy
-		for consume(']') != nil {
-			var policy SpendPolicy
-			policy, s, err = parseSpendPolicy(s)
-			if err != nil {
-				return SpendPolicy{}, "", err
-			}
-			policies = append(policies, policy)
-
-			// last policy in list will not have comma after it
-			// so don't check for error
+		_, err = hex.Decode(pk[:], []byte(t))
+		return
+	}
+	var parseSpendPolicy func() SpendPolicy
+	parseSpendPolicy = func() SpendPolicy {
+		typ := nextToken()
+		consume('(')
+		defer consume(')')
+		switch typ {
+		case "above":
+			return PolicyAbove(parseInt(64))
+		case "pk":
+			return PolicyPublicKey(parsePubkey())
+		case "thresh":
+			n := parseInt(8)
 			consume(',')
-		}
-		sp = PolicyThreshold(uint8(n), policies)
-	case "uc":
-		timelock, err := strconv.ParseUint(nextToken(), 10, 8)
-		if err != nil {
-			return SpendPolicy{}, "", err
-		}
-		if err := consume(','); err != nil {
-			return SpendPolicy{}, "", err
-		}
-		if err := consume('['); err != nil {
-			return SpendPolicy{}, "", err
-		}
-
-		var pks []PublicKey
-		for consume(']') != nil {
-			next := nextToken()
-			if len(next) != 64 {
-				return SpendPolicy{}, "", errors.New("hex encoded public key string length should be 64")
+			consume('[')
+			var of []SpendPolicy
+			for err == nil && peek() != ']' {
+				of = append(of, parseSpendPolicy())
+				if peek() != ']' {
+					consume(',')
+				}
 			}
-
-			var pk PublicKey
-			if _, err := hex.Decode(pk[:], []byte(next)); err != nil {
-				return SpendPolicy{}, "", err
+			consume(']')
+			return PolicyThreshold(uint8(n), of)
+		case "uc":
+			timelock := parseInt(64)
+			consume(',')
+			consume('[')
+			var pks []PublicKey
+			for err == nil && peek() != ']' {
+				pks = append(pks, parsePubkey())
+				if peek() != ']' {
+					consume(',')
+				}
 			}
-			pks = append(pks, pk)
-		}
-
-		if err := consume(','); err != nil {
-			return SpendPolicy{}, "", err
-		}
-
-		signaturesRequired, err := strconv.ParseUint(nextToken(), 10, 8)
-		if err != nil {
-			return SpendPolicy{}, "", err
-		}
-
-		sp = SpendPolicy{
-			PolicyTypeUnlockConditions{
-				Timelock:           timelock,
-				PublicKeys:         pks,
-				SignaturesRequired: uint8(signaturesRequired),
-			},
+			consume(']')
+			consume(',')
+			sigsRequired := parseInt(8)
+			return SpendPolicy{
+				PolicyTypeUnlockConditions{
+					Timelock:           timelock,
+					PublicKeys:         pks,
+					SignaturesRequired: uint8(sigsRequired),
+				},
+			}
+		default:
+			if err == nil {
+				err = fmt.Errorf("unrecognized policy type %q", typ)
+			}
+			return SpendPolicy{}
 		}
 	}
-	if err := consume(')'); err != nil {
-		return SpendPolicy{}, "", err
-	}
 
-	return sp, s, nil
+	p := parseSpendPolicy()
+	if err == nil && len(s) > 0 {
+		err = fmt.Errorf("trailing bytes: %q", s)
+	}
+	return p, err
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (p SpendPolicy) MarshalText() ([]byte, error) {
+	return []byte(p.String()), nil
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (p *SpendPolicy) UnmarshalText(b []byte) (err error) {
+	*p, err = ParseSpendPolicy(string(b))
+	return
 }
 
 // MarshalJSON implements json.Marshaler.
@@ -309,10 +297,5 @@ func (p SpendPolicy) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements json.Unmarshaler.
 func (p *SpendPolicy) UnmarshalJSON(b []byte) (err error) {
-	var bStr string
-	if err = json.Unmarshal(b, &bStr); err != nil {
-		return
-	}
-	*p, err = ParseSpendPolicy(bStr)
-	return
+	return p.UnmarshalText(bytes.Trim(b, `"`))
 }
