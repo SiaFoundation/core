@@ -435,19 +435,19 @@ func TestCurrencyString(t *testing.T) {
 	}{
 		{
 			ZeroCurrency,
-			"0",
+			"0 H",
 		},
 		{
 			NewCurrency64(10000),
-			"0",
+			"10000 H",
 		},
 		{
 			NewCurrency(8262254095159001088, 2742357),
-			"50.588",
+			"50.59 SC",
 		},
 		{
 			NewCurrency(2174395257947586975, 137),
-			"0.003",
+			"2.529 mS",
 		},
 	}
 	for _, tt := range tests {
@@ -483,7 +483,7 @@ func TestCurrencyJSON(t *testing.T) {
 		// MarshalJSON cannot error
 		buf, _ := tt.val.MarshalJSON()
 		if string(buf) != tt.want {
-			t.Errorf("Currency.MarshalJSON(%d) = %v, want %v", tt.val, buf, tt.want)
+			t.Errorf("Currency.MarshalJSON(%d) = %s, want %s", tt.val, buf, tt.want)
 			continue
 		}
 
@@ -498,52 +498,94 @@ func TestCurrencyJSON(t *testing.T) {
 
 func TestParseCurrency(t *testing.T) {
 	tests := []struct {
-		desc    string
 		s       string
 		want    Currency
 		wantErr bool
 	}{
 		{
-			"empty value",
 			"",
 			ZeroCurrency,
 			true,
 		},
 		{
-			"negative value",
 			"-1",
 			ZeroCurrency,
 			true,
 		},
 		{
-			"overflow",
 			"340282366920938463463374607431768211456",
 			ZeroCurrency,
 			true,
 		},
 		{
-			"0 SC",
 			"0",
 			ZeroCurrency,
 			false,
 		},
 		{
-			"10000 H",
 			"10000",
 			NewCurrency64(10000),
 			false,
 		},
 		{
-			"50.587566 SC",
 			"50587566000000000000000000",
 			NewCurrency(8262254095159001088, 2742357),
 			false,
 		},
 		{
-			"0.00252934 SC",
 			"2529378333356156158367",
 			NewCurrency(2174395257947586975, 137),
 			false,
+		},
+		{
+			"2529378333356156158367",
+			NewCurrency(2174395257947586975, 137),
+			false,
+		},
+		{
+			"1 SC",
+			Siacoins(1),
+			false,
+		},
+		{
+			"1000 mS",
+			Siacoins(1),
+			false,
+		},
+		{
+			"123 mS",
+			Siacoins(123).Div64(1000),
+			false,
+		},
+		{
+			"2.000000000000000000000001 SC",
+			Siacoins(2).Add(NewCurrency64(1)),
+			false,
+		},
+		{
+			"12.345 GS",
+			Siacoins(12345).Mul64(1e6),
+			false,
+		},
+		{
+			"1 foo",
+			ZeroCurrency,
+			true,
+		},
+		{
+			"foo MS",
+			ZeroCurrency,
+			true,
+		},
+		{
+			".... SC",
+			ZeroCurrency,
+			true,
+		},
+		{
+			"0.0000000000000000000000001 SC",
+			ZeroCurrency,
+			true,
 		},
 	}
 	for _, tt := range tests {
