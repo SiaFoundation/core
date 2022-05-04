@@ -11,10 +11,10 @@ import (
 )
 
 // copied from testutil (can't import due to cycle)
-func findBlockNonce(h *types.BlockHeader, target types.BlockID) {
-	h.Nonce = frand.Uint64n(math.MaxUint32) * NonceFactor
+func findBlockNonce(sc State, h *types.BlockHeader, target types.BlockID) {
+	h.Nonce = frand.Uint64n(math.MaxUint32) * sc.NonceFactor()
 	for !h.ID().MeetsTarget(target) {
-		h.Nonce += NonceFactor
+		h.Nonce += sc.NonceFactor()
 	}
 }
 
@@ -28,7 +28,7 @@ func mineBlock(s State, parent types.Block, txns ...types.Transaction) types.Blo
 		Transactions: txns,
 	}
 	b.Header.Commitment = s.Commitment(b.Header.MinerAddress, b.Transactions)
-	findBlockNonce(&b.Header, types.HashRequiringWork(s.Difficulty))
+	findBlockNonce(s, &b.Header, types.HashRequiringWork(s.Difficulty))
 	return b
 }
 
@@ -228,14 +228,14 @@ func TestScratchChainDifficultyAdjustment(t *testing.T) {
 	// mine a block with less than the minimum work; it should be rejected
 	b = mineBlock(s, b)
 	for types.WorkRequiredForHash(b.ID()).Cmp(currentDifficulty) >= 0 {
-		b.Header.Nonce = frand.Uint64n(math.MaxUint32) * NonceFactor
+		b.Header.Nonce = frand.Uint64n(math.MaxUint32) * s.NonceFactor()
 	}
 	if err := sc.AppendHeader(b.Header); err == nil {
 		t.Fatal("expected block to be rejected")
 	}
 
 	// mine at actual difficulty
-	findBlockNonce(&b.Header, types.HashRequiringWork(s.Difficulty))
+	findBlockNonce(s, &b.Header, types.HashRequiringWork(s.Difficulty))
 	if err := sc.AppendHeader(b.Header); err != nil {
 		t.Fatal(err)
 	} else if _, err := sc.ApplyBlock(b); err != nil {

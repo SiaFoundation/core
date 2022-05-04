@@ -12,17 +12,6 @@ import (
 	"go.sia.tech/core/types"
 )
 
-const (
-	blocksPerDay  = 144
-	blocksPerYear = 144 * 365
-
-	foundationHardforkHeight   = 300000
-	foundationSubsidyFrequency = blocksPerYear / 12
-
-	// NonceFactor is the factor by which all block nonces must be divisible.
-	NonceFactor = 1009
-)
-
 var (
 	// ErrOverweight is returned when a block's weight exceeds MaxBlockWeight.
 	ErrOverweight = errors.New("block is too heavy")
@@ -50,7 +39,7 @@ func (s State) validateHeader(h types.BlockHeader) error {
 		return errors.New("wrong parent ID")
 	} else if h.Timestamp.Before(s.medianTimestamp()) {
 		return errors.New("timestamp is too far in the past")
-	} else if h.Nonce%NonceFactor != 0 {
+	} else if h.Nonce%s.NonceFactor() != 0 {
 		return errors.New("nonce is not divisible by required factor")
 	} else if types.WorkRequiredForHash(h.ID()).Cmp(s.Difficulty) < 0 {
 		return errors.New("insufficient work")
