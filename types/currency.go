@@ -4,37 +4,37 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"math/bits"
 	"strings"
 )
 
-// ZeroCurrency represents zero base units.
-var ZeroCurrency Currency
+var (
+	// ZeroCurrency represents zero base units.
+	ZeroCurrency Currency
 
-// HastingsPerSiacoin is the number of hastings (base units) in a siacoin.
-var HastingsPerSiacoin = NewCurrency(2003764205206896640, 54210) // 10^24
-
-// Siacoins returns a Currency value representing n siacoins.
-func Siacoins(n uint32) Currency { return HastingsPerSiacoin.Mul64(uint64(n)) }
+	// HastingsPerSiacoin is the number of hastings (base units) in a siacoin.
+	HastingsPerSiacoin = NewCurrency(2003764205206896640, 54210) // 10^24
+)
 
 // Currency represents a quantity of hastings as an unsigned 128-bit number.
 type Currency struct {
 	Lo, Hi uint64
 }
 
-// Format implements fmt.Formatter. It accepts the formats 's', 'v' (siacoins,
-// rounded to 3 decimal places), or 'd' (hastings, exact value).
-func (c Currency) Format(f fmt.State, v rune) {
-	switch v {
-	case 's', 'v':
-		f.Write([]byte(c.String()))
-	case 'd':
-		f.Write([]byte(c.ExactString()))
-	default:
-		fmt.Fprintf(f, "%%!%c(unsupported,Currency=%d)", v, c)
-	}
+// NewCurrency returns the Currency value (lo,hi).
+func NewCurrency(lo, hi uint64) Currency {
+	return Currency{lo, hi}
 }
+
+// NewCurrency64 converts c to a Currency value.
+func NewCurrency64(c uint64) Currency {
+	return Currency{c, 0}
+}
+
+// Siacoins returns a Currency value representing n siacoins.
+func Siacoins(n uint32) Currency { return HastingsPerSiacoin.Mul64(uint64(n)) }
 
 // IsZero returns true if c == 0.
 func (c Currency) IsZero() bool {
@@ -177,6 +177,14 @@ func (c Currency) quoRem64(v uint64) (q Currency, r uint64) {
 	return
 }
 
+// Big returns c as a *big.Int.
+func (c Currency) Big() *big.Int {
+	b := make([]byte, 16)
+	binary.BigEndian.PutUint64(b[:8], c.Hi)
+	binary.BigEndian.PutUint64(b[8:], c.Lo)
+	return new(big.Int).SetBytes(b)
+}
+
 // ExactString returns the base-10 representation of c as a string.
 func (c Currency) ExactString() string {
 	if c.IsZero() {
@@ -197,11 +205,49 @@ func (c Currency) ExactString() string {
 	}
 }
 
-// String returns the base-10 representation of c as a string, in units of
-// HastingsPerSiacoin, rounded to three decimal places.
+// String returns base-10 representation of c with a unit suffix. The value may
+// be rounded. To avoid loss of precision, use ExactString.
 func (c Currency) String() string {
-	fs := new(big.Rat).SetFrac(c.Big(), HastingsPerSiacoin.Big()).FloatString(3)
-	return strings.TrimSuffix(strings.TrimRight(fs, "0"), ".")
+	i := c.Big()
+	pico := HastingsPerSiacoin.Div64(1e12).Big()
+	if i.Cmp(pico) < 0 {
+		return i.String() + " H"
+	}
+
+	// iterate until we find a unit greater than c
+	mag := pico
+	unit := ""
+	for _, unit = range []string{"pS", "nS", "uS", "mS", "SC", "KS", "MS", "GS", "TS"} {
+		j := new(big.Int).Mul(mag, big.NewInt(1e3))
+		if i.Cmp(j) < 0 {
+			break
+		} else if unit != "TS" {
+			// don't want to perform this multiply on the last iter; that
+			// would give us 1.235 TS instead of 1235 TS
+			mag = j
+		}
+	}
+
+	num := new(big.Rat).SetInt(i)
+	denom := new(big.Rat).SetInt(mag)
+	f, _ := new(big.Rat).Mul(num, denom.Inv(denom)).Float64()
+	return fmt.Sprintf("%.4g %s", f, unit)
+}
+
+// Format implements fmt.Formatter. It accepts the following formats:
+//
+//   d: raw integer (equivalent to ExactString())
+//   s: rounded integer with unit suffix (equivalent to String())
+//   v: same as s
+func (c Currency) Format(f fmt.State, v rune) {
+	switch v {
+	case 'd':
+		io.WriteString(f, c.ExactString())
+	case 's', 'v':
+		io.WriteString(f, c.String())
+	default:
+		fmt.Fprintf(f, "%%!%c(unsupported,Currency=%d)", v, c)
+	}
 }
 
 // MarshalJSON implements json.Marshaler.
@@ -211,31 +257,11 @@ func (c Currency) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements json.Unmarshaler.
 func (c *Currency) UnmarshalJSON(b []byte) (err error) {
-	*c, err = ParseCurrency(strings.Trim(string(b), `"`))
+	*c, err = parseExactCurrency(strings.Trim(string(b), `"`))
 	return
 }
 
-// Big returns c as a *big.Int.
-func (c Currency) Big() *big.Int {
-	b := make([]byte, 16)
-	binary.BigEndian.PutUint64(b[:8], c.Hi)
-	binary.BigEndian.PutUint64(b[8:], c.Lo)
-	return new(big.Int).SetBytes(b)
-}
-
-// NewCurrency returns the Currency value (lo,hi).
-func NewCurrency(lo, hi uint64) Currency {
-	return Currency{lo, hi}
-}
-
-// NewCurrency64 converts c to a Currency value.
-func NewCurrency64(c uint64) Currency {
-	return Currency{c, 0}
-}
-
-// ParseCurrency parses s as a Currency value. The format of s should match the
-// return value of the ExactString method, i.e. an unsigned base-10 integer.
-func ParseCurrency(s string) (Currency, error) {
+func parseExactCurrency(s string) (Currency, error) {
 	i, ok := new(big.Int).SetString(s, 10)
 	if !ok {
 		return ZeroCurrency, errors.New("not an integer")
@@ -245,4 +271,49 @@ func ParseCurrency(s string) (Currency, error) {
 		return ZeroCurrency, errors.New("value overflows Currency representation")
 	}
 	return NewCurrency(i.Uint64(), new(big.Int).Rsh(i, 64).Uint64()), nil
+}
+
+func expToUnit(exp int64) *big.Rat {
+	return new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(exp), nil))
+}
+
+var currencyUnits = map[string]*big.Rat{
+	"pS": expToUnit(12),
+	"nS": expToUnit(15),
+	"uS": expToUnit(18),
+	"mS": expToUnit(21),
+	"SC": expToUnit(24),
+	"KS": expToUnit(27),
+	"MS": expToUnit(30),
+	"GS": expToUnit(33),
+	"TS": expToUnit(36),
+}
+
+// ParseCurrency parses s as a Currency value. The format of s should match one
+// of the representations provided by (Currency).Format.
+func ParseCurrency(s string) (Currency, error) {
+	i := strings.LastIndexAny(s, "0123456789.") + 1
+	if i == 0 {
+		return ZeroCurrency, errors.New("not a number")
+	}
+	n, unit := s[:i], strings.TrimSpace(s[i:])
+	if unit == "" || unit == "H" {
+		return parseExactCurrency(n)
+	}
+	// parse numeric part as a big.Rat
+	r, ok := new(big.Rat).SetString(n)
+	if !ok {
+		return ZeroCurrency, errors.New("not a number")
+	}
+	// multiply by unit
+	u, ok := currencyUnits[unit]
+	if !ok {
+		return ZeroCurrency, fmt.Errorf("invalid unit %q", unit)
+	}
+	r.Mul(r, u)
+	// r must be an integer at this point
+	if !r.IsInt() {
+		return ZeroCurrency, errors.New("not an integer")
+	}
+	return parseExactCurrency(r.RatString())
 }

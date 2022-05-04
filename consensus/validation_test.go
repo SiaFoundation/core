@@ -50,19 +50,18 @@ func TestBlockRewardValue(t *testing.T) {
 
 	tests := []struct {
 		height uint64
-		exp    string
+		exp    types.Currency
 	}{
-		{0, "300000"},
-		{1, "299999"},
-		{100000, "200000"},
-		{269999, "30001"},
-		{270000, "30000"},
-		{270001, "30000"},
-		{1e6, "30000"},
+		{0, types.Siacoins(300000)},
+		{1, types.Siacoins(299999)},
+		{100000, types.Siacoins(200000)},
+		{269999, types.Siacoins(30001)},
+		{270000, types.Siacoins(30000)},
+		{270001, types.Siacoins(30000)},
+		{1e6, types.Siacoins(30000)},
 	}
 	for _, test := range tests {
-		got := reward(test.height)
-		if got.String() != test.exp {
+		if got := reward(test.height); got != test.exp {
 			t.Errorf("expected %v, got %v", test.exp, got)
 		}
 	}

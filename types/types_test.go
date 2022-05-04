@@ -1,7 +1,6 @@
 package types
 
 import (
-	"encoding/json"
 	"testing"
 )
 
@@ -26,36 +25,6 @@ func TestWork(t *testing.T) {
 		got := WorkRequiredForHash(test.id)
 		if got.String() != test.exp {
 			t.Errorf("expected %v, got %v", test.exp, got)
-		}
-	}
-}
-
-func TestCurrencyMarshalling(t *testing.T) {
-	tests := []struct {
-		value, str string
-	}{
-		{"0", "0"},
-		{"123000000000000000000999", "0.123"},
-		{"120000000000000000000999", "0.12"},
-		{"100000000000000000000999", "0.1"},
-		{"99999999999999999999999", "0.1"},
-		{"999999999999999999999999", "1"},
-		{"1999999999999999999999999", "2"},
-		{"12345678901234567890123456789123456", "12345678901.235"},
-	}
-	for _, test := range tests {
-		c, err := ParseCurrency(test.value)
-		if err != nil {
-			t.Fatal(err)
-		} else if c.String() != test.str {
-			t.Error(c.String(), test.str)
-		}
-		if js, err := json.Marshal(c); err != nil {
-			t.Error(err)
-		} else if err := json.Unmarshal(js, &c); err != nil {
-			t.Error(err)
-		} else if c.String() != test.str {
-			t.Error(c.String(), test.str)
 		}
 	}
 }
