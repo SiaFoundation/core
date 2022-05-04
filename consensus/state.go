@@ -10,6 +10,15 @@ import (
 	"go.sia.tech/core/types"
 )
 
+const (
+	blocksPerYear = 144 * 365
+
+	asicHardforkHeight       = 179000
+	foundationHardforkHeight = 300000
+
+	foundationSubsidyFrequency = blocksPerYear / 12
+)
+
 // Pool for reducing heap allocations when hashing. This is only necessary
 // because blake2b.New256 returns a hash.Hash interface, which prevents the
 // compiler from doing escape analysis. Can be removed if we switch to an
@@ -122,6 +131,15 @@ func (s State) FoundationSubsidy() types.Currency {
 		return initialfoundationSubsidy
 	}
 	return foundationSubsidyPerBlock.Mul64(foundationSubsidyFrequency)
+}
+
+// NonceFactor is the factor by which all block nonces must be divisible.
+func (s State) NonceFactor() uint64 {
+	blockHeight := s.Index.Height + 1
+	if blockHeight < asicHardforkHeight {
+		return 1
+	}
+	return 1009
 }
 
 // MaxBlockWeight is the maximum "weight" of a valid child block.

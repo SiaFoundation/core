@@ -12,6 +12,9 @@ import (
 )
 
 var (
+	// ErrFutureBlock is returned when a block's timestamp is too far in the future.
+	ErrFutureBlock = errors.New("block's timestamp is too far in the future")
+
 	// ErrKnownBlock is returned when a block has already been processed.
 	ErrKnownBlock = errors.New("block already known")
 
@@ -344,7 +347,9 @@ func (m *Manager) AddTipBlock(b types.Block) error {
 	}
 
 	// validate and store
-	if err := m.cs.ValidateBlock(b); err != nil {
+	if b.Header.Timestamp.After(m.cs.MaxFutureTimestamp(time.Now())) {
+		return ErrFutureBlock
+	} else if err := m.cs.ValidateBlock(b); err != nil {
 		return fmt.Errorf("invalid block: %w", err)
 	}
 	sau := consensus.ApplyBlock(m.cs, b)

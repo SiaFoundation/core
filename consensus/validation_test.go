@@ -1045,6 +1045,9 @@ func TestValidateBlock(t *testing.T) {
 	signAllInputs(&txns[0], s, privkey)
 	signAllInputs(&txns[1], s, privkey)
 	b := mineBlock(s, genesis, txns...)
+	if err := s.ValidateBlock(b); err != nil {
+		t.Fatal(err)
+	}
 
 	tests := []struct {
 		desc    string
@@ -1060,12 +1063,6 @@ func TestValidateBlock(t *testing.T) {
 			"incorrect header parent ID",
 			func(b *types.Block) {
 				b.Header.ParentID[0] ^= 1
-			},
-		},
-		{
-			"far-future header timestamp",
-			func(b *types.Block) {
-				b.Header.Timestamp = time.Now().Round(time.Second).Add(2*time.Hour + time.Minute)
 			},
 		},
 		{

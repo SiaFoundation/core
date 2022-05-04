@@ -64,7 +64,7 @@ func TestManager(t *testing.T) {
 
 	// mine 10 blocks on the fork, ensuring that it has more total work, and give them to the manager
 	betterChain := fork.MineBlocks(10)
-	chainutil.FindBlockNonce(&betterChain[9].Header, types.HashRequiringWork(sim.State.TotalWork))
+	chainutil.FindBlockNonce(fork.State, &betterChain[9].Header, types.HashRequiringWork(sim.State.TotalWork))
 	hs.revertHistory = nil
 	hs.applyHistory = nil
 	if _, err := cm.AddHeaders(chainutil.JustHeaders(betterChain)); err != nil {
