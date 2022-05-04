@@ -249,7 +249,9 @@ func (m *Manager) AddHeaders(headers []types.BlockHeader) (*consensus.ScratchCha
 
 	// validate the headers
 	for _, h := range headers {
-		if err := chain.AppendHeader(h); err != nil {
+		if h.Timestamp.After(m.cs.MaxFutureTimestamp(time.Now())) {
+			return nil, ErrFutureBlock
+		} else if err := chain.AppendHeader(h); err != nil {
 			// TODO: it's possible that the chain prior to this header is still
 			// the best; in that case, we should still reorg to it. But should
 			// the error be returned as well?
