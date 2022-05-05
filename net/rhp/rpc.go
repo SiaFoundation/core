@@ -889,6 +889,7 @@ func (req *RPCExecuteProgramRequest) MaxLen() int {
 // types.EncoderTo.
 func (req *RPCExecuteProgramRequest) EncodeTo(e *types.Encoder) {
 	req.FileContractID.EncodeTo(e)
+	req.RenterSignature.EncodeTo(e)
 	e.WritePrefix(len(req.Instructions))
 	for _, instruction := range req.Instructions {
 		writeInstruction(e, instruction)
@@ -900,6 +901,7 @@ func (req *RPCExecuteProgramRequest) EncodeTo(e *types.Encoder) {
 // types.DecoderFrom.
 func (req *RPCExecuteProgramRequest) DecodeFrom(d *types.Decoder) {
 	req.FileContractID.DecodeFrom(d)
+	req.RenterSignature.DecodeFrom(d)
 	req.Instructions = make([]Instruction, d.ReadPrefix())
 	for i := range req.Instructions {
 		req.Instructions[i] = readInstruction(d)
@@ -1227,7 +1229,7 @@ func (resp *RPCExecuteInstrResponse) DecodeFrom(d *types.Decoder) {
 	resp.OutputLength = d.ReadUint64()
 	resp.NewDataSize = d.ReadUint64()
 	resp.NewMerkleRoot.DecodeFrom(d)
-	resp.Proof = make([]types.Hash256, d.ReadUint64())
+	resp.Proof = make([]types.Hash256, d.ReadPrefix())
 	for i := range resp.Proof {
 		resp.Proof[i].DecodeFrom(d)
 	}
