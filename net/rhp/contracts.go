@@ -56,7 +56,7 @@ func PaymentRevision(fc types.FileContract, amount types.Currency) (types.FileCo
 // amount subtracted from the host output. The revision number is incremented.
 func FinalizeProgramRevision(fc types.FileContract, burn types.Currency) (types.FileContract, error) {
 	if fc.MissedHostValue.Cmp(burn) < 0 {
-		return fc, errors.New("not enough funds")
+		return fc, errors.New("insufficient funds")
 	}
 	fc.RevisionNumber++
 	fc.MissedHostValue = fc.MissedHostValue.Sub(burn)
