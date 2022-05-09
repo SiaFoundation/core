@@ -140,88 +140,79 @@ func TestValidateContractRenewalFinalization(t *testing.T) {
 	}
 
 	formChanges := []struct {
-		change func(fc types.FileContract) types.FileContract
-		error  string
+		corrupt func(fc *types.FileContract)
+		desc    string
 	}{
 		{
-			func(fc types.FileContract) types.FileContract {
+			func(fc *types.FileContract) {
 				fc.Filesize = 5
-				return fc
 			},
 			"initial filesize should be 0",
 		},
 		{
-			func(fc types.FileContract) types.FileContract {
+			func(fc *types.FileContract) {
 				fc.RevisionNumber = 5
-				return fc
 			},
 			"initial revision number should be 0",
 		},
 		{
-			func(fc types.FileContract) types.FileContract {
+			func(fc *types.FileContract) {
 				fc.FileMerkleRoot = types.Hash256{31: 1}
-				return fc
 			},
 			"initial Merkle root should be empty",
 		},
 		{
-			func(fc types.FileContract) types.FileContract {
+			func(fc *types.FileContract) {
 				fc.WindowStart = windowStart / 2
-				return fc
 			},
 			"contract ends too soon to safely submit the contract transaction",
 		},
 		{
-			func(fc types.FileContract) types.FileContract {
+			func(fc *types.FileContract) {
 				fc.WindowStart = currentHeight + 2*settings.MaxDuration
-				return fc
 			},
 			"contract duration is too long",
 		},
 		{
-			func(fc types.FileContract) types.FileContract {
+			func(fc *types.FileContract) {
 				fc.WindowEnd = windowStart + settings.WindowSize/2
-				return fc
 			},
 			"proof window is too small",
 		},
 		{
-			func(fc types.FileContract) types.FileContract {
+			func(fc *types.FileContract) {
 				fc.HostOutput.Address = types.Address{31: 1}
-				return fc
 			},
 			"wrong address for host valid output",
 		},
 		{
-			func(fc types.FileContract) types.FileContract {
+			func(fc *types.FileContract) {
 				fc.MissedHostValue = fc.HostOutput.Value.Mul64(2)
-				return fc
 			},
 			"host valid output value does not equal missed value",
 		},
 		{
-			func(fc types.FileContract) types.FileContract {
+			func(fc *types.FileContract) {
 				fc.HostOutput.Value = fc.HostOutput.Value.Mul64(1000)
 				fc.MissedHostValue = fc.HostOutput.Value
-				return fc
 			},
 			"wrong initial host output value",
 		},
 		{
-			func(fc types.FileContract) types.FileContract {
+			func(fc *types.FileContract) {
 				fc.TotalCollateral = settings.MaxCollateral.Mul64(1000)
 				fc.HostOutput.Value = settings.ContractFee.Add(fc.TotalCollateral)
 				fc.MissedHostValue = fc.HostOutput.Value
-				return fc
 			},
 			"excessive initial collateral",
 		},
 	}
 
 	for _, change := range formChanges {
-		changed := change.change(fc)
-		if err := ValidateContractFormation(changed, currentHeight, settings); err == nil {
-			t.Fatalf("expected error: %s", change.error)
+		fcCopy := fc
+		change.corrupt(&fcCopy)
+		if err := ValidateContractFormation(fcCopy, currentHeight, settings); err.Error() != change.desc {
+			t.Fatalf("expected error %s, got %s", change.desc, err.Error())
 		}
 	}
 
@@ -236,100 +227,83 @@ func TestValidateContractRenewalFinalization(t *testing.T) {
 	}
 
 	renewalChanges := []struct {
-		change func(existing, renewal types.FileContract) types.FileContract
-		error  string
+		corrupt func(existing, renewal *types.FileContract)
+		desc    string
 	}{
 		{
-			func(existing, renewal types.FileContract) types.FileContract {
+			func(existing, renewal *types.FileContract) {
 				renewal.HostPublicKey[0] ^= 255
-				return renewal
 			},
 			"host public key must not change",
 		},
 		{
-			func(existing, renewal types.FileContract) types.FileContract {
+			func(existing, renewal *types.FileContract) {
 				renewal.RenterPublicKey[0] ^= 255
-				return renewal
 			},
 			"renter public key must not change",
 		},
 		{
-			func(existing, renewal types.FileContract) types.FileContract {
+			func(existing, renewal *types.FileContract) {
 				renewal.RevisionNumber++
-				return renewal
 			},
 			"revision number must be zero",
 		},
 		{
-			func(existing, renewal types.FileContract) types.FileContract {
+			func(existing, renewal *types.FileContract) {
 				renewal.Filesize = existing.Filesize + 5
-				return renewal
 			},
 			"filesize must not change",
 		},
 		{
-			func(existing, renewal types.FileContract) types.FileContract {
+			func(existing, renewal *types.FileContract) {
 				renewal.FileMerkleRoot[0] ^= 255
-				return renewal
 			},
 			"file Merkle root must not change",
 		},
 		{
-			func(existing, renewal types.FileContract) types.FileContract {
+			func(existing, renewal *types.FileContract) {
 				renewal.WindowEnd = existing.WindowEnd - 5
-				return renewal
 			},
 			"renewal window must not end before current window",
 		},
 		{
-			func(existing, renewal types.FileContract) types.FileContract {
+			func(existing, renewal *types.FileContract) {
 				renewal.WindowStart = currentHeight
-				return renewal
 			},
 			"contract ends too soon to safely submit the contract transaction",
 		},
 		{
-			func(existing, renewal types.FileContract) types.FileContract {
+			func(existing, renewal *types.FileContract) {
 				renewal.WindowStart = currentHeight + 2*settings.MaxDuration
-				return renewal
 			},
 			"contract duration is too long",
 		},
 		{
-			func(existing, renewal types.FileContract) types.FileContract {
+			func(existing, renewal *types.FileContract) {
 				renewal.WindowEnd = renewal.WindowStart + settings.WindowSize/2
-				return renewal
 			},
 			"proof window is too small",
 		},
 		{
-			func(existing, renewal types.FileContract) types.FileContract {
-				renewal.HostOutput.Address[0] ^= 255
-				return renewal
-			},
-			"proof window is too small",
-		},
-		{
-			func(existing, renewal types.FileContract) types.FileContract {
+			func(existing, renewal *types.FileContract) {
 				renewal.HostOutput.Value = renewal.HostOutput.Value.Sub(settings.ContractFee)
-				return renewal
 			},
 			"insufficient initial host payout",
 		},
 		{
-			func(existing, renewal types.FileContract) types.FileContract {
+			func(existing, renewal *types.FileContract) {
 				renewal.TotalCollateral = settings.MaxCollateral.Mul64(1000)
 				renewal.HostOutput.Value = settings.ContractFee.Add(renewal.TotalCollateral)
-				return renewal
 			},
 			"excessive initial collateral",
 		},
 	}
 
 	for _, change := range renewalChanges {
-		changed := change.change(fc, renewal)
-		if err := ValidateContractRenewal(fc, changed, currentHeight, settings); err == nil {
-			t.Fatalf("expected error: %s", change.error)
+		renewCopy := renewal
+		change.corrupt(&fc, &renewCopy)
+		if err := ValidateContractRenewal(fc, renewCopy, currentHeight, settings); err.Error() != change.desc {
+			t.Fatalf("expected error %s, got %s", change.desc, err.Error())
 		}
 	}
 
@@ -341,92 +315,82 @@ func TestValidateContractRenewalFinalization(t *testing.T) {
 	}
 
 	finalChanges := []struct {
-		change func(current, final types.FileContract) types.FileContract
-		error  string
+		corrupt func(current, final *types.FileContract)
+		desc    string
 	}{
 		{
-			func(current, final types.FileContract) types.FileContract {
+			func(current, final *types.FileContract) {
 				final.Filesize++
-				return final
 			},
 			"file size must not change",
 		},
 		{
-			func(current, final types.FileContract) types.FileContract {
+			func(current, final *types.FileContract) {
 				final.FileMerkleRoot[0] ^= 255
-				return final
 			},
 			"file merkle root must not change",
 		},
 		{
-			func(current, final types.FileContract) types.FileContract {
+			func(current, final *types.FileContract) {
 				final.WindowStart++
-				return final
 			},
 			"window start must not change",
 		},
 		{
-			func(current, final types.FileContract) types.FileContract {
+			func(current, final *types.FileContract) {
 				final.WindowEnd++
-				return final
 			},
 			"window end must not change",
 		},
 		{
-			func(current, final types.FileContract) types.FileContract {
+			func(current, final *types.FileContract) {
 				final.RenterOutput.Value = final.RenterOutput.Value.Add(types.Siacoins(1))
-				return final
 			},
 			"renter output must not change",
 		},
 		{
-			func(current, final types.FileContract) types.FileContract {
+			func(current, final *types.FileContract) {
 				final.HostOutput.Value = final.HostOutput.Value.Add(types.Siacoins(1))
-				return final
 			},
 			"valid host output must not change",
 		},
 		{
-			func(current, final types.FileContract) types.FileContract {
+			func(current, final *types.FileContract) {
 				final.MissedHostValue = final.MissedHostValue.Add(types.Siacoins(1))
-				return final
 			},
 			"missed host payout must not change",
 		},
 		{
-			func(current, final types.FileContract) types.FileContract {
+			func(current, final *types.FileContract) {
 				final.TotalCollateral = final.TotalCollateral.Add(types.Siacoins(1))
-				return final
 			},
 			"total collateral must not change",
 		},
 		{
-			func(current, final types.FileContract) types.FileContract {
+			func(current, final *types.FileContract) {
 				final.RenterPublicKey[0] ^= 255
-				return final
 			},
 			"renter public key must not change",
 		},
 		{
-			func(current, final types.FileContract) types.FileContract {
+			func(current, final *types.FileContract) {
 				final.HostPublicKey[0] ^= 255
-				return final
 			},
 			"host public key must not change",
 		},
 		{
-			func(current, final types.FileContract) types.FileContract {
+			func(current, final *types.FileContract) {
 				final.RevisionNumber = types.MaxRevisionNumber / 2
-				return final
 			},
 			"revision number must be max value",
 		},
 	}
 
 	for _, change := range finalChanges {
-		changed := change.change(renewal, final)
-		if err := ValidateContractFinalization(renewal, changed); err == nil {
-			t.Fatalf("expected error: %s", change.error)
+		finalCopy := final
+		change.corrupt(&renewal, &finalCopy)
+		if err := ValidateContractFinalization(renewal, finalCopy); err.Error() != change.desc {
+			t.Fatalf("expected error %s, got %s", change.desc, err.Error())
 		}
 	}
 }
@@ -468,85 +432,76 @@ func TestValidateContractRevision(t *testing.T) {
 	}
 
 	revisionChanges := []struct {
-		change func(current, revision types.FileContract) types.FileContract
-		error  string
+		corrupt func(current, revision *types.FileContract)
+		desc    string
 	}{
 		{
-			func(current, revision types.FileContract) types.FileContract {
+			func(current, revision *types.FileContract) {
 				revision.RevisionNumber = current.RevisionNumber
-				return revision
 			},
 			"revision number must increase",
 		},
 		{
-			func(current, revision types.FileContract) types.FileContract {
+			func(current, revision *types.FileContract) {
 				revision.WindowStart++
-				return revision
 			},
 			"window start must not change",
 		},
 		{
-			func(current, revision types.FileContract) types.FileContract {
+			func(current, revision *types.FileContract) {
 				revision.WindowEnd++
-				return revision
 			},
 			"window end must not change",
 		},
 		{
-			func(current, revision types.FileContract) types.FileContract {
+			func(current, revision *types.FileContract) {
 				revision.RenterPublicKey[0] ^= 255
-				return revision
 			},
 			"renter public key must not change",
 		},
 		{
-			func(current, revision types.FileContract) types.FileContract {
+			func(current, revision *types.FileContract) {
 				revision.HostPublicKey[0] ^= 255
-				return revision
 			},
 			"host public key must not change",
 		},
 		{
-			func(current, revision types.FileContract) types.FileContract {
+			func(current, revision *types.FileContract) {
 				revision.RenterOutput.Address[0] ^= 255
-				return revision
 			},
 			"renter address must not change",
 		},
 		{
-			func(current, revision types.FileContract) types.FileContract {
+			func(current, revision *types.FileContract) {
 				revision.RenterOutput.Value = revision.RenterOutput.Value.Add(types.Siacoins(1))
-				return revision
 			},
-			"renter output must not change",
+			"renter output should not change",
 		},
 		{
-			func(current, revision types.FileContract) types.FileContract {
+			func(current, revision *types.FileContract) {
 				revision.HostOutput.Value = revision.HostOutput.Value.Add(types.Siacoins(1))
-				return revision
 			},
-			"host output must not change",
+			"host valid output should not change",
 		},
 		{
-			func(current, revision types.FileContract) types.FileContract {
+			func(current, revision *types.FileContract) {
 				revision.HostOutput.Address[0] ^= 255
-				return revision
 			},
 			"host address must not change",
 		},
 		{
-			func(current, revision types.FileContract) types.FileContract {
+			func(current, revision *types.FileContract) {
 				revision.TotalCollateral = current.TotalCollateral.Add(types.Siacoins(1))
-				return revision
 			},
-			"host address must not change",
+			"total collateral must not change",
 		},
 	}
 
 	for _, change := range revisionChanges {
-		changed := change.change(fc, revision)
-		if err := ValidateProgramRevision(fc, changed, types.ZeroCurrency, types.ZeroCurrency); err == nil {
-			t.Fatalf("expected error: %s", change.error)
+		revCopy := revision
+		change.corrupt(&fc, &revCopy)
+		if err := ValidateProgramRevision(fc, revCopy, types.ZeroCurrency, types.ZeroCurrency); err.Error() != change.desc {
+			t.Fatalf("expected error %s, got %s", change.desc, err.Error())
 		}
 	}
 
@@ -555,49 +510,45 @@ func TestValidateContractRevision(t *testing.T) {
 	}
 
 	paymentRevisionChanges := []struct {
-		change func(current, revision types.FileContract) types.FileContract
-		error  string
+		corrupt func(revision *types.FileContract)
+		desc    string
 	}{
 		{
-			func(current, revision types.FileContract) types.FileContract {
+			func(revision *types.FileContract) {
 				revision.FileMerkleRoot[0] ^= 255
-				return revision
 			},
 			"file merkle root must not change",
 		},
 		{
-			func(current, revision types.FileContract) types.FileContract {
+			func(revision *types.FileContract) {
 				revision.Filesize++
-				return revision
 			},
 			"file size must not change",
 		},
 		{
-			func(current, revision types.FileContract) types.FileContract {
+			func(revision *types.FileContract) {
 				revision.RenterOutput.Value = revision.RenterOutput.Value.Add(types.Siacoins(1))
-				return revision
 			},
 			"renter output value should decrease by the amount",
 		},
 		{
-			func(current, revision types.FileContract) types.FileContract {
+			func(revision *types.FileContract) {
 				revision.HostOutput.Value = revision.HostOutput.Value.Sub(types.Siacoins(1))
-				return revision
 			},
 			"host output value should increase by the amount",
 		},
 		{
-			func(current, revision types.FileContract) types.FileContract {
+			func(revision *types.FileContract) {
 				revision.MissedHostValue = revision.MissedHostValue.Sub(types.Siacoins(1))
-				return revision
 			},
 			"host missed output value should increase by the amount",
 		}}
 
 	for _, change := range paymentRevisionChanges {
-		changed := change.change(fc, revision)
-		if err := ValidatePaymentRevision(fc, changed, types.ZeroCurrency); err == nil {
-			t.Fatalf("expected error: %s", change.error)
+		revCopy := revision
+		change.corrupt(&revCopy)
+		if err := ValidatePaymentRevision(fc, revCopy, types.ZeroCurrency); err.Error() != change.desc {
+			t.Fatalf("expected error %s, got %s", change.desc, err.Error())
 		}
 	}
 }
