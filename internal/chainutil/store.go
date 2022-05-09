@@ -68,6 +68,9 @@ func (es *EphemeralStore) BestIndex(height uint64) (types.ChainIndex, error) {
 // Flush implements chain.ManagerStore.
 func (es *EphemeralStore) Flush() error { return nil }
 
+// Close implements chain.ManagerStore.
+func (es *EphemeralStore) Close() error { return nil }
+
 // NewEphemeralStore returns an in-memory chain.ManagerStore.
 func NewEphemeralStore(c consensus.Checkpoint) *EphemeralStore {
 	return &EphemeralStore{
