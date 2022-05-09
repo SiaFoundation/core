@@ -7,39 +7,11 @@ import (
 	"math/rand"
 	"reflect"
 	"testing"
-	"testing/quick"
 
 	"go.sia.tech/core/internal/chainutil"
 	"go.sia.tech/core/merkle"
 	"go.sia.tech/core/types"
 )
-
-func randomTxn(rand *rand.Rand) types.Transaction {
-	var quickValue func(t reflect.Type) reflect.Value
-	quickValue = func(t reflect.Type) reflect.Value {
-		if t.String() == "types.SpendPolicy" {
-			return reflect.ValueOf(types.PolicyAbove(0))
-		}
-
-		v := reflect.New(t).Elem()
-		switch t.Kind() {
-		default:
-			v, _ = quick.Value(t, rand)
-		case reflect.Slice:
-			n := rand.Intn(10) + 1
-			v.Set(reflect.MakeSlice(t, n, n))
-			for i := 0; i < v.Len(); i++ {
-				v.Index(i).Set(quickValue(t.Elem()))
-			}
-		case reflect.Struct:
-			for i := 0; i < v.NumField(); i++ {
-				v.Field(i).Set(quickValue(t.Field(i).Type))
-			}
-		}
-		return v
-	}
-	return quickValue(reflect.TypeOf(types.Transaction{})).Interface().(types.Transaction)
-}
 
 func TestEncoding(t *testing.T) {
 	// NOTE: Multiproof encoding only works with "real" blocks -- we can't
@@ -80,6 +52,7 @@ func TestBlockCompression(t *testing.T) {
 	ratio := func(b types.Block) float64 {
 		var buf bytes.Buffer
 		e := types.NewEncoder(&buf)
+		e.WriteUint8(1) // version
 		b.Header.EncodeTo(e)
 		e.WritePrefix(len(b.Transactions))
 		for i := range b.Transactions {

@@ -454,42 +454,44 @@ const (
 
 // EncodeTo implements types.EncoderTo.
 func (p SpendPolicy) EncodeTo(e *Encoder) {
-	writeUint8 := func(u uint8) { e.Write([]byte{u}) }
 	var writePolicy func(SpendPolicy)
 	writePolicy = func(p SpendPolicy) {
 		switch p := p.Type.(type) {
 		case PolicyTypeAbove:
-			writeUint8(opAbove)
+			e.WriteUint8(opAbove)
 			e.WriteUint64(uint64(p))
 		case PolicyTypePublicKey:
-			writeUint8(opPublicKey)
+			e.WriteUint8(opPublicKey)
 			PublicKey(p).EncodeTo(e)
 		case PolicyTypeThreshold:
-			writeUint8(opThreshold)
-			writeUint8(p.N)
-			writeUint8(uint8(len(p.Of)))
+			e.WriteUint8(opThreshold)
+			e.WriteUint8(p.N)
+			e.WriteUint8(uint8(len(p.Of)))
 			for i := range p.Of {
 				writePolicy(p.Of[i])
 			}
 		case PolicyTypeUnlockConditions:
-			writeUint8(opUnlockConditions)
+			e.WriteUint8(opUnlockConditions)
 			e.WriteUint64(p.Timelock)
-			writeUint8(uint8(len(p.PublicKeys)))
+			e.WriteUint8(uint8(len(p.PublicKeys)))
 			for i := range p.PublicKeys {
 				p.PublicKeys[i].EncodeTo(e)
 			}
-			writeUint8(p.SignaturesRequired)
+			e.WriteUint8(p.SignaturesRequired)
 		default:
 			panic(fmt.Sprintf("unhandled policy type %T", p))
 		}
 	}
 	const version = 1
-	writeUint8(version)
+	e.WriteUint8(version)
 	writePolicy(p)
 }
 
 // EncodeTo implements types.EncoderTo.
 func (txn Transaction) EncodeTo(e *Encoder) {
+	const version = 1
+	e.WriteUint8(version)
+
 	var fields uint64
 	for i, b := range [...]bool{
 		len(txn.SiacoinInputs) != 0,
@@ -632,17 +634,11 @@ func (sfo *SiafundOutput) DecodeFrom(d *Decoder) {
 
 // DecodeFrom implements types.DecoderFrom.
 func (p *SpendPolicy) DecodeFrom(d *Decoder) {
-	var buf [1]byte
-	readUint8 := func() uint8 {
-		d.Read(buf[:1])
-		return buf[0]
-	}
-
 	const maxPolicies = 1024
 	totalPolicies := 1
 	var readPolicy func() (SpendPolicy, error)
 	readPolicy = func() (SpendPolicy, error) {
-		switch op := readUint8(); op {
+		switch op := d.ReadUint8(); op {
 		case opAbove:
 			return PolicyAbove(d.ReadUint64()), nil
 		case opPublicKey:
@@ -650,8 +646,8 @@ func (p *SpendPolicy) DecodeFrom(d *Decoder) {
 			pk.DecodeFrom(d)
 			return PolicyPublicKey(pk), nil
 		case opThreshold:
-			n := readUint8()
-			of := make([]SpendPolicy, readUint8())
+			n := d.ReadUint8()
+			of := make([]SpendPolicy, d.ReadUint8())
 			totalPolicies += len(of)
 			if totalPolicies > maxPolicies {
 				return SpendPolicy{}, errors.New("policy is too complex")
@@ -667,19 +663,19 @@ func (p *SpendPolicy) DecodeFrom(d *Decoder) {
 		case opUnlockConditions:
 			uc := PolicyTypeUnlockConditions{
 				Timelock:   d.ReadUint64(),
-				PublicKeys: make([]PublicKey, readUint8()),
+				PublicKeys: make([]PublicKey, d.ReadUint8()),
 			}
 			for i := range uc.PublicKeys {
 				uc.PublicKeys[i].DecodeFrom(d)
 			}
-			uc.SignaturesRequired = readUint8()
+			uc.SignaturesRequired = d.ReadUint8()
 			return SpendPolicy{uc}, nil
 		default:
 			return SpendPolicy{}, fmt.Errorf("unknown policy (opcode %v)", op)
 		}
 	}
 
-	if version := readUint8(); version != 1 {
+	if version := d.ReadUint8(); version != 1 {
 		d.SetErr(fmt.Errorf("unsupported policy version (%v)", version))
 		return
 	}
@@ -810,6 +806,11 @@ func (a *Attestation) DecodeFrom(d *Decoder) {
 
 // DecodeFrom implements types.DecoderFrom.
 func (txn *Transaction) DecodeFrom(d *Decoder) {
+	if version := d.ReadUint8(); version != 1 {
+		d.SetErr(fmt.Errorf("unsupported transaction version (%v)", version))
+		return
+	}
+
 	fields := d.ReadUint64()
 
 	if fields&(1<<0) != 0 {

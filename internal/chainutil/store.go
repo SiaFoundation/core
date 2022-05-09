@@ -135,13 +135,16 @@ func (fs *FlatStore) Checkpoint(index types.ChainIndex) (c consensus.Checkpoint,
 
 // Header implements chain.ManagerStore.
 func (fs *FlatStore) Header(index types.ChainIndex) (types.BlockHeader, error) {
-	b := make([]byte, 8+32+8+8+32+32)
+	b := make([]byte, 1+8+32+8+8+32+32)
 	if offset, ok := fs.offsets[index]; !ok {
 		return types.BlockHeader{}, chain.ErrUnknownIndex
 	} else if _, err := fs.entryFile.ReadAt(b, offset); err != nil {
 		return types.BlockHeader{}, fmt.Errorf("failed to read header at offset %v: %w", offset, err)
 	}
 	d := types.NewBufDecoder(b)
+	if version := d.ReadUint8(); version != 1 {
+		return types.BlockHeader{}, fmt.Errorf("unsupported block version (%v)", version)
+	}
 	var h types.BlockHeader
 	h.DecodeFrom(d)
 	if err := d.Err(); err != nil {
