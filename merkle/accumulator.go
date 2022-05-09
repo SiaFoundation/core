@@ -126,8 +126,8 @@ func (acc *Accumulator) DecodeFrom(d *types.Decoder) {
 // MarshalJSON implements json.Marshaler.
 func (acc Accumulator) MarshalJSON() ([]byte, error) {
 	v := struct {
-		NumLeaves uint64
-		Trees     []types.Hash256
+		NumLeaves uint64          `json:"numLeaves"`
+		Trees     []types.Hash256 `json:"trees"`
 	}{acc.NumLeaves, []types.Hash256{}}
 	for i, root := range acc.Trees {
 		if acc.hasTreeAtHeight(i) {
@@ -151,7 +151,7 @@ func (acc *Accumulator) UnmarshalJSON(b []byte) error {
 	acc.NumLeaves = v.NumLeaves
 	for i := range acc.Trees {
 		if acc.hasTreeAtHeight(i) {
-			acc.Trees[i] = v.Trees[i]
+			acc.Trees[i] = v.Trees[0]
 			v.Trees = v.Trees[1:]
 		}
 	}

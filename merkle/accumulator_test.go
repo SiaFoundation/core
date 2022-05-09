@@ -325,6 +325,31 @@ func TestHistoryAccumulator(t *testing.T) {
 	}
 }
 
+func TestMarshalJSON(t *testing.T) {
+	eq := func(a, b HistoryAccumulator) bool {
+		if a.NumLeaves != b.NumLeaves {
+			return false
+		}
+		for i := range a.Trees {
+			if a.hasTreeAtHeight(i) && a.Trees[i] != b.Trees[i] {
+				return false
+			}
+		}
+		return true
+	}
+	var ha HistoryAccumulator
+	for i := 0; i < 16; i++ {
+		ha.ApplyBlock(types.ChainIndex{Height: uint64(i)})
+		js, _ := ha.MarshalJSON()
+		var ha2 HistoryAccumulator
+		if err := ha2.UnmarshalJSON(js); err != nil {
+			t.Fatal(err)
+		} else if !eq(ha, ha2) {
+			t.Fatal("accumulator marshal/unmarshal failed")
+		}
+	}
+}
+
 func TestMultiproof(t *testing.T) {
 	outputs := make([]types.SiacoinElement, 8)
 	leaves := make([]types.Hash256, len(outputs))
