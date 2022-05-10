@@ -1,4 +1,4 @@
-# [![Sia Logo](https://sia.tech/static/assets/svg/sia-green-logo.svg)](http://sia.tech)
+# [![Sia Logo](https://sia.tech/banners/sia-banner-core.png)](http://sia.tech)
 
 [![GoDoc](https://godoc.org/go.sia.tech/core?status.svg)](https://godoc.org/go.sia.tech/core)
 
