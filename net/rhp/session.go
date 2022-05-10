@@ -8,9 +8,9 @@ import (
 	"io"
 	"net"
 
-	"go.sia.tech/core/net/mux"
 	"go.sia.tech/core/types"
 
+	"go.sia.tech/mux"
 	"golang.org/x/crypto/blake2b"
 	"lukechampine.com/frand"
 )

@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"net"
 
-	"go.sia.tech/core/net/mux"
 	"go.sia.tech/core/net/rpc"
 	"go.sia.tech/core/types"
+
+	"go.sia.tech/mux"
 	"lukechampine.com/frand"
 )
 
