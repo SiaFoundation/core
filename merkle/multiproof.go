@@ -2,6 +2,7 @@ package merkle
 
 import (
 	"errors"
+	"fmt"
 	"math/bits"
 	"sort"
 
@@ -146,6 +147,9 @@ type CompressedBlock types.Block
 
 // EncodeTo implements types.EncoderTo.
 func (b CompressedBlock) EncodeTo(e *types.Encoder) {
+	const version = 1
+	e.WriteUint8(version)
+
 	b.Header.EncodeTo(e)
 	e.WritePrefix(len(b.Transactions))
 	for _, txn := range b.Transactions {
@@ -158,6 +162,11 @@ func (b CompressedBlock) EncodeTo(e *types.Encoder) {
 
 // DecodeFrom implements types.DecoderFrom.
 func (b *CompressedBlock) DecodeFrom(d *types.Decoder) {
+	if version := d.ReadUint8(); version != 1 {
+		d.SetErr(fmt.Errorf("unsupported block version (%v)", version))
+		return
+	}
+
 	b.Header.DecodeFrom(d)
 	b.Transactions = make([]types.Transaction, d.ReadPrefix())
 	for i := range b.Transactions {
@@ -331,6 +340,9 @@ func (res *compressedFileContractResolution) DecodeFrom(d *types.Decoder) {
 type compressedTransaction types.Transaction
 
 func (txn compressedTransaction) EncodeTo(e *types.Encoder) {
+	const version = 1
+	e.WriteUint8(version)
+
 	var fields uint64
 	for i, b := range [...]bool{
 		len(txn.SiacoinInputs) != 0,
@@ -411,6 +423,11 @@ func (txn compressedTransaction) EncodeTo(e *types.Encoder) {
 }
 
 func (txn *compressedTransaction) DecodeFrom(d *types.Decoder) {
+	if version := d.ReadUint8(); version != 1 {
+		d.SetErr(fmt.Errorf("unsupported transaction version (%v)", version))
+		return
+	}
+
 	fields := d.ReadUint64()
 
 	if fields&(1<<0) != 0 {
