@@ -212,9 +212,14 @@ func TestBuildProof(t *testing.T) {
 	proof := BuildProof(&sector, 0, LeavesPerSector, nil)
 	if len(proof) != 0 {
 		t.Error("BuildProof constructed an incorrect proof for the entire sector")
+	} else if RangeProofSize(LeavesPerSector, 0, LeavesPerSector) != uint64(len(proof)) {
+		t.Error("wrong RangeProofSize for entire sector")
 	}
 
 	proof = BuildProof(&sector, 0, 1, nil)
+	if ProofSize(LeavesPerSector, 0) != uint64(len(proof)) {
+		t.Error("wrong RangeProofSize for first leaf")
+	}
 	hash := leafHash(sector[:64])
 	for i := range proof {
 		hash = nodeHash(hash, proof[i])
@@ -224,6 +229,9 @@ func TestBuildProof(t *testing.T) {
 	}
 
 	proof = BuildProof(&sector, LeavesPerSector-1, LeavesPerSector, nil)
+	if ProofSize(LeavesPerSector, LeavesPerSector-1) != uint64(len(proof)) {
+		t.Error("wrong RangeProofSize for last leaf")
+	}
 	hash = leafHash(sector[len(sector)-64:])
 	for i := range proof {
 		hash = nodeHash(proof[len(proof)-i-1], hash)
@@ -233,6 +241,9 @@ func TestBuildProof(t *testing.T) {
 	}
 
 	proof = BuildProof(&sector, 10, 11, nil)
+	if ProofSize(LeavesPerSector, 10) != uint64(len(proof)) {
+		t.Error("wrong RangeProofSize for leaf 10")
+	}
 	hash = leafHash(sector[10*64:][:64])
 	hash = nodeHash(hash, proof[2])
 	hash = nodeHash(proof[1], hash)
@@ -248,6 +259,9 @@ func TestBuildProof(t *testing.T) {
 	// this is the largest possible proof
 	var midl, midr uint64 = LeavesPerSector/2 - 1, LeavesPerSector/2 + 1
 	proof = BuildProof(&sector, midl, midr, nil)
+	if RangeProofSize(LeavesPerSector, midl, midr) != uint64(len(proof)) {
+		t.Error("wrong RangeProofSize for middle leaves")
+	}
 	left := leafHash(sector[midl*64:][:64])
 	for i := 0; i < len(proof)/2; i++ {
 		left = nodeHash(proof[len(proof)/2-i-1], left)

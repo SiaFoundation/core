@@ -230,18 +230,15 @@ func MetaRoot(roots []types.Hash256) types.Hash256 {
 // ProofSize returns the size of a Merkle proof for the leaf i within a tree
 // containing n leaves.
 func ProofSize(n, i uint64) uint64 {
-	leftHashes := bits.OnesCount64(i)
-	pathMask := 1<<bits.Len64(n-1) - 1
-	rightHashes := bits.OnesCount64(^(n - 1)) & pathMask
-	return uint64(leftHashes + rightHashes)
+	return RangeProofSize(n, i, i+1)
 }
 
 // RangeProofSize returns the size of a Merkle proof for the leaf range [start,
 // end) within a tree containing n leaves.
 func RangeProofSize(n, start, end uint64) uint64 {
 	leftHashes := bits.OnesCount64(start)
-	pathMask := 1<<bits.Len64((end-1)^(n-1)) - 1
-	rightHashes := bits.OnesCount64(^(end - 1)) & pathMask
+	pathMask := uint64(1)<<bits.Len64((end-1)^(n-1)) - 1
+	rightHashes := bits.OnesCount64(^(end - 1) & pathMask)
 	return uint64(leftHashes + rightHashes)
 }
 
