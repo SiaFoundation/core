@@ -21,13 +21,6 @@ import (
 	"lukechampine.com/frand"
 )
 
-var (
-	// ErrInvalidLength is returned when parsing a string that is not the correct length.
-	ErrInvalidLength = fmt.Errorf("invalid length")
-	// ErrInvalidFormat is returned when a parsed string is not in the correct format.
-	ErrInvalidFormat = errors.New("invalid format")
-)
-
 // EphemeralLeafIndex is used as the LeafIndex of StateElements that are created
 // and spent within the same block. Such elements do not require a proof of
 // existence. They are, however, assigned a proper index and are incorporated
