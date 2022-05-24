@@ -79,8 +79,8 @@ func testRegistry(priKey types.PrivateKey, limit uint64) *RegistryManager {
 
 func TestRegistryPut(t *testing.T) {
 	const registryCap = 10
-	hostPriv := types.NewPrivateKeyFromSeed(frand.Entropy256())
-	renterPriv := types.NewPrivateKeyFromSeed(frand.Entropy256())
+	hostPriv := types.GeneratePrivateKey()
+	renterPriv := types.GeneratePrivateKey()
 	reg := testRegistry(hostPriv, registryCap)
 
 	// store a random value in the registry

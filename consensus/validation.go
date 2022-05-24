@@ -624,9 +624,3 @@ func (s State) ValidateBlock(b types.Block) error {
 func (s State) MaxFutureTimestamp(currentTime time.Time) time.Time {
 	return currentTime.Add(2 * time.Hour)
 }
-
-// A Checkpoint pairs a block with its resulting chain state.
-type Checkpoint struct {
-	Block types.Block
-	State State
-}

@@ -113,10 +113,10 @@ func (sc *ScratchChain) Unvalidated() []types.ChainIndex {
 }
 
 // NewScratchChain initializes a ScratchChain with the provided State.
-func NewScratchChain(vc State) *ScratchChain {
+func NewScratchChain(s State) *ScratchChain {
 	return &ScratchChain{
-		base: vc.Index,
-		hs:   vc,
-		ts:   vc,
+		base: s.Index,
+		hs:   s,
+		ts:   s,
 	}
 }

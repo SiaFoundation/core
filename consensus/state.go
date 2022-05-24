@@ -328,3 +328,9 @@ func (s State) AttestationSigHash(a types.Attestation) types.Hash256 {
 	h.E.WriteBytes(a.Value)
 	return h.Sum()
 }
+
+// A Checkpoint pairs a block with its resulting chain state.
+type Checkpoint struct {
+	Block types.Block
+	State State
+}

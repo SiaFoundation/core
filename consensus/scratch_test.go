@@ -10,7 +10,7 @@ import (
 	"lukechampine.com/frand"
 )
 
-// copied from testutil (can't import due to cycle)
+// copied from chainutil (can't import due to cycle)
 func findBlockNonce(sc State, h *types.BlockHeader, target types.BlockID) {
 	h.Nonce = frand.Uint64n(math.MaxUint32) * sc.NonceFactor()
 	for !h.ID().MeetsTarget(target) {

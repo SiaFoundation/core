@@ -146,7 +146,7 @@ func randomRegistryValue(key types.PrivateKey) (value RegistryValue) {
 }
 
 func TestRegistryProgram(t *testing.T) {
-	key := types.NewPrivateKeyFromSeed(frand.Entropy256())
+	key := types.GeneratePrivateKey()
 	value := randomRegistryValue(key)
 	value2 := randomRegistryValue(key)
 

@@ -22,7 +22,7 @@ var (
 func testingKeypair(seed uint64) (types.PublicKey, types.PrivateKey) {
 	var b [32]byte
 	binary.LittleEndian.PutUint64(b[:], seed)
-	privkey := types.NewPrivateKeyFromSeed(b)
+	privkey := types.NewPrivateKeyFromSeed(b[:])
 	return privkey.PublicKey(), privkey
 }
 

@@ -73,13 +73,19 @@ func (priv PrivateKey) PublicKey() (pk PublicKey) {
 }
 
 // NewPrivateKeyFromSeed calculates a private key from a seed.
-func NewPrivateKeyFromSeed(seed [32]byte) PrivateKey {
-	return PrivateKey(ed25519.NewKeyFromSeed(seed[:]))
+func NewPrivateKeyFromSeed(seed []byte) PrivateKey {
+	return PrivateKey(ed25519.NewKeyFromSeed(seed))
 }
 
 // GeneratePrivateKey creates a new private key from a secure entropy source.
 func GeneratePrivateKey() PrivateKey {
-	return NewPrivateKeyFromSeed(frand.Entropy256())
+	seed := make([]byte, ed25519.SeedSize)
+	frand.Read(seed)
+	pk := NewPrivateKeyFromSeed(seed)
+	for i := range seed {
+		seed[i] = 0
+	}
+	return pk
 }
 
 // A Signature is an Ed25519 signature.
