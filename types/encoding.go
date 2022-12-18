@@ -193,7 +193,7 @@ func (d *Decoder) ReadPrefix() int {
 }
 
 // ReadTime reads a time.Time from the underlying stream.
-func (d *Decoder) ReadTime() time.Time { return time.Unix(int64(d.ReadUint64()), 0).UTC() }
+func (d *Decoder) ReadTime() time.Time { return time.Unix(int64(d.ReadUint64()), 0) }
 
 // ReadBytes reads a length-prefixed []byte from the underlying stream.
 func (d *Decoder) ReadBytes() []byte {
@@ -272,13 +272,13 @@ func (w Work) EncodeTo(e *Encoder) { e.Write(w.NumHashes[:]) }
 // EncodeTo implements types.EncoderTo.
 func (c Currency) EncodeTo(e *Encoder) {
 	var buf [16]byte
-	binary.LittleEndian.PutUint64(buf[:8], c.Lo)
-	binary.LittleEndian.PutUint64(buf[8:], c.Hi)
+	binary.BigEndian.PutUint64(buf[:8], c.Hi)
+	binary.BigEndian.PutUint64(buf[8:], c.Lo)
 	i := 0
 	for i < len(buf) && buf[i] == 0 {
 		i++
 	}
-	e.WritePrefix(i)
+	e.WritePrefix(len(buf[i:]))
 	e.Write(buf[i:])
 }
 
