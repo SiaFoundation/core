@@ -13,55 +13,36 @@ import (
 	"math/big"
 	"math/bits"
 	"strconv"
-	"sync"
 	"time"
 
-	"github.com/hdevalence/ed25519consensus"
-	"golang.org/x/crypto/blake2b"
 	"lukechampine.com/frand"
 )
 
-// EphemeralLeafIndex is used as the LeafIndex of StateElements that are created
-// and spent within the same block. Such elements do not require a proof of
-// existence. They are, however, assigned a proper index and are incorporated
-// into the state accumulator when the block is processed.
-const EphemeralLeafIndex = math.MaxUint64
-
 // MaxRevisionNumber is used to finalize a FileContract. When a contract's
-// RevisionNumber is set to this value, no further revisions are possible. This
-// allows contracts to be resolved "early" in some cases; see
-// FileContractResolution.
+// RevisionNumber is set to this value, no further revisions are possible.
 const MaxRevisionNumber = math.MaxUint64
+
+// Various specifiers.
+var (
+	SpecifierEd25519       = NewSpecifier("ed25519")
+	SpecifierSiacoinOutput = NewSpecifier("siacoin output")
+	SpecifierSiafundOutput = NewSpecifier("siafund output")
+	SpecifierFileContract  = NewSpecifier("file contract")
+	SpecifierStorageProof  = NewSpecifier("storage proof")
+	SpecifierFoundation    = NewSpecifier("foundation")
+	SpecifierEntropy       = NewSpecifier("entropy")
+)
 
 // A Hash256 is a generic 256-bit cryptographic hash.
 type Hash256 [32]byte
 
-// An Address is the hash of a public key.
-type Address Hash256
-
-// VoidAddress is an address whose signing key does not exist. Sending coins to
-// this address ensures that they will never be recoverable by anyone.
-var VoidAddress Address
-
-// A BlockID uniquely identifies a block.
-type BlockID Hash256
-
-// MeetsTarget returns true if bid is not greater than t.
-func (bid BlockID) MeetsTarget(t BlockID) bool {
-	return bytes.Compare(bid[:], t[:]) <= 0
-}
-
-// A TransactionID uniquely identifies a transaction.
-type TransactionID Hash256
-
-// A ChainIndex pairs a block's height with its ID.
-type ChainIndex struct {
-	Height uint64
-	ID     BlockID
-}
-
 // A PublicKey is an Ed25519 public key.
 type PublicKey [32]byte
+
+// VerifyHash verifies that s is a valid signature of h by pk.
+func (pk PublicKey) VerifyHash(h Hash256, s Signature) bool {
+	return ed25519.Verify(pk[:], h[:], s[:])
+}
 
 // A PrivateKey is an Ed25519 private key.
 type PrivateKey []byte
@@ -69,6 +50,12 @@ type PrivateKey []byte
 // PublicKey returns the PublicKey corresponding to priv.
 func (priv PrivateKey) PublicKey() (pk PublicKey) {
 	copy(pk[:], priv[32:])
+	return
+}
+
+// SignHash signs h with priv, producing a Signature.
+func (priv PrivateKey) SignHash(h Hash256) (s Signature) {
+	copy(s[:], ed25519.Sign(ed25519.PrivateKey(priv), h[:]))
 	return
 }
 
@@ -91,15 +78,92 @@ func GeneratePrivateKey() PrivateKey {
 // A Signature is an Ed25519 signature.
 type Signature [64]byte
 
-// SignHash signs h with priv, producing a Signature.
-func (priv PrivateKey) SignHash(h Hash256) (s Signature) {
-	copy(s[:], ed25519.Sign(ed25519.PrivateKey(priv), h[:]))
+// A Specifier is a fixed-size, 0-padded identifier.
+type Specifier [16]byte
+
+// NewSpecifier returns a specifier containing the provided name.
+func NewSpecifier(name string) (s Specifier) {
+	copy(s[:], name)
 	return
 }
 
-// VerifyHash verifies that s is a valid signature of h by pk.
-func (pk PublicKey) VerifyHash(h Hash256, s Signature) bool {
-	return ed25519consensus.Verify(pk[:], h[:], s[:])
+// An UnlockKey can provide one of the signatures required by a set of
+// UnlockConditions.
+type UnlockKey struct {
+	Algorithm Specifier
+	Key       []byte
+}
+
+// UnlockConditions specify the conditions for spending an output or revising a
+// file contract.
+type UnlockConditions struct {
+	Timelock           uint64
+	PublicKeys         []UnlockKey
+	SignaturesRequired uint64
+}
+
+// UnlockHash computes the hash of a set of UnlockConditions. Such hashes are
+// most commonly used as addresses, but are also used in file contracts.
+func (uc UnlockConditions) UnlockHash() Address {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+
+	var acc merkleAccumulator
+	h.E.WriteUint8(leafHashPrefix)
+	h.E.WriteUint64(uc.Timelock)
+	acc.addLeaf(h.Sum())
+	for _, key := range uc.PublicKeys {
+		h.Reset()
+		h.E.WriteUint8(leafHashPrefix)
+		key.EncodeTo(h.E)
+		acc.addLeaf(h.Sum())
+	}
+	h.Reset()
+	h.E.WriteUint8(leafHashPrefix)
+	h.E.WriteUint64(uc.SignaturesRequired)
+	acc.addLeaf(h.Sum())
+	return Address(acc.root())
+}
+
+// An Address is the hash of a set of UnlockConditions.
+type Address Hash256
+
+// VoidAddress is an address whose signing key does not exist. Sending coins to
+// this address ensures that they will never be recoverable by anyone.
+var VoidAddress Address
+
+// A BlockID uniquely identifies a block.
+type BlockID Hash256
+
+// MeetsTarget returns true if bid is not greater than t.
+func (bid BlockID) MeetsTarget(t BlockID) bool {
+	return bytes.Compare(bid[:], t[:]) <= 0
+}
+
+// MinerOutputID returns the ID of the block's i'th miner payout.
+func (bid BlockID) MinerOutputID(i int) SiacoinOutputID {
+	buf := make([]byte, 32+8)
+	copy(buf, bid[:])
+	binary.LittleEndian.PutUint64(buf[32:], uint64(i))
+	return SiacoinOutputID(HashBytes(buf))
+}
+
+// FoundationOutputID returns the ID of the block's Foundation subsidy.
+func (bid BlockID) FoundationOutputID() SiacoinOutputID {
+	buf := make([]byte, 32+16)
+	copy(buf, bid[:])
+	copy(buf[32:], SpecifierFoundation[:])
+	return SiacoinOutputID(HashBytes(buf))
+}
+
+// A TransactionID uniquely identifies a transaction.
+type TransactionID Hash256
+
+// A ChainIndex pairs a block's height with its ID.
+type ChainIndex struct {
+	Height uint64
+	ID     BlockID
 }
 
 // A SiacoinOutput is the recipient of some of the siacoins spent in a
@@ -109,6 +173,16 @@ type SiacoinOutput struct {
 	Address Address
 }
 
+// A SiacoinOutputID uniquely identifies a siacoin output.
+type SiacoinOutputID Hash256
+
+// A SiacoinInput spends an unspent SiacoinOutput in the UTXO set by
+// revealing and satisfying its unlock conditions.
+type SiacoinInput struct {
+	ParentID         SiacoinOutputID
+	UnlockConditions UnlockConditions
+}
+
 // A SiafundOutput is the recipient of some of the siafunds spent in a
 // transaction.
 type SiafundOutput struct {
@@ -116,373 +190,204 @@ type SiafundOutput struct {
 	Address Address
 }
 
+// A SiafundOutputID uniquely identifies a siafund output.
+type SiafundOutputID Hash256
+
+// ClaimOutputID returns the ID of the SiacoinOutput that is created when
+// the siafund output is spent.
+func (id SiafundOutputID) ClaimOutputID() SiacoinOutputID {
+	return SiacoinOutputID(HashBytes(id[:]))
+}
+
+// A SiafundInput spends an unspent SiafundOutput in the UTXO set by revealing
+// and satisfying its unlock conditions. SiafundInputs also include a
+// ClaimAddress, specifying the recipient of the siacoins that were earned by
+// the output.
+type SiafundInput struct {
+	ParentID         SiafundOutputID
+	UnlockConditions UnlockConditions
+	ClaimAddress     Address
+}
+
 // A FileContract is a storage agreement between a renter and a host. It
-// consists of a bidirectional payment channel that resolves as either "valid"
-// or "missed" depending on whether a valid StorageProof is submitted for the
+// contains a bidirectional payment channel that resolves as either "valid" or
+// "missed" depending on whether a valid StorageProof is submitted for the
 // contract.
 type FileContract struct {
-	Filesize        uint64
-	FileMerkleRoot  Hash256
-	WindowStart     uint64
-	WindowEnd       uint64
-	RenterOutput    SiacoinOutput
-	HostOutput      SiacoinOutput
-	MissedHostValue Currency
-	TotalCollateral Currency
-	RenterPublicKey PublicKey
-	HostPublicKey   PublicKey
-	RevisionNumber  uint64
-
-	// signatures cover above fields
-	RenterSignature Signature
-	HostSignature   Signature
+	Filesize           uint64
+	FileMerkleRoot     Hash256
+	WindowStart        uint64
+	WindowEnd          uint64
+	Payout             Currency
+	ValidProofOutputs  []SiacoinOutput
+	MissedProofOutputs []SiacoinOutput
+	UnlockHash         Hash256
+	RevisionNumber     uint64
 }
 
-// MissedHostOutput returns the host output that will be created if the contract
-// resolves missed.
-func (fc FileContract) MissedHostOutput() SiacoinOutput {
-	return SiacoinOutput{
-		Value:   fc.MissedHostValue,
-		Address: fc.HostOutput.Address,
-	}
+// A FileContractID uniquely identifies a file contract.
+type FileContractID Hash256
+
+// ValidOutputID returns the ID of the valid proof output at index i.
+func (fcid FileContractID) ValidOutputID(i int) SiacoinOutputID {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	SpecifierStorageProof.EncodeTo(h.E)
+	fcid.EncodeTo(h.E)
+	h.E.WriteBool(true)
+	h.E.WriteUint64(uint64(i))
+	return SiacoinOutputID(h.Sum())
 }
 
-// A SiacoinInput spends an unspent SiacoinElement in the state accumulator by
-// revealing its public key and signing the transaction.
-type SiacoinInput struct {
-	Parent      SiacoinElement
-	SpendPolicy SpendPolicy
-	Signatures  []Signature
-}
-
-// A SiafundInput spends an unspent SiafundElement in the state accumulator by
-// revealing its public key and signing the transaction. Inputs also include a
-// ClaimAddress, specifying the recipient of the siacoins that were earned by
-// the SiafundElement.
-type SiafundInput struct {
-	Parent       SiafundElement
-	ClaimAddress Address
-	SpendPolicy  SpendPolicy
-	Signatures   []Signature
+// MissedOutputID returns the ID of the missed proof output at index i.
+func (fcid FileContractID) MissedOutputID(i int) SiacoinOutputID {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	SpecifierStorageProof.EncodeTo(h.E)
+	fcid.EncodeTo(h.E)
+	h.E.WriteBool(false)
+	h.E.WriteUint64(uint64(i))
+	return SiacoinOutputID(h.Sum())
 }
 
 // A FileContractRevision updates the state of an existing file contract.
 type FileContractRevision struct {
-	Parent   FileContractElement
+	ParentID         FileContractID
+	UnlockConditions UnlockConditions
+	// NOTE: the Payout field of the contract is not "really" part of a
+	// revision. A revision cannot change the total payout, so the original siad
+	// code defines FileContractRevision as an entirely separate struct without
+	// a Payout field. Here, we instead reuse the FileContract type, which means
+	// we must treat its Payout field as invalid. To guard against developer
+	// error, we set it to a sentinel value when decoding it.
 	Revision FileContract
-}
-
-// A FileContractResolution closes a file contract's payment channel. There are
-// four ways a contract can be resolved:
-//
-// 1) The renter and host can renew the contract. The old contract is finalized,
-// and a portion of its funds are "rolled over" into a new contract.
-//
-// 2) The host can submit a valid storage proof within the contract's proof
-// window. This is considered a "valid" resolution.
-//
-// 3) The renter and host can sign a final contract revision (a "finalization"),
-// setting the contract's revision number to its maximum legal value. A
-// finalization can be submitted at any time prior to the contract's WindowEnd.
-// This is considered a "valid" resolution.
-//
-// 4) After the proof window has expired, anyone can submit an empty resolution
-// with no storage proof or finalization. This is considered a "missed"
-// resolution.
-type FileContractResolution struct {
-	Parent       FileContractElement
-	Renewal      FileContractRenewal
-	StorageProof StorageProof
-	Finalization FileContract
-}
-
-// HasRenewal returns true if the resolution contains a renewal.
-func (fcr *FileContractResolution) HasRenewal() bool {
-	return fcr.Renewal != (FileContractRenewal{})
-}
-
-// HasStorageProof returns true if the resolution contains a storage proof.
-func (fcr *FileContractResolution) HasStorageProof() bool {
-	sp := &fcr.StorageProof
-	return sp.WindowStart != (ChainIndex{}) || len(sp.WindowProof) > 0 ||
-		sp.Leaf != ([64]byte{}) || len(sp.Proof) > 0
-}
-
-// HasFinalization returns true if the resolution contains a finalization.
-func (fcr *FileContractResolution) HasFinalization() bool {
-	return fcr.Finalization != (FileContract{})
-}
-
-// A FileContractRenewal renews a file contract.
-type FileContractRenewal struct {
-	FinalRevision   FileContract
-	InitialRevision FileContract
-	RenterRollover  Currency
-	HostRollover    Currency
-
-	// signatures cover above fields
-	RenterSignature Signature
-	HostSignature   Signature
 }
 
 // A StorageProof asserts the presence of a randomly-selected leaf within the
 // Merkle tree of a FileContract's data.
 type StorageProof struct {
-	// Selecting the leaf requires a source of unpredictable entropy; we use the
-	// ID of the block at the start of the proof window. The StorageProof
-	// includes this ID, and asserts its presence in the chain via a separate
-	// Merkle proof.
-	//
-	// For convenience, WindowStart is a ChainIndex rather than a BlockID.
-	// Consequently, WindowStart.Height MUST match the WindowStart field of the
-	// contract's final revision; otherwise, the prover could use any
-	// WindowStart, giving them control over the leaf index.
-	WindowStart ChainIndex
-	WindowProof []Hash256
-
-	// The leaf is always 64 bytes, extended with zeros if necessary.
-	Leaf  [64]byte
-	Proof []Hash256
+	ParentID FileContractID
+	Leaf     [64]byte
+	Proof    []Hash256
 }
 
-// An ElementID uniquely identifies a StateElement.
-type ElementID struct {
-	Source Hash256 // BlockID or TransactionID
-	Index  uint64
+// A FoundationAddressUpdate updates the primary and failsafe Foundation subsidy
+// addresses.
+type FoundationAddressUpdate struct {
+	NewPrimary  Address
+	NewFailsafe Address
 }
 
-// A StateElement is a generic element within the state accumulator.
-type StateElement struct {
-	ID          ElementID
-	LeafIndex   uint64
-	MerkleProof []Hash256
+// CoveredFields indicates which fields of a transaction are covered by a
+// signature.
+type CoveredFields struct {
+	WholeTransaction      bool
+	SiacoinInputs         []uint64
+	SiacoinOutputs        []uint64
+	FileContracts         []uint64
+	FileContractRevisions []uint64
+	StorageProofs         []uint64
+	SiafundInputs         []uint64
+	SiafundOutputs        []uint64
+	MinerFees             []uint64
+	ArbitraryData         []uint64
+	Signatures            []uint64
 }
 
-// A SiacoinElement is a volume of siacoins that is created and spent as an
-// atomic unit.
-type SiacoinElement struct {
-	StateElement
-	SiacoinOutput
-	MaturityHeight uint64
-}
-
-// A SiafundElement is a volume of siafunds that is created and spent as an
-// atomic unit.
-type SiafundElement struct {
-	StateElement
-	SiafundOutput
-	ClaimStart Currency // value of SiafundPool when element was created
-}
-
-// A FileContractElement is a storage agreement between a renter and a host.
-type FileContractElement struct {
-	StateElement
-	FileContract
-}
-
-// An Attestation associates a key-value pair with an identity. For example,
-// hosts attest to their network address by setting Key to "HostAnnouncement"
-// and Value to their address, thereby allowing renters to discover them.
-// Generally, an attestation for a particular key is considered to overwrite any
-// previous attestations with the same key. (This allows hosts to announce a new
-// network address, for example.)
-type Attestation struct {
-	PublicKey PublicKey
-	Key       string
-	Value     []byte
-	Signature Signature
+// A TransactionSignature signs transaction data.
+type TransactionSignature struct {
+	ParentID       Hash256
+	PublicKeyIndex uint64
+	Timelock       uint64
+	CoveredFields  CoveredFields
+	Signature      []byte
 }
 
 // A Transaction transfers value by consuming existing Outputs and creating new
 // Outputs.
 type Transaction struct {
-	SiacoinInputs           []SiacoinInput
-	SiacoinOutputs          []SiacoinOutput
-	SiafundInputs           []SiafundInput
-	SiafundOutputs          []SiafundOutput
-	FileContracts           []FileContract
-	FileContractRevisions   []FileContractRevision
-	FileContractResolutions []FileContractResolution
-	Attestations            []Attestation
-	ArbitraryData           []byte
-	NewFoundationAddress    Address
-	MinerFee                Currency
+	SiacoinInputs         []SiacoinInput
+	SiacoinOutputs        []SiacoinOutput
+	FileContracts         []FileContract
+	FileContractRevisions []FileContractRevision
+	StorageProofs         []StorageProof
+	SiafundInputs         []SiafundInput
+	SiafundOutputs        []SiafundOutput
+	MinerFees             []Currency
+	ArbitraryData         [][]byte
+	Signatures            []TransactionSignature
 }
 
 // ID returns the "semantic hash" of the transaction, covering all of the
-// transaction's effects, but not incidental data such as signatures or Merkle
-// proofs. This ensures that the ID will remain stable (i.e. non-malleable).
+// transaction's effects, but not incidental data such as signatures. This
+// ensures that the ID will remain stable (i.e. non-malleable).
 //
 // To hash all of the data in a transaction, use the EncodeTo method.
 func (txn *Transaction) ID() TransactionID {
-	// NOTE: In general, it is not possible to change a transaction's ID without
-	// causing it to become invalid, but an exception exists for non-standard
-	// spend policies. Consider a policy that may be satisfied by either a
-	// signature or a timelock. If a transaction is broadcast that signs the
-	// input, and the timelock has expired, then anyone may remove the signature
-	// from the input without invalidating the transaction. Of course, the net
-	// result will be the same, so arguably there's little reason to care. You
-	// only need to worry about this if you're hashing the full transaction data
-	// for some reason.
 	h := hasherPool.Get().(*Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	h.E.WriteString("sia/id/transaction")
-	h.E.WritePrefix(len(txn.SiacoinInputs))
-	for _, in := range txn.SiacoinInputs {
-		in.Parent.ID.EncodeTo(h.E)
-	}
-	h.E.WritePrefix(len(txn.SiacoinOutputs))
-	for _, out := range txn.SiacoinOutputs {
-		out.EncodeTo(h.E)
-	}
-	h.E.WritePrefix(len(txn.SiafundInputs))
-	for _, in := range txn.SiafundInputs {
-		in.Parent.ID.EncodeTo(h.E)
-	}
-	h.E.WritePrefix(len(txn.SiafundOutputs))
-	for _, out := range txn.SiafundOutputs {
-		out.EncodeTo(h.E)
-	}
-	h.E.WritePrefix(len(txn.FileContracts))
-	for _, fc := range txn.FileContracts {
-		fc.EncodeTo(h.E)
-	}
-	h.E.WritePrefix(len(txn.FileContractRevisions))
-	for _, fcr := range txn.FileContractRevisions {
-		fcr.Parent.ID.EncodeTo(h.E)
-		fcr.Revision.EncodeTo(h.E)
-	}
-	h.E.WritePrefix(len(txn.FileContractResolutions))
-	for _, fcr := range txn.FileContractResolutions {
-		fcr.Parent.ID.EncodeTo(h.E)
-		fcr.Renewal.EncodeTo(h.E)
-		fcr.StorageProof.WindowStart.EncodeTo(h.E)
-		fcr.Finalization.EncodeTo(h.E)
-	}
-	for _, a := range txn.Attestations {
-		a.EncodeTo(h.E)
-	}
-	h.E.WriteBytes(txn.ArbitraryData)
-	txn.NewFoundationAddress.EncodeTo(h.E)
-	txn.MinerFee.EncodeTo(h.E)
+	txn.encodeNoSignatures(h.E)
 	return TransactionID(h.Sum())
 }
 
-// DeepCopy returns a copy of txn that does not alias any of its memory.
-func (txn *Transaction) DeepCopy() Transaction {
-	c := *txn
-	c.SiacoinInputs = append([]SiacoinInput(nil), c.SiacoinInputs...)
-	for i := range c.SiacoinInputs {
-		c.SiacoinInputs[i].Parent.MerkleProof = append([]Hash256(nil), c.SiacoinInputs[i].Parent.MerkleProof...)
-		c.SiacoinInputs[i].Signatures = append([]Signature(nil), c.SiacoinInputs[i].Signatures...)
-	}
-	c.SiacoinOutputs = append([]SiacoinOutput(nil), c.SiacoinOutputs...)
-	c.SiafundInputs = append([]SiafundInput(nil), c.SiafundInputs...)
-	for i := range c.SiafundInputs {
-		c.SiafundInputs[i].Parent.MerkleProof = append([]Hash256(nil), c.SiafundInputs[i].Parent.MerkleProof...)
-		c.SiafundInputs[i].Signatures = append([]Signature(nil), c.SiafundInputs[i].Signatures...)
-	}
-	c.SiafundOutputs = append([]SiafundOutput(nil), c.SiafundOutputs...)
-	c.FileContracts = append([]FileContract(nil), c.FileContracts...)
-	c.FileContractRevisions = append([]FileContractRevision(nil), c.FileContractRevisions...)
-	for i := range c.FileContractRevisions {
-		c.FileContractRevisions[i].Parent.MerkleProof = append([]Hash256(nil), c.FileContractRevisions[i].Parent.MerkleProof...)
-	}
-	c.FileContractResolutions = append([]FileContractResolution(nil), c.FileContractResolutions...)
-	for i := range c.FileContractResolutions {
-		c.FileContractResolutions[i].Parent.MerkleProof = append([]Hash256(nil), c.FileContractResolutions[i].Parent.MerkleProof...)
-		c.FileContractResolutions[i].StorageProof.WindowProof = append([]Hash256(nil), c.FileContractResolutions[i].StorageProof.WindowProof...)
-		c.FileContractResolutions[i].StorageProof.Proof = append([]Hash256(nil), c.FileContractResolutions[i].StorageProof.Proof...)
-	}
-	for i := range c.Attestations {
-		c.Attestations[i].Value = append([]byte(nil), c.Attestations[i].Value...)
-	}
-	c.ArbitraryData = append([]byte(nil), c.ArbitraryData...)
-	return c
+// SiacoinOutputID returns the ID of the siacoin output at index i.
+func (txn *Transaction) SiacoinOutputID(i int) SiacoinOutputID {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	SpecifierSiacoinOutput.EncodeTo(h.E)
+	txn.encodeNoSignatures(h.E)
+	h.E.WriteUint64(uint64(i))
+	return SiacoinOutputID(h.Sum())
 }
 
-// SiacoinOutputID returns the ID of the siacoin output at index i.
-func (txn *Transaction) SiacoinOutputID(i int) ElementID {
-	return ElementID{
-		Source: Hash256(txn.ID()),
-		Index:  uint64(i),
-	}
+// SiafundOutputID returns the ID of the siafund output at index i.
+func (txn *Transaction) SiafundOutputID(i int) SiafundOutputID {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	SpecifierSiafundOutput.EncodeTo(h.E)
+	txn.encodeNoSignatures(h.E)
+	h.E.WriteUint64(uint64(i))
+	return SiafundOutputID(h.Sum())
 }
 
 // SiafundClaimOutputID returns the ID of the siacoin claim output for the
 // siafund input at index i.
-func (txn *Transaction) SiafundClaimOutputID(i int) ElementID {
-	return ElementID{
-		Source: Hash256(txn.ID()),
-		Index:  uint64(len(txn.SiacoinOutputs) + i),
-	}
-}
-
-// SiafundOutputID returns the ID of the siafund output at index i.
-func (txn *Transaction) SiafundOutputID(i int) ElementID {
-	return ElementID{
-		Source: Hash256(txn.ID()),
-		Index:  uint64(len(txn.SiacoinOutputs) + len(txn.SiafundInputs) + i),
-	}
+func (txn *Transaction) SiafundClaimOutputID(i int) SiacoinOutputID {
+	sfid := txn.SiafundOutputID(i)
+	return SiacoinOutputID(HashBytes(sfid[:]))
 }
 
 // FileContractID returns the ID of the file contract at index i.
-func (txn *Transaction) FileContractID(i int) ElementID {
-	return ElementID{
-		Source: Hash256(txn.ID()),
-		Index:  uint64(len(txn.SiacoinOutputs) + len(txn.SiafundInputs) + len(txn.SiafundOutputs) + i),
-	}
-}
-
-// EphemeralSiacoinElement returns txn.SiacoinOutputs[i] as an ephemeral
-// SiacoinElement.
-func (txn *Transaction) EphemeralSiacoinElement(i int) SiacoinElement {
-	return SiacoinElement{
-		StateElement: StateElement{
-			ID:        txn.SiacoinOutputID(0),
-			LeafIndex: EphemeralLeafIndex,
-		},
-		SiacoinOutput: txn.SiacoinOutputs[0],
-	}
+func (txn *Transaction) FileContractID(i int) FileContractID {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	SpecifierFileContract.EncodeTo(h.E)
+	txn.encodeNoSignatures(h.E)
+	h.E.WriteUint64(uint64(i))
+	return FileContractID(h.Sum())
 }
 
 // A BlockHeader contains a Block's non-transaction data.
 type BlockHeader struct {
-	Height       uint64
-	ParentID     BlockID
-	Nonce        uint64
-	Timestamp    time.Time
-	MinerAddress Address
-	Commitment   Hash256
-}
-
-// Index returns the header's chain index.
-func (h BlockHeader) Index() ChainIndex {
-	return ChainIndex{
-		Height: h.Height,
-		ID:     h.ID(),
-	}
-}
-
-// ParentIndex returns the index of the header's parent.
-func (h BlockHeader) ParentIndex() ChainIndex {
-	return ChainIndex{
-		Height: h.Height - 1,
-		ID:     h.ParentID,
-	}
+	ParentID   BlockID
+	Nonce      uint64
+	Timestamp  time.Time
+	MerkleRoot Hash256
 }
 
 // ID returns a hash that uniquely identifies a block.
-func (h BlockHeader) ID() BlockID {
-	// NOTE: although in principle we only need to hash 48 bytes of data, we
-	// must ensure compatibility with existing Sia mining hardware, which
-	// expects an 80-byte buffer with the nonce at [32:40].
+func (bh BlockHeader) ID() BlockID {
 	buf := make([]byte, 32+8+8+32)
-	copy(buf[0:], "sia/id/block")
-	binary.LittleEndian.PutUint64(buf[32:], h.Nonce)
-	binary.LittleEndian.PutUint64(buf[40:], uint64(h.Timestamp.Unix()))
-	copy(buf[48:], h.Commitment[:])
+	copy(buf[0:32], bh.ParentID[:])
+	binary.LittleEndian.PutUint64(buf[32:40], bh.Nonce)
+	binary.LittleEndian.PutUint64(buf[40:48], uint64(bh.Timestamp.Unix()))
+	copy(buf[48:80], bh.MerkleRoot[:])
 	return BlockID(HashBytes(buf))
 }
 
@@ -492,34 +397,44 @@ func CurrentTimestamp() time.Time { return time.Now().Round(time.Second).UTC() }
 
 // A Block is a set of transactions grouped under a header.
 type Block struct {
-	Header       BlockHeader
+	ParentID     BlockID
+	Nonce        uint64
+	Timestamp    time.Time
+	MinerPayouts []SiacoinOutput
 	Transactions []Transaction
 }
 
+// Header returns the header for the block.
+//
+// Note that this is a relatively expensive operation, as it computes the Merkle
+// root of the block's transactions.
+func (b *Block) Header() BlockHeader {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	var acc merkleAccumulator
+	for _, mp := range b.MinerPayouts {
+		h.Reset()
+		h.E.WriteUint8(leafHashPrefix)
+		mp.EncodeTo(h.E)
+		acc.addLeaf(h.Sum())
+	}
+	for _, txn := range b.Transactions {
+		h.Reset()
+		h.E.WriteUint8(leafHashPrefix)
+		txn.EncodeTo(h.E)
+		acc.addLeaf(h.Sum())
+	}
+	return BlockHeader{
+		ParentID:   b.ParentID,
+		Nonce:      b.Nonce,
+		Timestamp:  b.Timestamp,
+		MerkleRoot: acc.root(),
+	}
+}
+
 // ID returns a hash that uniquely identifies a block. It is equivalent to
-// b.Header.ID().
-func (b *Block) ID() BlockID { return b.Header.ID() }
-
-// Index returns the block's chain index. It is equivalent to b.Header.Index().
-func (b *Block) Index() ChainIndex { return b.Header.Index() }
-
-// MinerOutputID returns the output ID of the miner payout.
-func (b *Block) MinerOutputID() ElementID {
-	return ElementID{
-		Source: Hash256(b.ID()),
-		Index:  0,
-	}
-}
-
-// FoundationOutputID returns the output ID of the foundation payout. A
-// Foundation subsidy output is only created every 4380 blocks after the
-// hardfork at block 298000.
-func (b *Block) FoundationOutputID() ElementID {
-	return ElementID{
-		Source: Hash256(b.ID()),
-		Index:  1,
-	}
-}
+// b.Header().ID().
+func (b *Block) ID() BlockID { return b.Header().ID() }
 
 // Work represents a quantity of work.
 type Work struct {
@@ -640,15 +555,6 @@ func HashRequiringWork(w Work) BlockID {
 	return id
 }
 
-// HashBytes computes the hash of b using Sia's hash function.
-func HashBytes(b []byte) Hash256 { return blake2b.Sum256(b) }
-
-// Pool for reducing heap allocations when hashing. This is only necessary
-// because blake2b.New256 returns a hash.Hash interface, which prevents the
-// compiler from doing escape analysis. Can be removed if we switch to an
-// implementation whose constructor returns a concrete type.
-var hasherPool = &sync.Pool{New: func() interface{} { return NewHasher() }}
-
 // Implementations of fmt.Stringer, encoding.Text(Un)marshaler, and json.(Un)marshaler
 
 func stringerHex(prefix string, data []byte) string {
@@ -724,29 +630,6 @@ func (ci *ChainIndex) UnmarshalText(b []byte) (err error) {
 func ParseChainIndex(s string) (ci ChainIndex, err error) {
 	err = ci.UnmarshalText([]byte(s))
 	return
-}
-
-// String implements fmt.Stringer.
-func (eid ElementID) String() string {
-	return fmt.Sprintf("elem:%x:%v", eid.Source[:], eid.Index)
-}
-
-// MarshalText implements encoding.TextMarshaler.
-func (eid ElementID) MarshalText() ([]byte, error) { return []byte(eid.String()), nil }
-
-// UnmarshalText implements encoding.TextUnmarshaler.
-func (eid *ElementID) UnmarshalText(b []byte) (err error) {
-	parts := bytes.Split(b, []byte(":"))
-	if len(parts) != 3 {
-		return fmt.Errorf("decoding <hex>:<index> failed: wrong number of separators")
-	} else if n, err := hex.Decode(eid.Source[:], parts[1]); err != nil {
-		return fmt.Errorf("decoding <hex>:<index> failed: %w", err)
-	} else if n < len(eid.Source) {
-		return fmt.Errorf("decoding <hex>:<index> failed: %w", io.EOF)
-	} else if eid.Index, err = strconv.ParseUint(string(parts[2]), 10, 64); err != nil {
-		return fmt.Errorf("decoding <hex>:<index> failed: %w", err)
-	}
-	return nil
 }
 
 // String implements fmt.Stringer.
@@ -834,6 +717,61 @@ func (tid TransactionID) MarshalJSON() ([]byte, error) { return marshalJSONHex("
 
 // UnmarshalJSON implements json.Unmarshaler.
 func (tid *TransactionID) UnmarshalJSON(b []byte) error { return unmarshalJSONHex(tid[:], "txid", b) }
+
+// String implements fmt.Stringer.
+func (scoid SiacoinOutputID) String() string { return stringerHex("scoid", scoid[:]) }
+
+// MarshalText implements encoding.TextMarshaler.
+func (scoid SiacoinOutputID) MarshalText() ([]byte, error) { return marshalHex("scoid", scoid[:]) }
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (scoid *SiacoinOutputID) UnmarshalText(b []byte) error {
+	return unmarshalHex(scoid[:], "scoid", b)
+}
+
+// MarshalJSON implements json.Marshaler.
+func (scoid SiacoinOutputID) MarshalJSON() ([]byte, error) { return marshalJSONHex("scoid", scoid[:]) }
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (scoid *SiacoinOutputID) UnmarshalJSON(b []byte) error {
+	return unmarshalJSONHex(scoid[:], "scoid", b)
+}
+
+// String implements fmt.Stringer.
+func (sfoid SiafundOutputID) String() string { return stringerHex("sfoid", sfoid[:]) }
+
+// MarshalText implements encoding.TextMarshaler.
+func (sfoid SiafundOutputID) MarshalText() ([]byte, error) { return marshalHex("sfoid", sfoid[:]) }
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (sfoid *SiafundOutputID) UnmarshalText(b []byte) error {
+	return unmarshalHex(sfoid[:], "sfoid", b)
+}
+
+// MarshalJSON implements json.Marshaler.
+func (sfoid SiafundOutputID) MarshalJSON() ([]byte, error) { return marshalJSONHex("sfoid", sfoid[:]) }
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (sfoid *SiafundOutputID) UnmarshalJSON(b []byte) error {
+	return unmarshalJSONHex(sfoid[:], "sfoid", b)
+}
+
+// String implements fmt.Stringer.
+func (fcid FileContractID) String() string { return stringerHex("fcid", fcid[:]) }
+
+// MarshalText implements encoding.TextMarshaler.
+func (fcid FileContractID) MarshalText() ([]byte, error) { return marshalHex("fcid", fcid[:]) }
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (fcid *FileContractID) UnmarshalText(b []byte) error { return unmarshalHex(fcid[:], "fcid", b) }
+
+// MarshalJSON implements json.Marshaler.
+func (fcid FileContractID) MarshalJSON() ([]byte, error) { return marshalJSONHex("fcid", fcid[:]) }
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (fcid *FileContractID) UnmarshalJSON(b []byte) error {
+	return unmarshalJSONHex(fcid[:], "fcid", b)
+}
 
 // String implements fmt.Stringer.
 func (sig Signature) String() string { return stringerHex("sig", sig[:]) }

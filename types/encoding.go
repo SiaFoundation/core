@@ -5,11 +5,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"hash"
 	"io"
+	"math"
 	"time"
-
-	"golang.org/x/crypto/blake2b"
 )
 
 // An Encoder writes Sia objects to an underlying stream.
@@ -229,29 +227,6 @@ func NewBufDecoder(buf []byte) *Decoder {
 	})
 }
 
-// A Hasher streams objects into an instance of Sia's hash function.
-type Hasher struct {
-	h hash.Hash
-	E *Encoder
-}
-
-// Reset resets the underlying hash digest state.
-func (h *Hasher) Reset() { h.h.Reset() }
-
-// Sum returns the digest of the objects written to the Hasher.
-func (h *Hasher) Sum() (sum Hash256) {
-	_ = h.E.Flush() // no error possible
-	h.h.Sum(sum[:0])
-	return
-}
-
-// NewHasher returns a new Hasher instance.
-func NewHasher() *Hasher {
-	h, _ := blake2b.New256(nil)
-	e := NewEncoder(h)
-	return &Hasher{h, e}
-}
-
 // implementations of EncoderTo and DecoderFrom for core types
 
 // EncodeTo implements types.EncoderTo.
@@ -273,12 +248,38 @@ func (pk PublicKey) EncodeTo(e *Encoder) { e.Write(pk[:]) }
 func (s Signature) EncodeTo(e *Encoder) { e.Write(s[:]) }
 
 // EncodeTo implements types.EncoderTo.
+func (s Specifier) EncodeTo(e *Encoder) { e.Write(s[:]) }
+
+// EncodeTo implements types.EncoderTo.
+func (uk UnlockKey) EncodeTo(e *Encoder) {
+	uk.Algorithm.EncodeTo(e)
+	e.WriteBytes(uk.Key)
+}
+
+// EncodeTo implements types.EncoderTo.
+func (uc UnlockConditions) EncodeTo(e *Encoder) {
+	e.WriteUint64(uc.Timelock)
+	e.WritePrefix(len(uc.PublicKeys))
+	for _, pk := range uc.PublicKeys {
+		pk.EncodeTo(e)
+	}
+	e.WriteUint64(uc.SignaturesRequired)
+}
+
+// EncodeTo implements types.EncoderTo.
 func (w Work) EncodeTo(e *Encoder) { e.Write(w.NumHashes[:]) }
 
 // EncodeTo implements types.EncoderTo.
 func (c Currency) EncodeTo(e *Encoder) {
-	e.WriteUint64(c.Lo)
-	e.WriteUint64(c.Hi)
+	var buf [16]byte
+	binary.LittleEndian.PutUint64(buf[:8], c.Lo)
+	binary.LittleEndian.PutUint64(buf[8:], c.Hi)
+	i := 0
+	for i < len(buf) && buf[i] == 0 {
+		i++
+	}
+	e.WritePrefix(i)
+	e.Write(buf[i:])
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -289,18 +290,10 @@ func (index ChainIndex) EncodeTo(e *Encoder) {
 
 // EncodeTo implements types.EncoderTo.
 func (h BlockHeader) EncodeTo(e *Encoder) {
-	e.WriteUint64(h.Height)
 	h.ParentID.EncodeTo(e)
 	e.WriteUint64(h.Nonce)
 	e.WriteTime(h.Timestamp)
-	h.MinerAddress.EncodeTo(e)
-	h.Commitment.EncodeTo(e)
-}
-
-// EncodeTo implements types.EncoderTo.
-func (id ElementID) EncodeTo(e *Encoder) {
-	id.Source.EncodeTo(e)
-	e.WriteUint64(id.Index)
+	h.MerkleRoot.EncodeTo(e)
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -310,58 +303,30 @@ func (sco SiacoinOutput) EncodeTo(e *Encoder) {
 }
 
 // EncodeTo implements types.EncoderTo.
-func (sfo SiafundOutput) EncodeTo(e *Encoder) {
-	e.WriteUint64(sfo.Value)
-	sfo.Address.EncodeTo(e)
-}
+func (id SiacoinOutputID) EncodeTo(e *Encoder) { e.Write(id[:]) }
 
-func (e *Encoder) writeMerkleProof(proof []Hash256) {
-	e.WritePrefix(len(proof))
-	for _, p := range proof {
-		p.EncodeTo(e)
-	}
+// EncodeTo implements types.EncoderTo.
+func (sfo SiafundOutput) EncodeTo(e *Encoder) {
+	NewCurrency64(sfo.Value).EncodeTo(e)
+	sfo.Address.EncodeTo(e)
+	// siad expects a "ClaimStart" value
+	(Currency{}).EncodeTo(e)
 }
 
 // EncodeTo implements types.EncoderTo.
-func (se StateElement) EncodeTo(e *Encoder) {
-	se.ID.EncodeTo(e)
-	e.WriteUint64(se.LeafIndex)
-	e.writeMerkleProof(se.MerkleProof)
-}
+func (id SiafundOutputID) EncodeTo(e *Encoder) { e.Write(id[:]) }
 
 // EncodeTo implements types.EncoderTo.
 func (in SiacoinInput) EncodeTo(e *Encoder) {
-	in.Parent.EncodeTo(e)
-	in.SpendPolicy.EncodeTo(e)
-	e.WritePrefix(len(in.Signatures))
-	for _, sig := range in.Signatures {
-		sig.EncodeTo(e)
-	}
-}
-
-// EncodeTo implements types.EncoderTo.
-func (sce SiacoinElement) EncodeTo(e *Encoder) {
-	sce.StateElement.EncodeTo(e)
-	sce.SiacoinOutput.EncodeTo(e)
-	e.WriteUint64(sce.MaturityHeight)
+	in.ParentID.EncodeTo(e)
+	in.UnlockConditions.EncodeTo(e)
 }
 
 // EncodeTo implements types.EncoderTo.
 func (in SiafundInput) EncodeTo(e *Encoder) {
-	in.Parent.EncodeTo(e)
+	in.ParentID.EncodeTo(e)
+	in.UnlockConditions.EncodeTo(e)
 	in.ClaimAddress.EncodeTo(e)
-	in.SpendPolicy.EncodeTo(e)
-	e.WritePrefix(len(in.Signatures))
-	for _, sig := range in.Signatures {
-		sig.EncodeTo(e)
-	}
-}
-
-// EncodeTo implements types.EncoderTo.
-func (sfe SiafundElement) EncodeTo(e *Encoder) {
-	sfe.StateElement.EncodeTo(e)
-	sfe.SiafundOutput.EncodeTo(e)
-	sfe.ClaimStart.EncodeTo(e)
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -370,204 +335,149 @@ func (fc FileContract) EncodeTo(e *Encoder) {
 	fc.FileMerkleRoot.EncodeTo(e)
 	e.WriteUint64(fc.WindowStart)
 	e.WriteUint64(fc.WindowEnd)
-	fc.RenterOutput.EncodeTo(e)
-	fc.HostOutput.EncodeTo(e)
-	fc.MissedHostValue.EncodeTo(e)
-	fc.TotalCollateral.EncodeTo(e)
-	fc.RenterPublicKey.EncodeTo(e)
-	fc.HostPublicKey.EncodeTo(e)
+	fc.Payout.EncodeTo(e)
+	e.WritePrefix(len(fc.ValidProofOutputs))
+	for _, sco := range fc.ValidProofOutputs {
+		sco.EncodeTo(e)
+	}
+	e.WritePrefix(len(fc.MissedProofOutputs))
+	for _, sco := range fc.MissedProofOutputs {
+		sco.EncodeTo(e)
+	}
+	fc.UnlockHash.EncodeTo(e)
 	e.WriteUint64(fc.RevisionNumber)
-	fc.RenterSignature.EncodeTo(e)
-	fc.HostSignature.EncodeTo(e)
 }
 
 // EncodeTo implements types.EncoderTo.
-func (fce FileContractElement) EncodeTo(e *Encoder) {
-	fce.StateElement.EncodeTo(e)
-	fce.FileContract.EncodeTo(e)
-}
+func (id FileContractID) EncodeTo(e *Encoder) { e.Write(id[:]) }
 
 // EncodeTo implements types.EncoderTo.
 func (rev FileContractRevision) EncodeTo(e *Encoder) {
-	rev.Parent.EncodeTo(e)
-	rev.Revision.EncodeTo(e)
-}
-
-// EncodeTo implements types.EncoderTo.
-func (ren FileContractRenewal) EncodeTo(e *Encoder) {
-	ren.FinalRevision.EncodeTo(e)
-	ren.InitialRevision.EncodeTo(e)
-	ren.RenterRollover.EncodeTo(e)
-	ren.HostRollover.EncodeTo(e)
-	ren.RenterSignature.EncodeTo(e)
-	ren.HostSignature.EncodeTo(e)
+	rev.ParentID.EncodeTo(e)
+	rev.UnlockConditions.EncodeTo(e)
+	e.WriteUint64(rev.Revision.RevisionNumber)
+	e.WriteUint64(rev.Revision.Filesize)
+	rev.Revision.FileMerkleRoot.EncodeTo(e)
+	e.WriteUint64(rev.Revision.WindowStart)
+	e.WriteUint64(rev.Revision.WindowEnd)
+	e.WritePrefix(len(rev.Revision.ValidProofOutputs))
+	for _, sco := range rev.Revision.ValidProofOutputs {
+		sco.EncodeTo(e)
+	}
+	e.WritePrefix(len(rev.Revision.MissedProofOutputs))
+	for _, sco := range rev.Revision.MissedProofOutputs {
+		sco.EncodeTo(e)
+	}
+	rev.Revision.UnlockHash.EncodeTo(e)
 }
 
 // EncodeTo implements types.EncoderTo.
 func (sp StorageProof) EncodeTo(e *Encoder) {
-	sp.WindowStart.EncodeTo(e)
-	e.writeMerkleProof(sp.WindowProof)
+	sp.ParentID.EncodeTo(e)
 	e.Write(sp.Leaf[:])
-	e.writeMerkleProof(sp.Proof)
+	e.WritePrefix(len(sp.Proof))
+	for _, h := range sp.Proof {
+		h.EncodeTo(e)
+	}
 }
 
 // EncodeTo implements types.EncoderTo.
-func (res FileContractResolution) EncodeTo(e *Encoder) {
-	res.Parent.EncodeTo(e)
-	var fields uint8
-	for i, b := range [...]bool{
-		res.HasRenewal(),
-		res.HasStorageProof(),
-		res.HasFinalization(),
+func (fau FoundationAddressUpdate) EncodeTo(e *Encoder) {
+	fau.NewPrimary.EncodeTo(e)
+	fau.NewFailsafe.EncodeTo(e)
+}
+
+// EncodeTo implements types.EncoderTo.
+func (cf CoveredFields) EncodeTo(e *Encoder) {
+	e.WriteBool(cf.WholeTransaction)
+	for _, f := range [][]uint64{
+		cf.SiacoinInputs,
+		cf.SiacoinOutputs,
+		cf.FileContracts,
+		cf.FileContractRevisions,
+		cf.StorageProofs,
+		cf.SiafundInputs,
+		cf.SiafundOutputs,
+		cf.MinerFees,
+		cf.ArbitraryData,
+		cf.Signatures,
 	} {
-		if b {
-			fields |= 1 << i
+		e.WritePrefix(len(f))
+		for _, i := range f {
+			e.WriteUint64(i)
 		}
-	}
-	e.WriteUint8(fields)
-	if fields&(1<<0) != 0 {
-		res.Renewal.EncodeTo(e)
-	}
-	if fields&(1<<1) != 0 {
-		res.StorageProof.EncodeTo(e)
-	}
-	if fields&(1<<2) != 0 {
-		res.Finalization.EncodeTo(e)
 	}
 }
 
 // EncodeTo implements types.EncoderTo.
-func (a Attestation) EncodeTo(e *Encoder) {
-	a.PublicKey.EncodeTo(e)
-	e.WriteString(a.Key)
-	e.WriteBytes(a.Value)
-	a.Signature.EncodeTo(e)
-}
-
-const (
-	opInvalid = iota
-	opAbove
-	opPublicKey
-	opThreshold
-	opUnlockConditions
-)
-
-// EncodeTo implements types.EncoderTo.
-func (p SpendPolicy) EncodeTo(e *Encoder) {
-	var writePolicy func(SpendPolicy)
-	writePolicy = func(p SpendPolicy) {
-		switch p := p.Type.(type) {
-		case PolicyTypeAbove:
-			e.WriteUint8(opAbove)
-			e.WriteUint64(uint64(p))
-		case PolicyTypePublicKey:
-			e.WriteUint8(opPublicKey)
-			PublicKey(p).EncodeTo(e)
-		case PolicyTypeThreshold:
-			e.WriteUint8(opThreshold)
-			e.WriteUint8(p.N)
-			e.WriteUint8(uint8(len(p.Of)))
-			for i := range p.Of {
-				writePolicy(p.Of[i])
-			}
-		case PolicyTypeUnlockConditions:
-			e.WriteUint8(opUnlockConditions)
-			e.WriteUint64(p.Timelock)
-			e.WriteUint8(uint8(len(p.PublicKeys)))
-			for i := range p.PublicKeys {
-				p.PublicKeys[i].EncodeTo(e)
-			}
-			e.WriteUint8(p.SignaturesRequired)
-		default:
-			panic(fmt.Sprintf("unhandled policy type %T", p))
-		}
-	}
-	const version = 1
-	e.WriteUint8(version)
-	writePolicy(p)
+func (ts TransactionSignature) EncodeTo(e *Encoder) {
+	ts.ParentID.EncodeTo(e)
+	e.WriteUint64(ts.PublicKeyIndex)
+	e.WriteUint64(ts.Timelock)
+	ts.CoveredFields.EncodeTo(e)
+	e.WriteBytes(ts.Signature)
 }
 
 // EncodeTo implements types.EncoderTo.
 func (txn Transaction) EncodeTo(e *Encoder) {
-	const version = 1
-	e.WriteUint8(version)
+	txn.encodeNoSignatures(e)
+	e.WritePrefix(len((txn.Signatures)))
+	for i := range txn.Signatures {
+		txn.Signatures[i].EncodeTo(e)
+	}
+}
 
-	var fields uint64
-	for i, b := range [...]bool{
-		len(txn.SiacoinInputs) != 0,
-		len(txn.SiacoinOutputs) != 0,
-		len(txn.SiafundInputs) != 0,
-		len(txn.SiafundOutputs) != 0,
-		len(txn.FileContracts) != 0,
-		len(txn.FileContractRevisions) != 0,
-		len(txn.FileContractResolutions) != 0,
-		len(txn.Attestations) != 0,
-		len(txn.ArbitraryData) != 0,
-		txn.NewFoundationAddress != VoidAddress,
-		!txn.MinerFee.IsZero(),
-	} {
-		if b {
-			fields |= 1 << i
-		}
+func (txn *Transaction) encodeNoSignatures(e *Encoder) {
+	e.WritePrefix(len((txn.SiacoinInputs)))
+	for i := range txn.SiacoinInputs {
+		txn.SiacoinInputs[i].EncodeTo(e)
 	}
-	e.WriteUint64(fields)
+	e.WritePrefix(len((txn.SiacoinOutputs)))
+	for i := range txn.SiacoinOutputs {
+		txn.SiacoinOutputs[i].EncodeTo(e)
+	}
+	e.WritePrefix(len((txn.FileContracts)))
+	for i := range txn.FileContracts {
+		txn.FileContracts[i].EncodeTo(e)
+	}
+	e.WritePrefix(len((txn.FileContractRevisions)))
+	for i := range txn.FileContractRevisions {
+		txn.FileContractRevisions[i].EncodeTo(e)
+	}
+	e.WritePrefix(len((txn.StorageProofs)))
+	for i := range txn.StorageProofs {
+		txn.StorageProofs[i].EncodeTo(e)
+	}
+	e.WritePrefix(len((txn.SiafundInputs)))
+	for i := range txn.SiafundInputs {
+		txn.SiafundInputs[i].EncodeTo(e)
+	}
+	e.WritePrefix(len((txn.SiafundOutputs)))
+	for i := range txn.SiafundOutputs {
+		txn.SiafundOutputs[i].EncodeTo(e)
+	}
+	e.WritePrefix(len((txn.MinerFees)))
+	for i := range txn.MinerFees {
+		txn.MinerFees[i].EncodeTo(e)
+	}
+	e.WritePrefix(len((txn.ArbitraryData)))
+	for i := range txn.ArbitraryData {
+		e.WriteBytes(txn.ArbitraryData[i])
+	}
+}
 
-	if fields&(1<<0) != 0 {
-		e.WritePrefix(len(txn.SiacoinInputs))
-		for _, in := range txn.SiacoinInputs {
-			in.EncodeTo(e)
-		}
+// EncodeTo implements types.EncoderTo.
+func (b Block) EncodeTo(e *Encoder) {
+	b.ParentID.EncodeTo(e)
+	e.WriteUint64(b.Nonce)
+	e.WriteTime(b.Timestamp)
+	e.WritePrefix(len(b.MinerPayouts))
+	for i := range b.MinerPayouts {
+		b.MinerPayouts[i].EncodeTo(e)
 	}
-	if fields&(1<<1) != 0 {
-		e.WritePrefix(len(txn.SiacoinOutputs))
-		for _, out := range txn.SiacoinOutputs {
-			out.EncodeTo(e)
-		}
-	}
-	if fields&(1<<2) != 0 {
-		e.WritePrefix(len(txn.SiafundInputs))
-		for _, in := range txn.SiafundInputs {
-			in.EncodeTo(e)
-		}
-	}
-	if fields&(1<<3) != 0 {
-		e.WritePrefix(len(txn.SiafundOutputs))
-		for _, out := range txn.SiafundOutputs {
-			out.EncodeTo(e)
-		}
-	}
-	if fields&(1<<4) != 0 {
-		e.WritePrefix(len(txn.FileContracts))
-		for _, fc := range txn.FileContracts {
-			fc.EncodeTo(e)
-		}
-	}
-	if fields&(1<<5) != 0 {
-		e.WritePrefix(len(txn.FileContractRevisions))
-		for _, rev := range txn.FileContractRevisions {
-			rev.EncodeTo(e)
-		}
-	}
-	if fields&(1<<6) != 0 {
-		e.WritePrefix(len(txn.FileContractResolutions))
-		for _, res := range txn.FileContractResolutions {
-			res.EncodeTo(e)
-		}
-	}
-	if fields&(1<<7) != 0 {
-		e.WritePrefix(len(txn.Attestations))
-		for _, a := range txn.Attestations {
-			a.EncodeTo(e)
-		}
-	}
-	if fields&(1<<8) != 0 {
-		e.WriteBytes(txn.ArbitraryData)
-	}
-	if fields&(1<<9) != 0 {
-		txn.NewFoundationAddress.EncodeTo(e)
-	}
-	if fields&(1<<10) != 0 {
-		txn.MinerFee.EncodeTo(e)
+	e.WritePrefix(len(b.Transactions))
+	for i := range b.Transactions {
+		b.Transactions[i].EncodeTo(e)
 	}
 }
 
@@ -590,12 +500,38 @@ func (pk *PublicKey) DecodeFrom(d *Decoder) { d.Read(pk[:]) }
 func (s *Signature) DecodeFrom(d *Decoder) { d.Read(s[:]) }
 
 // DecodeFrom implements types.DecoderFrom.
+func (s *Specifier) DecodeFrom(d *Decoder) { d.Read(s[:]) }
+
+// DecodeFrom implements types.DecoderFrom.
+func (uk *UnlockKey) DecodeFrom(d *Decoder) {
+	uk.Algorithm.DecodeFrom(d)
+	uk.Key = d.ReadBytes()
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (uc *UnlockConditions) DecodeFrom(d *Decoder) {
+	uc.Timelock = d.ReadUint64()
+	uc.PublicKeys = make([]UnlockKey, d.ReadPrefix())
+	for i := range uc.PublicKeys {
+		uc.PublicKeys[i].DecodeFrom(d)
+	}
+	uc.SignaturesRequired = d.ReadUint64()
+}
+
+// DecodeFrom implements types.DecoderFrom.
 func (w *Work) DecodeFrom(d *Decoder) { d.Read(w.NumHashes[:]) }
 
 // DecodeFrom implements types.DecoderFrom.
 func (c *Currency) DecodeFrom(d *Decoder) {
-	c.Lo = d.ReadUint64()
-	c.Hi = d.ReadUint64()
+	var buf [16]byte
+	n := d.ReadPrefix()
+	if n > 16 {
+		d.SetErr(fmt.Errorf("Currency too large: %v bytes", n))
+		return
+	}
+	d.Read(buf[16-n:])
+	c.Hi = binary.BigEndian.Uint64(buf[:8])
+	c.Lo = binary.BigEndian.Uint64(buf[8:])
 }
 
 // DecodeFrom implements types.DecoderFrom.
@@ -606,18 +542,10 @@ func (index *ChainIndex) DecodeFrom(d *Decoder) {
 
 // DecodeFrom implements types.DecoderFrom.
 func (h *BlockHeader) DecodeFrom(d *Decoder) {
-	h.Height = d.ReadUint64()
 	h.ParentID.DecodeFrom(d)
 	h.Nonce = d.ReadUint64()
 	h.Timestamp = d.ReadTime()
-	h.MinerAddress.DecodeFrom(d)
-	h.Commitment.DecodeFrom(d)
-}
-
-// DecodeFrom implements types.DecoderFrom.
-func (id *ElementID) DecodeFrom(d *Decoder) {
-	id.Source.DecodeFrom(d)
-	id.Index = d.ReadUint64()
+	h.MerkleRoot.DecodeFrom(d)
 }
 
 // DecodeFrom implements types.DecoderFrom.
@@ -627,111 +555,36 @@ func (sco *SiacoinOutput) DecodeFrom(d *Decoder) {
 }
 
 // DecodeFrom implements types.DecoderFrom.
-func (sfo *SiafundOutput) DecodeFrom(d *Decoder) {
-	sfo.Value = d.ReadUint64()
-	sfo.Address.DecodeFrom(d)
-}
+func (id *SiacoinOutputID) DecodeFrom(d *Decoder) { d.Read(id[:]) }
 
 // DecodeFrom implements types.DecoderFrom.
-func (p *SpendPolicy) DecodeFrom(d *Decoder) {
-	const maxPolicies = 1024
-	totalPolicies := 1
-	var readPolicy func() (SpendPolicy, error)
-	readPolicy = func() (SpendPolicy, error) {
-		switch op := d.ReadUint8(); op {
-		case opAbove:
-			return PolicyAbove(d.ReadUint64()), nil
-		case opPublicKey:
-			var pk PublicKey
-			pk.DecodeFrom(d)
-			return PolicyPublicKey(pk), nil
-		case opThreshold:
-			n := d.ReadUint8()
-			of := make([]SpendPolicy, d.ReadUint8())
-			totalPolicies += len(of)
-			if totalPolicies > maxPolicies {
-				return SpendPolicy{}, errors.New("policy is too complex")
-			}
-			var err error
-			for i := range of {
-				of[i], err = readPolicy()
-				if err != nil {
-					return SpendPolicy{}, err
-				}
-			}
-			return PolicyThreshold(n, of), nil
-		case opUnlockConditions:
-			uc := PolicyTypeUnlockConditions{
-				Timelock:   d.ReadUint64(),
-				PublicKeys: make([]PublicKey, d.ReadUint8()),
-			}
-			for i := range uc.PublicKeys {
-				uc.PublicKeys[i].DecodeFrom(d)
-			}
-			uc.SignaturesRequired = d.ReadUint8()
-			return SpendPolicy{uc}, nil
-		default:
-			return SpendPolicy{}, fmt.Errorf("unknown policy (opcode %v)", op)
-		}
-	}
-
-	if version := d.ReadUint8(); version != 1 {
-		d.SetErr(fmt.Errorf("unsupported policy version (%v)", version))
+func (sfo *SiafundOutput) DecodeFrom(d *Decoder) {
+	var val Currency
+	val.DecodeFrom(d)
+	if val.Hi != 0 {
+		d.SetErr(errors.New("value overflows siafund representation"))
 		return
 	}
-	var err error
-	*p, err = readPolicy()
-	d.SetErr(err)
-}
-
-func (d *Decoder) readMerkleProof() []Hash256 {
-	proof := make([]Hash256, d.ReadPrefix())
-	for i := range proof {
-		proof[i].DecodeFrom(d)
-	}
-	return proof
+	sfo.Value = val.Lo
+	sfo.Address.DecodeFrom(d)
+	// siad expects a "ClaimStart" value
+	(&Currency{}).DecodeFrom(d)
 }
 
 // DecodeFrom implements types.DecoderFrom.
-func (se *StateElement) DecodeFrom(d *Decoder) {
-	se.ID.DecodeFrom(d)
-	se.LeafIndex = d.ReadUint64()
-	se.MerkleProof = d.readMerkleProof()
-}
+func (id *SiafundOutputID) DecodeFrom(d *Decoder) { d.Read(id[:]) }
 
 // DecodeFrom implements types.DecoderFrom.
 func (in *SiacoinInput) DecodeFrom(d *Decoder) {
-	in.Parent.DecodeFrom(d)
-	in.SpendPolicy.DecodeFrom(d)
-	in.Signatures = make([]Signature, d.ReadPrefix())
-	for i := range in.Signatures {
-		in.Signatures[i].DecodeFrom(d)
-	}
-}
-
-// DecodeFrom implements types.DecoderFrom.
-func (sce *SiacoinElement) DecodeFrom(d *Decoder) {
-	sce.StateElement.DecodeFrom(d)
-	sce.SiacoinOutput.DecodeFrom(d)
-	sce.MaturityHeight = d.ReadUint64()
+	in.ParentID.DecodeFrom(d)
+	in.UnlockConditions.DecodeFrom(d)
 }
 
 // DecodeFrom implements types.DecoderFrom.
 func (in *SiafundInput) DecodeFrom(d *Decoder) {
-	in.Parent.DecodeFrom(d)
+	in.ParentID.DecodeFrom(d)
+	in.UnlockConditions.DecodeFrom(d)
 	in.ClaimAddress.DecodeFrom(d)
-	in.SpendPolicy.DecodeFrom(d)
-	in.Signatures = make([]Signature, d.ReadPrefix())
-	for i := range in.Signatures {
-		in.Signatures[i].DecodeFrom(d)
-	}
-}
-
-// DecodeFrom implements types.DecoderFrom.
-func (sfe *SiafundElement) DecodeFrom(d *Decoder) {
-	sfe.StateElement.DecodeFrom(d)
-	sfe.SiafundOutput.DecodeFrom(d)
-	sfe.ClaimStart.DecodeFrom(d)
 }
 
 // DecodeFrom implements types.DecoderFrom.
@@ -740,134 +593,147 @@ func (fc *FileContract) DecodeFrom(d *Decoder) {
 	fc.FileMerkleRoot.DecodeFrom(d)
 	fc.WindowStart = d.ReadUint64()
 	fc.WindowEnd = d.ReadUint64()
-	fc.RenterOutput.DecodeFrom(d)
-	fc.HostOutput.DecodeFrom(d)
-	fc.MissedHostValue.DecodeFrom(d)
-	fc.TotalCollateral.DecodeFrom(d)
-	fc.RenterPublicKey.DecodeFrom(d)
-	fc.HostPublicKey.DecodeFrom(d)
+	fc.Payout.DecodeFrom(d)
+	fc.ValidProofOutputs = make([]SiacoinOutput, d.ReadPrefix())
+	for i := range fc.ValidProofOutputs {
+		fc.ValidProofOutputs[i].DecodeFrom(d)
+	}
+	fc.MissedProofOutputs = make([]SiacoinOutput, d.ReadPrefix())
+	for i := range fc.MissedProofOutputs {
+		fc.MissedProofOutputs[i].DecodeFrom(d)
+	}
+	fc.UnlockHash.DecodeFrom(d)
 	fc.RevisionNumber = d.ReadUint64()
-	fc.RenterSignature.DecodeFrom(d)
-	fc.HostSignature.DecodeFrom(d)
 }
 
 // DecodeFrom implements types.DecoderFrom.
-func (fce *FileContractElement) DecodeFrom(d *Decoder) {
-	fce.StateElement.DecodeFrom(d)
-	fce.FileContract.DecodeFrom(d)
-}
+func (id *FileContractID) DecodeFrom(d *Decoder) { d.Read(id[:]) }
 
 // DecodeFrom implements types.DecoderFrom.
 func (rev *FileContractRevision) DecodeFrom(d *Decoder) {
-	rev.Parent.DecodeFrom(d)
-	rev.Revision.DecodeFrom(d)
-}
+	rev.ParentID.DecodeFrom(d)
+	rev.UnlockConditions.DecodeFrom(d)
+	rev.Revision.RevisionNumber = d.ReadUint64()
+	rev.Revision.Filesize = d.ReadUint64()
+	rev.Revision.FileMerkleRoot.DecodeFrom(d)
+	rev.Revision.WindowStart = d.ReadUint64()
+	rev.Revision.WindowEnd = d.ReadUint64()
+	rev.Revision.ValidProofOutputs = make([]SiacoinOutput, d.ReadPrefix())
+	for i := range rev.Revision.ValidProofOutputs {
+		rev.Revision.ValidProofOutputs[i].DecodeFrom(d)
+	}
+	rev.Revision.MissedProofOutputs = make([]SiacoinOutput, d.ReadPrefix())
+	for i := range rev.Revision.MissedProofOutputs {
+		rev.Revision.MissedProofOutputs[i].DecodeFrom(d)
+	}
+	rev.Revision.UnlockHash.DecodeFrom(d)
 
-// DecodeFrom implements types.DecoderFrom.
-func (ren *FileContractRenewal) DecodeFrom(d *Decoder) {
-	ren.FinalRevision.DecodeFrom(d)
-	ren.InitialRevision.DecodeFrom(d)
-	ren.RenterRollover.DecodeFrom(d)
-	ren.HostRollover.DecodeFrom(d)
-	ren.RenterSignature.DecodeFrom(d)
-	ren.HostSignature.DecodeFrom(d)
+	// see FileContractRevision docstring
+	rev.Revision.Payout = NewCurrency(math.MaxUint64, math.MaxUint64)
 }
 
 // DecodeFrom implements types.DecoderFrom.
 func (sp *StorageProof) DecodeFrom(d *Decoder) {
-	sp.WindowStart.DecodeFrom(d)
-	sp.WindowProof = d.readMerkleProof()
+	sp.ParentID.DecodeFrom(d)
 	d.Read(sp.Leaf[:])
-	sp.Proof = d.readMerkleProof()
-}
-
-// DecodeFrom implements types.DecoderFrom.
-func (res *FileContractResolution) DecodeFrom(d *Decoder) {
-	res.Parent.DecodeFrom(d)
-	fields := d.ReadUint8()
-	if fields&(1<<0) != 0 {
-		res.Renewal.DecodeFrom(d)
-	}
-	if fields&(1<<1) != 0 {
-		res.StorageProof.DecodeFrom(d)
-	}
-	if fields&(1<<2) != 0 {
-		res.Finalization.DecodeFrom(d)
+	sp.Proof = make([]Hash256, d.ReadPrefix())
+	for i := range sp.Proof {
+		sp.Proof[i].DecodeFrom(d)
 	}
 }
 
 // DecodeFrom implements types.DecoderFrom.
-func (a *Attestation) DecodeFrom(d *Decoder) {
-	a.PublicKey.DecodeFrom(d)
-	a.Key = d.ReadString()
-	a.Value = d.ReadBytes()
-	a.Signature.DecodeFrom(d)
+func (fau *FoundationAddressUpdate) DecodeFrom(d *Decoder) {
+	fau.NewPrimary.DecodeFrom(d)
+	fau.NewFailsafe.DecodeFrom(d)
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (cf *CoveredFields) DecodeFrom(d *Decoder) {
+	cf.WholeTransaction = d.ReadBool()
+	for _, f := range []*[]uint64{
+		&cf.SiacoinInputs,
+		&cf.SiacoinOutputs,
+		&cf.FileContracts,
+		&cf.FileContractRevisions,
+		&cf.StorageProofs,
+		&cf.SiafundInputs,
+		&cf.SiafundOutputs,
+		&cf.MinerFees,
+		&cf.ArbitraryData,
+		&cf.Signatures,
+	} {
+		*f = make([]uint64, d.ReadPrefix())
+		for i := range *f {
+			(*f)[i] = d.ReadUint64()
+		}
+	}
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (ts *TransactionSignature) DecodeFrom(d *Decoder) {
+	ts.ParentID.DecodeFrom(d)
+	ts.PublicKeyIndex = d.ReadUint64()
+	ts.Timelock = d.ReadUint64()
+	ts.CoveredFields.DecodeFrom(d)
+	ts.Signature = d.ReadBytes()
 }
 
 // DecodeFrom implements types.DecoderFrom.
 func (txn *Transaction) DecodeFrom(d *Decoder) {
-	if version := d.ReadUint8(); version != 1 {
-		d.SetErr(fmt.Errorf("unsupported transaction version (%v)", version))
-		return
+	txn.SiacoinInputs = make([]SiacoinInput, d.ReadPrefix())
+	for i := range txn.SiacoinInputs {
+		txn.SiacoinInputs[i].DecodeFrom(d)
 	}
+	txn.SiacoinOutputs = make([]SiacoinOutput, d.ReadPrefix())
+	for i := range txn.SiacoinOutputs {
+		txn.SiacoinOutputs[i].DecodeFrom(d)
+	}
+	txn.FileContracts = make([]FileContract, d.ReadPrefix())
+	for i := range txn.FileContracts {
+		txn.FileContracts[i].DecodeFrom(d)
+	}
+	txn.FileContractRevisions = make([]FileContractRevision, d.ReadPrefix())
+	for i := range txn.FileContractRevisions {
+		txn.FileContractRevisions[i].DecodeFrom(d)
+	}
+	txn.StorageProofs = make([]StorageProof, d.ReadPrefix())
+	for i := range txn.StorageProofs {
+		txn.StorageProofs[i].DecodeFrom(d)
+	}
+	txn.SiafundInputs = make([]SiafundInput, d.ReadPrefix())
+	for i := range txn.SiafundInputs {
+		txn.SiafundInputs[i].DecodeFrom(d)
+	}
+	txn.SiafundOutputs = make([]SiafundOutput, d.ReadPrefix())
+	for i := range txn.SiafundOutputs {
+		txn.SiafundOutputs[i].DecodeFrom(d)
+	}
+	txn.MinerFees = make([]Currency, d.ReadPrefix())
+	for i := range txn.MinerFees {
+		txn.MinerFees[i].DecodeFrom(d)
+	}
+	txn.ArbitraryData = make([][]byte, d.ReadPrefix())
+	for i := range txn.ArbitraryData {
+		txn.ArbitraryData[i] = d.ReadBytes()
+	}
+	txn.Signatures = make([]TransactionSignature, d.ReadPrefix())
+	for i := range txn.Signatures {
+		txn.Signatures[i].DecodeFrom(d)
+	}
+}
 
-	fields := d.ReadUint64()
-
-	if fields&(1<<0) != 0 {
-		txn.SiacoinInputs = make([]SiacoinInput, d.ReadPrefix())
-		for i := range txn.SiacoinInputs {
-			txn.SiacoinInputs[i].DecodeFrom(d)
-		}
+// DecodeFrom implements types.DecoderFrom.
+func (b *Block) DecodeFrom(d *Decoder) {
+	b.ParentID.DecodeFrom(d)
+	b.Nonce = d.ReadUint64()
+	b.Timestamp = d.ReadTime()
+	b.MinerPayouts = make([]SiacoinOutput, d.ReadPrefix())
+	for i := range b.MinerPayouts {
+		b.MinerPayouts[i].DecodeFrom(d)
 	}
-	if fields&(1<<1) != 0 {
-		txn.SiacoinOutputs = make([]SiacoinOutput, d.ReadPrefix())
-		for i := range txn.SiacoinOutputs {
-			txn.SiacoinOutputs[i].DecodeFrom(d)
-		}
-	}
-	if fields&(1<<2) != 0 {
-		txn.SiafundInputs = make([]SiafundInput, d.ReadPrefix())
-		for i := range txn.SiafundInputs {
-			txn.SiafundInputs[i].DecodeFrom(d)
-		}
-	}
-	if fields&(1<<3) != 0 {
-		txn.SiafundOutputs = make([]SiafundOutput, d.ReadPrefix())
-		for i := range txn.SiafundOutputs {
-			txn.SiafundOutputs[i].DecodeFrom(d)
-		}
-	}
-	if fields&(1<<4) != 0 {
-		txn.FileContracts = make([]FileContract, d.ReadPrefix())
-		for i := range txn.FileContracts {
-			txn.FileContracts[i].DecodeFrom(d)
-		}
-	}
-	if fields&(1<<5) != 0 {
-		txn.FileContractRevisions = make([]FileContractRevision, d.ReadPrefix())
-		for i := range txn.FileContractRevisions {
-			txn.FileContractRevisions[i].DecodeFrom(d)
-		}
-	}
-	if fields&(1<<6) != 0 {
-		txn.FileContractResolutions = make([]FileContractResolution, d.ReadPrefix())
-		for i := range txn.FileContractResolutions {
-			txn.FileContractResolutions[i].DecodeFrom(d)
-		}
-	}
-	if fields&(1<<7) != 0 {
-		txn.Attestations = make([]Attestation, d.ReadPrefix())
-		for i := range txn.Attestations {
-			txn.Attestations[i].DecodeFrom(d)
-		}
-	}
-	if fields&(1<<8) != 0 {
-		txn.ArbitraryData = d.ReadBytes()
-	}
-	if fields&(1<<9) != 0 {
-		txn.NewFoundationAddress.DecodeFrom(d)
-	}
-	if fields&(1<<10) != 0 {
-		txn.MinerFee.DecodeFrom(d)
+	b.Transactions = make([]Transaction, d.ReadPrefix())
+	for i := range b.Transactions {
+		b.Transactions[i].DecodeFrom(d)
 	}
 }
