@@ -48,9 +48,9 @@ type Store interface {
 type State struct {
 	Index                     types.ChainIndex `json:"index"`
 	PrevTimestamps            [11]time.Time    `json:"prevTimestamps"`
-	TotalWork                 types.Work       `json:"totalWork"`
-	Difficulty                types.Work       `json:"difficulty"`
-	OakWork                   types.Work       `json:"oakWork"`
+	Depth                     types.BlockID    `json:"depth"`
+	ChildTarget               types.BlockID    `json:"childTarget"`
+	OakTarget                 types.BlockID    `json:"oakTarget"`
 	OakTime                   time.Duration    `json:"oakTime"`
 	GenesisTimestamp          time.Time        `json:"genesisTimestamp"`
 	SiafundPool               types.Currency   `json:"siafundPool"`
@@ -64,9 +64,9 @@ func (s State) EncodeTo(e *types.Encoder) {
 	for _, ts := range s.PrevTimestamps {
 		e.WriteTime(ts)
 	}
-	s.TotalWork.EncodeTo(e)
-	s.Difficulty.EncodeTo(e)
-	s.OakWork.EncodeTo(e)
+	s.Depth.EncodeTo(e)
+	s.ChildTarget.EncodeTo(e)
+	s.OakTarget.EncodeTo(e)
 	e.WriteUint64(uint64(s.OakTime))
 	e.WriteTime(s.GenesisTimestamp)
 	s.SiafundPool.EncodeTo(e)
@@ -80,9 +80,9 @@ func (s *State) DecodeFrom(d *types.Decoder) {
 	for i := range s.PrevTimestamps {
 		s.PrevTimestamps[i] = d.ReadTime()
 	}
-	s.TotalWork.DecodeFrom(d)
-	s.Difficulty.DecodeFrom(d)
-	s.OakWork.DecodeFrom(d)
+	s.Depth.DecodeFrom(d)
+	s.ChildTarget.DecodeFrom(d)
+	s.OakTarget.DecodeFrom(d)
 	s.OakTime = time.Duration(d.ReadUint64())
 	s.GenesisTimestamp = d.ReadTime()
 	s.SiafundPool.DecodeFrom(d)

@@ -8,6 +8,31 @@ import (
 	"go.sia.tech/core/types"
 )
 
+// s = 1/(1/x + 1/y) = x*y/(x+y)
+func addTarget(x, y types.BlockID) (s types.BlockID) {
+	xi := new(big.Int).SetBytes(x[:])
+	yi := new(big.Int).SetBytes(y[:])
+	yi.Div(
+		new(big.Int).Mul(xi, yi),
+		new(big.Int).Add(xi, yi),
+	).FillBytes(s[:])
+	return
+}
+
+// m = x*n/d
+func mulTargetFrac(x types.BlockID, n, d int64) (m types.BlockID) {
+	i := new(big.Int).SetBytes(x[:])
+	i.Mul(i, big.NewInt(n))
+	i.Div(i, big.NewInt(d))
+	i.FillBytes(m[:])
+	return
+}
+
+// m = 1/(1/x * n/d) = x*d/n
+func mulDifficultyFrac(x types.BlockID, n, d int64) (m types.BlockID) {
+	return mulTargetFrac(x, d, n)
+}
+
 func updateOakTime(s State, h types.BlockHeader) time.Duration {
 	if s.childHeight() == hardforkASIC-1 {
 		return 120000 * time.Second
@@ -20,21 +45,21 @@ func updateOakTime(s State, h types.BlockHeader) time.Duration {
 	return decayedTime + h.Timestamp.Sub(s.PrevTimestamps[0])
 }
 
-func updateOakWork(s State, h types.BlockHeader) types.Work {
+func updateOakTarget(s State, h types.BlockHeader) types.BlockID {
 	if s.childHeight() == hardforkASIC-1 {
-		return types.WorkRequiredForHash(types.BlockID{8: 32})
+		return types.BlockID{8: 32}
 	}
-	return s.OakWork.Mul64(995).Div64(1000).Add(s.Difficulty)
+	return addTarget(mulDifficultyFrac(s.OakTarget, 995, 1000), s.ChildTarget)
 }
 
-func adjustDifficulty(s State, h types.BlockHeader, store Store) types.Work {
+func adjustDifficulty(s State, h types.BlockHeader, store Store) types.BlockID {
 	blockInterval := int64(s.BlockInterval() / time.Second)
 
 	// pre-Oak algorithm
 	if s.childHeight() <= hardforkOak {
 		windowSize := uint64(1000)
 		if s.childHeight()%(windowSize/2) != 0 {
-			return s.Difficulty // no change
+			return s.ChildTarget // no change
 		}
 		ancestorDepth := windowSize
 		if windowSize > s.childHeight() {
@@ -43,20 +68,14 @@ func adjustDifficulty(s State, h types.BlockHeader, store Store) types.Work {
 		targetTimestamp := store.AncestorTimestamp(s.Index.ID, ancestorDepth)
 		elapsed := int64(h.Timestamp.Sub(targetTimestamp) / time.Second)
 		expected := blockInterval * int64(ancestorDepth)
-		r := big.NewRat(elapsed, expected)
 		// clamp
-		if max := big.NewRat(25, 10); r.Cmp(max) > 0 {
-			r = max
-		} else if min := big.NewRat(10, 25); r.Cmp(min) < 0 {
-			r = min
+		if r := float64(elapsed) / float64(expected); r > 25.0/10.0 {
+			elapsed, expected = 25, 10
+		} else if r < 10.0/25.0 {
+			elapsed, expected = 10, 25
 		}
 		// multiply
-		di := new(big.Int).SetBytes(s.Difficulty.NumHashes[:])
-		di.Mul(di, r.Denom())
-		di.Div(di, r.Num())
-		var w types.Work
-		di.FillBytes(w.NumHashes[:])
-		return w
+		return mulDifficultyFrac(s.ChildTarget, expected, elapsed)
 	}
 
 	oakTotalTime := int64(s.OakTime / time.Second)
@@ -91,22 +110,26 @@ func adjustDifficulty(s State, h types.BlockHeader, store Store) types.Work {
 	if oakTotalTime <= 0 {
 		oakTotalTime = 1
 	}
-	estimatedHashrate := s.OakWork.Div64(uint64(oakTotalTime))
+	estimatedHashrate := types.WorkRequiredForHash(s.OakTarget).Div64(uint64(oakTotalTime))
 
 	// multiply the estimated hashrate by the target block time; this is the
 	// expected number of hashes required to produce the next block, i.e. the
 	// new difficulty
-	newDifficulty := estimatedHashrate.Mul64(uint64(targetBlockTime))
+	if targetBlockTime == 0 {
+		targetBlockTime = 1
+	}
+	newTarget := types.HashRequiringWork(estimatedHashrate.Mul64(uint64(targetBlockTime)))
 
 	// clamp the adjustment to 0.4%, except for ASIC hardfork block
 	if s.childHeight() != hardforkASIC {
-		if min := s.Difficulty.Mul64(1000).Div64(1004); newDifficulty.Cmp(min) < 0 {
-			newDifficulty = min
-		} else if max := s.Difficulty.Mul64(1004).Div64(1000); newDifficulty.Cmp(max) > 0 {
-			newDifficulty = max
+		if min := mulTargetFrac(s.ChildTarget, 1000, 1004); bytes.Compare(newTarget[:], min[:]) < 0 {
+			newTarget = min
+		} else if max := mulTargetFrac(s.ChildTarget, 1004, 1000); bytes.Compare(newTarget[:], max[:]) > 0 {
+			newTarget = max
 		}
 	}
-	return newDifficulty
+
+	return newTarget
 }
 
 // A TransactionDiff represents the changes to an ElementStore resulting from
@@ -284,10 +307,10 @@ func ApplyBlock(s State, store Store, b types.Block) (State, BlockDiff) {
 		ns = State{
 			Index:                     types.ChainIndex{Height: 0, ID: bid},
 			PrevTimestamps:            [11]time.Time{0: h.Timestamp},
-			TotalWork:                 s.TotalWork,
-			Difficulty:                s.Difficulty,
+			Depth:                     s.Depth,
+			ChildTarget:               s.ChildTarget,
 			OakTime:                   0,
-			OakWork:                   s.OakWork, // TODO
+			OakTarget:                 s.OakTarget,
 			GenesisTimestamp:          h.Timestamp,
 			SiafundPool:               siafundPool,
 			FoundationPrimaryAddress:  newFoundationPrimaryAddress,
@@ -300,10 +323,10 @@ func ApplyBlock(s State, store Store, b types.Block) (State, BlockDiff) {
 		ns = State{
 			Index:                     types.ChainIndex{Height: s.Index.Height + 1, ID: bid},
 			PrevTimestamps:            prevTimestamps,
-			TotalWork:                 s.TotalWork.Add(s.Difficulty),
-			Difficulty:                adjustDifficulty(s, h, store),
+			Depth:                     addTarget(s.Depth, s.ChildTarget),
+			ChildTarget:               adjustDifficulty(s, h, store),
 			OakTime:                   updateOakTime(s, h),
-			OakWork:                   updateOakWork(s, h),
+			OakTarget:                 updateOakTarget(s, h),
 			GenesisTimestamp:          s.GenesisTimestamp,
 			SiafundPool:               siafundPool,
 			FoundationPrimaryAddress:  newFoundationPrimaryAddress,
