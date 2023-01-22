@@ -96,10 +96,10 @@ func (vc ValidationContext) validateCurrencyOverflow(txns []types.Transaction) e
 		}
 		for _, fcr := range txn.FileContractRevisions {
 			// NOTE: Payout is skipped; see types.FileContractRevision docstring
-			for _, in := range fcr.Revision.ValidProofOutputs {
+			for _, in := range fcr.FileContract.ValidProofOutputs {
 				add(in.Value)
 			}
-			for _, in := range fcr.Revision.MissedProofOutputs {
+			for _, in := range fcr.FileContract.MissedProofOutputs {
 				add(in.Value)
 			}
 		}
@@ -254,8 +254,8 @@ func (vc ValidationContext) validateContracts(txns []types.Transaction) error {
 					return fmt.Errorf("transaction %v is invalid: file contract revision %v revises nonexistent file contract %v", txnIndex, i, fcr.ParentID)
 				}
 			}
-			fcr.Revision.Payout = parent.Payout // see FileContractRevision docstring
-			if fcr.Revision.RevisionNumber <= parent.RevisionNumber {
+			fcr.FileContract.Payout = parent.Payout // see FileContractRevision docstring
+			if fcr.FileContract.RevisionNumber <= parent.RevisionNumber {
 				return fmt.Errorf("transaction %v is invalid: file contract revision %v does not have a higher revision number than its parent", txnIndex, i)
 			} else if types.Hash256(fcr.UnlockConditions.UnlockHash()) != parent.UnlockHash {
 				return fmt.Errorf("transaction %v is invalid: file contract revision %v claims incorrect unlock conditions", txnIndex, i)
@@ -266,12 +266,12 @@ func (vc ValidationContext) validateContracts(txns []types.Transaction) error {
 				}
 				return sum
 			}
-			if outputSum(fcr.Revision.ValidProofOutputs) != outputSum(parent.ValidProofOutputs) {
+			if outputSum(fcr.FileContract.ValidProofOutputs) != outputSum(parent.ValidProofOutputs) {
 				return fmt.Errorf("transaction %v is invalid: file contract revision %v changes valid payout sum", txnIndex, i)
-			} else if outputSum(fcr.Revision.MissedProofOutputs) != outputSum(parent.MissedProofOutputs) {
+			} else if outputSum(fcr.FileContract.MissedProofOutputs) != outputSum(parent.MissedProofOutputs) {
 				return fmt.Errorf("transaction %v is invalid: file contract revision %v changes missed payout sum", txnIndex, i)
 			}
-			ephemeralFC[fcr.ParentID] = fcr.Revision
+			ephemeralFC[fcr.ParentID] = fcr.FileContract
 		}
 	}
 	return nil
@@ -331,9 +331,9 @@ func (vc ValidationContext) validateFileContractRevisions(txn types.Transaction)
 
 		if fcr.UnlockConditions.Timelock > vc.State.childHeight() {
 			return fmt.Errorf("file contract revision %v has timelocked parent", i)
-		} else if fcr.Revision.WindowStart < vc.State.childHeight() {
+		} else if fcr.FileContract.WindowStart < vc.State.childHeight() {
 			return fmt.Errorf("file contract revision %v has window that starts in the past", i)
-		} else if fcr.Revision.WindowEnd <= fcr.Revision.WindowStart {
+		} else if fcr.FileContract.WindowEnd <= fcr.FileContract.WindowStart {
 			return fmt.Errorf("file contract revision %v has window that ends before it begins", i)
 		}
 	}

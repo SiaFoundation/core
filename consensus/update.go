@@ -244,10 +244,10 @@ func ApplyBlock(s State, store Store, b types.Block) (State, BlockDiff) {
 		}
 		for _, fcr := range txn.FileContractRevisions {
 			fc := getFC(fcr.ParentID)
-			fcr.Revision.Payout = fc.Payout // see types.FileContractRevision docstring
+			fcr.FileContract.Payout = fc.Payout // see types.FileContractRevision docstring
 			tdiff.RevisedFileContracts[fcr.ParentID] = fc
-			tdiff.CreatedFileContracts[fcr.ParentID] = fcr.Revision
-			ephemeralFC[fcr.ParentID] = fcr.Revision
+			tdiff.CreatedFileContracts[fcr.ParentID] = fcr.FileContract
+			ephemeralFC[fcr.ParentID] = fcr.FileContract
 		}
 		for _, sp := range txn.StorageProofs {
 			fc := getFC(sp.ParentID)

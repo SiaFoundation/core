@@ -225,6 +225,42 @@ type FileContract struct {
 	RevisionNumber     uint64
 }
 
+// EndHeight returns the height at which the contract's host is no longer
+// obligated to store the contract data.
+func (fc *FileContract) EndHeight() uint64 { return fc.WindowStart }
+
+// ValidRenterOutput returns the output that will be created for the renter if
+// the contract resolves valid.
+func (fc *FileContract) ValidRenterOutput() SiacoinOutput { return fc.ValidProofOutputs[0] }
+
+// ValidRenterPayout returns the amount of siacoins that the renter will receive
+// if the contract resolves valid.
+func (fc *FileContract) ValidRenterPayout() Currency { return fc.ValidRenterOutput().Value }
+
+// MissedRenterOutput returns the output that will be created for the renter if
+// the contract resolves missed.
+func (fc *FileContract) MissedRenterOutput() SiacoinOutput { return fc.MissedProofOutputs[0] }
+
+// MissedRenterPayout returns the amount of siacoins that the renter will receive
+// if the contract resolves missed.
+func (fc *FileContract) MissedRenterPayout() Currency { return fc.MissedRenterOutput().Value }
+
+// ValidHostOutput returns the output that will be created for the host if
+// the contract resolves valid.
+func (fc *FileContract) ValidHostOutput() SiacoinOutput { return fc.ValidProofOutputs[1] }
+
+// ValidHostPayout returns the amount of siacoins that the host will receive
+// if the contract resolves valid.
+func (fc *FileContract) ValidHostPayout() Currency { return fc.ValidHostOutput().Value }
+
+// MissedHostOutput returns the output that will be created for the host if
+// the contract resolves missed.
+func (fc *FileContract) MissedHostOutput() SiacoinOutput { return fc.MissedProofOutputs[1] }
+
+// MissedHostPayout returns the amount of siacoins that the host will receive
+// if the contract resolves missed.
+func (fc *FileContract) MissedHostPayout() Currency { return fc.MissedRenterOutput().Value }
+
 // A FileContractID uniquely identifies a file contract.
 type FileContractID Hash256
 
@@ -262,7 +298,7 @@ type FileContractRevision struct {
 	// a Payout field. Here, we instead reuse the FileContract type, which means
 	// we must treat its Payout field as invalid. To guard against developer
 	// error, we set it to a sentinel value when decoding it.
-	Revision FileContract
+	FileContract
 }
 
 // A StorageProof asserts the presence of a randomly-selected leaf within the
@@ -631,6 +667,30 @@ func ParseChainIndex(s string) (ci ChainIndex, err error) {
 	err = ci.UnmarshalText([]byte(s))
 	return
 }
+
+// String implements fmt.Stringer.
+func (s Specifier) String() string { return strconv.Quote(string(bytes.Trim(s[:], "\x00"))) }
+
+// MarshalText implements encoding.TextMarshaler.
+func (s Specifier) MarshalText() ([]byte, error) { return []byte(s.String()), nil }
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *Specifier) UnmarshalText(b []byte) error {
+	str, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	} else if len(str) > len(s) {
+		return fmt.Errorf("specifier %s too long", str)
+	}
+	copy(s[:], str)
+	return nil
+}
+
+// MarshalJSON implements json.Marshaler.
+func (s Specifier) MarshalJSON() ([]byte, error) { return []byte(s.String()), nil }
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (s *Specifier) UnmarshalJSON(b []byte) error { return s.UnmarshalText(b) }
 
 // String implements fmt.Stringer.
 func (a Address) String() string {

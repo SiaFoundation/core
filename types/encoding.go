@@ -355,20 +355,20 @@ func (id FileContractID) EncodeTo(e *Encoder) { e.Write(id[:]) }
 func (rev FileContractRevision) EncodeTo(e *Encoder) {
 	rev.ParentID.EncodeTo(e)
 	rev.UnlockConditions.EncodeTo(e)
-	e.WriteUint64(rev.Revision.RevisionNumber)
-	e.WriteUint64(rev.Revision.Filesize)
-	rev.Revision.FileMerkleRoot.EncodeTo(e)
-	e.WriteUint64(rev.Revision.WindowStart)
-	e.WriteUint64(rev.Revision.WindowEnd)
-	e.WritePrefix(len(rev.Revision.ValidProofOutputs))
-	for _, sco := range rev.Revision.ValidProofOutputs {
+	e.WriteUint64(rev.FileContract.RevisionNumber)
+	e.WriteUint64(rev.FileContract.Filesize)
+	rev.FileContract.FileMerkleRoot.EncodeTo(e)
+	e.WriteUint64(rev.FileContract.WindowStart)
+	e.WriteUint64(rev.FileContract.WindowEnd)
+	e.WritePrefix(len(rev.FileContract.ValidProofOutputs))
+	for _, sco := range rev.FileContract.ValidProofOutputs {
 		sco.EncodeTo(e)
 	}
-	e.WritePrefix(len(rev.Revision.MissedProofOutputs))
-	for _, sco := range rev.Revision.MissedProofOutputs {
+	e.WritePrefix(len(rev.FileContract.MissedProofOutputs))
+	for _, sco := range rev.FileContract.MissedProofOutputs {
 		sco.EncodeTo(e)
 	}
-	rev.Revision.UnlockHash.EncodeTo(e)
+	rev.FileContract.UnlockHash.EncodeTo(e)
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -613,23 +613,23 @@ func (id *FileContractID) DecodeFrom(d *Decoder) { d.Read(id[:]) }
 func (rev *FileContractRevision) DecodeFrom(d *Decoder) {
 	rev.ParentID.DecodeFrom(d)
 	rev.UnlockConditions.DecodeFrom(d)
-	rev.Revision.RevisionNumber = d.ReadUint64()
-	rev.Revision.Filesize = d.ReadUint64()
-	rev.Revision.FileMerkleRoot.DecodeFrom(d)
-	rev.Revision.WindowStart = d.ReadUint64()
-	rev.Revision.WindowEnd = d.ReadUint64()
-	rev.Revision.ValidProofOutputs = make([]SiacoinOutput, d.ReadPrefix())
-	for i := range rev.Revision.ValidProofOutputs {
-		rev.Revision.ValidProofOutputs[i].DecodeFrom(d)
+	rev.FileContract.RevisionNumber = d.ReadUint64()
+	rev.FileContract.Filesize = d.ReadUint64()
+	rev.FileContract.FileMerkleRoot.DecodeFrom(d)
+	rev.FileContract.WindowStart = d.ReadUint64()
+	rev.FileContract.WindowEnd = d.ReadUint64()
+	rev.FileContract.ValidProofOutputs = make([]SiacoinOutput, d.ReadPrefix())
+	for i := range rev.FileContract.ValidProofOutputs {
+		rev.FileContract.ValidProofOutputs[i].DecodeFrom(d)
 	}
-	rev.Revision.MissedProofOutputs = make([]SiacoinOutput, d.ReadPrefix())
-	for i := range rev.Revision.MissedProofOutputs {
-		rev.Revision.MissedProofOutputs[i].DecodeFrom(d)
+	rev.FileContract.MissedProofOutputs = make([]SiacoinOutput, d.ReadPrefix())
+	for i := range rev.FileContract.MissedProofOutputs {
+		rev.FileContract.MissedProofOutputs[i].DecodeFrom(d)
 	}
-	rev.Revision.UnlockHash.DecodeFrom(d)
+	rev.FileContract.UnlockHash.DecodeFrom(d)
 
 	// see FileContractRevision docstring
-	rev.Revision.Payout = NewCurrency(math.MaxUint64, math.MaxUint64)
+	rev.FileContract.Payout = NewCurrency(math.MaxUint64, math.MaxUint64)
 }
 
 // DecodeFrom implements types.DecoderFrom.
