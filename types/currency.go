@@ -51,10 +51,9 @@ func (c Currency) Equals(v Currency) bool {
 
 // Cmp compares c and v and returns:
 //
-//   -1 if c <  v
-//    0 if c == v
-//   +1 if c >  v
-//
+//	-1 if c <  v
+//	 0 if c == v
+//	+1 if c >  v
 func (c Currency) Cmp(v Currency) int {
 	if c == v {
 		return 0
@@ -102,6 +101,26 @@ func (c Currency) SubWithUnderflow(v Currency) (Currency, bool) {
 	lo, borrow := bits.Sub64(c.Lo, v.Lo, 0)
 	hi, borrow := bits.Sub64(c.Hi, v.Hi, borrow)
 	return Currency{lo, hi}, borrow != 0
+}
+
+// Mul returns c*v. If the result would overflow, Mul panics.
+//
+// Note that it is safe to multiply any two Currency values that are below 2^64.
+func (c Currency) Mul(v Currency) Currency {
+	// NOTE: this is the overflow-checked equivalent of:
+	//
+	//   hi, lo := bits.Mul64(c.Lo, v.Lo)
+	//   hi += c.Hi*v.Lo + c.Lo*v.Hi
+	//
+	hi, lo := bits.Mul64(c.Lo, v.Lo)
+	p0, p1 := bits.Mul64(c.Hi, v.Lo)
+	p2, p3 := bits.Mul64(c.Lo, v.Hi)
+	hi, c0 := bits.Add64(hi, p1, 0)
+	hi, c1 := bits.Add64(hi, p3, c0)
+	if (c.Hi != 0 && v.Hi != 0) || p0 != 0 || p2 != 0 || c1 != 0 {
+		panic("overflow")
+	}
+	return Currency{lo, hi}
 }
 
 // Mul64 returns c*v. If the result would overflow, Mul64 panics.
@@ -236,9 +255,9 @@ func (c Currency) String() string {
 
 // Format implements fmt.Formatter. It accepts the following formats:
 //
-//   d: raw integer (equivalent to ExactString())
-//   s: rounded integer with unit suffix (equivalent to String())
-//   v: same as s
+//	d: raw integer (equivalent to ExactString())
+//	s: rounded integer with unit suffix (equivalent to String())
+//	v: same as s
 func (c Currency) Format(f fmt.State, v rune) {
 	switch v {
 	case 'd':
