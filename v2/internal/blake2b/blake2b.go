@@ -3,24 +3,10 @@
 package blake2b
 
 import (
-	"hash"
 	"unsafe"
 
 	"golang.org/x/crypto/blake2b"
 )
-
-// re-export from crypto/blake2b
-
-// Sum256 returns the BLAKE2b-256 checksum of the data.
-func Sum256(data []byte) [32]byte {
-	return blake2b.Sum256(data)
-}
-
-// New256 returns a new hash.Hash computing the BLAKE2b-256 checksum.
-func New256() hash.Hash {
-	h, _ := blake2b.New256(nil)
-	return h
-}
 
 // from RFC 6962
 const leafHashPrefix = 0
