@@ -259,7 +259,7 @@ func (fc *FileContract) MissedHostOutput() SiacoinOutput { return fc.MissedProof
 
 // MissedHostPayout returns the amount of siacoins that the host will receive
 // if the contract resolves missed.
-func (fc *FileContract) MissedHostPayout() Currency { return fc.MissedRenterOutput().Value }
+func (fc *FileContract) MissedHostPayout() Currency { return fc.MissedHostOutput().Value }
 
 // A FileContractID uniquely identifies a file contract.
 type FileContractID Hash256
