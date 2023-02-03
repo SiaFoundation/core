@@ -5,8 +5,17 @@ import (
 	"time"
 
 	"go.sia.tech/core/consensus"
+	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"lukechampine.com/frand"
+)
+
+const (
+	blocksPerYear     = 365 * 144
+	registryEntrySize = 256
+
+	// SectorSize is the size of one sector in bytes.
+	SectorSize = rhpv2.SectorSize
 )
 
 // An Account is a public key used to identify an ephemeral account on a host.
@@ -87,140 +96,277 @@ func PayByContract(rev *types.FileContractRevision, amount types.Currency, refun
 	return p, true
 }
 
-// A SettingsID is a unique identifier for registered host settings used by renters
-// when interacting with the host.
-type SettingsID [16]byte
+type (
+	// A SettingsID is a unique identifier for registered host settings used by renters
+	// when interacting with the host.
+	SettingsID [16]byte
 
-// An HostPriceTable contains the host's current prices for each RPC.
-type HostPriceTable struct {
-	// UID is a unique specifier that identifies this price table
-	UID SettingsID `json:"uid"`
+	// ResourceCost is the cost of executing an instruction.
+	ResourceCost struct {
+		// Base is the cost to execute the instruction. It is not refunded if
+		// the instruction fails.
+		Base types.Currency
+		// Storage is the cost to store the instruction's data. Storage is the
+		// additional storage usage in bytes used. It is refunded if the
+		// program fails.
+		Storage types.Currency
+		// Collateral is the amount of collateral that must be risked by the
+		// host to execute the instruction. It is freed if the instruction
+		// fails.
+		Collateral types.Currency
+		// Egress is the cost to send the instruction's output to the renter. It
+		// is not refunded if the program fails.
+		Egress types.Currency
+		// Ingress is the cost to receive the instruction's input from the
+		// renter. It is not refunded if the program fails.
+		Ingress types.Currency
+	}
 
-	// Validity is a duration that specifies how long the host guarantees these
-	// prices for and are thus considered valid.
-	Validity time.Duration `json:"validity"`
+	// An HostPriceTable contains the host's current prices for each RPC.
+	HostPriceTable struct {
+		// UID is a unique specifier that identifies this price table
+		UID SettingsID `json:"uid"`
 
-	// HostBlockHeight is the block height of the host. This allows the renter
-	// to create valid withdrawal messages in case it is not synced yet.
-	HostBlockHeight uint64 `json:"hostblockheight"`
+		// Validity is a duration that specifies how long the host guarantees these
+		// prices for and are thus considered valid.
+		Validity time.Duration `json:"validity"`
 
-	// UpdatePriceTableCost refers to the cost of fetching a new price table
-	// from the host.
-	UpdatePriceTableCost types.Currency `json:"updatepricetablecost"`
+		// HostBlockHeight is the block height of the host. This allows the renter
+		// to create valid withdrawal messages in case it is not synced yet.
+		HostBlockHeight uint64 `json:"hostblockheight"`
 
-	// AccountBalanceCost refers to the cost of fetching the balance of an
-	// ephemeral account.
-	AccountBalanceCost types.Currency `json:"accountbalancecost"`
+		// UpdatePriceTableCost refers to the cost of fetching a new price table
+		// from the host.
+		UpdatePriceTableCost types.Currency `json:"updatepricetablecost"`
 
-	// FundAccountCost refers to the cost of funding an ephemeral account on the
-	// host.
-	FundAccountCost types.Currency `json:"fundaccountcost"`
+		// AccountBalanceCost refers to the cost of fetching the balance of an
+		// ephemeral account.
+		AccountBalanceCost types.Currency `json:"accountbalancecost"`
 
-	// LatestRevisionCost refers to the cost of asking the host for the latest
-	// revision of a contract.
-	LatestRevisionCost types.Currency `json:"latestrevisioncost"`
+		// FundAccountCost refers to the cost of funding an ephemeral account on the
+		// host.
+		FundAccountCost types.Currency `json:"fundaccountcost"`
 
-	// SubscriptionMemoryCost is the cost of storing a byte of data for
-	// SubscriptionPeriod time.
-	SubscriptionMemoryCost types.Currency `json:"subscriptionmemorycost"`
+		// LatestRevisionCost refers to the cost of asking the host for the latest
+		// revision of a contract.
+		LatestRevisionCost types.Currency `json:"latestrevisioncost"`
 
-	// SubscriptionNotificationCost is the cost of a single notification on top
-	// of what is charged for bandwidth.
-	SubscriptionNotificationCost types.Currency `json:"subscriptionnotificationcost"`
+		// SubscriptionMemoryCost is the cost of storing a byte of data for
+		// SubscriptionPeriod time.
+		SubscriptionMemoryCost types.Currency `json:"subscriptionmemorycost"`
 
-	// MDM related costs
-	//
-	// InitBaseCost is the amount of cost that is incurred when an MDM program
-	// starts to run. This doesn't include the memory used by the program data.
-	// The total cost to initialize a program is calculated as
-	// InitCost = InitBaseCost + MemoryTimeCost * Time
-	InitBaseCost types.Currency `json:"initbasecost"`
+		// SubscriptionNotificationCost is the cost of a single notification on top
+		// of what is charged for bandwidth.
+		SubscriptionNotificationCost types.Currency `json:"subscriptionnotificationcost"`
 
-	// MemoryTimeCost is the amount of cost per byte per time that is incurred
-	// by the memory consumption of the program.
-	MemoryTimeCost types.Currency `json:"memorytimecost"`
+		// MDM related costs
+		//
+		// InitBaseCost is the amount of cost that is incurred when an MDM program
+		// starts to run. This doesn't include the memory used by the program data.
+		// The total cost to initialize a program is calculated as
+		// InitCost = InitBaseCost + MemoryTimeCost * Time
+		InitBaseCost types.Currency `json:"initbasecost"`
 
-	// Cost values specific to the bandwidth consumption.
-	DownloadBandwidthCost types.Currency `json:"downloadbandwidthcost"`
-	UploadBandwidthCost   types.Currency `json:"uploadbandwidthcost"`
+		// MemoryTimeCost is the amount of cost per byte per time that is incurred
+		// by the memory consumption of the program.
+		MemoryTimeCost types.Currency `json:"memorytimecost"`
 
-	// Cost values specific to the DropSectors instruction.
-	DropSectorsBaseCost types.Currency `json:"dropsectorsbasecost"`
-	DropSectorsUnitCost types.Currency `json:"dropsectorsunitcost"`
+		// Cost values specific to the bandwidth consumption.
+		DownloadBandwidthCost types.Currency `json:"downloadbandwidthcost"`
+		UploadBandwidthCost   types.Currency `json:"uploadbandwidthcost"`
 
-	// Cost values specific to the HasSector command.
-	HasSectorBaseCost types.Currency `json:"hassectorbasecost"`
+		// Cost values specific to the DropSectors instruction.
+		DropSectorsBaseCost types.Currency `json:"dropsectorsbasecost"`
+		DropSectorsUnitCost types.Currency `json:"dropsectorsunitcost"`
 
-	// Cost values specific to the Read instruction.
-	ReadBaseCost   types.Currency `json:"readbasecost"`
-	ReadLengthCost types.Currency `json:"readlengthcost"`
+		// Cost values specific to the HasSector command.
+		HasSectorBaseCost types.Currency `json:"hassectorbasecost"`
 
-	// Cost values specific to the RenewContract instruction.
-	RenewContractCost types.Currency `json:"renewcontractcost"`
+		// Cost values specific to the Read instruction.
+		ReadBaseCost   types.Currency `json:"readbasecost"`
+		ReadLengthCost types.Currency `json:"readlengthcost"`
 
-	// Cost values specific to the Revision command.
-	RevisionBaseCost types.Currency `json:"revisionbasecost"`
+		// Cost values specific to the RenewContract instruction.
+		RenewContractCost types.Currency `json:"renewcontractcost"`
 
-	// SwapSectorCost is the cost of swapping 2 full sectors by root.
-	SwapSectorCost types.Currency `json:"swapsectorcost"`
+		// Cost values specific to the Revision command.
+		RevisionBaseCost types.Currency `json:"revisionbasecost"`
 
-	// Cost values specific to the Write instruction.
-	WriteBaseCost   types.Currency `json:"writebasecost"`   // per write
-	WriteLengthCost types.Currency `json:"writelengthcost"` // per byte written
-	WriteStoreCost  types.Currency `json:"writestorecost"`  // per byte / block of additional storage
+		// SwapSectorBaseCost is the cost of swapping 2 full sectors by root.
+		SwapSectorBaseCost types.Currency `json:"swapsectorcost"`
 
-	// TxnFee estimations.
-	TxnFeeMinRecommended types.Currency `json:"txnfeeminrecommended"`
-	TxnFeeMaxRecommended types.Currency `json:"txnfeemaxrecommended"`
+		// Cost values specific to the Write instruction.
+		WriteBaseCost   types.Currency `json:"writebasecost"`   // per write
+		WriteLengthCost types.Currency `json:"writelengthcost"` // per byte written
+		WriteStoreCost  types.Currency `json:"writestorecost"`  // per byte / block of additional storage
 
-	// ContractPrice is the additional fee a host charges when forming/renewing
-	// a contract to cover the miner fees when submitting the contract and
-	// revision to the blockchain.
-	ContractPrice types.Currency `json:"contractprice"`
+		// TxnFee estimations.
+		TxnFeeMinRecommended types.Currency `json:"txnfeeminrecommended"`
+		TxnFeeMaxRecommended types.Currency `json:"txnfeemaxrecommended"`
 
-	// CollateralCost is the amount of money per byte the host is promising to
-	// lock away as collateral when adding new data to a contract. It's paid out
-	// to the host regardless of the outcome of the storage proof.
-	CollateralCost types.Currency `json:"collateralcost"`
+		// ContractPrice is the additional fee a host charges when forming/renewing
+		// a contract to cover the miner fees when submitting the contract and
+		// revision to the blockchain.
+		ContractPrice types.Currency `json:"contractprice"`
 
-	// MaxCollateral is the maximum amount of collateral the host is willing to
-	// put into a single file contract.
-	MaxCollateral types.Currency `json:"maxcollateral"`
+		// CollateralCost is the amount of money per byte the host is promising to
+		// lock away as collateral when adding new data to a contract. It's paid out
+		// to the host regardless of the outcome of the storage proof.
+		CollateralCost types.Currency `json:"collateralcost"`
 
-	// MaxDuration is the max duration for which the host is willing to form a
-	// contract.
-	MaxDuration uint64 `json:"maxduration"`
+		// MaxCollateral is the maximum amount of collateral the host is willing to
+		// put into a single file contract.
+		MaxCollateral types.Currency `json:"maxcollateral"`
 
-	// WindowSize is the minimum time in blocks the host requests the
-	// renewWindow of a new contract to be.
-	WindowSize uint64 `json:"windowsize"`
+		// MaxDuration is the max duration for which the host is willing to form a
+		// contract.
+		MaxDuration uint64 `json:"maxduration"`
 
-	// Registry related fields.
-	RegistryEntriesLeft  uint64 `json:"registryentriesleft"`
-	RegistryEntriesTotal uint64 `json:"registryentriestotal"`
-}
+		// WindowSize is the minimum time in blocks the host requests the
+		// renewWindow of a new contract to be.
+		WindowSize uint64 `json:"windowsize"`
 
-const registryEntrySize = 256
+		// Registry related fields.
+		RegistryEntriesLeft  uint64 `json:"registryentriesleft"`
+		RegistryEntriesTotal uint64 `json:"registryentriestotal"`
+	}
+)
 
-// UpdateRegistryCost is the cost of executing a 'UpdateRegistry'
-// instruction on the MDM.
-func (pt *HostPriceTable) UpdateRegistryCost() (writeCost, storeCost types.Currency) {
-	// Cost is the same as uploading and storing a registry entry for 5 years.
-	const blocksPerYear = 365 * 24 * time.Hour / (10 * time.Minute)
-	writeCost = pt.writeCost(registryEntrySize)
-	storeCost = pt.WriteStoreCost.Mul64(registryEntrySize).Mul64(uint64(5 * blocksPerYear))
-	return writeCost.Add(storeCost), storeCost
-}
-
-// writeCost is the cost of executing a 'Write' instruction of a certain length
+// writeBaseCost is the cost of executing a 'Write' instruction of a certain length
 // on the MDM.
-func (pt *HostPriceTable) writeCost(writeLength uint64) types.Currency {
+func (pt *HostPriceTable) writeBaseCost(writeLength uint64) types.Currency {
 	const atomicWriteSize = 1 << 12
 	if mod := writeLength % atomicWriteSize; mod != 0 {
 		writeLength += (atomicWriteSize - mod)
 	}
 	writeCost := pt.WriteLengthCost.Mul64(writeLength).Add(pt.WriteBaseCost)
 	return writeCost
+}
+
+// AppendSectorCost returns the cost of executing the AppendSector instruction.
+func (pt *HostPriceTable) AppendSectorCost(duration uint64) ResourceCost {
+	return ResourceCost{
+		// base cost is cost of writing 1 sector
+		Base: pt.writeBaseCost(SectorSize),
+		// storage cost is the cost of storing 1 sector for the remaining duration.
+		Storage: pt.WriteStoreCost.Mul64(SectorSize).Mul64(duration),
+		// collateral is the collateral the host is expected to put up per
+		// sector per block.
+		Collateral: pt.CollateralCost.Mul64(SectorSize).Mul64(duration),
+		// note: bandwidth costs are now hardcoded to only include the
+		// instruction data not the arguments.
+		Ingress: pt.UploadBandwidthCost.Mul64(SectorSize),
+	}
+}
+
+// AppendSectorRootCost returns the cost of executing the AppendSectorRoot
+// instruction.
+func (pt *HostPriceTable) AppendSectorRootCost(duration uint64) ResourceCost {
+	return ResourceCost{
+		// base cost is cost of 1 write
+		Base: pt.WriteBaseCost,
+		// storage cost is the cost of storing 1 sector for the remaining
+		// duration.
+		Storage: pt.WriteStoreCost.Mul64(SectorSize).Mul64(duration),
+		// collateral is the collateral the host is expected to put up per
+		// sector per block.
+		Collateral: pt.CollateralCost.Mul64(SectorSize).Mul64(duration),
+		Ingress:    pt.UploadBandwidthCost.Mul64(32), // sector root
+	}
+}
+
+// DropSectorCost returns the cost of executing the DropSector instruction.
+func (pt *HostPriceTable) DropSectorsCost(n uint64) ResourceCost {
+	return ResourceCost{
+		Base:    pt.DropSectorsUnitCost.Mul64(n).Add(pt.DropSectorsBaseCost),
+		Ingress: pt.UploadBandwidthCost.Mul64(8), // drop sector count
+	}
+}
+
+// HasSectorCost returns the cost of executing the HasSector instruction.
+func (pt *HostPriceTable) HasSectorCost() ResourceCost {
+	return ResourceCost{
+		Base:    pt.HasSectorBaseCost,
+		Ingress: pt.UploadBandwidthCost.Mul64(32), // sector root
+		Egress:  pt.DownloadBandwidthCost,         // boolean response
+	}
+}
+
+// ReadOffsetCost returns the cost of executing the ReadOffset instruction.
+func (pt *HostPriceTable) ReadOffsetCost(length uint64) ResourceCost {
+	return ResourceCost{
+		Base:    pt.ReadLengthCost.Mul64(length).Add(pt.ReadBaseCost),
+		Ingress: pt.UploadBandwidthCost.Mul64(8),        // sector root index
+		Egress:  pt.DownloadBandwidthCost.Mul64(length), // response data
+	}
+}
+
+// ReadSectorCost returns the cost of executing the ReadSector instruction.
+func (pt *HostPriceTable) ReadSectorCost(length uint64) ResourceCost {
+	return ResourceCost{
+		Base:    pt.ReadLengthCost.Mul64(length).Add(pt.ReadBaseCost),
+		Ingress: pt.UploadBandwidthCost.Mul64(32),       // sector root
+		Egress:  pt.DownloadBandwidthCost.Mul64(length), // response data
+	}
+}
+
+// SwapSectorCost returns the cost of executing the SwapSector instruction.
+func (pt *HostPriceTable) SwapSectorCost() ResourceCost {
+	return ResourceCost{
+		Base:    pt.SwapSectorBaseCost,
+		Ingress: pt.UploadBandwidthCost.Mul64(2 * 8), // 2 sector indices
+	}
+}
+
+// UpdateSectorCost returns the cost of executing the UpdateSector instruction.
+func (pt *HostPriceTable) UpdateSectorCost(length uint64) ResourceCost {
+	return ResourceCost{
+		// base cost is cost of writing 1 sector and storing 1 sector in memory.
+		Base:    pt.writeBaseCost(SectorSize),
+		Ingress: pt.UploadBandwidthCost.Mul64(length),
+	}
+}
+
+// StoreSectorCost returns the cost of executing the StoreSector instruction.
+func (pt *HostPriceTable) StoreSectorCost(duration uint64) ResourceCost {
+	return ResourceCost{
+		// base cost is cost of writing 1 sector and storing 1 sector in memory.
+		Base:    pt.writeBaseCost(SectorSize),
+		Storage: pt.WriteStoreCost.Mul64(SectorSize).Mul64(duration),
+		Ingress: pt.UploadBandwidthCost.Mul64(SectorSize),
+	}
+}
+
+// RevisionCost returns the cost of executing the Revision instruction.
+func (pt *HostPriceTable) RevisionCost() ResourceCost {
+	return ResourceCost{
+		Base: pt.RevisionBaseCost,
+	}
+}
+
+// ReadRegistryCost returns the cost of executing the ReadRegistry instruction.
+func (pt *HostPriceTable) ReadRegistryCost() ResourceCost {
+	return ResourceCost{
+		Base: pt.writeBaseCost(256),
+		// increases the remaining duration of the registry entry and costs the
+		// equivalent of storing 256 bytes for 10 years
+		Storage: pt.WriteStoreCost.Mul64(256 * 10 * blocksPerYear),
+		Egress:  pt.DownloadBandwidthCost.Mul64(256),
+	}
+}
+
+// UpdateRegistryCost returns the cost of executing the UpdateRegistry
+// instruction.
+func (pt *HostPriceTable) UpdateRegistryCost() ResourceCost {
+	return ResourceCost{
+		Base: pt.writeBaseCost(256),
+		// increases the remaining duration of the registry entry and costs the
+		// equivalent of storing 256 bytes for 5 years
+		Storage: pt.WriteStoreCost.Mul64(256 * 5 * blocksPerYear),
+		Ingress: pt.UploadBandwidthCost.Mul64(256),
+		// the updated entry is returned
+		Egress: pt.DownloadBandwidthCost.Mul64(256),
+	}
 }
 
 type (
