@@ -13,9 +13,6 @@ import (
 const (
 	blocksPerYear     = 365 * 144
 	registryEntrySize = 256
-
-	// SectorSize is the size of one sector in bytes.
-	SectorSize = rhpv2.SectorSize
 )
 
 // An Account is a public key used to identify an ephemeral account on a host.
@@ -247,15 +244,15 @@ func (pt *HostPriceTable) writeBaseCost(writeLength uint64) types.Currency {
 func (pt *HostPriceTable) AppendSectorCost(duration uint64) ResourceCost {
 	return ResourceCost{
 		// base cost is cost of writing 1 sector
-		Base: pt.writeBaseCost(SectorSize),
+		Base: pt.writeBaseCost(rhpv2.SectorSize),
 		// storage cost is the cost of storing 1 sector for the remaining duration.
-		Storage: pt.WriteStoreCost.Mul64(SectorSize).Mul64(duration),
+		Storage: pt.WriteStoreCost.Mul64(rhpv2.SectorSize).Mul64(duration),
 		// collateral is the collateral the host is expected to put up per
 		// sector per block.
-		Collateral: pt.CollateralCost.Mul64(SectorSize).Mul64(duration),
+		Collateral: pt.CollateralCost.Mul64(rhpv2.SectorSize).Mul64(duration),
 		// note: bandwidth costs are now hardcoded to only include the
 		// instruction data not the arguments.
-		Ingress: pt.UploadBandwidthCost.Mul64(SectorSize),
+		Ingress: pt.UploadBandwidthCost.Mul64(rhpv2.SectorSize),
 	}
 }
 
@@ -267,10 +264,10 @@ func (pt *HostPriceTable) AppendSectorRootCost(duration uint64) ResourceCost {
 		Base: pt.WriteBaseCost,
 		// storage cost is the cost of storing 1 sector for the remaining
 		// duration.
-		Storage: pt.WriteStoreCost.Mul64(SectorSize).Mul64(duration),
+		Storage: pt.WriteStoreCost.Mul64(rhpv2.SectorSize).Mul64(duration),
 		// collateral is the collateral the host is expected to put up per
 		// sector per block.
-		Collateral: pt.CollateralCost.Mul64(SectorSize).Mul64(duration),
+		Collateral: pt.CollateralCost.Mul64(rhpv2.SectorSize).Mul64(duration),
 		Ingress:    pt.UploadBandwidthCost.Mul64(32), // sector root
 	}
 }
@@ -321,8 +318,8 @@ func (pt *HostPriceTable) SwapSectorCost() ResourceCost {
 // UpdateSectorCost returns the cost of executing the UpdateSector instruction.
 func (pt *HostPriceTable) UpdateSectorCost(length uint64) ResourceCost {
 	return ResourceCost{
-		// base cost is cost of writing 1 sector and storing 1 sector in memory.
-		Base:    pt.writeBaseCost(SectorSize),
+		// base cost is cost of writing 1 sector
+		Base:    pt.writeBaseCost(rhpv2.SectorSize),
 		Ingress: pt.UploadBandwidthCost.Mul64(length),
 	}
 }
@@ -330,10 +327,10 @@ func (pt *HostPriceTable) UpdateSectorCost(length uint64) ResourceCost {
 // StoreSectorCost returns the cost of executing the StoreSector instruction.
 func (pt *HostPriceTable) StoreSectorCost(duration uint64) ResourceCost {
 	return ResourceCost{
-		// base cost is cost of writing 1 sector and storing 1 sector in memory.
-		Base:    pt.writeBaseCost(SectorSize),
-		Storage: pt.WriteStoreCost.Mul64(SectorSize).Mul64(duration),
-		Ingress: pt.UploadBandwidthCost.Mul64(SectorSize),
+		// base cost is cost of writing 1 sector.
+		Base:    pt.writeBaseCost(rhpv2.SectorSize),
+		Storage: pt.WriteStoreCost.Mul64(rhpv2.SectorSize).Mul64(duration),
+		Ingress: pt.UploadBandwidthCost.Mul64(rhpv2.SectorSize),
 	}
 }
 
