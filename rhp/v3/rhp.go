@@ -229,6 +229,17 @@ type (
 	}
 )
 
+// Add adds two ResourceCosts together.
+func (a *ResourceCost) Add(b ResourceCost) ResourceCost {
+	return ResourceCost{
+		Base:       a.Base.Add(b.Base),
+		Storage:    a.Storage.Add(b.Storage),
+		Collateral: a.Collateral.Add(b.Collateral),
+		Egress:     a.Egress.Add(b.Egress),
+		Ingress:    a.Ingress.Add(b.Ingress),
+	}
+}
+
 // writeBaseCost is the cost of executing a 'Write' instruction of a certain length
 // on the MDM.
 func (pt *HostPriceTable) writeBaseCost(writeLength uint64) types.Currency {
