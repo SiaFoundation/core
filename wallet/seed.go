@@ -1,13 +1,13 @@
 package wallet
 
 import (
-	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"strings"
 
+	"go.sia.tech/core/types"
 	"golang.org/x/crypto/blake2b"
 	"lukechampine.com/frand"
 )
@@ -44,12 +44,12 @@ func SeedFromPhrase(seed *[32]byte, phrase string) error {
 }
 
 // KeyFromSeed returns the Ed25519 key derived from the supplied seed and index.
-func KeyFromSeed(seed *[32]byte, index uint64) ed25519.PrivateKey {
+func KeyFromSeed(seed *[32]byte, index uint64) types.PrivateKey {
 	buf := make([]byte, 32+8)
 	copy(buf[:32], seed[:])
 	binary.LittleEndian.PutUint64(buf[32:], index)
 	h := blake2b.Sum256(buf)
-	key := ed25519.NewKeyFromSeed(h[:])
+	key := types.NewPrivateKeyFromSeed(h[:])
 	memclr(h[:])
 	return key
 }
