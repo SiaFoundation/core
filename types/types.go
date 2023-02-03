@@ -44,6 +44,14 @@ func (pk PublicKey) VerifyHash(h Hash256, s Signature) bool {
 	return ed25519.Verify(pk[:], h[:], s[:])
 }
 
+// UnlockKey returns pk as an UnlockKey.
+func (pk PublicKey) UnlockKey() UnlockKey {
+	return UnlockKey{
+		Algorithm: SpecifierEd25519,
+		Key:       pk[:],
+	}
+}
+
 // A PrivateKey is an Ed25519 private key.
 type PrivateKey []byte
 
@@ -195,8 +203,8 @@ type SiafundOutputID Hash256
 
 // ClaimOutputID returns the ID of the SiacoinOutput that is created when
 // the siafund output is spent.
-func (id SiafundOutputID) ClaimOutputID() SiacoinOutputID {
-	return SiacoinOutputID(HashBytes(id[:]))
+func (sfoid SiafundOutputID) ClaimOutputID() SiacoinOutputID {
+	return SiacoinOutputID(HashBytes(sfoid[:]))
 }
 
 // A SiafundInput spends an unspent SiafundOutput in the UTXO set by revealing
@@ -470,6 +478,9 @@ func (b *Block) Header() BlockHeader {
 
 // ID returns a hash that uniquely identifies a block. It is equivalent to
 // b.Header().ID().
+//
+// Note that this is a relatively expensive operation, as it computes the Merkle
+// root of the block's transactions.
 func (b *Block) ID() BlockID { return b.Header().ID() }
 
 // Work represents a quantity of work.
