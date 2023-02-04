@@ -10,8 +10,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"math/big"
-	"math/bits"
 	"strconv"
 	"time"
 
@@ -483,125 +481,6 @@ func (b *Block) Header() BlockHeader {
 // root of the block's transactions.
 func (b *Block) ID() BlockID { return b.Header().ID() }
 
-// Work represents a quantity of work.
-type Work struct {
-	// The representation is the expected number of hashes required to produce a
-	// given hash, in big-endian order.
-	NumHashes [32]byte
-}
-
-// Add returns w+v, wrapping on overflow.
-func (w Work) Add(v Work) Work {
-	var r Work
-	var sum, c uint64
-	for i := 24; i >= 0; i -= 8 {
-		wi := binary.BigEndian.Uint64(w.NumHashes[i:])
-		vi := binary.BigEndian.Uint64(v.NumHashes[i:])
-		sum, c = bits.Add64(wi, vi, c)
-		binary.BigEndian.PutUint64(r.NumHashes[i:], sum)
-	}
-	return r
-}
-
-// Sub returns w-v, wrapping on underflow.
-func (w Work) Sub(v Work) Work {
-	var r Work
-	var sum, c uint64
-	for i := 24; i >= 0; i -= 8 {
-		wi := binary.BigEndian.Uint64(w.NumHashes[i:])
-		vi := binary.BigEndian.Uint64(v.NumHashes[i:])
-		sum, c = bits.Sub64(wi, vi, c)
-		binary.BigEndian.PutUint64(r.NumHashes[i:], sum)
-	}
-	return r
-}
-
-// Mul64 returns w*v, wrapping on overflow.
-func (w Work) Mul64(v uint64) Work {
-	var r Work
-	var c uint64
-	for i := 24; i >= 0; i -= 8 {
-		wi := binary.BigEndian.Uint64(w.NumHashes[i:])
-		hi, prod := bits.Mul64(wi, v)
-		prod, cc := bits.Add64(prod, c, 0)
-		c = hi + cc
-		binary.BigEndian.PutUint64(r.NumHashes[i:], prod)
-	}
-	return r
-}
-
-// Div64 returns w/v.
-func (w Work) Div64(v uint64) Work {
-	var r Work
-	var quo, rem uint64
-	for i := 0; i < len(w.NumHashes); i += 8 {
-		wi := binary.BigEndian.Uint64(w.NumHashes[i:])
-		quo, rem = bits.Div64(rem, wi, v)
-		binary.BigEndian.PutUint64(r.NumHashes[i:], quo)
-	}
-	return r
-}
-
-// Cmp compares two work values.
-func (w Work) Cmp(v Work) int {
-	return bytes.Compare(w.NumHashes[:], v.NumHashes[:])
-}
-
-// WorkRequiredForHash estimates how much work was required to produce the given
-// id. Note that the mapping is not injective; many different ids may require
-// the same expected amount of Work.
-func WorkRequiredForHash(id BlockID) Work {
-	if id == (BlockID{}) {
-		// This should never happen as long as inputs are properly validated and
-		// the laws of physics are intact.
-		panic("impossibly good BlockID")
-	}
-	// As a special case, this hash requires the maximum possible amount of
-	// Work. (Otherwise, the division would produce 2^256, which overflows our
-	// representation.)
-	if id == ([32]byte{31: 1}) {
-		return Work{
-			NumHashes: [32]byte{
-				0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-				0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-			},
-		}
-	}
-
-	// To get the expected number of hashes required, simply divide 2^256 by id.
-	//
-	// TODO: write a zero-alloc uint256 division instead of using big.Int
-	maxTarget := new(big.Int).Lsh(big.NewInt(1), 256)
-	idInt := new(big.Int).SetBytes(id[:])
-	quo := maxTarget.Div(maxTarget, idInt)
-	var w Work
-	quo.FillBytes(w.NumHashes[:])
-	return w
-}
-
-// HashRequiringWork returns the best BlockID that the given amount of Work
-// would be expected to produce. Note that many different BlockIDs may require
-// the same amount of Work; this function returns the lowest of them.
-func HashRequiringWork(w Work) BlockID {
-	if w.NumHashes == ([32]byte{}) {
-		panic("no hash requires zero work")
-	}
-	// As a special case, 1 Work produces this hash. (Otherwise, the division
-	// would produce 2^256, which overflows our representation.)
-	if w.NumHashes == ([32]byte{31: 1}) {
-		return BlockID{
-			0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-			0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-		}
-	}
-	maxTarget := new(big.Int).Lsh(big.NewInt(1), 256)
-	workInt := new(big.Int).SetBytes(w.NumHashes[:])
-	quo := maxTarget.Div(maxTarget, workInt)
-	var id BlockID
-	quo.FillBytes(id[:])
-	return id
-}
-
 // Implementations of fmt.Stringer, encoding.Text(Un)marshaler, and json.(Un)marshaler
 
 func stringerHex(prefix string, data []byte) string {
@@ -858,36 +737,3 @@ func (sig Signature) MarshalJSON() ([]byte, error) { return marshalJSONHex("sig"
 
 // UnmarshalJSON implements json.Unmarshaler.
 func (sig *Signature) UnmarshalJSON(b []byte) error { return unmarshalJSONHex(sig[:], "sig", b) }
-
-// String implements fmt.Stringer.
-func (w Work) String() string { return new(big.Int).SetBytes(w.NumHashes[:]).String() }
-
-// MarshalText implements encoding.TextMarshaler.
-func (w Work) MarshalText() ([]byte, error) {
-	return new(big.Int).SetBytes(w.NumHashes[:]).MarshalText()
-}
-
-// UnmarshalText implements encoding.TextUnmarshaler.
-func (w *Work) UnmarshalText(b []byte) error {
-	i := new(big.Int)
-	if err := i.UnmarshalText(b); err != nil {
-		return err
-	} else if i.Sign() < 0 {
-		return errors.New("value cannot be negative")
-	} else if i.BitLen() > 256 {
-		return errors.New("value overflows Work representation")
-	}
-	i.FillBytes(w.NumHashes[:])
-	return nil
-}
-
-// UnmarshalJSON implements json.Unmarshaler.
-func (w *Work) UnmarshalJSON(b []byte) error {
-	return w.UnmarshalText(bytes.Trim(b, `"`))
-}
-
-// MarshalJSON implements json.Marshaler.
-func (w Work) MarshalJSON() ([]byte, error) {
-	js, err := new(big.Int).SetBytes(w.NumHashes[:]).MarshalJSON()
-	return []byte(`"` + string(js) + `"`), err
-}

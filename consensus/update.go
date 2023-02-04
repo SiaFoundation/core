@@ -33,6 +33,32 @@ func mulDifficultyFrac(x types.BlockID, n, d int64) (m types.BlockID) {
 	return mulTargetFrac(x, d, n)
 }
 
+func workRequiredForHash(id types.BlockID) *big.Int {
+	if id == (types.BlockID{}) {
+		panic("impossibly good BlockID")
+	}
+	maxTarget := new(big.Int).Lsh(big.NewInt(1), 256)
+	return maxTarget.Div(maxTarget, new(big.Int).SetBytes(id[:]))
+}
+
+func hashRequiringWork(i *big.Int) types.BlockID {
+	if i.Sign() == 0 {
+		panic("no hash requires zero work")
+	}
+	// As a special case, 1 Work produces this hash. (Otherwise, the division
+	// would produce 2^256, which overflows our representation.)
+	if i.IsInt64() && i.Int64() == 1 {
+		return types.BlockID{
+			0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+			0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+		}
+	}
+	var id types.BlockID
+	maxTarget := new(big.Int).Lsh(big.NewInt(1), 256)
+	maxTarget.Div(maxTarget, i).FillBytes(id[:])
+	return id
+}
+
 func updateOakTime(s State, h types.BlockHeader) time.Duration {
 	if s.childHeight() == hardforkASIC-1 {
 		return 120000 * time.Second
@@ -106,19 +132,19 @@ func adjustDifficulty(s State, h types.BlockHeader, store Store) types.BlockID {
 	}
 
 	// estimate the hashrate from the (decayed) total work and the (decayed,
-	// clamped) total time
+	// clamped) total time, and multiply by the target block time; this is the
+	// expected number of hashes required to produce the next block, i.e. the
+	// new difficulty
 	if oakTotalTime <= 0 {
 		oakTotalTime = 1
 	}
-	estimatedHashrate := types.WorkRequiredForHash(s.OakTarget).Div64(uint64(oakTotalTime))
-
-	// multiply the estimated hashrate by the target block time; this is the
-	// expected number of hashes required to produce the next block, i.e. the
-	// new difficulty
 	if targetBlockTime == 0 {
 		targetBlockTime = 1
 	}
-	newTarget := types.HashRequiringWork(estimatedHashrate.Mul64(uint64(targetBlockTime)))
+	estimatedHashrate := workRequiredForHash(s.OakTarget)
+	estimatedHashrate.Div(estimatedHashrate, big.NewInt(oakTotalTime))
+	estimatedHashrate.Mul(estimatedHashrate, big.NewInt(targetBlockTime))
+	newTarget := hashRequiringWork(estimatedHashrate)
 
 	// clamp the adjustment to 0.4%, except for ASIC hardfork block
 	if s.childHeight() != hardforkASIC {
