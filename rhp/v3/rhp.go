@@ -485,4 +485,19 @@ type (
 		FailureRefund        types.Currency
 		Output               []byte
 	}
+
+	// RPCFinalizeProgramRequest is the finalization request object for the
+	// ExecuteProgram RPC.
+	RPCFinalizeProgramRequest struct {
+		Signature         types.Signature
+		RevisionNumber    uint64
+		ValidProofValues  []types.Currency
+		MissedProofValues []types.Currency
+	}
+
+	// RPCFinalizeProgramResponse is the response object for finalizing the
+	// ExecuteProgram RPC
+	RPCFinalizeProgramResponse struct {
+		Signature types.Signature
+	}
 )
