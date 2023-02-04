@@ -240,6 +240,13 @@ func (a *ResourceCost) Add(b ResourceCost) ResourceCost {
 	}
 }
 
+// Total returns the total cost and collateral of a ResourceCost.
+func (a *ResourceCost) Total() (cost, collateral types.Currency) {
+	cost = a.Base.Add(a.Storage).Add(a.Egress).Add(a.Ingress)
+	collateral = a.Collateral
+	return
+}
+
 // writeBaseCost is the cost of executing a 'Write' instruction of a certain length
 // on the MDM.
 func (pt *HostPriceTable) writeBaseCost(writeLength uint64) types.Currency {
