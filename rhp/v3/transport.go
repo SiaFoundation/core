@@ -157,7 +157,7 @@ func (s *Stream) ReadID() (rpcID types.Specifier, err error) {
 		errStr = "bad subscription"
 	}
 	e := types.NewEncoder(s.s)
-	e.WritePrefix(8)
+	e.WritePrefix(8 + len(errStr))
 	e.WriteString(errStr)
 	if err := e.Flush(); err != nil {
 		return types.Specifier{}, err
@@ -259,20 +259,23 @@ func NewRenterTransport(conn net.Conn, hostKey types.PublicKey) (*Transport, err
 func NewHostTransport(conn net.Conn, hostKey types.PrivateKey) (*Transport, error) {
 	m, err := mux.Accept(conn, ed25519.PrivateKey(hostKey))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to upgrade connection: %w", err)
 	}
 
 	// perform seed handshake
-	s := m.DialStream()
+	s, err := m.AcceptStream()
+	if err != nil {
+		return nil, fmt.Errorf("failed to accept seed handshake stream: %w", err)
+	}
 	defer s.Close()
 	buf := make([]byte, 8+8)
 	if _, err := io.ReadFull(s, buf); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read seed handshake request: %w", err)
 	}
 	binary.LittleEndian.PutUint64(buf[:8], 8)
 	frand.Read(buf[8:])
 	if _, err := s.Write(buf); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to write seed handshake response: %w", err)
 	}
 
 	return &Transport{
