@@ -120,7 +120,6 @@ var (
 	idInstrReadOffset       = types.NewSpecifier("ReadOffset")
 	idInstrReadSector       = types.NewSpecifier("ReadSector")
 	idInstrContractRevision = types.NewSpecifier("Revision")
-	idInstrSectorRoots      = types.NewSpecifier("SectorRoots")
 	idInstrSwapSector       = types.NewSpecifier("SwapSector")
 	idInstrUpdateRegistry   = types.NewSpecifier("UpdateRegistry")
 	idInstrReadRegistry     = types.NewSpecifier("ReadRegistry")

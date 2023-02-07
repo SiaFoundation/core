@@ -332,6 +332,40 @@ func (r *RPCExecuteProgramResponse) DecodeFrom(d *types.Decoder) {
 	d.Read(r.Output)
 }
 
+func (r *RPCFinalizeProgramRequest) EncodeTo(e *types.Encoder) {
+	e.WriteBytes(r.Signature[:])
+	e.WriteUint64(r.RevisionNumber)
+	e.WritePrefix(len(r.ValidProofValues))
+	for _, v := range r.ValidProofValues {
+		v.EncodeTo(e)
+	}
+	e.WritePrefix(len(r.MissedProofValues))
+	for _, v := range r.MissedProofValues {
+		v.EncodeTo(e)
+	}
+}
+
+func (r *RPCFinalizeProgramRequest) DecodeFrom(d *types.Decoder) {
+	copy(r.Signature[:], d.ReadBytes())
+	r.RevisionNumber = d.ReadUint64()
+	r.ValidProofValues = make([]types.Currency, d.ReadPrefix())
+	for i := range r.ValidProofValues {
+		r.ValidProofValues[i].DecodeFrom(d)
+	}
+	r.MissedProofValues = make([]types.Currency, d.ReadPrefix())
+	for i := range r.MissedProofValues {
+		r.MissedProofValues[i].DecodeFrom(d)
+	}
+}
+
+func (r *RPCFinalizeProgramResponse) EncodeTo(e *types.Encoder) {
+	e.WriteBytes(r.Signature[:])
+}
+
+func (r *RPCFinalizeProgramResponse) DecodeFrom(d *types.Decoder) {
+	copy(r.Signature[:], d.ReadBytes())
+}
+
 func instructionID(instr Instruction) types.Specifier {
 	switch instr.(type) {
 	case *InstrAppendSector:
