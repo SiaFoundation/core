@@ -442,12 +442,36 @@ func TestCurrencyString(t *testing.T) {
 			"10000 H",
 		},
 		{
+			Siacoins(10).Sub(Siacoins(1)),
+			"9 SC",
+		},
+		{
+			Siacoins(10).Sub(Siacoins(1).Div64(10)),
+			"9.9 SC",
+		},
+		{
+			Siacoins(10).Sub(Siacoins(1).Div64(100)),
+			"9.99 SC",
+		},
+		{
+			Siacoins(10).Sub(Siacoins(1).Div64(1000)),
+			"9.999 SC",
+		},
+		{
+			Siacoins(10).Sub(Siacoins(1).Div64(10000)),
+			"~10 SC",
+		},
+		{
+			Siacoins(10).Sub(NewCurrency64(1)),
+			"~10 SC",
+		},
+		{
 			NewCurrency(8262254095159001088, 2742357),
-			"50.59 SC",
+			"~50.59 SC",
 		},
 		{
 			NewCurrency(2174395257947586975, 137),
-			"2.529 mS",
+			"~2.529 mS",
 		},
 	}
 	for _, tt := range tests {
