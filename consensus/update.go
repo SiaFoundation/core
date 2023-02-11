@@ -33,33 +33,7 @@ func mulDifficultyFrac(x types.BlockID, n, d int64) (m types.BlockID) {
 	return mulTargetFrac(x, d, n)
 }
 
-func workRequiredForHash(id types.BlockID) *big.Int {
-	if id == (types.BlockID{}) {
-		panic("impossibly good BlockID")
-	}
-	maxTarget := new(big.Int).Lsh(big.NewInt(1), 256)
-	return maxTarget.Div(maxTarget, new(big.Int).SetBytes(id[:]))
-}
-
-func hashRequiringWork(i *big.Int) types.BlockID {
-	if i.Sign() == 0 {
-		panic("no hash requires zero work")
-	}
-	// As a special case, 1 Work produces this hash. (Otherwise, the division
-	// would produce 2^256, which overflows our representation.)
-	if i.IsInt64() && i.Int64() == 1 {
-		return types.BlockID{
-			0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-			0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-		}
-	}
-	var id types.BlockID
-	maxTarget := new(big.Int).Lsh(big.NewInt(1), 256)
-	maxTarget.Div(maxTarget, i).FillBytes(id[:])
-	return id
-}
-
-func updateOakTime(s State, h types.BlockHeader) time.Duration {
+func updateOakTime(s State, blockTimestamp time.Time) time.Duration {
 	if s.childHeight() == hardforkASIC-1 {
 		return 120000 * time.Second
 	}
@@ -68,17 +42,17 @@ func updateOakTime(s State, h types.BlockHeader) time.Duration {
 		prevTotalTime = s.BlockInterval() * time.Duration(s.childHeight())
 	}
 	decayedTime := (((prevTotalTime / time.Second) * 995) / 1000) * time.Second
-	return decayedTime + h.Timestamp.Sub(s.PrevTimestamps[0])
+	return decayedTime + blockTimestamp.Sub(s.PrevTimestamps[0])
 }
 
-func updateOakTarget(s State, h types.BlockHeader) types.BlockID {
+func updateOakTarget(s State) types.BlockID {
 	if s.childHeight() == hardforkASIC-1 {
 		return types.BlockID{8: 32}
 	}
 	return addTarget(mulDifficultyFrac(s.OakTarget, 995, 1000), s.ChildTarget)
 }
 
-func adjustDifficulty(s State, h types.BlockHeader, store Store) types.BlockID {
+func adjustDifficulty(s State, blockTimestamp time.Time, store Store) types.BlockID {
 	blockInterval := int64(s.BlockInterval() / time.Second)
 
 	// pre-Oak algorithm
@@ -92,7 +66,7 @@ func adjustDifficulty(s State, h types.BlockHeader, store Store) types.BlockID {
 			ancestorDepth = s.childHeight()
 		}
 		targetTimestamp := store.AncestorTimestamp(s.Index.ID, ancestorDepth)
-		elapsed := int64(h.Timestamp.Sub(targetTimestamp) / time.Second)
+		elapsed := int64(blockTimestamp.Sub(targetTimestamp) / time.Second)
 		expected := blockInterval * int64(ancestorDepth)
 		// clamp
 		if r := float64(elapsed) / float64(expected); r > 25.0/10.0 {
@@ -141,171 +115,50 @@ func adjustDifficulty(s State, h types.BlockHeader, store Store) types.BlockID {
 	if targetBlockTime == 0 {
 		targetBlockTime = 1
 	}
-	estimatedHashrate := workRequiredForHash(s.OakTarget)
+	maxTarget := new(big.Int).Lsh(big.NewInt(1), 256)
+	maxTarget.Sub(maxTarget, big.NewInt(1))
+
+	estimatedHashrate := new(big.Int).Div(maxTarget, new(big.Int).SetBytes(s.OakTarget[:]))
 	estimatedHashrate.Div(estimatedHashrate, big.NewInt(oakTotalTime))
 	estimatedHashrate.Mul(estimatedHashrate, big.NewInt(targetBlockTime))
-	newTarget := hashRequiringWork(estimatedHashrate)
+	var newTarget types.BlockID
+	new(big.Int).Div(maxTarget, estimatedHashrate).FillBytes(newTarget[:])
 
-	// clamp the adjustment to 0.4%, except for ASIC hardfork block
-	if s.childHeight() != hardforkASIC {
-		if min := mulTargetFrac(s.ChildTarget, 1000, 1004); bytes.Compare(newTarget[:], min[:]) < 0 {
-			newTarget = min
-		} else if max := mulTargetFrac(s.ChildTarget, 1004, 1000); bytes.Compare(newTarget[:], max[:]) > 0 {
-			newTarget = max
+	if true {
+		// TODO: this *should* be equivalent, but might not be, due to rounding:
+		//
+		// newTarget = max / (((max / oakTarget) / totalTime) * targetTime)
+		//           = (oakTarget * totalTime * max) / (max * targetTime)
+		//           = oakTarget * (totalTime / targetTime)
+		if newTarget != mulTargetFrac(s.OakTarget, oakTotalTime, targetBlockTime) {
+			panic("mismatch")
 		}
 	}
 
+	// clamp the adjustment to 0.4%, except for ASIC hardfork block
+	if s.childHeight() == hardforkASIC {
+		return newTarget
+	}
+	min := mulTargetFrac(s.ChildTarget, 1000, 1004)
+	max := mulTargetFrac(s.ChildTarget, 1004, 1000)
+	if newTarget.Cmp(min) < 0 {
+		newTarget = min
+	} else if newTarget.Cmp(max) > 0 {
+		newTarget = max
+	}
 	return newTarget
 }
 
-// A TransactionDiff represents the changes to an ElementStore resulting from
-// the application of a transaction.
-type TransactionDiff struct {
-	CreatedSiacoinOutputs map[types.SiacoinOutputID]types.SiacoinOutput
-	DelayedSiacoinOutputs map[types.SiacoinOutputID]types.SiacoinOutput
-	CreatedSiafundOutputs map[types.SiafundOutputID]types.SiafundOutput
-	CreatedFileContracts  map[types.FileContractID]types.FileContract
-
-	SpentSiacoinOutputs  map[types.SiacoinOutputID]types.SiacoinOutput
-	SpentSiafundOutputs  map[types.SiafundOutputID]types.SiafundOutput
-	RevisedFileContracts map[types.FileContractID]types.FileContract
-	ValidFileContracts   map[types.FileContractID]types.FileContract
-}
-
-// A BlockDiff represents the changes to an ElementStore resulting from the
-// application of a block.
-type BlockDiff struct {
-	Transactions          []TransactionDiff
-	DelayedSiacoinOutputs map[types.SiacoinOutputID]types.SiacoinOutput
-	MaturedSiacoinOutputs map[types.SiacoinOutputID]types.SiacoinOutput
-	MissedFileContracts   map[types.FileContractID]types.FileContract
-}
-
-// ApplyBlock applies b to s, returning the resulting state and effects.
-func ApplyBlock(s State, store Store, b types.Block) (State, BlockDiff) {
+// ApplyState applies b to s, returning the resulting state.
+func ApplyState(s State, store Store, b types.Block) State {
 	if s.Index.Height > 0 && s.Index.ID != b.ParentID {
 		panic("consensus: cannot apply non-child block")
 	}
 
-	// track intra-block effects
 	siafundPool := s.SiafundPool
-	ephemeralSC := make(map[types.SiacoinOutputID]types.SiacoinOutput)
-	ephemeralSF := make(map[types.SiafundOutputID]types.SiafundOutput)
-	ephemeralClaims := make(map[types.SiafundOutputID]types.Currency)
-	ephemeralFC := make(map[types.FileContractID]types.FileContract)
-	hasStorageProof := make(map[types.FileContractID]bool)
-	getSC := func(id types.SiacoinOutputID) types.SiacoinOutput {
-		sco, ok := ephemeralSC[id]
-		if !ok {
-			sco, ok = store.SiacoinOutput(id)
-			if !ok {
-				panic("consensus: siacoin output not found")
-			}
-		}
-		return sco
-	}
-	getSF := func(id types.SiafundOutputID) (types.SiafundOutput, types.Currency) {
-		sfo, ok := ephemeralSF[id]
-		claim := ephemeralClaims[id]
-		if !ok {
-			sfo, claim, ok = store.SiafundOutput(id)
-			if !ok {
-				panic("consensus: siafund output not found")
-			}
-		}
-		return sfo, claim
-	}
-	getFC := func(id types.FileContractID) types.FileContract {
-		fc, ok := ephemeralFC[id]
-		if !ok {
-			fc, ok = store.FileContract(id)
-			if !ok {
-				panic("consensus: file contract not found")
-			}
-		}
-		return fc
-	}
-
-	diff := BlockDiff{
-		DelayedSiacoinOutputs: make(map[types.SiacoinOutputID]types.SiacoinOutput),
-		MaturedSiacoinOutputs: make(map[types.SiacoinOutputID]types.SiacoinOutput),
-		MissedFileContracts:   make(map[types.FileContractID]types.FileContract),
-	}
 	for _, txn := range b.Transactions {
-		tdiff := TransactionDiff{
-			CreatedSiacoinOutputs: make(map[types.SiacoinOutputID]types.SiacoinOutput),
-			DelayedSiacoinOutputs: make(map[types.SiacoinOutputID]types.SiacoinOutput),
-			CreatedSiafundOutputs: make(map[types.SiafundOutputID]types.SiafundOutput),
-			CreatedFileContracts:  make(map[types.FileContractID]types.FileContract),
-			SpentSiacoinOutputs:   make(map[types.SiacoinOutputID]types.SiacoinOutput),
-			SpentSiafundOutputs:   make(map[types.SiafundOutputID]types.SiafundOutput),
-			RevisedFileContracts:  make(map[types.FileContractID]types.FileContract),
-			ValidFileContracts:    make(map[types.FileContractID]types.FileContract),
-		}
-		for _, sci := range txn.SiacoinInputs {
-			tdiff.SpentSiacoinOutputs[sci.ParentID] = getSC(sci.ParentID)
-		}
-		for i, sco := range txn.SiacoinOutputs {
-			tdiff.CreatedSiacoinOutputs[txn.SiacoinOutputID(i)] = sco
-			ephemeralSC[txn.SiacoinOutputID(i)] = sco
-		}
-		for i, fc := range txn.FileContracts {
-			tdiff.CreatedFileContracts[txn.FileContractID(i)] = fc
-			ephemeralFC[txn.FileContractID(i)] = fc
+		for _, fc := range txn.FileContracts {
 			siafundPool = siafundPool.Add(s.FileContractTax(fc))
-		}
-		for _, sfi := range txn.SiafundInputs {
-			sfo, claimStart := getSF(sfi.ParentID)
-			tdiff.SpentSiafundOutputs[sfi.ParentID] = sfo
-			claimPortion := siafundPool.Sub(claimStart).Div64(s.SiafundCount()).Mul64(sfo.Value)
-			tdiff.DelayedSiacoinOutputs[sfi.ParentID.ClaimOutputID()] = types.SiacoinOutput{
-				Value:   claimPortion,
-				Address: sfi.ClaimAddress,
-			}
-		}
-		for i, sfo := range txn.SiafundOutputs {
-			tdiff.CreatedSiafundOutputs[txn.SiafundOutputID(i)] = sfo
-			ephemeralSF[txn.SiafundOutputID(i)] = sfo
-			ephemeralClaims[txn.SiafundOutputID(i)] = siafundPool
-		}
-		for _, fcr := range txn.FileContractRevisions {
-			fc := getFC(fcr.ParentID)
-			fcr.FileContract.Payout = fc.Payout // see types.FileContractRevision docstring
-			tdiff.RevisedFileContracts[fcr.ParentID] = fc
-			tdiff.CreatedFileContracts[fcr.ParentID] = fcr.FileContract
-			ephemeralFC[fcr.ParentID] = fcr.FileContract
-		}
-		for _, sp := range txn.StorageProofs {
-			fc := getFC(sp.ParentID)
-			tdiff.ValidFileContracts[sp.ParentID] = fc
-			for i, sco := range fc.ValidProofOutputs {
-				tdiff.DelayedSiacoinOutputs[sp.ParentID.ValidOutputID(i)] = sco
-			}
-			hasStorageProof[sp.ParentID] = true
-		}
-		diff.Transactions = append(diff.Transactions, tdiff)
-	}
-
-	h := b.Header()
-	bid := h.ID()
-	for i, mp := range b.MinerPayouts {
-		diff.DelayedSiacoinOutputs[bid.MinerOutputID(i)] = mp
-	}
-	if subsidy := s.FoundationSubsidy(); !subsidy.Value.IsZero() {
-		diff.DelayedSiacoinOutputs[bid.FoundationOutputID()] = subsidy
-	}
-	for _, id := range store.MaturedSiacoinOutputs(s.childHeight()) {
-		sco, _ := store.MaturedSiacoinOutput(s.childHeight(), id)
-		diff.MaturedSiacoinOutputs[id] = sco
-	}
-	for _, id := range store.MissedFileContracts(s.childHeight()) {
-		if hasStorageProof[id] {
-			continue
-		}
-		fc := getFC(id)
-		diff.MissedFileContracts[id] = fc
-		for i, sco := range fc.MissedProofOutputs {
-			diff.DelayedSiacoinOutputs[id.MissedOutputID(i)] = sco
 		}
 	}
 
@@ -327,38 +180,401 @@ func ApplyBlock(s State, store Store, b types.Block) (State, BlockDiff) {
 		}
 	}
 
-	var ns State
-	if h.ParentID == (types.BlockID{}) {
+	if b.ParentID == (types.BlockID{}) {
 		// special handling for genesis block
-		ns = State{
-			Index:                     types.ChainIndex{Height: 0, ID: bid},
-			PrevTimestamps:            [11]time.Time{0: h.Timestamp},
+		return State{
+			Index:                     types.ChainIndex{Height: 0, ID: b.ID()},
+			PrevTimestamps:            [11]time.Time{0: b.Timestamp},
 			Depth:                     s.Depth,
 			ChildTarget:               s.ChildTarget,
 			OakTime:                   0,
 			OakTarget:                 s.OakTarget,
-			GenesisTimestamp:          h.Timestamp,
-			SiafundPool:               siafundPool,
-			FoundationPrimaryAddress:  newFoundationPrimaryAddress,
-			FoundationFailsafeAddress: newFoundationFailsafeAddress,
-		}
-	} else {
-		prevTimestamps := s.PrevTimestamps
-		copy(prevTimestamps[1:], s.PrevTimestamps[:])
-		prevTimestamps[0] = h.Timestamp
-		ns = State{
-			Index:                     types.ChainIndex{Height: s.Index.Height + 1, ID: bid},
-			PrevTimestamps:            prevTimestamps,
-			Depth:                     addTarget(s.Depth, s.ChildTarget),
-			ChildTarget:               adjustDifficulty(s, h, store),
-			OakTime:                   updateOakTime(s, h),
-			OakTarget:                 updateOakTarget(s, h),
-			GenesisTimestamp:          s.GenesisTimestamp,
+			GenesisTimestamp:          b.Timestamp,
 			SiafundPool:               siafundPool,
 			FoundationPrimaryAddress:  newFoundationPrimaryAddress,
 			FoundationFailsafeAddress: newFoundationFailsafeAddress,
 		}
 	}
 
-	return ns, diff
+	prevTimestamps := s.PrevTimestamps
+	copy(prevTimestamps[1:], s.PrevTimestamps[:])
+	prevTimestamps[0] = b.Timestamp
+	return State{
+		Index:                     types.ChainIndex{Height: s.Index.Height + 1, ID: b.ID()},
+		PrevTimestamps:            prevTimestamps,
+		Depth:                     addTarget(s.Depth, s.ChildTarget),
+		ChildTarget:               adjustDifficulty(s, b.Timestamp, store),
+		OakTime:                   updateOakTime(s, b.Timestamp),
+		OakTarget:                 updateOakTarget(s),
+		GenesisTimestamp:          s.GenesisTimestamp,
+		SiafundPool:               siafundPool,
+		FoundationPrimaryAddress:  newFoundationPrimaryAddress,
+		FoundationFailsafeAddress: newFoundationFailsafeAddress,
+	}
+}
+
+// A SiacoinOutputDiff records the creation, deletion, or spending of a
+// SiacoinOutput.
+type SiacoinOutputDiff struct {
+	ID     types.SiacoinOutputID
+	Output types.SiacoinOutput
+}
+
+// EncodeTo implements types.EncoderTo.
+func (scod SiacoinOutputDiff) EncodeTo(e *types.Encoder) {
+	scod.ID.EncodeTo(e)
+	scod.Output.EncodeTo(e)
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (scod *SiacoinOutputDiff) DecodeFrom(d *types.Decoder) {
+	scod.ID.DecodeFrom(d)
+	scod.Output.DecodeFrom(d)
+}
+
+// A SiafundOutputDiff records the creation, deletion, or spending of a
+// SiafundOutput.
+type SiafundOutputDiff struct {
+	ID         types.SiafundOutputID
+	Output     types.SiafundOutput
+	ClaimStart types.Currency
+}
+
+// EncodeTo implements types.EncoderTo.
+func (sfod SiafundOutputDiff) EncodeTo(e *types.Encoder) {
+	sfod.ID.EncodeTo(e)
+	sfod.Output.EncodeTo(e)
+	sfod.ClaimStart.EncodeTo(e)
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (sfod *SiafundOutputDiff) DecodeFrom(d *types.Decoder) {
+	sfod.ID.DecodeFrom(d)
+	sfod.Output.DecodeFrom(d)
+	sfod.ClaimStart.DecodeFrom(d)
+}
+
+// A FileContractDiff records the creation, deletion, or resolution of a
+// FileContract.
+type FileContractDiff struct {
+	ID       types.FileContractID
+	Contract types.FileContract
+}
+
+// EncodeTo implements types.EncoderTo.
+func (fcd FileContractDiff) EncodeTo(e *types.Encoder) {
+	fcd.ID.EncodeTo(e)
+	fcd.Contract.EncodeTo(e)
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (fcd *FileContractDiff) DecodeFrom(d *types.Decoder) {
+	fcd.ID.DecodeFrom(d)
+	fcd.Contract.DecodeFrom(d)
+}
+
+// A FileContractRevisionDiff records the revision of a FileContract.
+type FileContractRevisionDiff struct {
+	ID          types.FileContractID
+	OldContract types.FileContract
+	NewContract types.FileContract
+}
+
+// EncodeTo implements types.EncoderTo.
+func (fcrd FileContractRevisionDiff) EncodeTo(e *types.Encoder) {
+	fcrd.ID.EncodeTo(e)
+	fcrd.OldContract.EncodeTo(e)
+	fcrd.NewContract.EncodeTo(e)
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (fcrd *FileContractRevisionDiff) DecodeFrom(d *types.Decoder) {
+	fcrd.ID.DecodeFrom(d)
+	fcrd.OldContract.DecodeFrom(d)
+	fcrd.NewContract.DecodeFrom(d)
+}
+
+// A TransactionDiff represents the changes to an ElementStore resulting from
+// the application of a transaction.
+type TransactionDiff struct {
+	CreatedSiacoinOutputs  []SiacoinOutputDiff
+	ImmatureSiacoinOutputs []SiacoinOutputDiff
+	CreatedSiafundOutputs  []SiafundOutputDiff
+	CreatedFileContracts   []FileContractDiff
+
+	SpentSiacoinOutputs  []SiacoinOutputDiff
+	SpentSiafundOutputs  []SiafundOutputDiff
+	RevisedFileContracts []FileContractRevisionDiff
+	ValidFileContracts   []FileContractDiff
+}
+
+// EncodeTo implements types.EncoderTo.
+func (td TransactionDiff) EncodeTo(e *types.Encoder) {
+	e.WritePrefix(len(td.CreatedSiacoinOutputs))
+	for i := range td.CreatedSiacoinOutputs {
+		td.CreatedSiacoinOutputs[i].EncodeTo(e)
+	}
+	e.WritePrefix(len(td.ImmatureSiacoinOutputs))
+	for i := range td.ImmatureSiacoinOutputs {
+		td.ImmatureSiacoinOutputs[i].EncodeTo(e)
+	}
+	e.WritePrefix(len(td.CreatedSiafundOutputs))
+	for i := range td.CreatedSiafundOutputs {
+		td.CreatedSiafundOutputs[i].EncodeTo(e)
+	}
+	e.WritePrefix(len(td.CreatedFileContracts))
+	for i := range td.CreatedFileContracts {
+		td.CreatedFileContracts[i].EncodeTo(e)
+	}
+	e.WritePrefix(len(td.SpentSiacoinOutputs))
+	for i := range td.SpentSiacoinOutputs {
+		td.SpentSiacoinOutputs[i].EncodeTo(e)
+	}
+	e.WritePrefix(len(td.SpentSiafundOutputs))
+	for i := range td.SpentSiafundOutputs {
+		td.SpentSiafundOutputs[i].EncodeTo(e)
+	}
+	e.WritePrefix(len(td.RevisedFileContracts))
+	for i := range td.RevisedFileContracts {
+		td.RevisedFileContracts[i].EncodeTo(e)
+	}
+	e.WritePrefix(len(td.ValidFileContracts))
+	for i := range td.ValidFileContracts {
+		td.ValidFileContracts[i].EncodeTo(e)
+	}
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (td *TransactionDiff) DecodeFrom(d *types.Decoder) {
+	td.CreatedSiacoinOutputs = make([]SiacoinOutputDiff, d.ReadPrefix())
+	for i := range td.CreatedSiacoinOutputs {
+		td.CreatedSiacoinOutputs[i].DecodeFrom(d)
+	}
+	td.ImmatureSiacoinOutputs = make([]SiacoinOutputDiff, d.ReadPrefix())
+	for i := range td.ImmatureSiacoinOutputs {
+		td.ImmatureSiacoinOutputs[i].DecodeFrom(d)
+	}
+	td.CreatedSiafundOutputs = make([]SiafundOutputDiff, d.ReadPrefix())
+	for i := range td.CreatedSiafundOutputs {
+		td.CreatedSiafundOutputs[i].DecodeFrom(d)
+	}
+	td.CreatedFileContracts = make([]FileContractDiff, d.ReadPrefix())
+	for i := range td.CreatedFileContracts {
+		td.CreatedFileContracts[i].DecodeFrom(d)
+	}
+	td.SpentSiacoinOutputs = make([]SiacoinOutputDiff, d.ReadPrefix())
+	for i := range td.SpentSiacoinOutputs {
+		td.SpentSiacoinOutputs[i].DecodeFrom(d)
+	}
+	td.SpentSiafundOutputs = make([]SiafundOutputDiff, d.ReadPrefix())
+	for i := range td.SpentSiafundOutputs {
+		td.SpentSiafundOutputs[i].DecodeFrom(d)
+	}
+	td.RevisedFileContracts = make([]FileContractRevisionDiff, d.ReadPrefix())
+	for i := range td.RevisedFileContracts {
+		td.RevisedFileContracts[i].DecodeFrom(d)
+	}
+	td.ValidFileContracts = make([]FileContractDiff, d.ReadPrefix())
+	for i := range td.ValidFileContracts {
+		td.ValidFileContracts[i].DecodeFrom(d)
+	}
+}
+
+// A BlockDiff represents the changes to a Store resulting from the application
+// of a block.
+type BlockDiff struct {
+	Transactions           []TransactionDiff
+	ImmatureSiacoinOutputs []SiacoinOutputDiff
+	MaturedSiacoinOutputs  []SiacoinOutputDiff
+	MissedFileContracts    []FileContractDiff
+}
+
+// EncodeTo implements types.EncoderTo.
+func (bd BlockDiff) EncodeTo(e *types.Encoder) {
+	e.WritePrefix(len(bd.Transactions))
+	for i := range bd.Transactions {
+		bd.Transactions[i].EncodeTo(e)
+	}
+	e.WritePrefix(len(bd.ImmatureSiacoinOutputs))
+	for i := range bd.ImmatureSiacoinOutputs {
+		bd.ImmatureSiacoinOutputs[i].EncodeTo(e)
+	}
+	e.WritePrefix(len(bd.MaturedSiacoinOutputs))
+	for i := range bd.MaturedSiacoinOutputs {
+		bd.MaturedSiacoinOutputs[i].EncodeTo(e)
+	}
+	e.WritePrefix(len(bd.MissedFileContracts))
+	for i := range bd.MissedFileContracts {
+		bd.MissedFileContracts[i].EncodeTo(e)
+	}
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (bd *BlockDiff) DecodeFrom(d *types.Decoder) {
+	bd.Transactions = make([]TransactionDiff, d.ReadPrefix())
+	for i := range bd.Transactions {
+		bd.Transactions[i].DecodeFrom(d)
+	}
+	bd.ImmatureSiacoinOutputs = make([]SiacoinOutputDiff, d.ReadPrefix())
+	for i := range bd.ImmatureSiacoinOutputs {
+		bd.ImmatureSiacoinOutputs[i].DecodeFrom(d)
+	}
+	bd.MaturedSiacoinOutputs = make([]SiacoinOutputDiff, d.ReadPrefix())
+	for i := range bd.MaturedSiacoinOutputs {
+		bd.MaturedSiacoinOutputs[i].DecodeFrom(d)
+	}
+	bd.MissedFileContracts = make([]FileContractDiff, d.ReadPrefix())
+	for i := range bd.MissedFileContracts {
+		bd.MissedFileContracts[i].DecodeFrom(d)
+	}
+}
+
+// ApplyDiff applies b to s, returning the resulting effects.
+func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
+	if s.Index.Height > 0 && s.Index.ID != b.ParentID {
+		panic("consensus: cannot apply non-child block")
+	}
+
+	siafundPool := s.SiafundPool
+	ephemeralSC := make(map[types.SiacoinOutputID]types.SiacoinOutput)
+	ephemeralSF := make(map[types.SiafundOutputID]types.SiafundOutput)
+	ephemeralClaims := make(map[types.SiafundOutputID]types.Currency)
+	ephemeralFC := make(map[types.FileContractID]types.FileContract)
+	hasStorageProof := make(map[types.FileContractID]bool)
+	getSC := func(id types.SiacoinOutputID) types.SiacoinOutput {
+		sco, ok := ephemeralSC[id]
+		if !ok {
+			sco, _ = store.SiacoinOutput(id)
+		}
+		return sco
+	}
+	getSF := func(id types.SiafundOutputID) (types.SiafundOutput, types.Currency) {
+		sfo, ok := ephemeralSF[id]
+		claim := ephemeralClaims[id]
+		if !ok {
+			sfo, claim, _ = store.SiafundOutput(id)
+		}
+		return sfo, claim
+	}
+	getFC := func(id types.FileContractID) types.FileContract {
+		fc, ok := ephemeralFC[id]
+		if !ok {
+			fc, _ = store.FileContract(id)
+		}
+		return fc
+	}
+
+	var diff BlockDiff
+	for _, txn := range b.Transactions {
+		var tdiff TransactionDiff
+		for _, sci := range txn.SiacoinInputs {
+			tdiff.SpentSiacoinOutputs = append(tdiff.SpentSiacoinOutputs, SiacoinOutputDiff{
+				ID:     sci.ParentID,
+				Output: getSC(sci.ParentID),
+			})
+		}
+		for i, sco := range txn.SiacoinOutputs {
+			scoid := txn.SiacoinOutputID(i)
+			tdiff.CreatedSiacoinOutputs = append(tdiff.CreatedSiacoinOutputs, SiacoinOutputDiff{
+				ID:     scoid,
+				Output: sco,
+			})
+			ephemeralSC[scoid] = sco
+		}
+		for i, fc := range txn.FileContracts {
+			fcid := txn.FileContractID(i)
+			tdiff.CreatedFileContracts = append(tdiff.CreatedFileContracts, FileContractDiff{
+				ID:       fcid,
+				Contract: fc,
+			})
+			ephemeralFC[fcid] = fc
+			siafundPool = siafundPool.Add(s.FileContractTax(fc))
+		}
+		for _, sfi := range txn.SiafundInputs {
+			sfo, claimStart := getSF(sfi.ParentID)
+			tdiff.SpentSiafundOutputs = append(tdiff.SpentSiafundOutputs, SiafundOutputDiff{
+				ID:         sfi.ParentID,
+				Output:     sfo,
+				ClaimStart: claimStart,
+			})
+			claimPortion := siafundPool.Sub(claimStart).Div64(s.SiafundCount()).Mul64(sfo.Value)
+			tdiff.ImmatureSiacoinOutputs = append(tdiff.ImmatureSiacoinOutputs, SiacoinOutputDiff{
+				ID:     sfi.ParentID.ClaimOutputID(),
+				Output: types.SiacoinOutput{Value: claimPortion, Address: sfi.ClaimAddress},
+			})
+		}
+		for i, sfo := range txn.SiafundOutputs {
+			sfoid := txn.SiafundOutputID(i)
+			tdiff.CreatedSiafundOutputs = append(tdiff.CreatedSiafundOutputs, SiafundOutputDiff{
+				ID:     sfoid,
+				Output: sfo,
+			})
+			ephemeralSF[sfoid] = sfo
+			ephemeralClaims[sfoid] = siafundPool
+		}
+		for _, fcr := range txn.FileContractRevisions {
+			fc := getFC(fcr.ParentID)
+			newContract := fcr.FileContract
+			newContract.Payout = fc.Payout // see types.FileContractRevision docstring
+			tdiff.RevisedFileContracts = append(tdiff.RevisedFileContracts, FileContractRevisionDiff{
+				ID:          fcr.ParentID,
+				OldContract: fc,
+				NewContract: newContract,
+			})
+			ephemeralFC[fcr.ParentID] = newContract
+		}
+		for _, sp := range txn.StorageProofs {
+			fc := getFC(sp.ParentID)
+			tdiff.ValidFileContracts = append(tdiff.ValidFileContracts, FileContractDiff{
+				ID:       sp.ParentID,
+				Contract: fc,
+			})
+			for i, sco := range fc.ValidProofOutputs {
+				tdiff.ImmatureSiacoinOutputs = append(tdiff.ImmatureSiacoinOutputs, SiacoinOutputDiff{
+					ID:     sp.ParentID.ValidOutputID(i),
+					Output: sco,
+				})
+			}
+			hasStorageProof[sp.ParentID] = true
+		}
+		diff.Transactions = append(diff.Transactions, tdiff)
+	}
+
+	bid := b.ID()
+	for i, sco := range b.MinerPayouts {
+		diff.ImmatureSiacoinOutputs = append(diff.ImmatureSiacoinOutputs, SiacoinOutputDiff{
+			ID:     bid.MinerOutputID(i),
+			Output: sco,
+		})
+	}
+	if subsidy := s.FoundationSubsidy(); !subsidy.Value.IsZero() {
+		diff.ImmatureSiacoinOutputs = append(diff.ImmatureSiacoinOutputs, SiacoinOutputDiff{
+			ID:     bid.FoundationOutputID(),
+			Output: subsidy,
+		})
+	}
+	for _, scod := range store.MaturedSiacoinOutputs(s.childHeight()) {
+		diff.MaturedSiacoinOutputs = append(diff.MaturedSiacoinOutputs, SiacoinOutputDiff{
+			ID:     scod.ID,
+			Output: scod.Output,
+		})
+	}
+	for _, fcid := range store.MissedFileContracts(s.childHeight()) {
+		if hasStorageProof[fcid] {
+			continue
+		}
+		fc := getFC(fcid)
+		diff.MissedFileContracts = append(diff.MissedFileContracts, FileContractDiff{
+			ID:       fcid,
+			Contract: fc,
+		})
+		for i, sco := range fc.MissedProofOutputs {
+			diff.ImmatureSiacoinOutputs = append(diff.ImmatureSiacoinOutputs, SiacoinOutputDiff{
+				ID:     fcid.MissedOutputID(i),
+				Output: sco,
+			})
+		}
+	}
+
+	return diff
 }

@@ -5,34 +5,26 @@ import (
 	"errors"
 	"fmt"
 	"math/bits"
-	"time"
 
 	"go.sia.tech/core/internal/blake2b"
 	"go.sia.tech/core/types"
 )
 
-// A ValidationContext contains all of the information necessary to validate a
-// block.
-type ValidationContext struct {
-	State State
-	Store Store
-}
-
-func (vc ValidationContext) validateHeader(h types.BlockHeader) error {
-	if h.ParentID != vc.State.Index.ID {
+func validateHeader(s State, h types.BlockHeader) error {
+	if h.ParentID != s.Index.ID {
 		return errors.New("wrong parent ID")
-	} else if h.Timestamp.Before(vc.State.medianTimestamp()) {
+	} else if h.Timestamp.Before(s.medianTimestamp()) {
 		return errors.New("timestamp is too far in the past")
-	} else if h.Nonce%vc.State.NonceFactor() != 0 {
+	} else if h.Nonce%s.NonceFactor() != 0 {
 		return errors.New("nonce is not divisible by required factor")
-	} else if !h.ID().MeetsTarget(vc.State.ChildTarget) {
+	} else if h.ID().Cmp(s.ChildTarget) < 0 {
 		return errors.New("insufficient work")
 	}
 	return nil
 }
 
-func (vc ValidationContext) validateMinerPayouts(b types.Block) error {
-	expectedSum := vc.State.BlockReward()
+func validateMinerPayouts(s State, b types.Block) error {
+	expectedSum := s.BlockReward()
 	for _, txn := range b.Transactions {
 		for _, fee := range txn.MinerFees {
 			if fee.IsZero() {
@@ -63,7 +55,7 @@ func (vc ValidationContext) validateMinerPayouts(b types.Block) error {
 	return nil
 }
 
-func (vc ValidationContext) validateCurrencyOverflow(txns []types.Transaction) error {
+func validateCurrencyOverflow(s State, txns []types.Transaction) error {
 	// Check that the sum of all currency values in the transaction set will not
 	// overflow our 128-bit representation. This allows us to safely add
 	// currency values in other validation checks without fear of overflow.
@@ -83,7 +75,7 @@ func (vc ValidationContext) validateCurrencyOverflow(txns []types.Transaction) e
 			add(sco.Value)
 		}
 		for _, sfo := range txn.SiafundOutputs {
-			overflow = overflow || sfo.Value > vc.State.SiafundCount()
+			overflow = overflow || sfo.Value > s.SiafundCount()
 		}
 		for _, fc := range txn.FileContracts {
 			add(fc.Payout)
@@ -110,7 +102,7 @@ func (vc ValidationContext) validateCurrencyOverflow(txns []types.Transaction) e
 	return nil
 }
 
-func (vc ValidationContext) validateDoubleSpends(txns []types.Transaction) error {
+func validateDoubleSpends(s State, txns []types.Transaction) error {
 	seen := make(map[types.Hash256]bool)
 	doubleSpent := func(id types.Hash256) bool {
 		if seen[id] {
@@ -139,7 +131,7 @@ func (vc ValidationContext) validateDoubleSpends(txns []types.Transaction) error
 	return nil
 }
 
-func (vc ValidationContext) validateMinimumValues(txn types.Transaction) error {
+func validateMinimumValues(s State, txn types.Transaction) error {
 	zero := false
 	for _, sco := range txn.SiacoinOutputs {
 		zero = zero || sco.Value.IsZero()
@@ -159,7 +151,7 @@ func (vc ValidationContext) validateMinimumValues(txn types.Transaction) error {
 	return nil
 }
 
-func (vc ValidationContext) validateSiacoins(txns []types.Transaction) error {
+func validateSiacoins(s State, store Store, txns []types.Transaction) error {
 	// NOTE: storage proofs and siafund claim outputs can also create new
 	// siacoin outputs, but we don't need to account for them here because they
 	// have a maturity delay and are thus unspendable within the same block
@@ -175,7 +167,7 @@ func (vc ValidationContext) validateSiacoins(txns []types.Transaction) error {
 			spent[sci.ParentID] = i
 			parent, ok := ephemeralSC[sci.ParentID]
 			if !ok {
-				parent, ok = vc.Store.SiacoinOutput(sci.ParentID)
+				parent, ok = store.SiacoinOutput(sci.ParentID)
 				if !ok {
 					return fmt.Errorf("transaction %v spends nonexistent siacoin output %v", i, sci.ParentID)
 				}
@@ -203,7 +195,7 @@ func (vc ValidationContext) validateSiacoins(txns []types.Transaction) error {
 	return nil
 }
 
-func (vc ValidationContext) validateSiafunds(txns []types.Transaction) error {
+func validateSiafunds(s State, store Store, txns []types.Transaction) error {
 	ephemeralSF := make(map[types.SiafundOutputID]types.SiafundOutput)
 	spent := make(map[types.SiafundOutputID]int)
 	for i, txn := range txns {
@@ -215,12 +207,16 @@ func (vc ValidationContext) validateSiafunds(txns []types.Transaction) error {
 			spent[sfi.ParentID] = i
 			parent, ok := ephemeralSF[sfi.ParentID]
 			if !ok {
-				parent, _, ok = vc.Store.SiafundOutput(sfi.ParentID)
+				parent, _, ok = store.SiafundOutput(sfi.ParentID)
 				if !ok {
 					return fmt.Errorf("transaction %v spends nonexistent siafund output %v", i, sfi.ParentID)
 				}
 			}
-			if sfi.UnlockConditions.UnlockHash() != parent.Address {
+			if sfi.UnlockConditions.UnlockHash() != parent.Address &&
+				// override old developer siafund address
+				!(s.childHeight() >= hardforkDevAddr &&
+					parent.Address.String() == "addr:7d0c44f7664e2d34e53efde0661a6f628ec9264785ae8e3cd7c973e8d190c3c97b5e3ecbc567" &&
+					sfi.UnlockConditions.UnlockHash().String() == "addr:f371c70bce9eb8979cd5099f599ec4e4fcb14e0afcf31f9791e03e6496a4c0b358c98279730b") {
 				return fmt.Errorf("transaction %v claims incorrect unlock conditions for siafund output %v", i, sfi.ParentID)
 			}
 
@@ -238,7 +234,7 @@ func (vc ValidationContext) validateSiafunds(txns []types.Transaction) error {
 	return nil
 }
 
-func (vc ValidationContext) validateContracts(txns []types.Transaction) error {
+func validateContracts(s State, store Store, txns []types.Transaction) error {
 	ephemeralFC := make(map[types.FileContractID]types.FileContract)
 	for _, txn := range txns {
 		for i, fc := range txn.FileContracts {
@@ -249,7 +245,7 @@ func (vc ValidationContext) validateContracts(txns []types.Transaction) error {
 		for i, fcr := range txn.FileContractRevisions {
 			parent, ok := ephemeralFC[fcr.ParentID]
 			if !ok {
-				parent, ok = vc.Store.FileContract(fcr.ParentID)
+				parent, ok = store.FileContract(fcr.ParentID)
 				if !ok {
 					return fmt.Errorf("transaction %v is invalid: file contract revision %v revises nonexistent file contract %v", txnIndex, i, fcr.ParentID)
 				}
@@ -274,30 +270,42 @@ func (vc ValidationContext) validateContracts(txns []types.Transaction) error {
 			ephemeralFC[fcr.ParentID] = fcr.FileContract
 		}
 	}
+
+	// check for duplicate storage proofs
+	seen := make(map[types.FileContractID]bool)
+	for txnIndex, txn := range txns {
+		for i, sp := range txn.StorageProofs {
+			if seen[sp.ParentID] {
+				return fmt.Errorf("transaction %v is invalid: storage proof %v conflicts with earlier proof in transaction set", txnIndex, i)
+			}
+			seen[sp.ParentID] = true
+		}
+	}
+
 	return nil
 }
 
-func (vc ValidationContext) validateSiacoinInputs(txn types.Transaction) error {
+func validateSiacoinInputs(s State, txn types.Transaction) error {
 	for i, sci := range txn.SiacoinInputs {
-		if sci.UnlockConditions.Timelock > vc.State.childHeight() {
+		if sci.UnlockConditions.Timelock > s.childHeight() {
 			return fmt.Errorf("siacoin input %v has timelocked parent", i)
 		}
 	}
 	return nil
 }
 
-func (vc ValidationContext) validateSiafundInputs(txn types.Transaction) error {
+func validateSiafundInputs(s State, txn types.Transaction) error {
 	for i, sfi := range txn.SiafundInputs {
-		if sfi.UnlockConditions.Timelock > vc.State.childHeight() {
+		if sfi.UnlockConditions.Timelock > s.childHeight() {
 			return fmt.Errorf("siafund input %v has timelocked parent", i)
 		}
 	}
 	return nil
 }
 
-func (vc ValidationContext) validateFileContracts(txn types.Transaction) error {
+func validateFileContracts(s State, txn types.Transaction) error {
 	for i, fc := range txn.FileContracts {
-		if fc.WindowStart < vc.State.childHeight() {
+		if fc.WindowStart < s.childHeight() {
 			return fmt.Errorf("file contract %v has window that starts in the past", i)
 		} else if fc.WindowEnd <= fc.WindowStart {
 			return fmt.Errorf("file contract %v has window that ends before it begins", i)
@@ -311,14 +319,14 @@ func (vc ValidationContext) validateFileContracts(txn types.Transaction) error {
 		}
 		if !validSum.Equals(missedSum) {
 			return fmt.Errorf("file contract %v has valid payout that does not equal missed payout", i)
-		} else if !fc.Payout.Equals(validSum.Add(vc.State.FileContractTax(fc))) {
+		} else if !fc.Payout.Equals(validSum.Add(s.FileContractTax(fc))) {
 			return fmt.Errorf("file contract %v has payout with incorrect tax", i)
 		}
 	}
 	return nil
 }
 
-func (vc ValidationContext) validateFileContractRevisions(txn types.Transaction) error {
+func validateFileContractRevisions(s State, txn types.Transaction) error {
 	seen := make(map[types.FileContractID]bool)
 	for _, sp := range txn.StorageProofs {
 		seen[sp.ParentID] = true
@@ -329,9 +337,9 @@ func (vc ValidationContext) validateFileContractRevisions(txn types.Transaction)
 		}
 		seen[fcr.ParentID] = true
 
-		if fcr.UnlockConditions.Timelock > vc.State.childHeight() {
+		if fcr.UnlockConditions.Timelock > s.childHeight() {
 			return fmt.Errorf("file contract revision %v has timelocked parent", i)
-		} else if fcr.FileContract.WindowStart < vc.State.childHeight() {
+		} else if fcr.FileContract.WindowStart < s.childHeight() {
 			return fmt.Errorf("file contract revision %v has window that starts in the past", i)
 		} else if fcr.FileContract.WindowEnd <= fcr.FileContract.WindowStart {
 			return fmt.Errorf("file contract revision %v has window that ends before it begins", i)
@@ -340,7 +348,7 @@ func (vc ValidationContext) validateFileContractRevisions(txn types.Transaction)
 	return nil
 }
 
-func (vc ValidationContext) validateStorageProofs(txn types.Transaction) error {
+func validateStorageProofs(s State, store Store, txn types.Transaction) error {
 	const leafSize = uint64(len(types.StorageProof{}.Leaf))
 
 	// Storage proofs are height-sensitive, and thus can be invalidated by
@@ -378,23 +386,23 @@ func (vc ValidationContext) validateStorageProofs(txn types.Transaction) error {
 		}
 		seen[sp.ParentID] = true
 
-		fc, ok := vc.Store.FileContract(sp.ParentID)
+		fc, ok := store.FileContract(sp.ParentID)
 		if !ok {
 			return fmt.Errorf("storage proof %v references nonexistent file contract", i)
 		}
-		windowStart, ok := vc.Store.BestIndex(fc.WindowStart - 1)
+		windowStart, ok := store.BestIndex(fc.WindowStart - 1)
 		if !ok {
 			return fmt.Errorf("missing index for contract window start %v", fc.WindowStart)
 		}
-		leafIndex := vc.State.StorageProofLeafIndex(fc.Filesize, windowStart, sp.ParentID)
+		leafIndex := s.StorageProofLeafIndex(fc.Filesize, windowStart, sp.ParentID)
 		totalLeaves := fc.Filesize / leafSize
 		if fc.Filesize%leafSize != 0 {
 			totalLeaves++
 		}
 		var leafLen uint64
-		if vc.State.childHeight() < hardforkTax {
+		if s.childHeight() < hardforkTax {
 			leafLen = leafSize
-		} else if vc.State.childHeight() < hardforkStorageProof {
+		} else if s.childHeight() < hardforkStorageProof {
 			leafLen = leafSize
 			if leafIndex == totalLeaves-1 {
 				leafLen = fc.Filesize % leafSize
@@ -416,8 +424,8 @@ func (vc ValidationContext) validateStorageProofs(txn types.Transaction) error {
 	return nil
 }
 
-func (vc ValidationContext) validateArbitraryData(txn types.Transaction) error {
-	if vc.State.childHeight() < hardforkFoundation {
+func validateArbitraryData(s State, store Store, txn types.Transaction) error {
+	if s.childHeight() < hardforkFoundation {
 		return nil
 	}
 	for _, arb := range txn.ArbitraryData {
@@ -432,7 +440,7 @@ func (vc ValidationContext) validateArbitraryData(txn types.Transaction) error {
 			// check that the transaction is signed by a current key
 			var signed bool
 			for _, sci := range txn.SiacoinInputs {
-				if uh := sci.UnlockConditions.UnlockHash(); uh != vc.State.FoundationPrimaryAddress && uh != vc.State.FoundationFailsafeAddress {
+				if uh := sci.UnlockConditions.UnlockHash(); uh != s.FoundationPrimaryAddress && uh != s.FoundationFailsafeAddress {
 					continue
 				}
 				for _, sig := range txn.Signatures {
@@ -450,7 +458,7 @@ func (vc ValidationContext) validateArbitraryData(txn types.Transaction) error {
 	return nil
 }
 
-func (vc ValidationContext) validateSignatures(txn types.Transaction) error {
+func validateSignatures(s State, txn types.Transaction) error {
 	// build a map of all outstanding signatures
 	//
 	// NOTE: siad checks for double-spends here, but this is redundant
@@ -485,7 +493,7 @@ func (vc ValidationContext) validateSignatures(txn types.Transaction) error {
 			return fmt.Errorf("signature %v points to a nonexistent public key", i)
 		} else if e.need == 0 || e.used[sig.PublicKeyIndex] {
 			return fmt.Errorf("signature %v is redundant", i)
-		} else if sig.Timelock > vc.State.childHeight() {
+		} else if sig.Timelock > s.childHeight() {
 			return fmt.Errorf("timelock of signature %v has not expired", i)
 		}
 		e.used[sig.PublicKeyIndex] = true
@@ -493,18 +501,15 @@ func (vc ValidationContext) validateSignatures(txn types.Transaction) error {
 
 		switch pk := e.keys[sig.PublicKeyIndex]; pk.Algorithm {
 		case types.SpecifierEd25519:
-			if len(pk.Key) != len(types.PublicKey{}) {
-				return fmt.Errorf("signature %v has invalid public key length", i)
-			} else if len(sig.Signature) < len(types.Signature{}) {
-				return fmt.Errorf("signature %v has invalid signature length (%v)", i, len(sig.Signature))
-			}
-			epk := (*types.PublicKey)(pk.Key)
-			esig := *(*types.Signature)(sig.Signature)
+			var epk types.PublicKey
+			var esig types.Signature
+			copy(epk[:], pk.Key)
+			copy(esig[:], sig.Signature)
 			var sigHash types.Hash256
 			if sig.CoveredFields.WholeTransaction {
-				sigHash = vc.State.WholeSigHash(txn, sig.ParentID, sig.PublicKeyIndex, sig.Timelock, sig.CoveredFields.Signatures)
+				sigHash = s.WholeSigHash(txn, sig.ParentID, sig.PublicKeyIndex, sig.Timelock, sig.CoveredFields.Signatures)
 			} else {
-				sigHash = vc.State.PartialSigHash(txn, sig.CoveredFields)
+				sigHash = s.PartialSigHash(txn, sig.CoveredFields)
 			}
 			if !epk.VerifyHash(sigHash, esig) {
 				return fmt.Errorf("signature %v is invalid", i)
@@ -525,70 +530,75 @@ func (vc ValidationContext) validateSignatures(txn types.Transaction) error {
 	return nil
 }
 
-func (vc ValidationContext) validateTransaction(txn types.Transaction) error {
-	if err := vc.validateMinimumValues(txn); err != nil {
+func validateTransaction(s State, store Store, txn types.Transaction) error {
+	if err := validateMinimumValues(s, txn); err != nil {
 		return err
-	} else if err := vc.validateSiacoinInputs(txn); err != nil {
+	} else if err := validateSiacoinInputs(s, txn); err != nil {
 		return err
-	} else if err := vc.validateSiafundInputs(txn); err != nil {
+	} else if err := validateSiafundInputs(s, txn); err != nil {
 		return err
-	} else if err := vc.validateFileContracts(txn); err != nil {
+	} else if err := validateFileContracts(s, txn); err != nil {
 		return err
-	} else if err := vc.validateFileContractRevisions(txn); err != nil {
+	} else if err := validateFileContractRevisions(s, txn); err != nil {
 		return err
-	} else if err := vc.validateStorageProofs(txn); err != nil {
+	} else if err := validateStorageProofs(s, store, txn); err != nil {
 		return err
-	} else if err := vc.validateArbitraryData(txn); err != nil {
+	} else if err := validateArbitraryData(s, store, txn); err != nil {
 		return err
-	} else if err := vc.validateArbitraryData(txn); err != nil {
-		return err
-	} else if err := vc.validateSignatures(txn); err != nil {
+	} else if err := validateSignatures(s, txn); err != nil {
 		return err
 	}
 	return nil
 }
 
-// ValidateTransactionSet validates txns within the context of vc.
-func (vc ValidationContext) ValidateTransactionSet(txns []types.Transaction) error {
-	if err := vc.validateCurrencyOverflow(txns); err != nil {
+// ValidateTransactionSet validates txns within the context of s and store.
+func ValidateTransactionSet(s State, store Store, txns []types.Transaction) error {
+	if err := validateCurrencyOverflow(s, txns); err != nil {
 		return err
-	} else if err := vc.validateDoubleSpends(txns); err != nil {
+	} else if err := validateDoubleSpends(s, txns); err != nil {
 		return err
-	} else if err := vc.validateSiacoins(txns); err != nil {
+	} else if err := validateSiacoins(s, store, txns); err != nil {
 		return err
-	} else if err := vc.validateSiafunds(txns); err != nil {
+	} else if err := validateSiafunds(s, store, txns); err != nil {
 		return err
-	} else if err := vc.validateContracts(txns); err != nil {
+	} else if err := validateContracts(s, store, txns); err != nil {
 		return err
 	}
 	for i, txn := range txns {
-		if err := vc.validateTransaction(txn); err != nil {
+		if err := validateTransaction(s, store, txn); err != nil {
 			return fmt.Errorf("transaction %v is invalid: %w", i, err)
 		}
 	}
 	return nil
 }
 
-// ValidateBlock validates b in the context of vc.
+// ValidateBlock validates b in the context of s and store.
 //
 // This function does not check whether the header's timestamp is too far in the
 // future. That check should be performed at the time the block is received,
 // e.g. in p2p networking code; see MaxFutureTimestamp.
-func (vc ValidationContext) ValidateBlock(b types.Block) error {
+func ValidateBlock(s State, store Store, b types.Block) error {
 	// TODO: calculate size more efficiently
-	if types.EncodedLen(b) > vc.State.MaxBlockWeight() {
+	if types.EncodedLen(b) > s.MaxBlockWeight() {
 		return errors.New("block exceeds maximum weight")
-	} else if err := vc.validateHeader(b.Header()); err != nil {
+	} else if err := validateHeader(s, b.Header()); err != nil {
 		return err
-	} else if err := vc.validateMinerPayouts(b); err != nil {
+	} else if err := validateMinerPayouts(s, b); err != nil {
 		return err
-	} else if err := vc.ValidateTransactionSet(b.Transactions); err != nil {
+	} else if err := ValidateTransactionSet(s, store, b.Transactions); err != nil {
 		return err
 	}
 	return nil
 }
 
-// MaxFutureTimestamp returns the maximum allowed timestamp for a block.
-func (vc ValidationContext) MaxFutureTimestamp(currentTime time.Time) time.Time {
-	return currentTime.Add(2 * time.Hour)
+// ValidateOrphan validates b in the context of s.
+func ValidateOrphan(s State, b types.Block) error {
+	if types.EncodedLen(b) > s.MaxBlockWeight() {
+		return errors.New("block exceeds maximum weight")
+	} else if err := validateHeader(s, b.Header()); err != nil {
+		return err
+	} else if err := validateMinerPayouts(s, b); err != nil {
+		return err
+	}
+	return nil
 }

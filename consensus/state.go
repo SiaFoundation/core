@@ -15,6 +15,7 @@ import (
 const (
 	blocksPerYear = 144 * 365
 
+	hardforkDevAddr      = 10000
 	hardforkTax          = 21000
 	hardforkStorageProof = 100000
 	hardforkOak          = 135000
@@ -32,14 +33,18 @@ const (
 var hasherPool = &sync.Pool{New: func() interface{} { return types.NewHasher() }}
 
 // A Store stores blocks, siacoin outputs, siafund outputs, and file contracts.
+//
+// Store methods do not return errors. If a store encounters an error, it should
+// save the error and thereafter return empty values from all methods. It is the
+// caller's responsibility to check this error, and, if non-nil, discard any
+// results computed.
 type Store interface {
 	BestIndex(height uint64) (types.ChainIndex, bool)
 	AncestorTimestamp(id types.BlockID, n uint64) time.Time
 	SiacoinOutput(id types.SiacoinOutputID) (types.SiacoinOutput, bool)
 	SiafundOutput(id types.SiafundOutputID) (types.SiafundOutput, types.Currency, bool)
 	FileContract(id types.FileContractID) (types.FileContract, bool)
-	MaturedSiacoinOutputs(height uint64) []types.SiacoinOutputID
-	MaturedSiacoinOutput(height uint64, id types.SiacoinOutputID) (types.SiacoinOutput, bool)
+	MaturedSiacoinOutputs(height uint64) []SiacoinOutputDiff
 	MissedFileContracts(height uint64) []types.FileContractID
 }
 
@@ -108,6 +113,11 @@ func (s State) medianTimestamp() time.Time {
 	}
 	l, r := ts[len(ts)/2-1], ts[len(ts)/2]
 	return l.Add(r.Sub(l) / 2)
+}
+
+// MaxFutureTimestamp returns the maximum allowed timestamp for a block.
+func (s State) MaxFutureTimestamp(currentTime time.Time) time.Time {
+	return currentTime.Add(2 * time.Hour)
 }
 
 // BlockInterval is the expected wall clock time between consecutive blocks.
@@ -333,10 +343,4 @@ func (s State) PartialSigHash(txn types.Transaction, cf types.CoveredFields) typ
 	}
 
 	return h.Sum()
-}
-
-// A Checkpoint pairs a block with its resulting chain state.
-type Checkpoint struct {
-	Block types.Block
-	State State
 }

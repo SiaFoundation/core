@@ -142,9 +142,9 @@ var VoidAddress Address
 // A BlockID uniquely identifies a block.
 type BlockID Hash256
 
-// MeetsTarget returns true if bid is not greater than t.
-func (bid BlockID) MeetsTarget(t BlockID) bool {
-	return bytes.Compare(bid[:], t[:]) <= 0
+// Cmp compares two BlockIDs.
+func (bid BlockID) Cmp(t BlockID) int {
+	return bytes.Compare(bid[:], t[:])
 }
 
 // MinerOutputID returns the ID of the block's i'th miner payout.
