@@ -8,15 +8,24 @@ import (
 	"go.sia.tech/core/types"
 )
 
+var maxTarget = new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+
+func intToTarget(i *big.Int) (t types.BlockID) {
+	if i.BitLen() >= 256 {
+		i = maxTarget
+	}
+	i.FillBytes(t[:])
+	return
+}
+
 // s = 1/(1/x + 1/y) = x*y/(x+y)
-func addTarget(x, y types.BlockID) (s types.BlockID) {
+func addTarget(x, y types.BlockID) types.BlockID {
 	xi := new(big.Int).SetBytes(x[:])
 	yi := new(big.Int).SetBytes(y[:])
-	yi.Div(
+	return intToTarget(yi.Div(
 		new(big.Int).Mul(xi, yi),
 		new(big.Int).Add(xi, yi),
-	).FillBytes(s[:])
-	return
+	))
 }
 
 // m = x*n/d
@@ -24,8 +33,7 @@ func mulTargetFrac(x types.BlockID, n, d int64) (m types.BlockID) {
 	i := new(big.Int).SetBytes(x[:])
 	i.Mul(i, big.NewInt(n))
 	i.Div(i, big.NewInt(d))
-	i.FillBytes(m[:])
-	return
+	return intToTarget(i)
 }
 
 // m = 1/(1/x * n/d) = x*d/n
@@ -69,10 +77,10 @@ func adjustDifficulty(s State, blockTimestamp time.Time, store Store) types.Bloc
 		elapsed := int64(blockTimestamp.Sub(targetTimestamp) / time.Second)
 		expected := blockInterval * int64(ancestorDepth)
 		// clamp
-		if r := float64(elapsed) / float64(expected); r > 25.0/10.0 {
-			elapsed, expected = 25, 10
+		if r := float64(expected) / float64(elapsed); r > 25.0/10.0 {
+			expected, elapsed = 25, 10
 		} else if r < 10.0/25.0 {
-			elapsed, expected = 10, 25
+			expected, elapsed = 10, 25
 		}
 		// multiply
 		return mulDifficultyFrac(s.ChildTarget, expected, elapsed)
@@ -115,35 +123,27 @@ func adjustDifficulty(s State, blockTimestamp time.Time, store Store) types.Bloc
 	if targetBlockTime == 0 {
 		targetBlockTime = 1
 	}
-	maxTarget := new(big.Int).Lsh(big.NewInt(1), 256)
-	maxTarget.Sub(maxTarget, big.NewInt(1))
-
+	// NOTE: this *should* be:
+	//
+	//   newTarget := mulTargetFrac(s.OakTarget, oakTotalTime, targetBlockTime)
+	//
+	// However, the siad consensus code includes maxTarget divisions, resulting
+	// in slightly different rounding, which we must preserve here.
 	estimatedHashrate := new(big.Int).Div(maxTarget, new(big.Int).SetBytes(s.OakTarget[:]))
 	estimatedHashrate.Div(estimatedHashrate, big.NewInt(oakTotalTime))
 	estimatedHashrate.Mul(estimatedHashrate, big.NewInt(targetBlockTime))
-	var newTarget types.BlockID
-	new(big.Int).Div(maxTarget, estimatedHashrate).FillBytes(newTarget[:])
-
-	if true {
-		// TODO: this *should* be equivalent, but might not be, due to rounding:
-		//
-		// newTarget = max / (((max / oakTarget) / totalTime) * targetTime)
-		//           = (oakTarget * totalTime * max) / (max * targetTime)
-		//           = oakTarget * (totalTime / targetTime)
-		if newTarget != mulTargetFrac(s.OakTarget, oakTotalTime, targetBlockTime) {
-			panic("mismatch")
-		}
-	}
+	newTarget := intToTarget(new(big.Int).Div(maxTarget, estimatedHashrate))
 
 	// clamp the adjustment to 0.4%, except for ASIC hardfork block
 	if s.childHeight() == hardforkASIC {
 		return newTarget
 	}
-	min := mulTargetFrac(s.ChildTarget, 1000, 1004)
-	max := mulTargetFrac(s.ChildTarget, 1004, 1000)
-	if newTarget.Cmp(min) < 0 {
+	// NOTE: these are flipped re: siad because we are comparing work, not IDs
+	min := mulTargetFrac(s.ChildTarget, 1004, 1000)
+	max := mulTargetFrac(s.ChildTarget, 1000, 1004)
+	if newTarget.CmpWork(min) < 0 {
 		newTarget = min
-	} else if newTarget.Cmp(max) > 0 {
+	} else if newTarget.CmpWork(max) > 0 {
 		newTarget = max
 	}
 	return newTarget
@@ -187,8 +187,8 @@ func ApplyState(s State, store Store, b types.Block) State {
 			PrevTimestamps:            [11]time.Time{0: b.Timestamp},
 			Depth:                     s.Depth,
 			ChildTarget:               s.ChildTarget,
-			OakTime:                   0,
-			OakTarget:                 s.OakTarget,
+			OakTime:                   updateOakTime(s, b.Timestamp),
+			OakTarget:                 updateOakTarget(s),
 			GenesisTimestamp:          b.Timestamp,
 			SiafundPool:               siafundPool,
 			FoundationPrimaryAddress:  newFoundationPrimaryAddress,
@@ -213,6 +213,21 @@ func ApplyState(s State, store Store, b types.Block) State {
 	}
 }
 
+func GenesisState(genesisTimestamp time.Time, initialDifficulty types.BlockID, foundationPrimaryAddr, foundationFailsafeAddr types.Address) State {
+	return State{
+		Index:                     types.ChainIndex{Height: ^uint64(0)},
+		PrevTimestamps:            [11]time.Time{0: genesisTimestamp},
+		Depth:                     intToTarget(maxTarget),
+		ChildTarget:               initialDifficulty,
+		OakTime:                   0,
+		OakTarget:                 intToTarget(maxTarget),
+		GenesisTimestamp:          genesisTimestamp,
+		SiafundPool:               types.ZeroCurrency,
+		FoundationPrimaryAddress:  foundationPrimaryAddr,
+		FoundationFailsafeAddress: foundationFailsafeAddr,
+	}
+}
+
 // A SiacoinOutputDiff records the creation, deletion, or spending of a
 // SiacoinOutput.
 type SiacoinOutputDiff struct {
@@ -230,6 +245,29 @@ func (scod SiacoinOutputDiff) EncodeTo(e *types.Encoder) {
 func (scod *SiacoinOutputDiff) DecodeFrom(d *types.Decoder) {
 	scod.ID.DecodeFrom(d)
 	scod.Output.DecodeFrom(d)
+}
+
+// A DelayedSiacoinOutputDiff records the creation, deletion, or maturation of a
+// delayed SiacoinOutput. "Delayed" means that the output is immature when
+// created; it may only be spent when the "MaturityHeight" is reached.
+type DelayedSiacoinOutputDiff struct {
+	ID             types.SiacoinOutputID
+	Output         types.SiacoinOutput
+	MaturityHeight uint64
+}
+
+// EncodeTo implements types.EncoderTo.
+func (dscod DelayedSiacoinOutputDiff) EncodeTo(e *types.Encoder) {
+	dscod.ID.EncodeTo(e)
+	dscod.Output.EncodeTo(e)
+	e.WriteUint64(dscod.MaturityHeight)
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (dscod *DelayedSiacoinOutputDiff) DecodeFrom(d *types.Decoder) {
+	dscod.ID.DecodeFrom(d)
+	dscod.Output.DecodeFrom(d)
+	dscod.MaturityHeight = d.ReadUint64()
 }
 
 // A SiafundOutputDiff records the creation, deletion, or spending of a
@@ -298,7 +336,7 @@ func (fcrd *FileContractRevisionDiff) DecodeFrom(d *types.Decoder) {
 // the application of a transaction.
 type TransactionDiff struct {
 	CreatedSiacoinOutputs  []SiacoinOutputDiff
-	ImmatureSiacoinOutputs []SiacoinOutputDiff
+	ImmatureSiacoinOutputs []DelayedSiacoinOutputDiff
 	CreatedSiafundOutputs  []SiafundOutputDiff
 	CreatedFileContracts   []FileContractDiff
 
@@ -350,7 +388,7 @@ func (td *TransactionDiff) DecodeFrom(d *types.Decoder) {
 	for i := range td.CreatedSiacoinOutputs {
 		td.CreatedSiacoinOutputs[i].DecodeFrom(d)
 	}
-	td.ImmatureSiacoinOutputs = make([]SiacoinOutputDiff, d.ReadPrefix())
+	td.ImmatureSiacoinOutputs = make([]DelayedSiacoinOutputDiff, d.ReadPrefix())
 	for i := range td.ImmatureSiacoinOutputs {
 		td.ImmatureSiacoinOutputs[i].DecodeFrom(d)
 	}
@@ -384,9 +422,10 @@ func (td *TransactionDiff) DecodeFrom(d *types.Decoder) {
 // of a block.
 type BlockDiff struct {
 	Transactions           []TransactionDiff
-	ImmatureSiacoinOutputs []SiacoinOutputDiff
-	MaturedSiacoinOutputs  []SiacoinOutputDiff
+	MaturedSiacoinOutputs  []DelayedSiacoinOutputDiff
+	ImmatureSiacoinOutputs []DelayedSiacoinOutputDiff
 	MissedFileContracts    []FileContractDiff
+	FoundationSubsidy      *DelayedSiacoinOutputDiff
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -415,11 +454,11 @@ func (bd *BlockDiff) DecodeFrom(d *types.Decoder) {
 	for i := range bd.Transactions {
 		bd.Transactions[i].DecodeFrom(d)
 	}
-	bd.ImmatureSiacoinOutputs = make([]SiacoinOutputDiff, d.ReadPrefix())
+	bd.ImmatureSiacoinOutputs = make([]DelayedSiacoinOutputDiff, d.ReadPrefix())
 	for i := range bd.ImmatureSiacoinOutputs {
 		bd.ImmatureSiacoinOutputs[i].DecodeFrom(d)
 	}
-	bd.MaturedSiacoinOutputs = make([]SiacoinOutputDiff, d.ReadPrefix())
+	bd.MaturedSiacoinOutputs = make([]DelayedSiacoinOutputDiff, d.ReadPrefix())
 	for i := range bd.MaturedSiacoinOutputs {
 		bd.MaturedSiacoinOutputs[i].DecodeFrom(d)
 	}
@@ -444,7 +483,10 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 	getSC := func(id types.SiacoinOutputID) types.SiacoinOutput {
 		sco, ok := ephemeralSC[id]
 		if !ok {
-			sco, _ = store.SiacoinOutput(id)
+			sco, ok = store.SiacoinOutput(id)
+			if !ok {
+				panic("missing SiacoinOutput")
+			}
 		}
 		return sco
 	}
@@ -452,14 +494,20 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 		sfo, ok := ephemeralSF[id]
 		claim := ephemeralClaims[id]
 		if !ok {
-			sfo, claim, _ = store.SiafundOutput(id)
+			sfo, claim, ok = store.SiafundOutput(id)
+			if !ok {
+				panic("missing SiafundOutput")
+			}
 		}
 		return sfo, claim
 	}
 	getFC := func(id types.FileContractID) types.FileContract {
 		fc, ok := ephemeralFC[id]
 		if !ok {
-			fc, _ = store.FileContract(id)
+			fc, ok = store.FileContract(id)
+			if !ok {
+				panic("missing FileContract")
+			}
 		}
 		return fc
 	}
@@ -498,16 +546,18 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 				ClaimStart: claimStart,
 			})
 			claimPortion := siafundPool.Sub(claimStart).Div64(s.SiafundCount()).Mul64(sfo.Value)
-			tdiff.ImmatureSiacoinOutputs = append(tdiff.ImmatureSiacoinOutputs, SiacoinOutputDiff{
-				ID:     sfi.ParentID.ClaimOutputID(),
-				Output: types.SiacoinOutput{Value: claimPortion, Address: sfi.ClaimAddress},
+			tdiff.ImmatureSiacoinOutputs = append(tdiff.ImmatureSiacoinOutputs, DelayedSiacoinOutputDiff{
+				ID:             sfi.ParentID.ClaimOutputID(),
+				Output:         types.SiacoinOutput{Value: claimPortion, Address: sfi.ClaimAddress},
+				MaturityHeight: s.MaturityHeight(),
 			})
 		}
 		for i, sfo := range txn.SiafundOutputs {
 			sfoid := txn.SiafundOutputID(i)
 			tdiff.CreatedSiafundOutputs = append(tdiff.CreatedSiafundOutputs, SiafundOutputDiff{
-				ID:     sfoid,
-				Output: sfo,
+				ID:         sfoid,
+				Output:     sfo,
+				ClaimStart: siafundPool,
 			})
 			ephemeralSF[sfoid] = sfo
 			ephemeralClaims[sfoid] = siafundPool
@@ -530,9 +580,10 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 				Contract: fc,
 			})
 			for i, sco := range fc.ValidProofOutputs {
-				tdiff.ImmatureSiacoinOutputs = append(tdiff.ImmatureSiacoinOutputs, SiacoinOutputDiff{
-					ID:     sp.ParentID.ValidOutputID(i),
-					Output: sco,
+				tdiff.ImmatureSiacoinOutputs = append(tdiff.ImmatureSiacoinOutputs, DelayedSiacoinOutputDiff{
+					ID:             sp.ParentID.ValidOutputID(i),
+					Output:         sco,
+					MaturityHeight: s.MaturityHeight(),
 				})
 			}
 			hasStorageProof[sp.ParentID] = true
@@ -541,22 +592,12 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 	}
 
 	bid := b.ID()
+	diff.MaturedSiacoinOutputs = store.MaturedSiacoinOutputs(s.childHeight())
 	for i, sco := range b.MinerPayouts {
-		diff.ImmatureSiacoinOutputs = append(diff.ImmatureSiacoinOutputs, SiacoinOutputDiff{
-			ID:     bid.MinerOutputID(i),
-			Output: sco,
-		})
-	}
-	if subsidy := s.FoundationSubsidy(); !subsidy.Value.IsZero() {
-		diff.ImmatureSiacoinOutputs = append(diff.ImmatureSiacoinOutputs, SiacoinOutputDiff{
-			ID:     bid.FoundationOutputID(),
-			Output: subsidy,
-		})
-	}
-	for _, scod := range store.MaturedSiacoinOutputs(s.childHeight()) {
-		diff.MaturedSiacoinOutputs = append(diff.MaturedSiacoinOutputs, SiacoinOutputDiff{
-			ID:     scod.ID,
-			Output: scod.Output,
+		diff.ImmatureSiacoinOutputs = append(diff.ImmatureSiacoinOutputs, DelayedSiacoinOutputDiff{
+			ID:             bid.MinerOutputID(i),
+			Output:         sco,
+			MaturityHeight: s.MaturityHeight(),
 		})
 	}
 	for _, fcid := range store.MissedFileContracts(s.childHeight()) {
@@ -569,10 +610,18 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 			Contract: fc,
 		})
 		for i, sco := range fc.MissedProofOutputs {
-			diff.ImmatureSiacoinOutputs = append(diff.ImmatureSiacoinOutputs, SiacoinOutputDiff{
-				ID:     fcid.MissedOutputID(i),
-				Output: sco,
+			diff.ImmatureSiacoinOutputs = append(diff.ImmatureSiacoinOutputs, DelayedSiacoinOutputDiff{
+				ID:             fcid.MissedOutputID(i),
+				Output:         sco,
+				MaturityHeight: s.MaturityHeight(),
 			})
+		}
+	}
+	if subsidy := s.FoundationSubsidy(); !subsidy.Value.IsZero() {
+		diff.FoundationSubsidy = &DelayedSiacoinOutputDiff{
+			ID:             bid.FoundationOutputID(),
+			Output:         subsidy,
+			MaturityHeight: s.MaturityHeight(),
 		}
 	}
 

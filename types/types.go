@@ -142,9 +142,10 @@ var VoidAddress Address
 // A BlockID uniquely identifies a block.
 type BlockID Hash256
 
-// Cmp compares two BlockIDs.
-func (bid BlockID) Cmp(t BlockID) int {
-	return bytes.Compare(bid[:], t[:])
+// CmpWork compares the work implied by two BlockIDs.
+func (bid BlockID) CmpWork(t BlockID) int {
+	// work is the inverse of the ID, so reverse the comparison
+	return bytes.Compare(t[:], bid[:])
 }
 
 // MinerOutputID returns the ID of the block's i'th miner payout.
@@ -494,7 +495,7 @@ func marshalHex(prefix string, data []byte) ([]byte, error) {
 func unmarshalHex(dst []byte, prefix string, data []byte) error {
 	n, err := hex.Decode(dst, bytes.TrimPrefix(data, []byte(prefix+":")))
 	if n < len(dst) {
-		err = io.EOF
+		err = io.ErrUnexpectedEOF
 	}
 	if err != nil {
 		return fmt.Errorf("decoding %v:<hex> failed: %w", prefix, err)
@@ -547,7 +548,7 @@ func (ci *ChainIndex) UnmarshalText(b []byte) (err error) {
 	} else if n, err := hex.Decode(ci.ID[:], parts[1]); err != nil {
 		return fmt.Errorf("decoding <height>::<id> failed: %w", err)
 	} else if n < len(ci.ID) {
-		return fmt.Errorf("decoding <height>::<id> failed: %w", io.EOF)
+		return fmt.Errorf("decoding <height>::<id> failed: %w", io.ErrUnexpectedEOF)
 	}
 	return nil
 }
@@ -598,7 +599,7 @@ func (a *Address) UnmarshalText(b []byte) (err error) {
 	if err != nil {
 		err = fmt.Errorf("decoding addr:<hex> failed: %w", err)
 	} else if n != len(withChecksum) {
-		err = fmt.Errorf("decoding addr:<hex> failed: %w", io.EOF)
+		err = fmt.Errorf("decoding addr:<hex> failed: %w", io.ErrUnexpectedEOF)
 	} else if checksum := HashBytes(withChecksum[:32]); !bytes.Equal(checksum[:6], withChecksum[32:]) {
 		err = errors.New("bad checksum")
 	}

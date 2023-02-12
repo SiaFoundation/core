@@ -44,7 +44,7 @@ type Store interface {
 	SiacoinOutput(id types.SiacoinOutputID) (types.SiacoinOutput, bool)
 	SiafundOutput(id types.SiafundOutputID) (types.SiafundOutput, types.Currency, bool)
 	FileContract(id types.FileContractID) (types.FileContract, bool)
-	MaturedSiacoinOutputs(height uint64) []SiacoinOutputDiff
+	MaturedSiacoinOutputs(height uint64) []DelayedSiacoinOutputDiff
 	MissedFileContracts(height uint64) []types.FileContractID
 }
 

@@ -17,7 +17,7 @@ func validateHeader(s State, h types.BlockHeader) error {
 		return errors.New("timestamp is too far in the past")
 	} else if h.Nonce%s.NonceFactor() != 0 {
 		return errors.New("nonce is not divisible by required factor")
-	} else if h.ID().Cmp(s.ChildTarget) < 0 {
+	} else if h.ID().CmpWork(s.ChildTarget) < 0 {
 		return errors.New("insufficient work")
 	}
 	return nil
@@ -189,7 +189,7 @@ func validateSiacoins(s State, store Store, txns []types.Transaction) error {
 			outputSum = outputSum.Add(fee)
 		}
 		if inputSum.Cmp(outputSum) != 0 {
-			return fmt.Errorf("transaction %v is invalid: siacoin inputs (%v) do not equal outputs (%v)", i, inputSum, outputSum)
+			return fmt.Errorf("transaction %v is invalid: siacoin inputs (%d H) do not equal outputs (%d H)", i, inputSum, outputSum)
 		}
 	}
 	return nil
