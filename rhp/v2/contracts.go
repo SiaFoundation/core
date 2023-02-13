@@ -89,12 +89,17 @@ func ContractRenewalCollateral(fc types.FileContract, renterFunds types.Currency
 	// calculate the new collateral
 	newCollateral := host.Collateral.Mul(renterFunds.Div(costPerByte))
 
-	// if the total collateral is more than the MaxCollateral, return the delta
+	// if the total collateral is more than the MaxCollateral subtract the
+	// delta.
 	totalCollateral := baseCollateral.Add(newCollateral)
 	if totalCollateral.Cmp(host.MaxCollateral) > 0 {
-		return totalCollateral.Sub(host.MaxCollateral)
+		delta := totalCollateral.Sub(host.MaxCollateral)
+		if delta.Cmp(newCollateral) > 0 {
+			newCollateral = types.ZeroCurrency
+		} else {
+			newCollateral = newCollateral.Sub(delta)
+		}
 	}
-
 	return newCollateral
 }
 
