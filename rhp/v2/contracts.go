@@ -14,15 +14,13 @@ func ContractFormationCost(fc types.FileContract, contractFee types.Currency) ty
 
 // ContractFormationCollateral returns the amount of collateral we add when forming a contract.
 func ContractFormationCollateral(period uint64, renterFunds types.Currency, host HostSettings) types.Currency {
-	// calculate cost per byte. We use period / 2 for the duration to account
-	// for the fact that data is uploaded throughout the lifetime of the
-	// contract.
-	costPerByte := host.UploadBandwidthPrice.Add(host.StoragePrice.Mul64(period / 2)).Add(host.DownloadBandwidthPrice)
+	// calculate cost per byte.
+	costPerByte := host.UploadBandwidthPrice.Add(host.StoragePrice.Mul64(period)).Add(host.DownloadBandwidthPrice)
 	if costPerByte.IsZero() {
 		return types.ZeroCurrency
 	}
 	// calculate the collateral
-	collateral := host.Collateral.Mul(renterFunds.Div(costPerByte))
+	collateral := host.Collateral.Mul(renterFunds.Div(costPerByte)).Mul64(period)
 	if collateral.Cmp(host.MaxCollateral) > 0 {
 		return host.MaxCollateral
 	}
@@ -86,10 +84,8 @@ func ContractRenewalCollateral(fc types.FileContract, renterFunds types.Currency
 	}
 	duration := endHeight - blockHeight
 
-	// calculate cost per byte - We use duration / 2 as the storage duration to
-	// account for the fact that data is uploaded throughout the lifetime of the
-	// contract.
-	costPerByte := host.UploadBandwidthPrice.Add(host.StoragePrice.Mul64(duration / 2)).Add(host.DownloadBandwidthPrice)
+	// calculate cost per byte
+	costPerByte := host.UploadBandwidthPrice.Add(host.StoragePrice.Mul64(duration)).Add(host.DownloadBandwidthPrice)
 	if costPerByte.IsZero() {
 		return types.ZeroCurrency
 	}
@@ -101,7 +97,7 @@ func ContractRenewalCollateral(fc types.FileContract, renterFunds types.Currency
 	}
 
 	// calculate the new collateral
-	newCollateral := host.Collateral.Mul(renterFunds.Div(costPerByte))
+	newCollateral := host.Collateral.Mul(renterFunds.Div(costPerByte)).Mul64(duration)
 
 	// if the total collateral is more than the MaxCollateral subtract the
 	// delta.
