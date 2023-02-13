@@ -65,9 +65,9 @@ func ContractRenewalCost(fc types.FileContract, contractFee types.Currency) type
 	return fc.ValidRenterPayout().Add(contractFee).Add(contractTax(fc))
 }
 
-// ContractRenewalCollateral returns the amount of collateral we add when
-// renewing a contract. It takes into account the host's max collateral setting
-// and ensures the total collateral does not exceed it.
+// ContractRenewalCollateral returns the amount of collateral we add on top of
+// the baseCollateral when renewing a contract. It takes into account the host's
+// max collateral setting and ensures the total collateral does not exceed it.
 func ContractRenewalCollateral(fc types.FileContract, renterFunds types.Currency, host HostSettings, endHeight uint64) types.Currency {
 	if endHeight < fc.EndHeight() {
 		panic("endHeight should be at least the current end height of the contract")
