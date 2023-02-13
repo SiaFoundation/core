@@ -13,12 +13,20 @@ func ContractFormationCost(fc types.FileContract, contractFee types.Currency) ty
 }
 
 // ContractFormationCollateral returns the amount of collateral we add when forming a contract.
-func ContractFormationCollateral(expectedStorage, period uint64, host HostSettings) types.Currency {
-	hostCollateral := host.Collateral.Mul64(expectedStorage).Mul64(period)
-	if hostCollateral.Cmp(host.MaxCollateral) > 0 {
-		hostCollateral = host.MaxCollateral
+func ContractFormationCollateral(period uint64, renterFunds types.Currency, host HostSettings) types.Currency {
+	// calculate cost per byte. We use period / 2 for the duration to account
+	// for the fact that data is uploaded throughout the lifetime of the
+	// contract.
+	costPerByte := host.UploadBandwidthPrice.Add(host.StoragePrice.Mul64(period / 2)).Add(host.DownloadBandwidthPrice)
+	if costPerByte.IsZero() {
+		return types.ZeroCurrency
 	}
-	return hostCollateral
+	// calculate the collateral
+	collateral := host.Collateral.Mul(renterFunds.Div(costPerByte))
+	if collateral.Cmp(host.MaxCollateral) > 0 {
+		return host.MaxCollateral
+	}
+	return collateral
 }
 
 // PrepareContractFormation constructs a contract formation transaction.
@@ -68,14 +76,20 @@ func ContractRenewalCost(fc types.FileContract, contractFee types.Currency) type
 // ContractRenewalCollateral returns the amount of collateral we add on top of
 // the baseCollateral when renewing a contract. It takes into account the host's
 // max collateral setting and ensures the total collateral does not exceed it.
-func ContractRenewalCollateral(fc types.FileContract, renterFunds types.Currency, host HostSettings, endHeight uint64) types.Currency {
+func ContractRenewalCollateral(fc types.FileContract, renterFunds types.Currency, host HostSettings, blockHeight, endHeight uint64) types.Currency {
 	if endHeight < fc.EndHeight() {
 		panic("endHeight should be at least the current end height of the contract")
 	}
 	extension := endHeight - fc.EndHeight()
+	if endHeight < blockHeight {
+		panic("current blockHeight should be lower than the endHeight")
+	}
+	duration := endHeight - blockHeight
 
-	// calculate cost per byte
-	costPerByte := host.UploadBandwidthPrice.Add(host.StoragePrice).Add(host.DownloadBandwidthPrice)
+	// calculate cost per byte - We use duration / 2 as the storage duration to
+	// account for the fact that data is uploaded throughout the lifetime of the
+	// contract.
+	costPerByte := host.UploadBandwidthPrice.Add(host.StoragePrice.Mul64(duration / 2)).Add(host.DownloadBandwidthPrice)
 	if costPerByte.IsZero() {
 		return types.ZeroCurrency
 	}
