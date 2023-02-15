@@ -166,6 +166,18 @@ func (t *Transport) SetDeadline(deadline time.Time) {
 	t.conn.SetDeadline(deadline)
 }
 
+// SetReadDeadline sets the deadline for future read calls on the underlying
+// connection.
+func (t *Transport) SetReadDeadline(deadline time.Time) {
+	t.conn.SetReadDeadline(deadline)
+}
+
+// SetWriteDeadline sets the deadline for future write calls on the underlying
+// connection.
+func (t *Transport) SetWriteDeadline(deadline time.Time) {
+	t.conn.SetWriteDeadline(deadline)
+}
+
 // SignChallenge signs the current Transport challenge.
 func (t *Transport) SignChallenge(priv types.PrivateKey) types.Signature {
 	return priv.SignHash(hashChallenge(t.challenge))
