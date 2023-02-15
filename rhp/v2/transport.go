@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"go.sia.tech/core/types"
 	"golang.org/x/crypto/blake2b"
@@ -158,6 +159,23 @@ func hashChallenge(challenge [16]byte) [32]byte {
 // SetChallenge sets the current Transport challenge.
 func (t *Transport) SetChallenge(challenge [16]byte) {
 	t.challenge = challenge
+}
+
+// SetDeadline sets the read and write deadline on the underlying connection.
+func (t *Transport) SetDeadline(deadline time.Time) {
+	t.conn.SetDeadline(deadline)
+}
+
+// SetReadDeadline sets the deadline for future read calls on the underlying
+// connection.
+func (t *Transport) SetReadDeadline(deadline time.Time) {
+	t.conn.SetReadDeadline(deadline)
+}
+
+// SetWriteDeadline sets the deadline for future write calls on the underlying
+// connection.
+func (t *Transport) SetWriteDeadline(deadline time.Time) {
+	t.conn.SetWriteDeadline(deadline)
 }
 
 // SignChallenge signs the current Transport challenge.
