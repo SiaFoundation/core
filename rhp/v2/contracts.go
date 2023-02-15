@@ -12,15 +12,12 @@ func ContractFormationCost(fc types.FileContract, contractFee types.Currency) ty
 	return fc.ValidRenterPayout().Add(contractFee).Add(contractTax(fc))
 }
 
-// ContractFormationCollateral returns the amount of collateral we add when forming a contract.
-func ContractFormationCollateral(period uint64, renterFunds types.Currency, host HostSettings) types.Currency {
-	// calculate cost per byte.
-	costPerByte := host.UploadBandwidthPrice.Add(host.StoragePrice.Mul64(period)).Add(host.DownloadBandwidthPrice)
-	if costPerByte.IsZero() {
-		return types.ZeroCurrency
-	}
+// ContractFormationCollateral returns the amount of collateral we add when
+// forming a contract where expectedStorage is the amount of storage we expect
+// to upload to the contract.
+func ContractFormationCollateral(period uint64, expectedStorage uint64, host HostSettings) types.Currency {
 	// calculate the collateral
-	collateral := host.Collateral.Mul(renterFunds.Div(costPerByte)).Mul64(period)
+	collateral := host.Collateral.Mul64(expectedStorage).Mul64(period)
 	if collateral.Cmp(host.MaxCollateral) > 0 {
 		return host.MaxCollateral
 	}
@@ -74,7 +71,9 @@ func ContractRenewalCost(fc types.FileContract, contractFee types.Currency) type
 // ContractRenewalCollateral returns the amount of collateral we add on top of
 // the baseCollateral when renewing a contract. It takes into account the host's
 // max collateral setting and ensures the total collateral does not exceed it.
-func ContractRenewalCollateral(fc types.FileContract, renterFunds types.Currency, host HostSettings, blockHeight, endHeight uint64) types.Currency {
+// expectedNewStorage is the amount of storage we expect to be uploaded
+// additionally to the amount of storage already in the contract.
+func ContractRenewalCollateral(fc types.FileContract, expectedNewStorage uint64, host HostSettings, blockHeight, endHeight uint64) types.Currency {
 	if endHeight < fc.EndHeight() {
 		panic("endHeight should be at least the current end height of the contract")
 	}
@@ -84,12 +83,6 @@ func ContractRenewalCollateral(fc types.FileContract, renterFunds types.Currency
 	}
 	duration := endHeight - blockHeight
 
-	// calculate cost per byte
-	costPerByte := host.UploadBandwidthPrice.Add(host.StoragePrice.Mul64(duration)).Add(host.DownloadBandwidthPrice)
-	if costPerByte.IsZero() {
-		return types.ZeroCurrency
-	}
-
 	// calculate the base collateral - if it exceeds MaxCollateral we can't add more collateral
 	baseCollateral := host.Collateral.Mul64(fc.Filesize).Mul64(extension)
 	if baseCollateral.Cmp(host.MaxCollateral) >= 0 {
@@ -97,7 +90,7 @@ func ContractRenewalCollateral(fc types.FileContract, renterFunds types.Currency
 	}
 
 	// calculate the new collateral
-	newCollateral := host.Collateral.Mul(renterFunds.Div(costPerByte)).Mul64(duration)
+	newCollateral := host.Collateral.Mul64(expectedNewStorage).Mul64(duration)
 
 	// if the total collateral is more than the MaxCollateral subtract the
 	// delta.
