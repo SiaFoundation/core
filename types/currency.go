@@ -227,30 +227,29 @@ func (c Currency) ExactString() string {
 // String returns base-10 representation of c with a unit suffix. The value may
 // be rounded. To avoid loss of precision, use ExactString.
 func (c Currency) String() string {
-	i := c.Big()
-	pico := HastingsPerSiacoin.Div64(1e12).Big()
-	if i.Cmp(pico) < 0 {
-		return i.String() + " H"
+	pico := Siacoins(1).Div64(1e12)
+	if c.Cmp(pico) < 0 {
+		return c.ExactString() + " H"
 	}
 
 	// iterate until we find a unit greater than c
 	mag := pico
 	unit := ""
 	for _, unit = range []string{"pS", "nS", "uS", "mS", "SC", "KS", "MS", "GS", "TS"} {
-		j := new(big.Int).Mul(mag, big.NewInt(1e3))
-		if i.Cmp(j) < 0 {
+		j := mag.Mul64(1000)
+		if c.Cmp(j) < 0 || unit == "TS" {
 			break
-		} else if unit != "TS" {
-			// don't want to perform this multiply on the last iter; that
-			// would give us 1.235 TS instead of 1235 TS
-			mag = j
 		}
+		mag = j
 	}
 
-	num := new(big.Rat).SetInt(i)
-	denom := new(big.Rat).SetInt(mag)
-	f, _ := new(big.Rat).Mul(num, denom.Inv(denom)).Float64()
-	return fmt.Sprintf("%.4g %s", f, unit)
+	f, _ := new(big.Rat).SetFrac(c.Big(), mag.Big()).Float64()
+	s := fmt.Sprintf("%.4g %s", f, unit)
+	// test for exactness
+	if p, _ := ParseCurrency(s); !p.Equals(c) {
+		s = "~" + s
+	}
+	return s
 }
 
 // Format implements fmt.Formatter. It accepts the following formats:

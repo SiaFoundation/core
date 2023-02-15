@@ -1,7 +1,5 @@
 github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da h1:KjTM2ks9d14ZYCvmHS9iAKVt9AyzRSqNU1qabPih5BY=
 github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da/go.mod h1:eHEWzANqSiWQsof+nXEI9bUVUyV6F53Fp89EuCh2EAA=
-go.sia.tech/mux v1.1.0 h1:AH5aHAbYMhi309p4d3iufWgTYR+H7yUTmLaz8FXyH+A=
-go.sia.tech/mux v1.1.0/go.mod h1:Yyo6wZelOYTyvrHmJZ6aQfRoer3o4xyKQ4NmQLJrBSo=
 go.sia.tech/mux v1.1.1 h1:g4itlrPi4Dk4Wlg1BY/6CIgEYyCY12MVShM5a7ff4RY=
 go.sia.tech/mux v1.1.1/go.mod h1:Yyo6wZelOYTyvrHmJZ6aQfRoer3o4xyKQ4NmQLJrBSo=
 golang.org/x/crypto v0.0.0-20220507011949-2cf3adece122 h1:NvGWuYG8dkDHFSKksI1P9faiVJ9rayE6l0+ouWVIDs8=

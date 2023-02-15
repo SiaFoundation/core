@@ -267,9 +267,6 @@ func (uc UnlockConditions) EncodeTo(e *Encoder) {
 }
 
 // EncodeTo implements types.EncoderTo.
-func (w Work) EncodeTo(e *Encoder) { e.Write(w.NumHashes[:]) }
-
-// EncodeTo implements types.EncoderTo.
 func (c Currency) EncodeTo(e *Encoder) {
 	var buf [16]byte
 	binary.BigEndian.PutUint64(buf[:8], c.Hi)
@@ -517,9 +514,6 @@ func (uc *UnlockConditions) DecodeFrom(d *Decoder) {
 	}
 	uc.SignaturesRequired = d.ReadUint64()
 }
-
-// DecodeFrom implements types.DecoderFrom.
-func (w *Work) DecodeFrom(d *Decoder) { d.Read(w.NumHashes[:]) }
 
 // DecodeFrom implements types.DecoderFrom.
 func (c *Currency) DecodeFrom(d *Decoder) {
