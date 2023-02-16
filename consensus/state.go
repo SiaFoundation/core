@@ -344,3 +344,19 @@ func (s State) PartialSigHash(txn types.Transaction, cf types.CoveredFields) typ
 
 	return h.Sum()
 }
+
+// GenesisState returns the state to which the genesis block should be applied.
+func GenesisState(genesisTimestamp time.Time, initialTarget types.BlockID, foundationPrimaryAddr, foundationFailsafeAddr types.Address) State {
+	return State{
+		Index:                     types.ChainIndex{Height: ^uint64(0)},
+		PrevTimestamps:            [11]time.Time{0: genesisTimestamp},
+		Depth:                     intToTarget(maxTarget),
+		ChildTarget:               initialTarget,
+		OakTime:                   0,
+		OakTarget:                 intToTarget(maxTarget),
+		GenesisTimestamp:          genesisTimestamp,
+		SiafundPool:               types.ZeroCurrency,
+		FoundationPrimaryAddress:  foundationPrimaryAddr,
+		FoundationFailsafeAddress: foundationFailsafeAddr,
+	}
+}

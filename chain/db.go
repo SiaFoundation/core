@@ -166,8 +166,8 @@ var (
 	bSiacoinOutputs = []byte("SiacoinOutputs")
 	bSiafundOutputs = []byte("SiafundOutputs")
 
-	kFoundationOutputs = []byte("FoundationOutputs")
-	kHeight            = []byte("Height")
+	keyFoundationOutputs = []byte("FoundationOutputs")
+	keyHeight            = []byte("Height")
 )
 
 // DBStore implements Store using a key-value database.
@@ -399,14 +399,14 @@ func (tx *dbTx) deleteBestIndex(height uint64) {
 }
 
 func (tx *dbTx) getHeight() (height uint64) {
-	if val := tx.bucket(bMainChain).getRaw(kHeight); len(val) == 8 {
+	if val := tx.bucket(bMainChain).getRaw(keyHeight); len(val) == 8 {
 		height = binary.BigEndian.Uint64(val)
 	}
 	return
 }
 
 func (tx *dbTx) putHeight(height uint64) {
-	tx.bucket(bMainChain).putRaw(kHeight, tx.encHeight(height))
+	tx.bucket(bMainChain).putRaw(keyHeight, tx.encHeight(height))
 }
 
 func (tx *dbTx) getCheckpoint(id types.BlockID) (c Checkpoint, ok bool) {
@@ -607,16 +607,16 @@ func (tx *dbTx) deleteDelayedSiacoinOutputs(dscods []consensus.DelayedSiacoinOut
 
 func (tx *dbTx) putFoundationOutput(id types.SiacoinOutputID) {
 	b := tx.bucket(bSiacoinOutputs)
-	b.putRaw(kFoundationOutputs, append(b.getRaw(kFoundationOutputs), id[:]...))
+	b.putRaw(keyFoundationOutputs, append(b.getRaw(keyFoundationOutputs), id[:]...))
 }
 
 func (tx *dbTx) deleteFoundationOutput(id types.SiacoinOutputID) {
 	b := tx.bucket(bSiacoinOutputs)
-	ids := append([]byte(nil), b.getRaw(kFoundationOutputs)...)
+	ids := append([]byte(nil), b.getRaw(keyFoundationOutputs)...)
 	for i := 0; i < len(ids); i += 32 {
 		if *(*types.SiacoinOutputID)(ids[i:]) == id {
 			copy(ids[i:], ids[len(ids)-32:])
-			b.putRaw(kFoundationOutputs, ids[:len(ids)-32])
+			b.putRaw(keyFoundationOutputs, ids[:len(ids)-32])
 			return
 		}
 	}
@@ -624,7 +624,7 @@ func (tx *dbTx) deleteFoundationOutput(id types.SiacoinOutputID) {
 }
 
 func (tx *dbTx) moveFoundationOutputs(addr types.Address) {
-	ids := tx.bucket(bSiacoinOutputs).getRaw(kFoundationOutputs)
+	ids := tx.bucket(bSiacoinOutputs).getRaw(keyFoundationOutputs)
 	for i := 0; i < len(ids); i += 32 {
 		id := *(*types.SiacoinOutputID)(ids[i:])
 		if sco, ok := tx.SiacoinOutput(id); ok {

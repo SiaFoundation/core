@@ -115,7 +115,7 @@ func (a *Account) UnmarshalJSON(b []byte) error {
 	return (*types.PublicKey)(a).UnmarshalJSON(b)
 }
 
-// UnmarshalText implements encoding.TextMarshaler.
+// MarshalText implements encoding.TextUnmarshaler.
 func (a Account) MarshalText() ([]byte, error) { return types.PublicKey(a).MarshalText() }
 
 // UnmarshalText implements encoding.TextUnmarshaler.
@@ -332,6 +332,7 @@ func (r *RPCExecuteProgramResponse) DecodeFrom(d *types.Decoder) {
 	d.Read(r.Output)
 }
 
+// EncodeTo implements ProtocolObject.
 func (r *RPCFinalizeProgramRequest) EncodeTo(e *types.Encoder) {
 	e.WriteBytes(r.Signature[:])
 	e.WriteUint64(r.RevisionNumber)
@@ -345,6 +346,7 @@ func (r *RPCFinalizeProgramRequest) EncodeTo(e *types.Encoder) {
 	}
 }
 
+// DecodeFrom implements ProtocolObject.
 func (r *RPCFinalizeProgramRequest) DecodeFrom(d *types.Decoder) {
 	copy(r.Signature[:], d.ReadBytes())
 	r.RevisionNumber = d.ReadUint64()
@@ -358,10 +360,12 @@ func (r *RPCFinalizeProgramRequest) DecodeFrom(d *types.Decoder) {
 	}
 }
 
+// EncodeTo implements ProtocolObject.
 func (r *RPCFinalizeProgramResponse) EncodeTo(e *types.Encoder) {
 	e.WriteBytes(r.Signature[:])
 }
 
+// DecodeFrom implements ProtocolObject.
 func (r *RPCFinalizeProgramResponse) DecodeFrom(d *types.Decoder) {
 	copy(r.Signature[:], d.ReadBytes())
 }

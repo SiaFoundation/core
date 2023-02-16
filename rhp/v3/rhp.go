@@ -290,7 +290,7 @@ func (pt *HostPriceTable) AppendSectorRootCost(duration uint64) ResourceCost {
 	}
 }
 
-// DropSectorCost returns the cost of executing the DropSector instruction.
+// DropSectorsCost returns the cost of executing the DropSector instruction.
 func (pt *HostPriceTable) DropSectorsCost(n uint64) ResourceCost {
 	return ResourceCost{
 		Base:    pt.DropSectorsUnitCost.Mul64(n).Add(pt.DropSectorsBaseCost),

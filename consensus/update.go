@@ -36,11 +36,6 @@ func mulTargetFrac(x types.BlockID, n, d int64) (m types.BlockID) {
 	return intToTarget(i)
 }
 
-// m = 1/(1/x * n/d) = x*d/n
-func mulDifficultyFrac(x types.BlockID, n, d int64) (m types.BlockID) {
-	return mulTargetFrac(x, d, n)
-}
-
 func updateOakTime(s State, blockTimestamp time.Time) time.Duration {
 	if s.childHeight() == hardforkASIC-1 {
 		return 120000 * time.Second
@@ -57,10 +52,10 @@ func updateOakTarget(s State) types.BlockID {
 	if s.childHeight() == hardforkASIC-1 {
 		return types.BlockID{8: 32}
 	}
-	return addTarget(mulDifficultyFrac(s.OakTarget, 995, 1000), s.ChildTarget)
+	return addTarget(mulTargetFrac(s.OakTarget, 1000, 995), s.ChildTarget)
 }
 
-func adjustDifficulty(s State, blockTimestamp time.Time, store Store) types.BlockID {
+func adjustTarget(s State, blockTimestamp time.Time, store Store) types.BlockID {
 	blockInterval := int64(s.BlockInterval() / time.Second)
 
 	// pre-Oak algorithm
@@ -83,7 +78,7 @@ func adjustDifficulty(s State, blockTimestamp time.Time, store Store) types.Bloc
 			expected, elapsed = 10, 25
 		}
 		// multiply
-		return mulDifficultyFrac(s.ChildTarget, expected, elapsed)
+		return mulTargetFrac(s.ChildTarget, elapsed, expected)
 	}
 
 	oakTotalTime := int64(s.OakTime / time.Second)
@@ -113,32 +108,37 @@ func adjustDifficulty(s State, blockTimestamp time.Time, store Store) types.Bloc
 		targetBlockTime = max
 	}
 
-	// estimate the hashrate from the (decayed) total work and the (decayed,
-	// clamped) total time, and multiply by the target block time; this is the
-	// expected number of hashes required to produce the next block, i.e. the
-	// new difficulty
+	// calculate the new target
+	//
+	// NOTE: this *should* be as simple as:
+	//
+	//   newTarget := mulTargetFrac(s.OakTarget, oakTotalTime, targetBlockTime)
+	//
+	// However, the siad consensus code includes maxTarget divisions, resulting
+	// in slightly different rounding, which we must preserve here. First, we
+	// calculate the estimated hashrate from the (decayed) total work and the
+	// (decayed, clamped) total time. We then multiply by the target block time
+	// to get the expected number of hashes required to produce the next block,
+	// i.e. the new difficulty. Finally, we divide maxTarget by the difficulty
+	// to get the new target.
 	if oakTotalTime <= 0 {
 		oakTotalTime = 1
 	}
 	if targetBlockTime == 0 {
 		targetBlockTime = 1
 	}
-	// NOTE: this *should* be:
-	//
-	//   newTarget := mulTargetFrac(s.OakTarget, oakTotalTime, targetBlockTime)
-	//
-	// However, the siad consensus code includes maxTarget divisions, resulting
-	// in slightly different rounding, which we must preserve here.
 	estimatedHashrate := new(big.Int).Div(maxTarget, new(big.Int).SetBytes(s.OakTarget[:]))
 	estimatedHashrate.Div(estimatedHashrate, big.NewInt(oakTotalTime))
 	estimatedHashrate.Mul(estimatedHashrate, big.NewInt(targetBlockTime))
 	newTarget := intToTarget(new(big.Int).Div(maxTarget, estimatedHashrate))
 
 	// clamp the adjustment to 0.4%, except for ASIC hardfork block
+	//
+	// NOTE: the multiplications are flipped re: siad because we are comparing
+	// work, not targets
 	if s.childHeight() == hardforkASIC {
 		return newTarget
 	}
-	// NOTE: these are flipped re: siad because we are comparing work, not IDs
 	min := mulTargetFrac(s.ChildTarget, 1004, 1000)
 	max := mulTargetFrac(s.ChildTarget, 1000, 1004)
 	if newTarget.CmpWork(min) < 0 {
@@ -203,28 +203,13 @@ func ApplyState(s State, store Store, b types.Block) State {
 		Index:                     types.ChainIndex{Height: s.Index.Height + 1, ID: b.ID()},
 		PrevTimestamps:            prevTimestamps,
 		Depth:                     addTarget(s.Depth, s.ChildTarget),
-		ChildTarget:               adjustDifficulty(s, b.Timestamp, store),
+		ChildTarget:               adjustTarget(s, b.Timestamp, store),
 		OakTime:                   updateOakTime(s, b.Timestamp),
 		OakTarget:                 updateOakTarget(s),
 		GenesisTimestamp:          s.GenesisTimestamp,
 		SiafundPool:               siafundPool,
 		FoundationPrimaryAddress:  newFoundationPrimaryAddress,
 		FoundationFailsafeAddress: newFoundationFailsafeAddress,
-	}
-}
-
-func GenesisState(genesisTimestamp time.Time, initialDifficulty types.BlockID, foundationPrimaryAddr, foundationFailsafeAddr types.Address) State {
-	return State{
-		Index:                     types.ChainIndex{Height: ^uint64(0)},
-		PrevTimestamps:            [11]time.Time{0: genesisTimestamp},
-		Depth:                     intToTarget(maxTarget),
-		ChildTarget:               initialDifficulty,
-		OakTime:                   0,
-		OakTarget:                 intToTarget(maxTarget),
-		GenesisTimestamp:          genesisTimestamp,
-		SiafundPool:               types.ZeroCurrency,
-		FoundationPrimaryAddress:  foundationPrimaryAddr,
-		FoundationFailsafeAddress: foundationFailsafeAddr,
 	}
 }
 
