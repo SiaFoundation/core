@@ -448,6 +448,7 @@ func (t *Transport) Close() (err error) {
 	t.closed = true
 	t.mu.Unlock()
 	if t.isRenter {
+		t.SetWriteDeadline(time.Now().Add(time.Second))
 		t.writeMessage(&loopExit)
 	}
 	return t.conn.Close()
