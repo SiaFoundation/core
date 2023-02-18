@@ -2,6 +2,7 @@ package consensus
 
 import (
 	"bytes"
+	"fmt"
 	"math/big"
 	"time"
 
@@ -232,12 +233,40 @@ func (scod *SiacoinOutputDiff) DecodeFrom(d *types.Decoder) {
 	scod.Output.DecodeFrom(d)
 }
 
+// A DelayedOutputSource identifies the source (miner payout, contract, etc.) of
+// a delayed SiacoinOutput.
+type DelayedOutputSource uint8
+
+// Possible sources of a delayed SiacoinOutput.
+const (
+	OutputSourceMiner DelayedOutputSource = iota + 1
+	OutputSourceValidContract
+	OutputSourceMissedContract
+	OutputSourceSiafundClaim
+	OutputSourceFoundation
+)
+
+// String implements fmt.Stringer.
+func (d DelayedOutputSource) String() string {
+	if d == 0 || d > OutputSourceFoundation {
+		return fmt.Sprintf("DelayedOutputSource(%d)", d)
+	}
+	return [...]string{
+		OutputSourceMiner:          "miner payout",
+		OutputSourceValidContract:  "valid contract",
+		OutputSourceMissedContract: "missed contract",
+		OutputSourceSiafundClaim:   "siafund claim",
+		OutputSourceFoundation:     "foundation subsidy",
+	}[d]
+}
+
 // A DelayedSiacoinOutputDiff records the creation, deletion, or maturation of a
 // delayed SiacoinOutput. "Delayed" means that the output is immature when
 // created; it may only be spent when the "MaturityHeight" is reached.
 type DelayedSiacoinOutputDiff struct {
 	ID             types.SiacoinOutputID
 	Output         types.SiacoinOutput
+	Source         DelayedOutputSource
 	MaturityHeight uint64
 }
 
@@ -245,6 +274,7 @@ type DelayedSiacoinOutputDiff struct {
 func (dscod DelayedSiacoinOutputDiff) EncodeTo(e *types.Encoder) {
 	dscod.ID.EncodeTo(e)
 	dscod.Output.EncodeTo(e)
+	e.WriteUint8(uint8(dscod.Source))
 	e.WriteUint64(dscod.MaturityHeight)
 }
 
@@ -252,6 +282,7 @@ func (dscod DelayedSiacoinOutputDiff) EncodeTo(e *types.Encoder) {
 func (dscod *DelayedSiacoinOutputDiff) DecodeFrom(d *types.Decoder) {
 	dscod.ID.DecodeFrom(d)
 	dscod.Output.DecodeFrom(d)
+	dscod.Source = DelayedOutputSource(d.ReadUint8())
 	dscod.MaturityHeight = d.ReadUint64()
 }
 
@@ -534,6 +565,7 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 			tdiff.ImmatureSiacoinOutputs = append(tdiff.ImmatureSiacoinOutputs, DelayedSiacoinOutputDiff{
 				ID:             sfi.ParentID.ClaimOutputID(),
 				Output:         types.SiacoinOutput{Value: claimPortion, Address: sfi.ClaimAddress},
+				Source:         OutputSourceSiafundClaim,
 				MaturityHeight: s.MaturityHeight(),
 			})
 		}
@@ -568,6 +600,7 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 				tdiff.ImmatureSiacoinOutputs = append(tdiff.ImmatureSiacoinOutputs, DelayedSiacoinOutputDiff{
 					ID:             sp.ParentID.ValidOutputID(i),
 					Output:         sco,
+					Source:         OutputSourceValidContract,
 					MaturityHeight: s.MaturityHeight(),
 				})
 			}
@@ -582,6 +615,7 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 		diff.ImmatureSiacoinOutputs = append(diff.ImmatureSiacoinOutputs, DelayedSiacoinOutputDiff{
 			ID:             bid.MinerOutputID(i),
 			Output:         sco,
+			Source:         OutputSourceMiner,
 			MaturityHeight: s.MaturityHeight(),
 		})
 	}
@@ -598,6 +632,7 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 			diff.ImmatureSiacoinOutputs = append(diff.ImmatureSiacoinOutputs, DelayedSiacoinOutputDiff{
 				ID:             fcid.MissedOutputID(i),
 				Output:         sco,
+				Source:         OutputSourceMissedContract,
 				MaturityHeight: s.MaturityHeight(),
 			})
 		}
@@ -606,6 +641,7 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 		diff.FoundationSubsidy = &DelayedSiacoinOutputDiff{
 			ID:             bid.FoundationOutputID(),
 			Output:         subsidy,
+			Source:         OutputSourceFoundation,
 			MaturityHeight: s.MaturityHeight(),
 		}
 	}
