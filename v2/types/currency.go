@@ -51,10 +51,9 @@ func (c Currency) Equals(v Currency) bool {
 
 // Cmp compares c and v and returns:
 //
-//   -1 if c <  v
-//    0 if c == v
-//   +1 if c >  v
-//
+//	-1 if c <  v
+//	 0 if c == v
+//	+1 if c >  v
 func (c Currency) Cmp(v Currency) int {
 	if c == v {
 		return 0
@@ -236,9 +235,9 @@ func (c Currency) String() string {
 
 // Format implements fmt.Formatter. It accepts the following formats:
 //
-//   d: raw integer (equivalent to ExactString())
-//   s: rounded integer with unit suffix (equivalent to String())
-//   v: same as s
+//	d: raw integer (equivalent to ExactString())
+//	s: rounded integer with unit suffix (equivalent to String())
+//	v: same as s
 func (c Currency) Format(f fmt.State, v rune) {
 	switch v {
 	case 'd':

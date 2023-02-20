@@ -80,7 +80,7 @@ func (cs *ChainSim) Fork() *ChainSim {
 	return &cs2
 }
 
-//MineBlockWithTxns mine a block with the given transaction.
+// MineBlockWithTxns mine a block with the given transaction.
 func (cs *ChainSim) MineBlockWithTxns(txns ...types.Transaction) types.Block {
 	prev := cs.Genesis.Block.Header
 	if len(cs.Chain) > 0 {
