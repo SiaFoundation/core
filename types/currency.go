@@ -140,6 +140,18 @@ func (c Currency) MulWithOverflow(v Currency) (Currency, bool) {
 //
 // Note that it is safe to multiply any two Currency values that are below 2^64.
 func (c Currency) Mul64(v uint64) Currency {
+	s, overflow := c.Mul64WithOverflow(v)
+	if overflow {
+		panic("overflow")
+	}
+	return s
+}
+
+// Mul64WithOverflow returns c*v along with a boolean indicating whether the
+// result overflowed.
+//
+// Note that it is safe to multiply any two Currency values that are below 2^64.
+func (c Currency) Mul64WithOverflow(v uint64) (Currency, bool) {
 	// NOTE: this is the overflow-checked equivalent of:
 	//
 	//   hi, lo := bits.Mul64(c.Lo, v)
@@ -148,10 +160,7 @@ func (c Currency) Mul64(v uint64) Currency {
 	hi0, lo0 := bits.Mul64(c.Lo, v)
 	hi1, lo1 := bits.Mul64(c.Hi, v)
 	hi2, c0 := bits.Add64(hi0, lo1, 0)
-	if hi1 != 0 || c0 != 0 {
-		panic("overflow")
-	}
-	return Currency{lo0, hi2}
+	return Currency{lo0, hi2}, hi1 != 0 || c0 != 0
 }
 
 // Div returns c/v. If v == 0, Div panics.

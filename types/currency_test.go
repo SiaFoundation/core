@@ -302,6 +302,54 @@ func TestCurrencyMul(t *testing.T) {
 	}
 }
 
+func TestCurrencyMul64WithOverflow(t *testing.T) {
+	tests := []struct {
+		a         Currency
+		b         uint64
+		want      Currency
+		overflows bool
+	}{
+		{
+			ZeroCurrency,
+			0,
+			ZeroCurrency,
+			false,
+		},
+		{
+			NewCurrency(1, 0),
+			1,
+			NewCurrency(1, 0),
+			false,
+		},
+		{
+			NewCurrency(200, 0),
+			50,
+			NewCurrency(10000, 0),
+			false,
+		},
+		{
+			MaxCurrency,
+			1,
+			MaxCurrency,
+			false,
+		},
+		{
+			MaxCurrency,
+			2,
+			NewCurrency(math.MaxUint64-1, math.MaxUint64),
+			true,
+		},
+	}
+	for _, tt := range tests {
+		got, overflows := tt.a.Mul64WithOverflow(tt.b)
+		if tt.overflows != overflows {
+			t.Errorf("Currency.MulWithOverflow(%d, %d) overflow %t, want %t", tt.a, tt.b, overflows, tt.overflows)
+		} else if !got.Equals(tt.want) {
+			t.Errorf("Currency.MulWithOverflow(%d, %d) expected = %v, got %v", tt.a, tt.b, tt.want, got)
+		}
+	}
+}
+
 func TestCurrencyMulWithOverflow(t *testing.T) {
 	tests := []struct {
 		a, b, want Currency
