@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"math/bits"
 	"strings"
@@ -13,6 +14,9 @@ import (
 var (
 	// ZeroCurrency represents zero base units.
 	ZeroCurrency Currency
+
+	// MaxCurrency represents the largest possible value for the Currency type.
+	MaxCurrency = NewCurrency(math.MaxUint64, math.MaxUint64)
 
 	// HastingsPerSiacoin is the number of hastings (base units) in a siacoin.
 	HastingsPerSiacoin = NewCurrency(2003764205206896640, 54210) // 10^24
@@ -107,6 +111,18 @@ func (c Currency) SubWithUnderflow(v Currency) (Currency, bool) {
 //
 // Note that it is safe to multiply any two Currency values that are below 2^64.
 func (c Currency) Mul(v Currency) Currency {
+	s, overflow := c.MulWithOverflow(v)
+	if overflow {
+		panic("overflow")
+	}
+	return s
+}
+
+// MulWithOverflow returns c*v, along with a boolean indicating whether the
+// result overflowed.
+//
+// Note that it is safe to multiply any two Currency values that are below 2^64.
+func (c Currency) MulWithOverflow(v Currency) (Currency, bool) {
 	// NOTE: this is the overflow-checked equivalent of:
 	//
 	//   hi, lo := bits.Mul64(c.Lo, v.Lo)
@@ -117,10 +133,7 @@ func (c Currency) Mul(v Currency) Currency {
 	p2, p3 := bits.Mul64(c.Lo, v.Hi)
 	hi, c0 := bits.Add64(hi, p1, 0)
 	hi, c1 := bits.Add64(hi, p3, c0)
-	if (c.Hi != 0 && v.Hi != 0) || p0 != 0 || p2 != 0 || c1 != 0 {
-		panic("overflow")
-	}
-	return Currency{lo, hi}
+	return Currency{lo, hi}, (c.Hi != 0 && v.Hi != 0) || p0 != 0 || p2 != 0 || c1 != 0
 }
 
 // Mul64 returns c*v. If the result would overflow, Mul64 panics.
