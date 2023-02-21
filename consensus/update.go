@@ -159,7 +159,11 @@ func ApplyState(s State, store Store, b types.Block) State {
 	siafundPool := s.SiafundPool
 	for _, txn := range b.Transactions {
 		for _, fc := range txn.FileContracts {
-			siafundPool = siafundPool.Add(s.FileContractTax(fc))
+			var err error
+			siafundPool, err = siafundPool.Intermediate().Add(s.FileContractTax(fc).Intermediate()).Result()
+			if err != nil {
+				panic(err) // siafundPool can't overflo
+			}
 		}
 	}
 
@@ -490,7 +494,7 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 		panic("consensus: cannot apply non-child block")
 	}
 
-	siafundPool := s.SiafundPool
+	siafundPool := s.SiafundPool.Intermediate()
 	ephemeralSC := make(map[types.SiacoinOutputID]types.SiacoinOutput)
 	ephemeralSF := make(map[types.SiafundOutputID]types.SiafundOutput)
 	ephemeralClaims := make(map[types.SiafundOutputID]types.Currency)
@@ -552,7 +556,7 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 				Contract: fc,
 			})
 			ephemeralFC[fcid] = fc
-			siafundPool = siafundPool.Add(s.FileContractTax(fc))
+			siafundPool = siafundPool.Add(s.FileContractTax(fc).Intermediate())
 		}
 		for _, sfi := range txn.SiafundInputs {
 			sfo, claimStart := getSF(sfi.ParentID)
@@ -561,13 +565,20 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 				Output:     sfo,
 				ClaimStart: claimStart,
 			})
-			claimPortion := siafundPool.Sub(claimStart).Div64(s.SiafundCount()).Mul64(sfo.Value)
+			claimPortion, err := siafundPool.Sub(claimStart.Intermediate()).Div64(s.SiafundCount()).Mul64(sfo.Value).Result()
+			if err != nil {
+				panic(err)
+			}
 			tdiff.ImmatureSiacoinOutputs = append(tdiff.ImmatureSiacoinOutputs, DelayedSiacoinOutputDiff{
 				ID:             sfi.ParentID.ClaimOutputID(),
 				Output:         types.SiacoinOutput{Value: claimPortion, Address: sfi.ClaimAddress},
 				Source:         OutputSourceSiafundClaim,
 				MaturityHeight: s.MaturityHeight(),
 			})
+		}
+		siafundPool, err := siafundPool.Result()
+		if err != nil {
+			panic(err)
 		}
 		for i, sfo := range txn.SiafundOutputs {
 			sfoid := txn.SiafundOutputID(i)
