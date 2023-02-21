@@ -162,7 +162,7 @@ func (s State) FoundationSubsidy() (sco types.SiacoinOutput) {
 		sco.Value, err = foundationSubsidyPerBlock.Intermediate().Mul64(foundationSubsidyFrequency).Result()
 	}
 	if err != nil {
-		panic(err) // foundation subsidy mustn't overflow Currency
+		panic(err)
 	}
 	return
 }
