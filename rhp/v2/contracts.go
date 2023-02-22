@@ -63,9 +63,11 @@ func PrepareContractFormation(renterKey types.PrivateKey, hostKey types.PublicKe
 	}
 }
 
-// ContractRenewalCost returns the cost of renewing a contract.
-func ContractRenewalCost(fc types.FileContract, contractFee types.Currency) types.Currency {
-	return fc.ValidRenterPayout().Add(contractFee).Add(contractTax(fc))
+// ContractRenewalCost returns the cost of renewing a contract for the renter.
+// In other words, this is the amount of money that the renter needs to fund the
+// contract txn with.
+func ContractRenewalCost(fc types.FileContract, contractFee, minerFee, basePrice types.Currency) types.Currency {
+	return fc.ValidRenterPayout().Add(contractFee).Add(minerFee).Add(basePrice).Add(contractTax(fc))
 }
 
 // ContractRenewalCollateral returns the amount of collateral we add on top of
