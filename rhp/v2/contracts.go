@@ -107,8 +107,8 @@ func ContractRenewalCollateral(fc types.FileContract, expectedNewStorage uint64,
 }
 
 // PrepareContractRenewal constructs a contract renewal transaction.
-func PrepareContractRenewal(currentRevision types.FileContractRevision, renterAddress types.Address, renterKey types.PrivateKey, renterPayout, newCollateral types.Currency, hostKey types.PublicKey, host HostSettings, endHeight uint64) types.FileContract {
-	hostValidPayout, hostMissedPayout, voidMissedPayout := CalculateHostPayouts(currentRevision.FileContract, newCollateral, host, endHeight)
+func PrepareContractRenewal(currentRevision types.FileContractRevision, renterAddress types.Address, renterKey types.PrivateKey, renterPayout, newCollateral types.Currency, hostKey types.PublicKey, host HostSettings, endHeight uint64) (types.FileContract, types.Currency) {
+	hostValidPayout, hostMissedPayout, voidMissedPayout, basePrice := CalculateHostPayouts(currentRevision.FileContract, newCollateral, host, endHeight)
 
 	return types.FileContract{
 		Filesize:       currentRevision.Filesize,
@@ -127,11 +127,11 @@ func PrepareContractRenewal(currentRevision types.FileContractRevision, renterAd
 			{Value: hostMissedPayout, Address: host.Address},
 			{Value: voidMissedPayout, Address: types.Address{}},
 		},
-	}
+	}, basePrice
 }
 
 // CalculateHostPayouts calculates the contract payouts for the host.
-func CalculateHostPayouts(fc types.FileContract, newCollateral types.Currency, settings HostSettings, endHeight uint64) (types.Currency, types.Currency, types.Currency) {
+func CalculateHostPayouts(fc types.FileContract, newCollateral types.Currency, settings HostSettings, endHeight uint64) (types.Currency, types.Currency, types.Currency, types.Currency) {
 	// The host gets their contract fee, plus the cost of the data already in the
 	// contract, plus their collateral. In the event of a missed payout, the cost
 	// and collateral of the data already in the contract is subtracted from the
@@ -164,7 +164,7 @@ func CalculateHostPayouts(fc types.FileContract, newCollateral types.Currency, s
 		panic("host's settings are unsatisfiable")
 	}
 	hostMissedPayout := hostValidPayout.Sub(voidMissedPayout)
-	return hostValidPayout, hostMissedPayout, voidMissedPayout
+	return hostValidPayout, hostMissedPayout, voidMissedPayout, basePrice
 }
 
 // NOTE: due to a bug in the transaction validation code, calculating payouts
