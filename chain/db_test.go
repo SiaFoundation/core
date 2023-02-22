@@ -8,25 +8,9 @@ import (
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
+	"go.sia.tech/core/wallet"
 	"lukechampine.com/frand"
 )
-
-// StandardUnlockConditions returns the standard unlock conditions for a single
-// Ed25519 key.
-func StandardUnlockConditions(pub types.PublicKey) types.UnlockConditions {
-	return types.UnlockConditions{
-		PublicKeys: []types.UnlockKey{{
-			Algorithm: types.SpecifierEd25519,
-			Key:       pub[:],
-		}},
-		SignaturesRequired: 1,
-	}
-}
-
-// StandardAddress returns the standard address for an Ed25519 key.
-func StandardAddress(pub types.PublicKey) types.Address {
-	return StandardUnlockConditions(pub).UnlockHash()
-}
 
 // AppendTransactionSignature appends a TransactionSignature to txn and signs it
 // with key.
@@ -69,46 +53,38 @@ type diffSubscriber struct {
 }
 
 func (s *diffSubscriber) ProcessChainApplyUpdate(cau *ApplyUpdate, mayCommit bool) error {
-	if cau == nil {
-		s.cau = nil
-		s.cru = nil
-		return nil
-	}
 	s.cau = &cau.Diff
 	s.cru = nil
 	return nil
 }
 
 func (s *diffSubscriber) ProcessChainRevertUpdate(cru *RevertUpdate) error {
-	if cru == nil {
-		s.cau = nil
-		s.cru = nil
-		return nil
-	}
 	s.cau = nil
 	s.cru = &cru.Diff
 	return nil
 }
 
-func checkDBOutputsFunction(txn types.Transaction) func(DBTx) error {
+func checkDBOutputs(txns ...types.Transaction) func(DBTx) error {
 	return func(tx DBTx) error {
 		dtx := &dbTx{tx: tx}
-		for i := range txn.SiacoinOutputs {
-			out, ok := dtx.SiacoinOutput(txn.SiacoinOutputID(i))
-			if !ok {
-				return fmt.Errorf("expected output %v", txn.SiacoinOutputs[i])
+		for _, txn := range txns {
+			for i := range txn.SiacoinOutputs {
+				out, ok := dtx.SiacoinOutput(txn.SiacoinOutputID(i))
+				if !ok {
+					return fmt.Errorf("expected output %v", txn.SiacoinOutputs[i])
+				}
+				if out != txn.SiacoinOutputs[i] {
+					return fmt.Errorf("outputs don't match: %v vs %v", txn.SiacoinOutputs[i], out)
+				}
 			}
-			if out != txn.SiacoinOutputs[i] {
-				return fmt.Errorf("outputs don't match: %v vs %v", txn.SiacoinOutputs[i], out)
-			}
-		}
-		for i := range txn.SiafundOutputs {
-			out, _, ok := dtx.SiafundOutput(txn.SiafundOutputID(i))
-			if !ok {
-				return fmt.Errorf("expected output %v", txn.SiafundOutputs[i])
-			}
-			if out != txn.SiafundOutputs[i] {
-				return fmt.Errorf("outputs don't match: %v vs %v", txn.SiafundOutputs[i], out)
+			for i := range txn.SiafundOutputs {
+				out, _, ok := dtx.SiafundOutput(txn.SiafundOutputID(i))
+				if !ok {
+					return fmt.Errorf("expected output %v", txn.SiafundOutputs[i])
+				}
+				if out != txn.SiafundOutputs[i] {
+					return fmt.Errorf("outputs don't match: %v vs %v", txn.SiafundOutputs[i], out)
+				}
 			}
 		}
 		return dtx.err
@@ -120,7 +96,7 @@ func TestChainManager(t *testing.T) {
 
 	privateKey := types.GeneratePrivateKey()
 
-	giftAddress := StandardAddress(privateKey.PublicKey())
+	giftAddress := wallet.StandardAddress(privateKey.PublicKey())
 	giftAmountSC := types.Siacoins(100)
 	giftAmountSF := uint64(100)
 	giftTxn := types.Transaction{
@@ -142,7 +118,7 @@ func TestChainManager(t *testing.T) {
 
 	cm := NewManager(dbStore, checkpoint.State)
 
-	if err := db.View(checkDBOutputsFunction(giftTxn)); err != nil {
+	if err := db.View(checkDBOutputs(giftTxn)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -184,14 +160,14 @@ func TestChainManager(t *testing.T) {
 		SiacoinInputs: []types.SiacoinInput{
 			{
 				ParentID:         giftTxn.SiacoinOutputID(0),
-				UnlockConditions: StandardUnlockConditions(privateKey.PublicKey()),
+				UnlockConditions: wallet.StandardUnlockConditions(privateKey.PublicKey()),
 			},
 		},
 		SiafundInputs: []types.SiafundInput{
 			{
 				ParentID:         giftTxn.SiafundOutputID(0),
 				ClaimAddress:     types.VoidAddress,
-				UnlockConditions: StandardUnlockConditions(privateKey.PublicKey()),
+				UnlockConditions: wallet.StandardUnlockConditions(privateKey.PublicKey()),
 			},
 		},
 		SiacoinOutputs: []types.SiacoinOutput{
@@ -279,7 +255,7 @@ func TestChainManager(t *testing.T) {
 		}
 	}
 
-	if err := db.View(checkDBOutputsFunction(txn)); err != nil {
+	if err := db.View(checkDBOutputs(txn)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -287,7 +263,7 @@ func TestChainManager(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := db.View(checkDBOutputsFunction(txn)); err == nil {
+	if err := db.View(checkDBOutputs(txn)); err == nil {
 		t.Fatal("should be missing siacoin outputs from reverted block")
 	}
 }
