@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-var maxCurrency = NewCurrency(math.MaxUint64, math.MaxUint64)
-
 func mustParseCurrency(s string) Currency {
 	c, err := ParseCurrency(s)
 	if err != nil {
@@ -131,7 +129,7 @@ func TestCurrencyAddWithOverflow(t *testing.T) {
 			false,
 		},
 		{
-			maxCurrency,
+			MaxCurrency,
 			NewCurrency64(1),
 			ZeroCurrency,
 			true,
@@ -222,13 +220,13 @@ func TestCurrencySubWithUnderflow(t *testing.T) {
 		{
 			ZeroCurrency,
 			NewCurrency64(1),
-			maxCurrency,
+			MaxCurrency,
 			true,
 		},
 		{
 			NewCurrency(0, 1),
 			NewCurrency(1, 1),
-			maxCurrency,
+			MaxCurrency,
 			true,
 		},
 		{
@@ -246,7 +244,7 @@ func TestCurrencySubWithUnderflow(t *testing.T) {
 		{
 			NewCurrency(math.MaxUint64, 0),
 			NewCurrency(0, 1),
-			maxCurrency,
+			MaxCurrency,
 			true,
 		},
 	}
@@ -256,6 +254,144 @@ func TestCurrencySubWithUnderflow(t *testing.T) {
 			t.Fatalf("Currency.SubWithUnderflow(%d, %d) underflow %t, want %t", tt.a, tt.b, underflows, tt.underflows)
 		} else if !diff.Equals(tt.want) {
 			t.Fatalf("Currency.SubWithUnderflow(%d, %d) expected = %d, got %d", tt.a, tt.b, tt.want, diff)
+		}
+	}
+}
+
+func TestCurrencyMul(t *testing.T) {
+	tests := []struct {
+		a    Currency
+		b    Currency
+		want Currency
+	}{
+		{
+			ZeroCurrency,
+			ZeroCurrency,
+			ZeroCurrency,
+		},
+		{
+			NewCurrency(1, 0),
+			NewCurrency(1, 0),
+			NewCurrency(1, 0),
+		},
+		{
+			NewCurrency(0, 1),
+			NewCurrency(1, 0),
+			NewCurrency(0, 1),
+		},
+		{
+			NewCurrency(0, 1),
+			NewCurrency(math.MaxUint64, 0),
+			NewCurrency(0, math.MaxUint64),
+		},
+		{
+			Siacoins(30),
+			NewCurrency(50, 0),
+			Siacoins(1500),
+		},
+		{
+			NewCurrency(math.MaxUint64, 0),
+			NewCurrency(2, 0),
+			NewCurrency(math.MaxUint64-1, 1),
+		},
+	}
+	for _, tt := range tests {
+		if got := tt.a.Mul(tt.b); !got.Equals(tt.want) {
+			t.Errorf("Currency.Mul(%d, %d) = %d, want %d", tt.a, tt.b, got, tt.want)
+		}
+	}
+}
+
+func TestCurrencyMul64WithOverflow(t *testing.T) {
+	tests := []struct {
+		a         Currency
+		b         uint64
+		want      Currency
+		overflows bool
+	}{
+		{
+			ZeroCurrency,
+			0,
+			ZeroCurrency,
+			false,
+		},
+		{
+			NewCurrency(1, 0),
+			1,
+			NewCurrency(1, 0),
+			false,
+		},
+		{
+			NewCurrency(200, 0),
+			50,
+			NewCurrency(10000, 0),
+			false,
+		},
+		{
+			MaxCurrency,
+			1,
+			MaxCurrency,
+			false,
+		},
+		{
+			MaxCurrency,
+			2,
+			NewCurrency(math.MaxUint64-1, math.MaxUint64),
+			true,
+		},
+	}
+	for _, tt := range tests {
+		got, overflows := tt.a.Mul64WithOverflow(tt.b)
+		if tt.overflows != overflows {
+			t.Errorf("Currency.MulWithOverflow(%d, %d) overflow %t, want %t", tt.a, tt.b, overflows, tt.overflows)
+		} else if !got.Equals(tt.want) {
+			t.Errorf("Currency.MulWithOverflow(%d, %d) expected = %v, got %v", tt.a, tt.b, tt.want, got)
+		}
+	}
+}
+
+func TestCurrencyMulWithOverflow(t *testing.T) {
+	tests := []struct {
+		a, b, want Currency
+		overflows  bool
+	}{
+		{
+			ZeroCurrency,
+			ZeroCurrency,
+			ZeroCurrency,
+			false,
+		},
+		{
+			NewCurrency(1, 0),
+			NewCurrency(1, 0),
+			NewCurrency(1, 0),
+			false,
+		},
+		{
+			NewCurrency(200, 0),
+			NewCurrency(50, 0),
+			NewCurrency(10000, 0),
+			false,
+		},
+		{
+			MaxCurrency,
+			NewCurrency64(1),
+			MaxCurrency,
+			false,
+		},
+		{
+			MaxCurrency,
+			MaxCurrency,
+			NewCurrency(1, 0),
+			true,
+		},
+	}
+	for _, tt := range tests {
+		got, overflows := tt.a.MulWithOverflow(tt.b)
+		if tt.overflows != overflows {
+			t.Errorf("Currency.MulWithOverflow(%d, %d) overflow %t, want %t", tt.a, tt.b, overflows, tt.overflows)
+		} else if !got.Equals(tt.want) {
+			t.Errorf("Currency.MulWithOverflow(%d, %d) expected = %v, got %v", tt.a, tt.b, tt.want, got)
 		}
 	}
 }
@@ -349,7 +485,7 @@ func TestCurrencyDiv(t *testing.T) {
 			NewCurrency(13354499084434276352, 1371178),
 		},
 		{
-			maxCurrency,
+			MaxCurrency,
 			NewCurrency64(2),
 			NewCurrency(math.MaxUint64, math.MaxUint64/2),
 		},
@@ -383,7 +519,7 @@ func TestCurrencyDiv64(t *testing.T) {
 			Siacoins(78),
 		},
 		{
-			maxCurrency,
+			MaxCurrency,
 			2,
 			NewCurrency(math.MaxUint64, math.MaxUint64/2),
 		},
@@ -417,7 +553,7 @@ func TestCurrencyExactString(t *testing.T) {
 			"50587566000000000000000000",
 		},
 		{
-			maxCurrency,
+			MaxCurrency,
 			"340282366920938463463374607431768211455",
 		},
 	}
