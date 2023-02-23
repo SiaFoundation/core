@@ -162,7 +162,7 @@ func ApplyState(s State, store Store, b types.Block) State {
 			var err error
 			siafundPool, err = siafundPool.Intermediate().Add(s.FileContractTax(fc).Intermediate()).Result()
 			if err != nil {
-				panic(err)
+				panic(err) // siafundPool can't overflo
 			}
 		}
 	}
