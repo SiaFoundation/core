@@ -8,24 +8,24 @@ import (
 )
 
 // ContractFormationCost returns the cost of forming a contract.
-func ContractFormationCost(fc types.FileContract, contractFee types.Currency) (types.Currency, error) {
-	return fc.ValidRenterPayout().Intermediate().Add(contractFee.Intermediate()).Add(contractTax(fc).Intermediate()).Result()
+func ContractFormationCost(fc types.FileContract, contractFee types.Currency) types.Currency {
+	return fc.ValidRenterPayout().Add(contractFee).Add(contractTax(fc))
 }
 
 // ContractFormationCollateral returns the amount of collateral we add when
 // forming a contract where expectedStorage is the amount of storage we expect
 // to upload to the contract.
-func ContractFormationCollateral(period uint64, expectedStorage uint64, host HostSettings) (types.Currency, error) {
+func ContractFormationCollateral(period uint64, expectedStorage uint64, host HostSettings) types.Currency {
 	// calculate the collateral
-	collateral := host.Collateral.Intermediate().Mul64(expectedStorage).Mul64(period)
-	if collateral.Cmp(host.MaxCollateral.Intermediate()) > 0 {
-		return host.MaxCollateral, nil
+	collateral := host.Collateral.Mul64(expectedStorage).Mul64(period)
+	if collateral.Cmp(host.MaxCollateral) > 0 {
+		return host.MaxCollateral
 	}
-	return collateral.Result()
+	return collateral
 }
 
 // PrepareContractFormation constructs a contract formation transaction.
-func PrepareContractFormation(renterKey types.PrivateKey, hostKey types.PublicKey, renterPayout, hostCollateral types.Currency, endHeight uint64, host HostSettings, refundAddr types.Address) (types.FileContract, error) {
+func PrepareContractFormation(renterKey types.PrivateKey, hostKey types.PublicKey, renterPayout, hostCollateral types.Currency, endHeight uint64, host HostSettings, refundAddr types.Address) types.FileContract {
 	renterPubkey := renterKey.PublicKey()
 	uc := types.UnlockConditions{
 		PublicKeys: []types.UnlockKey{
@@ -35,18 +35,8 @@ func PrepareContractFormation(renterKey types.PrivateKey, hostKey types.PublicKe
 		SignaturesRequired: 2,
 	}
 
-	hostPayout, err := host.ContractPrice.Intermediate().Add(hostCollateral.Intermediate()).Result()
-	if err != nil {
-		return types.FileContract{}, err
-	}
-	totalPayout, err := renterPayout.Intermediate().Add(hostPayout.Intermediate()).Result()
-	if err != nil {
-		return types.FileContract{}, err
-	}
-	payout, err := taxAdjustedPayout(totalPayout)
-	if err != nil {
-		return types.FileContract{}, err
-	}
+	hostPayout := host.ContractPrice.Add(hostCollateral)
+	payout := taxAdjustedPayout(renterPayout.Add(hostPayout))
 
 	return types.FileContract{
 		Filesize:       0,
@@ -70,12 +60,12 @@ func PrepareContractFormation(renterKey types.PrivateKey, hostKey types.PublicKe
 			// once we start doing revisions, we'll move some coins to the host and some to the void
 			{Value: types.ZeroCurrency, Address: types.Address{}},
 		},
-	}, nil
+	}
 }
 
 // ContractRenewalCost returns the cost of renewing a contract.
-func ContractRenewalCost(fc types.FileContract, contractFee types.Currency) (types.Currency, error) {
-	return fc.ValidRenterPayout().Intermediate().Add(contractFee.Intermediate()).Add(contractTax(fc).Intermediate()).Result()
+func ContractRenewalCost(fc types.FileContract, contractFee types.Currency) types.Currency {
+	return fc.ValidRenterPayout().Add(contractFee).Add(contractTax(fc))
 }
 
 // ContractRenewalCollateral returns the amount of collateral we add on top of
@@ -83,7 +73,7 @@ func ContractRenewalCost(fc types.FileContract, contractFee types.Currency) (typ
 // max collateral setting and ensures the total collateral does not exceed it.
 // expectedNewStorage is the amount of storage we expect to be uploaded
 // additionally to the amount of storage already in the contract.
-func ContractRenewalCollateral(fc types.FileContract, expectedNewStorage uint64, host HostSettings, blockHeight, endHeight uint64) (types.Currency, error) {
+func ContractRenewalCollateral(fc types.FileContract, expectedNewStorage uint64, host HostSettings, blockHeight, endHeight uint64) types.Currency {
 	if endHeight < fc.EndHeight() {
 		panic("endHeight should be at least the current end height of the contract")
 	}
@@ -94,49 +84,38 @@ func ContractRenewalCollateral(fc types.FileContract, expectedNewStorage uint64,
 	duration := endHeight - blockHeight
 
 	// calculate the base collateral - if it exceeds MaxCollateral we can't add more collateral
-	baseCollateral := host.Collateral.Intermediate().Mul64(fc.Filesize).Mul64(extension)
-	if baseCollateral.Cmp(host.MaxCollateral.Intermediate()) >= 0 {
-		return types.ZeroCurrency, nil
+	baseCollateral := host.Collateral.Mul64(fc.Filesize).Mul64(extension)
+	if baseCollateral.Cmp(host.MaxCollateral) >= 0 {
+		return types.ZeroCurrency
 	}
 
 	// calculate the new collateral
-	newCollateral := host.Collateral.Intermediate().Mul64(expectedNewStorage).Mul64(duration)
+	newCollateral := host.Collateral.Mul64(expectedNewStorage).Mul64(duration)
 
 	// if the total collateral is more than the MaxCollateral subtract the
 	// delta.
 	totalCollateral := baseCollateral.Add(newCollateral)
-	if totalCollateral.Cmp(host.MaxCollateral.Intermediate()) > 0 {
-		delta := totalCollateral.Sub(host.MaxCollateral.Intermediate())
+	if totalCollateral.Cmp(host.MaxCollateral) > 0 {
+		delta := totalCollateral.Sub(host.MaxCollateral)
 		if delta.Cmp(newCollateral) > 0 {
-			newCollateral = types.ZeroCurrency.Intermediate()
+			newCollateral = types.ZeroCurrency
 		} else {
 			newCollateral = newCollateral.Sub(delta)
 		}
 	}
-	return newCollateral.Result()
+	return newCollateral
 }
 
 // PrepareContractRenewal constructs a contract renewal transaction.
-func PrepareContractRenewal(currentRevision types.FileContractRevision, renterAddress types.Address, renterKey types.PrivateKey, renterPayout, newCollateral types.Currency, hostKey types.PublicKey, host HostSettings, endHeight uint64) (types.FileContract, error) {
-	hostValidPayout, hostMissedPayout, voidMissedPayout, err := CalculateHostPayouts(currentRevision.FileContract, newCollateral, host, endHeight)
-	if err != nil {
-		return types.FileContract{}, err
-	}
+func PrepareContractRenewal(currentRevision types.FileContractRevision, renterAddress types.Address, renterKey types.PrivateKey, renterPayout, newCollateral types.Currency, hostKey types.PublicKey, host HostSettings, endHeight uint64) types.FileContract {
+	hostValidPayout, hostMissedPayout, voidMissedPayout := CalculateHostPayouts(currentRevision.FileContract, newCollateral, host, endHeight)
 
-	totalPayout, err := renterPayout.Intermediate().Add(hostValidPayout.Intermediate()).Result()
-	if err != nil {
-		return types.FileContract{}, err
-	}
-	taxAdjustedPayout, err := taxAdjustedPayout(totalPayout)
-	if err != nil {
-		return types.FileContract{}, err
-	}
 	return types.FileContract{
 		Filesize:       currentRevision.Filesize,
 		FileMerkleRoot: currentRevision.FileMerkleRoot,
 		WindowStart:    uint64(endHeight),
 		WindowEnd:      uint64(endHeight + host.WindowSize),
-		Payout:         taxAdjustedPayout,
+		Payout:         taxAdjustedPayout(renterPayout.Add(hostValidPayout)),
 		UnlockHash:     currentRevision.UnlockHash,
 		RevisionNumber: 0,
 		ValidProofOutputs: []types.SiacoinOutput{
@@ -148,11 +127,11 @@ func PrepareContractRenewal(currentRevision types.FileContractRevision, renterAd
 			{Value: hostMissedPayout, Address: host.Address},
 			{Value: voidMissedPayout, Address: types.Address{}},
 		},
-	}, nil
+	}
 }
 
 // CalculateHostPayouts calculates the contract payouts for the host.
-func CalculateHostPayouts(fc types.FileContract, newCollateral types.Currency, settings HostSettings, endHeight uint64) (types.Currency, types.Currency, types.Currency, error) {
+func CalculateHostPayouts(fc types.FileContract, newCollateral types.Currency, settings HostSettings, endHeight uint64) (types.Currency, types.Currency, types.Currency) {
 	// The host gets their contract fee, plus the cost of the data already in the
 	// contract, plus their collateral. In the event of a missed payout, the cost
 	// and collateral of the data already in the contract is subtracted from the
@@ -168,36 +147,24 @@ func CalculateHostPayouts(fc types.FileContract, newCollateral types.Currency, s
 	// impossible until they change their settings.
 
 	// calculate base price and collateral
-	var basePrice, baseCollateral = types.ZeroCurrency.Intermediate(), types.ZeroCurrency.Intermediate()
+	var basePrice, baseCollateral types.Currency
 
 	// if the contract height did not increase both prices are zero
 	if contractEnd := uint64(endHeight + settings.WindowSize); contractEnd > fc.WindowEnd {
 		timeExtension := uint64(contractEnd - fc.WindowEnd)
-		basePrice = settings.StoragePrice.Intermediate().Mul64(fc.Filesize).Mul64(timeExtension)
-		baseCollateral = settings.Collateral.Intermediate().Mul64(fc.Filesize).Mul64(timeExtension)
+		basePrice = settings.StoragePrice.Mul64(fc.Filesize).Mul64(timeExtension)
+		baseCollateral = settings.Collateral.Mul64(fc.Filesize).Mul64(timeExtension)
 	}
 
 	// calculate payouts
-	hostValidPayout := settings.ContractPrice.Intermediate().Add(basePrice).Add(baseCollateral).Add(newCollateral.Intermediate())
+	hostValidPayout := settings.ContractPrice.Add(basePrice).Add(baseCollateral).Add(newCollateral)
 	voidMissedPayout := basePrice.Add(baseCollateral)
 	if hostValidPayout.Cmp(voidMissedPayout) < 0 {
 		// TODO: detect this elsewhere
 		panic("host's settings are unsatisfiable")
 	}
 	hostMissedPayout := hostValidPayout.Sub(voidMissedPayout)
-	hvp, err := hostValidPayout.Result()
-	if err != nil {
-		return types.Currency{}, types.Currency{}, types.Currency{}, err
-	}
-	hmp, err := hostMissedPayout.Result()
-	if err != nil {
-		return types.Currency{}, types.Currency{}, types.Currency{}, err
-	}
-	vmp, err := voidMissedPayout.Result()
-	if err != nil {
-		return types.Currency{}, types.Currency{}, types.Currency{}, err
-	}
-	return hvp, hmp, vmp, nil
+	return hostValidPayout, hostMissedPayout, voidMissedPayout
 }
 
 // NOTE: due to a bug in the transaction validation code, calculating payouts
@@ -213,14 +180,11 @@ func CalculateHostPayouts(fc types.FileContract, newCollateral types.Currency, s
 // that multiplies by a fraction and then rounds down to the nearest multiple
 // of the siafund count. Thus, when inverting the function, we have to make an
 // initial guess and then fix the rounding error.
-func taxAdjustedPayout(target types.Currency) (types.Currency, error) {
+func taxAdjustedPayout(target types.Currency) types.Currency {
 	// compute initial guess as target * (1 / 1-tax); since this does not take
 	// the siafund rounding into account, the guess will be up to
 	// types.SiafundCount greater than the actual payout value.
-	guess, err := target.Intermediate().Mul64(1000).Div64(961).Result()
-	if err != nil {
-		return types.Currency{}, err
-	}
+	guess := target.Mul64(1000).Div64(961)
 
 	// now, adjust the guess to remove the rounding error. We know that:
 	//
@@ -249,13 +213,10 @@ func taxAdjustedPayout(target types.Currency) (types.Currency, error) {
 		return types.NewCurrency64(r)
 	}
 	sfc := (consensus.State{}).SiafundCount()
-	tm := mod64(target, sfc).Intermediate()
-	gm := mod64(guess, sfc).Intermediate()
+	tm := mod64(target, sfc)
+	gm := mod64(guess, sfc)
 	if gm.Cmp(tm) < 0 {
-		guess, err = guess.Intermediate().Sub(types.NewCurrency64(sfc).Intermediate()).Result()
-		if err != nil {
-			return types.Currency{}, err
-		}
+		guess = guess.Sub(types.NewCurrency64(sfc))
 	}
-	return guess.Intermediate().Add(tm).Sub(gm).Result()
+	return guess.Add(tm).Sub(gm)
 }

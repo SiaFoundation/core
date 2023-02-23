@@ -152,17 +152,13 @@ func (s State) FoundationSubsidy() (sco types.SiacoinOutput) {
 	sco.Address = s.FoundationPrimaryAddress
 
 	foundationSubsidyPerBlock := types.Siacoins(30000)
-	initialfoundationSubsidy := foundationSubsidyPerBlock.Intermediate().Mul64(blocksPerYear)
-	var err error
+	initialfoundationSubsidy := foundationSubsidyPerBlock.Mul64(blocksPerYear)
 	if s.childHeight() < hardforkFoundation || (s.childHeight()-hardforkFoundation)%foundationSubsidyFrequency != 0 {
 		sco.Value = types.ZeroCurrency
 	} else if s.childHeight() == hardforkFoundation {
-		sco.Value, err = initialfoundationSubsidy.Result()
+		sco.Value = initialfoundationSubsidy
 	} else {
-		sco.Value, err = foundationSubsidyPerBlock.Intermediate().Mul64(foundationSubsidyFrequency).Result()
-	}
-	if err != nil {
-		panic(err) // foundation subsidy mustn't overflow Currency
+		sco.Value = foundationSubsidyPerBlock.Mul64(foundationSubsidyFrequency)
 	}
 	return
 }
@@ -197,7 +193,7 @@ func (s State) BlockWeight(txns []types.Transaction) uint64 {
 // FileContractTax computes the tax levied on a given contract.
 func (s State) FileContractTax(fc types.FileContract) types.Currency {
 	// multiply by tax rate
-	i := fc.Payout.Intermediate().Big()
+	i := fc.Payout.Big()
 	if s.childHeight() < hardforkTax {
 		r := new(big.Rat).SetInt(i)
 		r.Mul(r, new(big.Rat).SetFloat64(0.039))

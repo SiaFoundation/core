@@ -1,7 +1,6 @@
 package types
 
 import (
-	"errors"
 	"math"
 	"testing"
 )
@@ -60,6 +59,43 @@ func TestCurrencyCmp(t *testing.T) {
 func TestCurrencyAdd(t *testing.T) {
 	tests := []struct {
 		a, b, want Currency
+	}{
+		{
+			ZeroCurrency,
+			ZeroCurrency,
+			ZeroCurrency,
+		},
+		{
+			NewCurrency(1, 0),
+			NewCurrency(1, 0),
+			NewCurrency(2, 0),
+		},
+		{
+			NewCurrency(200, 0),
+			NewCurrency(50, 0),
+			NewCurrency(250, 0),
+		},
+		{
+			NewCurrency(0, 1),
+			NewCurrency(0, 1),
+			NewCurrency(0, 2),
+		},
+		{
+			NewCurrency(0, 71),
+			NewCurrency(math.MaxUint64, 0),
+			NewCurrency(math.MaxUint64, 71),
+		},
+	}
+	for _, tt := range tests {
+		if got := tt.a.Add(tt.b); !got.Equals(tt.want) {
+			t.Errorf("Currency.Add(%d, %d) = %d, want %d", tt.a, tt.b, got, tt.want)
+		}
+	}
+}
+
+func TestCurrencyAddWithOverflow(t *testing.T) {
+	tests := []struct {
+		a, b, want Currency
 		overflows  bool
 	}{
 		{
@@ -100,17 +136,53 @@ func TestCurrencyAdd(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		if got, err := tt.a.Intermediate().Add(tt.b.Intermediate()).Result(); tt.overflows && !errors.Is(err, errOverflow) {
-			t.Errorf("Currency.Add(%d, %d) should overflow but didn't", tt.a, tt.b)
-		} else if !tt.overflows && err != nil {
-			t.Errorf("Currency.Add(%d, %d) failed: %v", tt.a, tt.b, err)
+		got, overflows := tt.a.AddWithOverflow(tt.b)
+		if tt.overflows != overflows {
+			t.Errorf("Currency.AddWithOverflow(%d, %d) overflow %t, want %t", tt.a, tt.b, overflows, tt.overflows)
 		} else if !got.Equals(tt.want) {
-			t.Errorf("Currency.Add(%d, %d) = %d, want %d", tt.a, tt.b, got, tt.want)
+			t.Errorf("Currency.AddWithOverflow(%d, %d) expected = %v, got %v", tt.a, tt.b, tt.want, got)
 		}
 	}
 }
 
 func TestCurrencySub(t *testing.T) {
+	tests := []struct {
+		a, b, want Currency
+	}{
+		{
+			ZeroCurrency,
+			ZeroCurrency,
+			ZeroCurrency,
+		},
+		{
+			NewCurrency(1, 0),
+			NewCurrency(1, 0),
+			ZeroCurrency,
+		},
+		{
+			NewCurrency(1, 0),
+			ZeroCurrency,
+			NewCurrency(1, 0),
+		},
+		{
+			NewCurrency(0, 1),
+			NewCurrency(math.MaxUint64, 0),
+			NewCurrency(1, 0),
+		},
+		{
+			NewCurrency(0, 1),
+			NewCurrency(1, 0),
+			NewCurrency(math.MaxUint64, 0),
+		},
+	}
+	for _, tt := range tests {
+		if got := tt.a.Sub(tt.b); !got.Equals(tt.want) {
+			t.Errorf("Currency.Sub(%d, %d) = %d, want %d", tt.a, tt.b, got, tt.want)
+		}
+	}
+}
+
+func TestCurrencySubWithUnderflow(t *testing.T) {
 	tests := []struct {
 		a, b, want Currency
 		underflows bool
@@ -148,41 +220,84 @@ func TestCurrencySub(t *testing.T) {
 		{
 			ZeroCurrency,
 			NewCurrency64(1),
-			ZeroCurrency,
+			MaxCurrency,
 			true,
 		},
 		{
 			NewCurrency(0, 1),
 			NewCurrency(1, 1),
-			ZeroCurrency,
+			MaxCurrency,
 			true,
 		},
 		{
 			NewCurrency(1, 0),
 			NewCurrency(20, 0),
-			ZeroCurrency,
+			NewCurrency(math.MaxUint64-18, math.MaxUint64),
 			true,
 		},
 		{
 			NewCurrency(1, 1),
 			NewCurrency(20, 1),
-			ZeroCurrency,
+			NewCurrency(math.MaxUint64-18, math.MaxUint64),
 			true,
 		},
 		{
 			NewCurrency(math.MaxUint64, 0),
 			NewCurrency(0, 1),
-			ZeroCurrency,
+			MaxCurrency,
 			true,
 		},
 	}
 	for _, tt := range tests {
-		if got, err := tt.a.Intermediate().Sub(tt.b.Intermediate()).Result(); tt.underflows && !errors.Is(err, errUnderflow) {
-			t.Errorf("Currency.Sub(%d, %d) should underflow but didn't", tt.a, tt.b)
-		} else if !tt.underflows && err != nil {
-			t.Errorf("Currency.Sub(%d, %d) failed: %v", tt.a, tt.b, err)
-		} else if !got.Equals(tt.want) {
-			t.Errorf("Currency.Sub(%d, %d) = %d, want %d", tt.a, tt.b, got, tt.want)
+		diff, underflows := tt.a.SubWithUnderflow(tt.b)
+		if tt.underflows != underflows {
+			t.Fatalf("Currency.SubWithUnderflow(%d, %d) underflow %t, want %t", tt.a, tt.b, underflows, tt.underflows)
+		} else if !diff.Equals(tt.want) {
+			t.Fatalf("Currency.SubWithUnderflow(%d, %d) expected = %d, got %d", tt.a, tt.b, tt.want, diff)
+		}
+	}
+}
+
+func TestCurrencyMul(t *testing.T) {
+	tests := []struct {
+		a    Currency
+		b    Currency
+		want Currency
+	}{
+		{
+			ZeroCurrency,
+			ZeroCurrency,
+			ZeroCurrency,
+		},
+		{
+			NewCurrency(1, 0),
+			NewCurrency(1, 0),
+			NewCurrency(1, 0),
+		},
+		{
+			NewCurrency(0, 1),
+			NewCurrency(1, 0),
+			NewCurrency(0, 1),
+		},
+		{
+			NewCurrency(0, 1),
+			NewCurrency(math.MaxUint64, 0),
+			NewCurrency(0, math.MaxUint64),
+		},
+		{
+			Siacoins(30),
+			NewCurrency(50, 0),
+			Siacoins(1500),
+		},
+		{
+			NewCurrency(math.MaxUint64, 0),
+			NewCurrency(2, 0),
+			NewCurrency(math.MaxUint64-1, 1),
+		},
+	}
+	for _, tt := range tests {
+		if got := tt.a.Mul(tt.b); !got.Equals(tt.want) {
+			t.Errorf("Currency.Mul(%d, %d) = %d, want %d", tt.a, tt.b, got, tt.want)
 		}
 	}
 }
@@ -221,17 +336,16 @@ func TestCurrencyMul64WithOverflow(t *testing.T) {
 		{
 			MaxCurrency,
 			2,
-			ZeroCurrency,
+			NewCurrency(math.MaxUint64-1, math.MaxUint64),
 			true,
 		},
 	}
 	for _, tt := range tests {
-		if got, err := tt.a.Intermediate().Mul64(tt.b).Result(); tt.overflows && !errors.Is(err, errOverflow) {
-			t.Errorf("Currency.Mul64(%d, %d) should overflow but didn't", tt.a, tt.b)
-		} else if !tt.overflows && err != nil {
-			t.Errorf("Currency.Mul64(%d, %d) failed: %v", tt.a, tt.b, err)
+		got, overflows := tt.a.Mul64WithOverflow(tt.b)
+		if tt.overflows != overflows {
+			t.Errorf("Currency.MulWithOverflow(%d, %d) overflow %t, want %t", tt.a, tt.b, overflows, tt.overflows)
 		} else if !got.Equals(tt.want) {
-			t.Errorf("Currency.Mul64(%d, %d) = %d, want %d", tt.a, tt.b, got, tt.want)
+			t.Errorf("Currency.MulWithOverflow(%d, %d) expected = %v, got %v", tt.a, tt.b, tt.want, got)
 		}
 	}
 }
@@ -268,17 +382,60 @@ func TestCurrencyMulWithOverflow(t *testing.T) {
 		{
 			MaxCurrency,
 			MaxCurrency,
-			ZeroCurrency,
+			NewCurrency(1, 0),
 			true,
 		},
 	}
 	for _, tt := range tests {
-		if got, err := tt.a.Intermediate().Mul(tt.b.Intermediate()).Result(); tt.overflows && !errors.Is(err, errOverflow) {
-			t.Errorf("Currency.Mul(%d, %d) should overflow but didn't", tt.a, tt.b)
-		} else if !tt.overflows && err != nil {
-			t.Errorf("Currency.Mul(%d, %d) failed: %v", tt.a, tt.b, err)
+		got, overflows := tt.a.MulWithOverflow(tt.b)
+		if tt.overflows != overflows {
+			t.Errorf("Currency.MulWithOverflow(%d, %d) overflow %t, want %t", tt.a, tt.b, overflows, tt.overflows)
 		} else if !got.Equals(tt.want) {
-			t.Errorf("Currency.Mul(%d, %d) = %d, want %d", tt.a, tt.b, got, tt.want)
+			t.Errorf("Currency.MulWithOverflow(%d, %d) expected = %v, got %v", tt.a, tt.b, tt.want, got)
+		}
+	}
+}
+
+func TestCurrencyMul64(t *testing.T) {
+	tests := []struct {
+		a    Currency
+		b    uint64
+		want Currency
+	}{
+		{
+			ZeroCurrency,
+			0,
+			ZeroCurrency,
+		},
+		{
+			NewCurrency(1, 0),
+			1,
+			NewCurrency(1, 0),
+		},
+		{
+			NewCurrency(0, 1),
+			1,
+			NewCurrency(0, 1),
+		},
+		{
+			NewCurrency(0, 1),
+			math.MaxUint64,
+			NewCurrency(0, math.MaxUint64),
+		},
+		{
+			Siacoins(30),
+			50,
+			Siacoins(1500),
+		},
+		{
+			NewCurrency(math.MaxUint64, 0),
+			2,
+			NewCurrency(math.MaxUint64-1, 1),
+		},
+	}
+	for _, tt := range tests {
+		if got := tt.a.Mul64(tt.b); !got.Equals(tt.want) {
+			t.Errorf("Currency.Mul64(%d, %d) = %d, want %d", tt.a, tt.b, got, tt.want)
 		}
 	}
 }
@@ -334,9 +491,7 @@ func TestCurrencyDiv(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		if got, err := tt.a.Intermediate().Div(tt.b.Intermediate()).Result(); err != nil {
-			t.Errorf("Currency.Div(%d, %d) failed: %v", tt.a, tt.b, err)
-		} else if !got.Equals(tt.want) {
+		if got := tt.a.Div(tt.b); !got.Equals(tt.want) {
 			t.Errorf("Currency.Div(%d, %d) = %d, want %d", tt.a, tt.b, got, tt.want)
 		}
 	}
@@ -370,9 +525,7 @@ func TestCurrencyDiv64(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		if got, err := tt.a.Intermediate().Div64(tt.b).Result(); err != nil {
-			t.Errorf("Currency.Div64(%d, %d) failed: %v", tt.a, tt.b, err)
-		} else if !got.Equals(tt.want) {
+		if got := tt.a.Div64(tt.b); !got.Equals(tt.want) {
 			t.Errorf("Currency.Div64(%d, %d) = %d, want %d", tt.a, tt.b, got, tt.want)
 		}
 	}
@@ -603,36 +756,4 @@ func TestParseCurrency(t *testing.T) {
 			t.Errorf("ParseCurrency(%v) = %d, want %d", tt.s, got, tt.want)
 		}
 	}
-}
-
-func (c Currency) Add(v Currency) Currency {
-	res, err := c.Intermediate().Add(v.Intermediate()).Result()
-	if err != nil {
-		panic(err)
-	}
-	return res
-}
-
-func (c Currency) Div64(v uint64) Currency {
-	res, err := c.Intermediate().Div64(v).Result()
-	if err != nil {
-		panic(err)
-	}
-	return res
-}
-
-func (c Currency) Mul64(v uint64) Currency {
-	res, err := c.Intermediate().Mul64(v).Result()
-	if err != nil {
-		panic(err)
-	}
-	return res
-}
-
-func (c Currency) Sub(v Currency) Currency {
-	res, err := c.Intermediate().Sub(v.Intermediate()).Result()
-	if err != nil {
-		panic(err)
-	}
-	return res
 }

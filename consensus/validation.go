@@ -24,28 +24,32 @@ func validateHeader(s State, h types.BlockHeader) error {
 }
 
 func validateMinerPayouts(s State, b types.Block) error {
-	expectedSum := s.BlockReward().Intermediate()
+	expectedSum := s.BlockReward()
 	for _, txn := range b.Transactions {
 		for _, fee := range txn.MinerFees {
 			if fee.IsZero() {
 				return errors.New("transaction fee has zero value")
 			}
 			var overflow bool
-			expectedSum = expectedSum.Add(fee.Intermediate())
+			expectedSum, overflow = expectedSum.AddWithOverflow(fee)
 			if overflow {
 				return errors.New("transaction fees overflow")
 			}
 		}
 	}
 
-	sum := types.ZeroCurrency.Intermediate()
+	var sum types.Currency
 	for _, mp := range b.MinerPayouts {
 		if mp.Value.IsZero() {
 			return errors.New("miner payout has zero value")
 		}
-		sum = sum.Add(mp.Value.Intermediate())
+		var overflow bool
+		sum, overflow = sum.AddWithOverflow(mp.Value)
+		if overflow {
+			return errors.New("miner payouts overflow")
+		}
 	}
-	if !sum.Equals(expectedSum) {
+	if sum != expectedSum {
 		return fmt.Errorf("miner payout sum (%d) does not match block reward + fees (%d)", sum, expectedSum)
 	}
 	return nil
@@ -59,11 +63,11 @@ func validateCurrencyOverflow(s State, txns []types.Transaction) error {
 	// NOTE: Assuming emission is unchanged, the total supply won't hit 2^128
 	// Hastings for another 10,000 years.
 
-	sum := types.ZeroCurrency.Intermediate()
+	var sum types.Currency
 	var overflow bool
 	add := func(c types.Currency) {
 		if !overflow {
-			sum = sum.Add(c.Intermediate())
+			sum, overflow = sum.AddWithOverflow(c)
 		}
 	}
 	for _, txn := range txns {
@@ -92,9 +96,8 @@ func validateCurrencyOverflow(s State, txns []types.Transaction) error {
 			}
 		}
 	}
-	_, err := sum.Result()
-	if err != nil {
-		return fmt.Errorf("sum of transaction outputs can't be represented in 128 bits (%s): %w", sum.Big().String(), err)
+	if overflow {
+		return errors.New("transaction outputs exceed inputs") // technically true, if unhelpful
 	}
 	return nil
 }
@@ -156,7 +159,7 @@ func validateSiacoins(s State, store Store, txns []types.Transaction) error {
 	ephemeralSC := make(map[types.SiacoinOutputID]types.SiacoinOutput)
 	spent := make(map[types.SiacoinOutputID]int)
 	for i, txn := range txns {
-		inputSum := types.ZeroCurrency.Intermediate()
+		var inputSum types.Currency
 		for _, sci := range txn.SiacoinInputs {
 			if prev, ok := spent[sci.ParentID]; ok {
 				return fmt.Errorf("transaction %v double-spends siacoin output %v (previously spent in transaction %v)", i, sci.ParentID, prev)
@@ -172,20 +175,20 @@ func validateSiacoins(s State, store Store, txns []types.Transaction) error {
 			if sci.UnlockConditions.UnlockHash() != parent.Address {
 				return fmt.Errorf("transaction %v claims incorrect unlock conditions for siacoin output %v", i, sci.ParentID)
 			}
-			inputSum = inputSum.Add(parent.Value.Intermediate())
+			inputSum = inputSum.Add(parent.Value)
 		}
-		outputSum := types.ZeroCurrency.Intermediate()
+		var outputSum types.Currency
 		for i, out := range txn.SiacoinOutputs {
 			ephemeralSC[txn.SiacoinOutputID(i)] = out
-			outputSum = outputSum.Add(out.Value.Intermediate())
+			outputSum = outputSum.Add(out.Value)
 		}
 		for _, fc := range txn.FileContracts {
-			outputSum = outputSum.Add(fc.Payout.Intermediate())
+			outputSum = outputSum.Add(fc.Payout)
 		}
 		for _, fee := range txn.MinerFees {
-			outputSum = outputSum.Add(fee.Intermediate())
+			outputSum = outputSum.Add(fee)
 		}
-		if !inputSum.Equals(outputSum) {
+		if inputSum.Cmp(outputSum) != 0 {
 			return fmt.Errorf("transaction %v is invalid: siacoin inputs (%d H) do not equal outputs (%d H)", i, inputSum, outputSum)
 		}
 	}
@@ -253,16 +256,11 @@ func validateContracts(s State, store Store, txns []types.Transaction) error {
 			} else if types.Hash256(fcr.UnlockConditions.UnlockHash()) != parent.UnlockHash {
 				return fmt.Errorf("transaction %v is invalid: file contract revision %v claims incorrect unlock conditions", txnIndex, i)
 			}
-			outputSum := func(outputs []types.SiacoinOutput) types.Currency {
-				sum := types.ZeroCurrency.Intermediate()
+			outputSum := func(outputs []types.SiacoinOutput) (sum types.Currency) {
 				for _, output := range outputs {
-					sum = sum.Add(output.Value.Intermediate())
+					sum = sum.Add(output.Value)
 				}
-				c, err := sum.Result()
-				if err != nil {
-					panic(err)
-				}
-				return c
+				return sum
 			}
 			if outputSum(fcr.FileContract.ValidProofOutputs) != outputSum(parent.ValidProofOutputs) {
 				return fmt.Errorf("transaction %v is invalid: file contract revision %v changes valid payout sum", txnIndex, i)
@@ -312,16 +310,16 @@ func validateFileContracts(s State, txn types.Transaction) error {
 		} else if fc.WindowEnd <= fc.WindowStart {
 			return fmt.Errorf("file contract %v has window that ends before it begins", i)
 		}
-		var validSum, missedSum = types.ZeroCurrency.Intermediate(), types.ZeroCurrency.Intermediate()
+		var validSum, missedSum types.Currency
 		for _, output := range fc.ValidProofOutputs {
-			validSum = validSum.Add(output.Value.Intermediate())
+			validSum = validSum.Add(output.Value)
 		}
 		for _, output := range fc.MissedProofOutputs {
-			missedSum = missedSum.Add(output.Value.Intermediate())
+			missedSum = missedSum.Add(output.Value)
 		}
 		if !validSum.Equals(missedSum) {
 			return fmt.Errorf("file contract %v has valid payout that does not equal missed payout", i)
-		} else if !fc.Payout.Intermediate().Equals(validSum.Add(s.FileContractTax(fc).Intermediate())) {
+		} else if !fc.Payout.Equals(validSum.Add(s.FileContractTax(fc))) {
 			return fmt.Errorf("file contract %v has payout with incorrect tax", i)
 		}
 	}

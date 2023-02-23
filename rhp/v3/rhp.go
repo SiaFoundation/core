@@ -68,23 +68,10 @@ func PayByContract(rev *types.FileContractRevision, amount types.Currency, refun
 	if rev.ValidRenterPayout().Cmp(amount) < 0 || rev.MissedRenterPayout().Cmp(amount) < 0 {
 		return PayByContractRequest{}, false
 	}
-	var err error
-	rev.ValidProofOutputs[0].Value, err = rev.ValidProofOutputs[0].Value.Intermediate().Sub(amount.Intermediate()).Result()
-	if err != nil {
-		return PayByContractRequest{}, false
-	}
-	rev.ValidProofOutputs[1].Value, err = rev.ValidProofOutputs[1].Value.Intermediate().Add(amount.Intermediate()).Result()
-	if err != nil {
-		return PayByContractRequest{}, false
-	}
-	rev.MissedProofOutputs[0].Value, err = rev.MissedProofOutputs[0].Value.Intermediate().Sub(amount.Intermediate()).Result()
-	if err != nil {
-		return PayByContractRequest{}, false
-	}
-	rev.MissedProofOutputs[1].Value, err = rev.MissedProofOutputs[1].Value.Intermediate().Add(amount.Intermediate()).Result()
-	if err != nil {
-		return PayByContractRequest{}, false
-	}
+	rev.ValidProofOutputs[0].Value = rev.ValidProofOutputs[0].Value.Sub(amount)
+	rev.ValidProofOutputs[1].Value = rev.ValidProofOutputs[1].Value.Add(amount)
+	rev.MissedProofOutputs[0].Value = rev.MissedProofOutputs[0].Value.Sub(amount)
+	rev.MissedProofOutputs[1].Value = rev.MissedProofOutputs[1].Value.Add(amount)
 	rev.RevisionNumber++
 
 	newValid := make([]types.Currency, len(rev.ValidProofOutputs))
@@ -243,238 +230,126 @@ type (
 )
 
 // Add adds two ResourceCosts together.
-func (a *ResourceCost) Add(b ResourceCost) (ResourceCost, error) {
-	base, err := a.Base.Intermediate().Add(b.Base.Intermediate()).Result()
-	if err != nil {
-		return ResourceCost{}, err
-	}
-	storage, err := a.Storage.Intermediate().Add(b.Storage.Intermediate()).Result()
-	if err != nil {
-		return ResourceCost{}, err
-	}
-	collateral, err := a.Collateral.Intermediate().Add(b.Collateral.Intermediate()).Result()
-	if err != nil {
-		return ResourceCost{}, err
-	}
-	egress, err := a.Egress.Intermediate().Add(b.Egress.Intermediate()).Result()
-	if err != nil {
-		return ResourceCost{}, err
-	}
-	ingress, err := a.Ingress.Intermediate().Add(b.Ingress.Intermediate()).Result()
-	if err != nil {
-		return ResourceCost{}, err
-	}
+func (a *ResourceCost) Add(b ResourceCost) ResourceCost {
 	return ResourceCost{
-		Base:       base,
-		Storage:    storage,
-		Collateral: collateral,
-		Egress:     egress,
-		Ingress:    ingress,
-	}, nil
+		Base:       a.Base.Add(b.Base),
+		Storage:    a.Storage.Add(b.Storage),
+		Collateral: a.Collateral.Add(b.Collateral),
+		Egress:     a.Egress.Add(b.Egress),
+		Ingress:    a.Ingress.Add(b.Ingress),
+	}
 }
 
 // Total returns the total cost and collateral of a ResourceCost.
-func (a *ResourceCost) Total() (cost, collateral types.Currency, err error) {
-	cost, err = a.Base.Intermediate().Add(a.Storage.Intermediate()).Add(a.Egress.Intermediate()).Add(a.Ingress.Intermediate()).Result()
+func (a *ResourceCost) Total() (cost, collateral types.Currency) {
+	cost = a.Base.Add(a.Storage).Add(a.Egress).Add(a.Ingress)
 	collateral = a.Collateral
 	return
 }
 
 // writeBaseCost is the cost of executing a 'Write' instruction of a certain length
 // on the MDM.
-func (pt *HostPriceTable) writeBaseCost(writeLength uint64) (types.Currency, error) {
+func (pt *HostPriceTable) writeBaseCost(writeLength uint64) types.Currency {
 	const atomicWriteSize = 1 << 12
 	if mod := writeLength % atomicWriteSize; mod != 0 {
 		writeLength += (atomicWriteSize - mod)
 	}
-	writeCost := pt.WriteLengthCost.Intermediate().Mul64(writeLength).Add(pt.WriteBaseCost.Intermediate())
-	return writeCost.Result()
+	writeCost := pt.WriteLengthCost.Mul64(writeLength).Add(pt.WriteBaseCost)
+	return writeCost
 }
 
 // AppendSectorCost returns the cost of executing the AppendSector instruction.
-func (pt *HostPriceTable) AppendSectorCost(duration uint64) (ResourceCost, error) {
-	// base cost is cost of writing 1 sector
-	base, err := pt.writeBaseCost(rhpv2.SectorSize)
-	if err != nil {
-		return ResourceCost{}, err
-	}
-	// storage cost is the cost of storing 1 sector for the remaining duration.
-	storage, err := pt.WriteStoreCost.Intermediate().Mul64(rhpv2.SectorSize).Mul64(duration).Result()
-	if err != nil {
-		return ResourceCost{}, err
-	}
-	// collateral is the collateral the host is expected to put up per
-	// sector per block.
-	collateral, err := pt.CollateralCost.Intermediate().Mul64(rhpv2.SectorSize).Mul64(duration).Result()
-	if err != nil {
-		return ResourceCost{}, err
-	}
-	// note: bandwidth costs are now hardcoded to only include the
-	// instruction data not the arguments.
-	ingress, err := pt.UploadBandwidthCost.Intermediate().Mul64(rhpv2.SectorSize).Result()
-	if err != nil {
-		return ResourceCost{}, err
-	}
+func (pt *HostPriceTable) AppendSectorCost(duration uint64) ResourceCost {
 	return ResourceCost{
-		Base:       base,
-		Storage:    storage,
-		Collateral: collateral,
-		Ingress:    ingress,
-	}, nil
+		// base cost is cost of writing 1 sector
+		Base: pt.writeBaseCost(rhpv2.SectorSize),
+		// storage cost is the cost of storing 1 sector for the remaining duration.
+		Storage: pt.WriteStoreCost.Mul64(rhpv2.SectorSize).Mul64(duration),
+		// collateral is the collateral the host is expected to put up per
+		// sector per block.
+		Collateral: pt.CollateralCost.Mul64(rhpv2.SectorSize).Mul64(duration),
+		// note: bandwidth costs are now hardcoded to only include the
+		// instruction data not the arguments.
+		Ingress: pt.UploadBandwidthCost.Mul64(rhpv2.SectorSize),
+	}
 }
 
 // AppendSectorRootCost returns the cost of executing the AppendSectorRoot
 // instruction.
-func (pt *HostPriceTable) AppendSectorRootCost(duration uint64) (ResourceCost, error) {
-	// base cost is cost of 1 write
-	base := pt.WriteBaseCost
-	// storage cost is the cost of storing 1 sector for the remaining
-	// duration.
-	storage, err := pt.WriteStoreCost.Intermediate().Mul64(rhpv2.SectorSize).Mul64(duration).Result()
-	if err != nil {
-		return ResourceCost{}, err
-	}
-	// collateral is the collateral the host is expected to put up per
-	// sector per block.
-	collateral, err := pt.CollateralCost.Intermediate().Mul64(rhpv2.SectorSize).Mul64(duration).Result()
-	if err != nil {
-		return ResourceCost{}, err
-	}
-	ingress, err := pt.UploadBandwidthCost.Intermediate().Mul64(32).Result() // sector root
-	if err != nil {
-		return ResourceCost{}, err
-	}
+func (pt *HostPriceTable) AppendSectorRootCost(duration uint64) ResourceCost {
 	return ResourceCost{
-		Base:       base,
-		Storage:    storage,
-		Collateral: collateral,
-		Ingress:    ingress,
-	}, nil
+		// base cost is cost of 1 write
+		Base: pt.WriteBaseCost,
+		// storage cost is the cost of storing 1 sector for the remaining
+		// duration.
+		Storage: pt.WriteStoreCost.Mul64(rhpv2.SectorSize).Mul64(duration),
+		// collateral is the collateral the host is expected to put up per
+		// sector per block.
+		Collateral: pt.CollateralCost.Mul64(rhpv2.SectorSize).Mul64(duration),
+		Ingress:    pt.UploadBandwidthCost.Mul64(32), // sector root
+	}
 }
 
 // DropSectorsCost returns the cost of executing the DropSector instruction.
-func (pt *HostPriceTable) DropSectorsCost(n uint64) (ResourceCost, error) {
-	base, err := pt.DropSectorsUnitCost.Intermediate().Mul64(n).Add(pt.DropSectorsBaseCost.Intermediate()).Result()
-	if err != nil {
-		return ResourceCost{}, err
-	}
-	ingress, err := pt.UploadBandwidthCost.Intermediate().Mul64(8).Result() // drop sector count
-	if err != nil {
-		return ResourceCost{}, err
-	}
+func (pt *HostPriceTable) DropSectorsCost(n uint64) ResourceCost {
 	return ResourceCost{
-		Base:    base,
-		Ingress: ingress,
-	}, nil
+		Base:    pt.DropSectorsUnitCost.Mul64(n).Add(pt.DropSectorsBaseCost),
+		Ingress: pt.UploadBandwidthCost.Mul64(8), // drop sector count
+	}
 }
 
 // HasSectorCost returns the cost of executing the HasSector instruction.
-func (pt *HostPriceTable) HasSectorCost() (ResourceCost, error) {
-	base := pt.HasSectorBaseCost
-	ingress, err := pt.UploadBandwidthCost.Intermediate().Mul64(32).Result() // sector root
-	if err != nil {
-		return ResourceCost{}, err
-	}
-	egress := pt.DownloadBandwidthCost // boolean response
-
+func (pt *HostPriceTable) HasSectorCost() ResourceCost {
 	return ResourceCost{
-		Base:    base,
-		Ingress: ingress,
-		Egress:  egress,
-	}, nil
+		Base:    pt.HasSectorBaseCost,
+		Ingress: pt.UploadBandwidthCost.Mul64(32), // sector root
+		Egress:  pt.DownloadBandwidthCost,         // boolean response
+	}
 }
 
 // ReadOffsetCost returns the cost of executing the ReadOffset instruction.
-func (pt *HostPriceTable) ReadOffsetCost(length uint64) (ResourceCost, error) {
-	base, err := pt.ReadLengthCost.Intermediate().Mul64(length).Add(pt.ReadBaseCost.Intermediate()).Result()
-	if err != nil {
-		return ResourceCost{}, err
-	}
-	ingress, err := pt.UploadBandwidthCost.Intermediate().Mul64(8).Result() // sector root index
-	if err != nil {
-		return ResourceCost{}, err
-	}
-	egress, err := pt.DownloadBandwidthCost.Intermediate().Mul64(length).Result() // response data
-	if err != nil {
-		return ResourceCost{}, err
-	}
+func (pt *HostPriceTable) ReadOffsetCost(length uint64) ResourceCost {
 	return ResourceCost{
-		Base:    base,
-		Ingress: ingress,
-		Egress:  egress,
-	}, nil
+		Base:    pt.ReadLengthCost.Mul64(length).Add(pt.ReadBaseCost),
+		Ingress: pt.UploadBandwidthCost.Mul64(8),        // sector root index
+		Egress:  pt.DownloadBandwidthCost.Mul64(length), // response data
+	}
 }
 
 // ReadSectorCost returns the cost of executing the ReadSector instruction.
-func (pt *HostPriceTable) ReadSectorCost(length uint64) (ResourceCost, error) {
-	base, err := pt.ReadLengthCost.Intermediate().Mul64(length).Add(pt.ReadBaseCost.Intermediate()).Result()
-	if err != nil {
-		return ResourceCost{}, err
-	}
-	ingress, err := pt.UploadBandwidthCost.Intermediate().Mul64(32).Result() // sector root
-	if err != nil {
-		return ResourceCost{}, err
-	}
-	egress, err := pt.DownloadBandwidthCost.Intermediate().Mul64(length).Result() // response data
-	if err != nil {
-		return ResourceCost{}, err
-	}
+func (pt *HostPriceTable) ReadSectorCost(length uint64) ResourceCost {
 	return ResourceCost{
-		Base:    base,
-		Ingress: ingress,
-		Egress:  egress,
-	}, nil
+		Base:    pt.ReadLengthCost.Mul64(length).Add(pt.ReadBaseCost),
+		Ingress: pt.UploadBandwidthCost.Mul64(32),       // sector root
+		Egress:  pt.DownloadBandwidthCost.Mul64(length), // response data
+	}
 }
 
 // SwapSectorCost returns the cost of executing the SwapSector instruction.
-func (pt *HostPriceTable) SwapSectorCost() (ResourceCost, error) {
-	base := pt.SwapSectorBaseCost
-	ingress, err := pt.UploadBandwidthCost.Intermediate().Mul64(2 * 8).Result() // 2 sector indices
-	if err != nil {
-		return ResourceCost{}, err
-	}
+func (pt *HostPriceTable) SwapSectorCost() ResourceCost {
 	return ResourceCost{
-		Base:    base,
-		Ingress: ingress,
-	}, nil
+		Base:    pt.SwapSectorBaseCost,
+		Ingress: pt.UploadBandwidthCost.Mul64(2 * 8), // 2 sector indices
+	}
 }
 
 // UpdateSectorCost returns the cost of executing the UpdateSector instruction.
-func (pt *HostPriceTable) UpdateSectorCost(length uint64) (ResourceCost, error) {
-	// base cost is cost of writing 1 sector
-	base, err := pt.writeBaseCost(rhpv2.SectorSize)
-	if err != nil {
-		return ResourceCost{}, err
-	}
-	ingress, err := pt.UploadBandwidthCost.Intermediate().Mul64(length).Result()
-	if err != nil {
-		return ResourceCost{}, err
-	}
+func (pt *HostPriceTable) UpdateSectorCost(length uint64) ResourceCost {
 	return ResourceCost{
-		Base:    base,
-		Ingress: ingress,
-	}, nil
+		// base cost is cost of writing 1 sector
+		Base:    pt.writeBaseCost(rhpv2.SectorSize),
+		Ingress: pt.UploadBandwidthCost.Mul64(length),
+	}
 }
 
 // StoreSectorCost returns the cost of executing the StoreSector instruction.
-func (pt *HostPriceTable) StoreSectorCost(duration uint64) (ResourceCost, error) {
-	base, err := pt.writeBaseCost(rhpv2.SectorSize)
-	if err != nil {
-		return ResourceCost{}, err
-	}
-	storage, err := pt.WriteStoreCost.Intermediate().Mul64(rhpv2.SectorSize).Mul64(duration).Result()
-	if err != nil {
-		return ResourceCost{}, err
-	}
-	ingress, err := pt.UploadBandwidthCost.Intermediate().Mul64(rhpv2.SectorSize).Result()
-	if err != nil {
-		return ResourceCost{}, err
-	}
+func (pt *HostPriceTable) StoreSectorCost(duration uint64) ResourceCost {
 	return ResourceCost{
-		Base:    base,
-		Storage: storage,
-		Ingress: ingress,
-	}, nil
+		// base cost is cost of writing 1 sector.
+		Base:    pt.writeBaseCost(rhpv2.SectorSize),
+		Storage: pt.WriteStoreCost.Mul64(rhpv2.SectorSize).Mul64(duration),
+		Ingress: pt.UploadBandwidthCost.Mul64(rhpv2.SectorSize),
+	}
 }
 
 // RevisionCost returns the cost of executing the Revision instruction.
@@ -485,56 +360,28 @@ func (pt *HostPriceTable) RevisionCost() ResourceCost {
 }
 
 // ReadRegistryCost returns the cost of executing the ReadRegistry instruction.
-func (pt *HostPriceTable) ReadRegistryCost() (ResourceCost, error) {
-	base, err := pt.writeBaseCost(256)
-	if err != nil {
-		return ResourceCost{}, err
-	}
-	// increases the remaining duration of the registry entry and costs the
-	// equivalent of storing 256 bytes for 10 years
-	storage, err := pt.WriteStoreCost.Intermediate().Mul64(256 * 10 * blocksPerYear).Result()
-	if err != nil {
-		return ResourceCost{}, err
-	}
-	egress, err := pt.DownloadBandwidthCost.Intermediate().Mul64(256).Result()
-	if err != nil {
-		return ResourceCost{}, err
-	}
+func (pt *HostPriceTable) ReadRegistryCost() ResourceCost {
 	return ResourceCost{
-		Base:    base,
-		Storage: storage,
-		Egress:  egress,
-	}, nil
+		Base: pt.writeBaseCost(256),
+		// increases the remaining duration of the registry entry and costs the
+		// equivalent of storing 256 bytes for 10 years
+		Storage: pt.WriteStoreCost.Mul64(256 * 10 * blocksPerYear),
+		Egress:  pt.DownloadBandwidthCost.Mul64(256),
+	}
 }
 
 // UpdateRegistryCost returns the cost of executing the UpdateRegistry
 // instruction.
-func (pt *HostPriceTable) UpdateRegistryCost() (ResourceCost, error) {
-	base, err := pt.writeBaseCost(256)
-	if err != nil {
-		return ResourceCost{}, err
-	}
-	// increases the remaining duration of the registry entry and costs the
-	// equivalent of storing 256 bytes for 5 years
-	storage, err := pt.WriteStoreCost.Intermediate().Mul64(256 * 5 * blocksPerYear).Result()
-	if err != nil {
-		return ResourceCost{}, err
-	}
-	ingress, err := pt.UploadBandwidthCost.Intermediate().Mul64(256).Result()
-	if err != nil {
-		return ResourceCost{}, err
-	}
-	// the updated entry is returned
-	egress, err := pt.DownloadBandwidthCost.Intermediate().Mul64(256).Result()
-	if err != nil {
-		return ResourceCost{}, err
-	}
+func (pt *HostPriceTable) UpdateRegistryCost() ResourceCost {
 	return ResourceCost{
-		Base:    base,
-		Storage: storage,
-		Ingress: ingress,
-		Egress:  egress,
-	}, nil
+		Base: pt.writeBaseCost(256),
+		// increases the remaining duration of the registry entry and costs the
+		// equivalent of storing 256 bytes for 5 years
+		Storage: pt.WriteStoreCost.Mul64(256 * 5 * blocksPerYear),
+		Ingress: pt.UploadBandwidthCost.Mul64(256),
+		// the updated entry is returned
+		Egress: pt.DownloadBandwidthCost.Mul64(256),
+	}
 }
 
 type (
