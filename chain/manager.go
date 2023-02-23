@@ -3,7 +3,6 @@ package chain
 import (
 	"errors"
 	"fmt"
-	"sort"
 	"sync"
 	"time"
 
@@ -113,22 +112,14 @@ func (m *Manager) History() ([32]types.BlockID, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// determine base of store
-	//
-	// TODO: store should probably just expose this
 	tipHeight := m.tipState.Index.Height
-	baseHeight := uint64(sort.Search(int(tipHeight), func(height int) bool {
-		_, err := m.store.BestIndex(uint64(height))
-		return err == nil
-	}))
-
 	histHeight := func(i int) uint64 {
 		offset := uint64(i)
 		if offset >= 10 {
 			offset = 7 + 1<<(i-8) // strange, but it works
 		}
-		if offset > tipHeight-baseHeight {
-			offset = tipHeight - baseHeight
+		if offset > tipHeight {
+			offset = tipHeight
 		}
 		return tipHeight - offset
 	}
@@ -184,40 +175,40 @@ func (m *Manager) AddBlocks(blocks []types.Block) error {
 		return nil
 	}
 
-	c, err := m.store.Checkpoint(blocks[0].ParentID)
-	if err != nil {
-		return fmt.Errorf("couldn't get checkpoint for parent block %v: %w", blocks[0].ParentID, err)
-	}
+	cs := m.tipState
 	for _, b := range blocks {
-		if have, err := m.store.Checkpoint(b.ID()); err == nil {
-			c = have
+		if c, err := m.store.Checkpoint(b.ID()); err == nil {
+			// already have this block
+			cs = c.State
 			continue
-		}
-		if b.Timestamp.After(c.State.MaxFutureTimestamp(time.Now())) {
-			return ErrFutureBlock
-		} else if err := consensus.ValidateOrphan(c.State, b); err != nil {
-			return fmt.Errorf("block %v is invalid: %w", types.ChainIndex{Height: c.State.Index.Height + 1, ID: b.ID()}, err)
-		}
-		err = m.store.WithConsensus(func(cstore consensus.Store) error {
-			c = Checkpoint{
-				Block: b,
-				State: consensus.ApplyState(c.State, cstore, b),
-				Diff:  nil,
+		} else if b.ParentID != c.State.Index.ID {
+			c, err := m.store.Checkpoint(b.ParentID)
+			if err != nil {
+				return fmt.Errorf("couldn't get parent checkpoint for block %v: %w", b.ID(), err)
 			}
+			cs = c.State
+		}
+		if b.Timestamp.After(cs.MaxFutureTimestamp(time.Now())) {
+			return ErrFutureBlock
+		} else if err := consensus.ValidateOrphan(cs, b); err != nil {
+			return fmt.Errorf("block %v is invalid: %w", types.ChainIndex{Height: cs.Index.Height + 1, ID: b.ID()}, err)
+		}
+		err := m.store.WithConsensus(func(cstore consensus.Store) error {
+			cs = consensus.ApplyState(cs, cstore, b)
 			return nil
 		})
 		if err != nil {
 			return fmt.Errorf("couldn't apply block %v: %w", b.ID(), err)
-		} else if err := m.store.AddCheckpoint(c); err != nil {
-			return fmt.Errorf("couldn't store block %v: %w", c.State.Index, err)
+		} else if err := m.store.AddCheckpoint(Checkpoint{b, cs, nil}); err != nil {
+			return fmt.Errorf("couldn't store block %v: %w", cs.Index, err)
 		}
 	}
 
 	// if this chain is now the best chain, trigger a reorg
 	//
 	// TODO: SurpassThreshold?
-	if c.State.Depth.CmpWork(m.tipState.Depth) > 0 {
-		if err := m.reorgTo(c.State.Index); err != nil {
+	if cs.Depth.CmpWork(m.tipState.Depth) > 0 {
+		if err := m.reorgTo(cs.Index); err != nil {
 			return fmt.Errorf("reorg failed: %w", err)
 		}
 	}
@@ -332,7 +323,7 @@ func (m *Manager) reorgPath(a, b types.ChainIndex) (revert, apply []types.ChainI
 		j := len(apply) - i - 1
 		apply[i], apply[j] = apply[j], apply[i]
 	}
-	return revert, apply, nil
+	return
 }
 
 func (m *Manager) reorgTo(index types.ChainIndex) error {
