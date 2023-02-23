@@ -100,10 +100,16 @@ func (m *Manager) Tip() types.ChainIndex {
 	return m.TipState().Index
 }
 
+// Block returns the block with the specified ID.
+func (m *Manager) Block(id types.BlockID) (types.Block, error) {
+	c, err := m.store.Checkpoint(id)
+	return c.Block, err
+}
+
 // History returns a set of block IDs that span the best chain, beginning with
 // the 10 most-recent blocks, and subsequently spaced exponentionally farther
 // apart until reaching the genesis block.
-func (m *Manager) History() ([]types.BlockID, error) {
+func (m *Manager) History() ([32]types.BlockID, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -126,16 +132,13 @@ func (m *Manager) History() ([]types.BlockID, error) {
 		}
 		return tipHeight - offset
 	}
-	var history []types.BlockID
-	for {
-		index, err := m.store.BestIndex(histHeight(len(history)))
+	var history [32]types.BlockID
+	for i := range history {
+		index, err := m.store.BestIndex(histHeight(i))
 		if err != nil {
-			return nil, fmt.Errorf("couldn't get best index at %v: %w", histHeight(len(history)), err)
+			return history, fmt.Errorf("couldn't get best index at %v: %w", histHeight(i), err)
 		}
-		history = append(history, index.ID)
-		if index.Height == baseHeight {
-			break
-		}
+		history[i] = index.ID
 	}
 	return history, nil
 }
@@ -290,9 +293,6 @@ func (m *Manager) applyTip(index types.ChainIndex) error {
 func (m *Manager) reorgPath(a, b types.ChainIndex) (revert, apply []types.ChainIndex, err error) {
 	// helper function for "rewinding" to the parent index
 	rewind := func(index *types.ChainIndex) bool {
-		if err != nil {
-			return false
-		}
 		// if we're on the best chain, we can be a bit more efficient
 		if bi, _ := m.store.BestIndex(index.Height); bi.ID == index.ID {
 			*index, err = m.store.BestIndex(index.Height - 1)
@@ -301,7 +301,7 @@ func (m *Manager) reorgPath(a, b types.ChainIndex) (revert, apply []types.ChainI
 			c, err = m.store.Checkpoint(index.ID)
 			*index = types.ChainIndex{Height: index.Height - 1, ID: c.Block.ParentID}
 		}
-		return err != nil
+		return err == nil
 	}
 
 	// rewind a or b until their heights match
