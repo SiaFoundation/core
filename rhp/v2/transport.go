@@ -454,6 +454,18 @@ func (t *Transport) Close() (err error) {
 	return t.conn.Close()
 }
 
+// ForceClose calls Close on the transport's underlying connection.
+func (t *Transport) ForceClose() (err error) {
+	defer wrapErr(&err, "ForceClose")
+	if t.IsClosed() {
+		return nil
+	}
+	t.mu.Lock()
+	t.closed = true
+	t.mu.Unlock()
+	return t.conn.Close()
+}
+
 func hashKeys(k1, k2 [32]byte) types.Hash256 {
 	return blake2b.Sum256(append(append(make([]byte, 0, len(k1)+len(k2)), k1[:]...), k2[:]...))
 }
