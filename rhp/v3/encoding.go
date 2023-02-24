@@ -217,6 +217,7 @@ func (r *FundAccountReceipt) EncodeTo(e *types.Encoder) {
 	r.Host.EncodeTo(e)
 	r.Account.EncodeTo(e)
 	r.Amount.EncodeTo(e)
+	e.WriteTime(r.Timestamp)
 }
 
 // DecodeFrom implements ProtocolObject.
