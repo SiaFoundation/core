@@ -158,7 +158,6 @@ func (r *PayByContractRequest) EncodeTo(e *types.Encoder) {
 	}
 	r.RefundAccount.EncodeTo(e)
 	e.WriteBytes(r.Signature[:])
-	r.HostSignature.EncodeTo(e)
 }
 
 // DecodeFrom implements ProtocolObject.
@@ -175,7 +174,6 @@ func (r *PayByContractRequest) DecodeFrom(d *types.Decoder) {
 	}
 	r.RefundAccount.DecodeFrom(d)
 	copy(r.Signature[:], d.ReadBytes())
-	r.HostSignature.DecodeFrom(d)
 }
 
 // EncodeTo implements ProtocolObject.
