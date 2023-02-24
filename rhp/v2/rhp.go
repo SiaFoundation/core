@@ -2,9 +2,11 @@
 package rhp
 
 import (
+	"encoding/json"
 	"fmt"
 	"math/bits"
 	"net"
+	"strings"
 	"time"
 
 	"go.sia.tech/core/types"
@@ -74,6 +76,36 @@ type HostSettings struct {
 	RevisionNumber             uint64         `json:"revisionnumber"`
 	Version                    string         `json:"version"`
 	SiaMuxPort                 string         `json:"siamuxport"`
+}
+
+// MarshalJSON encodes the HostSettings as JSON. The Address field is overridden
+// for compatibility with siad renters.
+func (s HostSettings) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]interface{}{
+		"acceptingcontracts":         s.AcceptingContracts,
+		"maxdownloadbatchsize":       s.MaxDownloadBatchSize,
+		"maxduration":                s.MaxDuration,
+		"maxrevisebatchsize":         s.MaxReviseBatchSize,
+		"netaddress":                 s.NetAddress,
+		"remainingstorage":           s.RemainingStorage,
+		"sectorsize":                 s.SectorSize,
+		"totalstorage":               s.TotalStorage,
+		"unlockhash":                 strings.TrimPrefix(s.Address.String(), "addr:"), // trim the "addr:" prefix for compatibility with siad
+		"windowsize":                 s.WindowSize,
+		"collateral":                 s.Collateral,
+		"maxcollateral":              s.MaxCollateral,
+		"baserpcprice":               s.BaseRPCPrice,
+		"contractprice":              s.ContractPrice,
+		"downloadbandwidthprice":     s.DownloadBandwidthPrice,
+		"sectoraccessprice":          s.SectorAccessPrice,
+		"storageprice":               s.StoragePrice,
+		"uploadbandwidthprice":       s.UploadBandwidthPrice,
+		"ephemeralaccountexpiry":     s.EphemeralAccountExpiry,
+		"maxephemeralaccountbalance": s.MaxEphemeralAccountBalance,
+		"revisionnumber":             s.RevisionNumber,
+		"version":                    s.Version,
+		"siamuxport":                 s.SiaMuxPort,
+	})
 }
 
 // SiamuxAddr is a helper which returns an address that can be used to connect
