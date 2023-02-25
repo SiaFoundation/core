@@ -267,9 +267,15 @@ func (r *RPCAccountBalanceResponse) DecodeFrom(d *types.Decoder) {
 func (r *RPCExecuteProgramRequest) EncodeTo(e *types.Encoder) {
 	r.FileContractID.EncodeTo(e)
 	e.WritePrefix(len(r.Program))
+
+	var buf bytes.Buffer
+	ie := types.NewEncoder(&buf)
 	for _, instr := range r.Program {
 		instructionID(instr).EncodeTo(e)
-		instr.EncodeTo(e)
+		buf.Reset()
+		instr.EncodeTo(ie)
+		ie.Flush()
+		e.WriteBytes(buf.Bytes())
 	}
 	e.WriteBytes(r.ProgramData)
 }
@@ -286,6 +292,7 @@ func (r *RPCExecuteProgramRequest) DecodeFrom(d *types.Decoder) {
 			d.SetErr(fmt.Errorf("unrecognized instruction id: %q", id))
 			return
 		}
+		_ = d.ReadPrefix() // unused length prefix
 		if r.Program[i].DecodeFrom(d); d.Err() != nil {
 			return
 		}
