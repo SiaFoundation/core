@@ -291,7 +291,6 @@ func (r *RPCExecuteProgramRequest) DecodeFrom(d *types.Decoder) {
 			d.SetErr(fmt.Errorf("unrecognized instruction id: %q", id))
 			return
 		}
-		_ = d.ReadPrefix() // unused length prefix
 		if r.Program[i].DecodeFrom(d); d.Err() != nil {
 			return
 		}
