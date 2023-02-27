@@ -403,7 +403,6 @@ type (
 		MissedProofValues []types.Currency
 		RefundAccount     Account
 		Signature         types.Signature
-		HostSignature     types.Signature
 	}
 )
 

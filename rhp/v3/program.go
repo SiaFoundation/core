@@ -224,15 +224,15 @@ func (i *InstrReadOffset) RequiresFinalization() bool {
 
 // EncodeTo implements Instruction.
 func (i *InstrReadOffset) EncodeTo(e *types.Encoder) {
-	e.WriteUint64(i.LengthOffset)
 	e.WriteUint64(i.OffsetOffset)
+	e.WriteUint64(i.LengthOffset)
 	e.WriteBool(i.ProofRequired)
 }
 
 // DecodeFrom implements Instruction.
 func (i *InstrReadOffset) DecodeFrom(d *types.Decoder) {
-	i.LengthOffset = d.ReadUint64()
 	i.OffsetOffset = d.ReadUint64()
+	i.LengthOffset = d.ReadUint64()
 	i.ProofRequired = d.ReadBool()
 }
 
@@ -248,17 +248,17 @@ func (i *InstrReadSector) RequiresFinalization() bool {
 
 // EncodeTo implements Instruction.
 func (i *InstrReadSector) EncodeTo(e *types.Encoder) {
-	e.WriteUint64(i.LengthOffset)
-	e.WriteUint64(i.OffsetOffset)
 	e.WriteUint64(i.MerkleRootOffset)
+	e.WriteUint64(i.OffsetOffset)
+	e.WriteUint64(i.LengthOffset)
 	e.WriteBool(i.ProofRequired)
 }
 
 // DecodeFrom implements Instruction.
 func (i *InstrReadSector) DecodeFrom(d *types.Decoder) {
-	i.LengthOffset = d.ReadUint64()
-	i.OffsetOffset = d.ReadUint64()
 	i.MerkleRootOffset = d.ReadUint64()
+	i.OffsetOffset = d.ReadUint64()
+	i.LengthOffset = d.ReadUint64()
 	i.ProofRequired = d.ReadBool()
 }
 
@@ -410,6 +410,8 @@ func (i *InstrUpdateRegistry) EncodeTo(e *types.Encoder) {
 	e.WriteUint64(i.SignatureOffset)
 	e.WriteUint64(i.PublicKeyOffset)
 	e.WriteUint64(i.PublicKeyLength)
+	e.WriteUint64(i.DataOffset)
+	e.WriteUint64(i.DataLength)
 	e.WriteUint8(uint8(i.EntryType))
 }
 
@@ -420,6 +422,8 @@ func (i *InstrUpdateRegistry) DecodeFrom(d *types.Decoder) {
 	i.SignatureOffset = d.ReadUint64()
 	i.PublicKeyOffset = d.ReadUint64()
 	i.PublicKeyLength = d.ReadUint64()
+	i.DataOffset = d.ReadUint64()
+	i.DataLength = d.ReadUint64()
 	i.EntryType = d.ReadUint8()
 }
 
@@ -430,6 +434,8 @@ func (i *InstrUpdateRegistryNoType) EncodeTo(e *types.Encoder) {
 	e.WriteUint64(i.SignatureOffset)
 	e.WriteUint64(i.PublicKeyOffset)
 	e.WriteUint64(i.PublicKeyLength)
+	e.WriteUint64(i.DataOffset)
+	e.WriteUint64(i.DataLength)
 }
 
 // DecodeFrom implements Instruction.
@@ -439,5 +445,7 @@ func (i *InstrUpdateRegistryNoType) DecodeFrom(d *types.Decoder) {
 	i.SignatureOffset = d.ReadUint64()
 	i.PublicKeyOffset = d.ReadUint64()
 	i.PublicKeyLength = d.ReadUint64()
+	i.DataOffset = d.ReadUint64()
+	i.DataLength = d.ReadUint64()
 	i.EntryType = EntryTypeArbitrary
 }

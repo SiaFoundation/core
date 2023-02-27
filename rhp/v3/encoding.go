@@ -158,7 +158,6 @@ func (r *PayByContractRequest) EncodeTo(e *types.Encoder) {
 	}
 	r.RefundAccount.EncodeTo(e)
 	e.WriteBytes(r.Signature[:])
-	r.HostSignature.EncodeTo(e)
 }
 
 // DecodeFrom implements ProtocolObject.
@@ -175,7 +174,6 @@ func (r *PayByContractRequest) DecodeFrom(d *types.Decoder) {
 	}
 	r.RefundAccount.DecodeFrom(d)
 	copy(r.Signature[:], d.ReadBytes())
-	r.HostSignature.DecodeFrom(d)
 }
 
 // EncodeTo implements ProtocolObject.
@@ -219,6 +217,7 @@ func (r *FundAccountReceipt) EncodeTo(e *types.Encoder) {
 	r.Host.EncodeTo(e)
 	r.Account.EncodeTo(e)
 	r.Amount.EncodeTo(e)
+	e.WriteTime(r.Timestamp)
 }
 
 // DecodeFrom implements ProtocolObject.
@@ -267,9 +266,15 @@ func (r *RPCAccountBalanceResponse) DecodeFrom(d *types.Decoder) {
 func (r *RPCExecuteProgramRequest) EncodeTo(e *types.Encoder) {
 	r.FileContractID.EncodeTo(e)
 	e.WritePrefix(len(r.Program))
+
+	var buf bytes.Buffer
+	ie := types.NewEncoder(&buf)
 	for _, instr := range r.Program {
 		instructionID(instr).EncodeTo(e)
-		instr.EncodeTo(e)
+		buf.Reset()
+		instr.EncodeTo(ie)
+		ie.Flush()
+		e.WriteBytes(buf.Bytes())
 	}
 	e.WriteBytes(r.ProgramData)
 }

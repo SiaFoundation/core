@@ -95,7 +95,19 @@ func (s *Stream) writeObject(resp *rpcResponse) error {
 	resp.EncodeTo(e)
 	e.Flush()
 	b := buf.Bytes()
-	binary.LittleEndian.PutUint64(b[:8], uint64(len(b)-8))
+	length := len(b) - 8
+	// HACK: in siad, the ExecuteProgram RPC sends the ProgramData and Output
+	// separately from the rest of the request object. This was a performance
+	// optimization relating to how siad handles encoding and length prefixes.
+	// Suffice it to say, that optimization is not necessary in core, but we
+	// still have to preserve compatibility with how siad does things.
+	switch r := (resp.data).(type) {
+	case *RPCExecuteProgramRequest:
+		length -= len(r.ProgramData)
+	case *RPCExecuteProgramResponse:
+		length -= len(r.Output)
+	}
+	binary.LittleEndian.PutUint64(b[:8], uint64(length))
 	_, err := s.s.Write(b)
 	return err
 }
