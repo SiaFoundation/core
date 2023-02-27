@@ -1,4 +1,4 @@
-//go:build !testing && !testnet
+//go:build testnet
 
 package rhp
 
@@ -11,9 +11,13 @@ import (
 const SectorSize = 1 << 22 // 4 MiB
 
 func contractTax(fc types.FileContract) types.Currency {
-	// NOTE: siad uses different hardfork heights when -tags=testing is set,
+	// NOTE: siad uses different hardfork heights when -tags=testnet is set,
 	// so we have to alter cs accordingly.
 	// TODO: remove this
 	cs := consensus.State{Index: types.ChainIndex{Height: fc.WindowStart}}
+	switch {
+	case cs.Index.Height >= 2:
+		cs.Index.Height = 21000
+	}
 	return cs.FileContractTax(fc)
 }
