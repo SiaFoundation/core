@@ -38,11 +38,11 @@ func mulTargetFrac(x types.BlockID, n, d int64) (m types.BlockID) {
 }
 
 func updateOakTime(s State, blockTimestamp time.Time) time.Duration {
-	if s.childHeight() == hardforkASIC-1 {
-		return 120000 * time.Second
+	if s.childHeight() == s.params().hardforkHeightASIC-1 {
+		return s.params().hardforkASICTotalTime
 	}
 	prevTotalTime := s.OakTime
-	if s.childHeight() == hardforkOak-1 {
+	if s.childHeight() == s.params().hardforkHeightOak-1 {
 		prevTotalTime = s.BlockInterval() * time.Duration(s.childHeight())
 	}
 	decayedTime := (((prevTotalTime / time.Second) * 995) / 1000) * time.Second
@@ -50,8 +50,8 @@ func updateOakTime(s State, blockTimestamp time.Time) time.Duration {
 }
 
 func updateOakTarget(s State) types.BlockID {
-	if s.childHeight() == hardforkASIC-1 {
-		return types.BlockID{8: 32}
+	if s.childHeight() == s.params().hardforkHeightASIC-1 {
+		return s.params().hardforkASICTotalTarget
 	}
 	return addTarget(mulTargetFrac(s.OakTarget, 1000, 995), s.ChildTarget)
 }
@@ -60,7 +60,7 @@ func adjustTarget(s State, blockTimestamp time.Time, store Store) types.BlockID 
 	blockInterval := int64(s.BlockInterval() / time.Second)
 
 	// pre-Oak algorithm
-	if s.childHeight() <= hardforkOak {
+	if s.childHeight() <= s.params().hardforkHeightOak {
 		windowSize := uint64(1000)
 		if s.childHeight()%(windowSize/2) != 0 {
 			return s.ChildTarget // no change
@@ -85,7 +85,7 @@ func adjustTarget(s State, blockTimestamp time.Time, store Store) types.BlockID 
 	oakTotalTime := int64(s.OakTime / time.Second)
 
 	var delta int64
-	if s.Index.Height < hardforkOakFix {
+	if s.Index.Height < s.params().hardforkHeightOakFix {
 		delta = (blockInterval * int64(s.Index.Height)) - oakTotalTime
 	} else {
 		parentTimestamp := s.PrevTimestamps[0]
@@ -137,7 +137,7 @@ func adjustTarget(s State, blockTimestamp time.Time, store Store) types.BlockID 
 	//
 	// NOTE: the multiplications are flipped re: siad because we are comparing
 	// work, not targets
-	if s.childHeight() == hardforkASIC {
+	if s.childHeight() == s.params().hardforkHeightASIC {
 		return newTarget
 	}
 	min := mulTargetFrac(s.ChildTarget, 1004, 1000)
@@ -168,7 +168,7 @@ func ApplyState(s State, store Store, b types.Block) State {
 	newFoundationFailsafeAddress := s.FoundationFailsafeAddress
 	var updatedFoundation bool // Foundation addresses can only be updated once per block
 	for _, txn := range b.Transactions {
-		if s.Index.Height >= hardforkFoundation {
+		if s.Index.Height >= s.params().hardforkHeightFoundation {
 			for _, arb := range txn.ArbitraryData {
 				if bytes.HasPrefix(arb, types.SpecifierFoundation[:]) && !updatedFoundation {
 					var update types.FoundationAddressUpdate
