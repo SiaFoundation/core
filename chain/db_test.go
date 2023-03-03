@@ -96,6 +96,8 @@ func TestChainManager(t *testing.T) {
 
 	privateKey := types.GeneratePrivateKey()
 
+	cc, _ := Mainnet()
+	cc.InitialTarget = types.BlockID{0xFF}
 	giftAddress := wallet.StandardAddress(privateKey.PublicKey())
 	giftAmountSC := types.Siacoins(100)
 	giftAmountSF := uint64(100)
@@ -110,8 +112,7 @@ func TestChainManager(t *testing.T) {
 	genesisBlock := types.Block{
 		Transactions: []types.Transaction{giftTxn},
 	}
-
-	dbStore, checkpoint, err := NewDBStore(db, consensus.GenesisState(time.Time{}, types.BlockID{0xFF}, types.Address{}, types.Address{}), genesisBlock)
+	dbStore, checkpoint, err := NewDBStore(db, cc, genesisBlock)
 	if err != nil {
 		t.Fatal(err)
 	}

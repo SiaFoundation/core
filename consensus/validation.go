@@ -214,9 +214,9 @@ func validateSiafunds(s State, store Store, txns []types.Transaction) error {
 			}
 			if sfi.UnlockConditions.UnlockHash() != parent.Address &&
 				// override old developer siafund address
-				!(s.childHeight() >= s.params().hardforkHeightDevAddr &&
-					parent.Address.String() == "addr:7d0c44f7664e2d34e53efde0661a6f628ec9264785ae8e3cd7c973e8d190c3c97b5e3ecbc567" &&
-					sfi.UnlockConditions.UnlockHash().String() == "addr:f371c70bce9eb8979cd5099f599ec4e4fcb14e0afcf31f9791e03e6496a4c0b358c98279730b") {
+				!(s.childHeight() >= s.Network.HardforkDevAddr.Height &&
+					parent.Address == s.Network.HardforkDevAddr.OldAddress &&
+					sfi.UnlockConditions.UnlockHash() == s.Network.HardforkDevAddr.NewAddress) {
 				return fmt.Errorf("transaction %v claims incorrect unlock conditions for siafund output %v", i, sfi.ParentID)
 			}
 
@@ -400,9 +400,9 @@ func validateStorageProofs(s State, store Store, txn types.Transaction) error {
 			totalLeaves++
 		}
 		var leafLen uint64
-		if s.childHeight() < s.params().hardforkHeightTax {
+		if s.childHeight() < s.Network.HardforkTax.Height {
 			leafLen = leafSize
-		} else if s.childHeight() < s.params().hardforkHeightStorageProof {
+		} else if s.childHeight() < s.Network.HardforkStorageProof.Height {
 			leafLen = leafSize
 			if leafIndex == totalLeaves-1 {
 				leafLen = fc.Filesize % leafSize
@@ -425,7 +425,7 @@ func validateStorageProofs(s State, store Store, txn types.Transaction) error {
 }
 
 func validateArbitraryData(s State, store Store, txn types.Transaction) error {
-	if s.childHeight() < s.params().hardforkHeightFoundation {
+	if s.childHeight() < s.Network.HardforkFoundation.Height {
 		return nil
 	}
 	for _, arb := range txn.ArbitraryData {
