@@ -12,48 +12,6 @@ import (
 	"go.sia.tech/core/types"
 )
 
-type networkParams struct {
-	hardforkHeightDevAddr      uint64
-	hardforkHeightTax          uint64
-	hardforkHeightStorageProof uint64
-	hardforkHeightOak          uint64
-	hardforkHeightOakFix       uint64
-	hardforkHeightASIC         uint64
-	hardforkHeightFoundation   uint64
-
-	hardforkASICTotalTarget types.BlockID
-	hardforkASICTotalTime   time.Duration
-	minimumCoinbase         uint32 // in SC
-}
-
-var mainnetParams = &networkParams{
-	hardforkHeightDevAddr:      10000,
-	hardforkHeightTax:          21000,
-	hardforkHeightStorageProof: 100000,
-	hardforkHeightOak:          135000,
-	hardforkHeightOakFix:       139000,
-	hardforkHeightASIC:         179000,
-	hardforkHeightFoundation:   298000,
-
-	hardforkASICTotalTarget: types.BlockID{8: 32},
-	hardforkASICTotalTime:   120000 * time.Second,
-	minimumCoinbase:         30000,
-}
-
-var testnetParams = &networkParams{
-	hardforkHeightDevAddr:      10000,
-	hardforkHeightTax:          2,
-	hardforkHeightStorageProof: 100000,
-	hardforkHeightOak:          10,
-	hardforkHeightOakFix:       12,
-	hardforkHeightASIC:         20,
-	hardforkHeightFoundation:   30,
-
-	hardforkASICTotalTarget: types.BlockID{4: 1},
-	hardforkASICTotalTime:   10000 * time.Second,
-	minimumCoinbase:         300000,
-}
-
 // Pool for reducing heap allocations when hashing. This is only necessary
 // because blake2b.New256 returns a hash.Hash interface, which prevents the
 // compiler from doing escape analysis. Can be removed if we switch to an
@@ -123,15 +81,6 @@ func (s *State) DecodeFrom(d *types.Decoder) {
 	s.FoundationFailsafeAddress.DecodeFrom(d)
 }
 
-var mainnetGenesisTimestamp = time.Unix(1433600000, 0) // June 6th, 2015 @ 2:13pm UTC
-
-func (s State) params() *networkParams {
-	if s.GenesisTimestamp.Equal(mainnetGenesisTimestamp) {
-		return mainnetParams
-	}
-	return testnetParams
-}
-
 func (s State) childHeight() uint64 { return s.Index.Height + 1 }
 
 func (s State) numTimestamps() int {
@@ -165,7 +114,6 @@ func (s State) BlockInterval() time.Duration {
 // BlockReward returns the reward for mining a child block.
 func (s State) BlockReward() types.Currency {
 	initialCoinbase := uint32(300000)
-	minimumCoinbase := s.params().minimumCoinbase
 	if s.childHeight() < uint64(initialCoinbase-minimumCoinbase) {
 		return types.Siacoins(initialCoinbase - uint32(s.childHeight()))
 	}
@@ -191,10 +139,9 @@ func (s State) FoundationSubsidy() (sco types.SiacoinOutput) {
 	subsidyPerBlock := types.Siacoins(30000)
 	const blocksPerYear = 144 * 365
 	const blocksPerMonth = blocksPerYear / 12
-	hardforkHeight := s.params().hardforkHeightFoundation
-	if s.childHeight() < hardforkHeight || (s.childHeight()-hardforkHeight)%blocksPerMonth != 0 {
+	if s.childHeight() < hardforkHeightFoundation || (s.childHeight()-hardforkHeightFoundation)%blocksPerMonth != 0 {
 		sco.Value = types.ZeroCurrency
-	} else if s.childHeight() == hardforkHeight {
+	} else if s.childHeight() == hardforkHeightFoundation {
 		sco.Value = subsidyPerBlock.Mul64(blocksPerYear)
 	} else {
 		sco.Value = subsidyPerBlock.Mul64(blocksPerMonth)
@@ -204,7 +151,7 @@ func (s State) FoundationSubsidy() (sco types.SiacoinOutput) {
 
 // NonceFactor is the factor by which all block nonces must be divisible.
 func (s State) NonceFactor() uint64 {
-	if s.childHeight() < s.params().hardforkHeightASIC {
+	if s.childHeight() < hardforkHeightASIC {
 		return 1
 	}
 	return 1009
@@ -233,7 +180,7 @@ func (s State) BlockWeight(txns []types.Transaction) uint64 {
 func (s State) FileContractTax(fc types.FileContract) types.Currency {
 	// multiply by tax rate
 	i := fc.Payout.Big()
-	if s.childHeight() < s.params().hardforkHeightTax {
+	if s.childHeight() < hardforkHeightTax {
 		r := new(big.Rat).SetInt(i)
 		r.Mul(r, new(big.Rat).SetFloat64(0.039))
 		i.Div(r.Num(), r.Denom())
@@ -275,9 +222,9 @@ func (s State) StorageProofLeafIndex(filesize uint64, windowStart types.ChainInd
 // after each hardfork to prevent replay attacks.
 func (s State) replayPrefix() []byte {
 	switch {
-	case s.Index.Height >= s.params().hardforkHeightFoundation:
+	case s.Index.Height >= hardforkHeightFoundation:
 		return []byte{1}
-	case s.Index.Height >= s.params().hardforkHeightASIC:
+	case s.Index.Height >= hardforkHeightASIC:
 		return []byte{0}
 	default:
 		return nil
