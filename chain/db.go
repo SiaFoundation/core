@@ -172,12 +172,13 @@ var (
 
 // DBStore implements Store using a key-value database.
 type DBStore struct {
-	db DB
+	db      DB
+	network *consensus.Network
 }
 
 func (db DBStore) view(fn func(tx *dbTx)) error {
 	return db.db.View(func(tx DBTx) error {
-		dtx := &dbTx{tx: tx}
+		dtx := &dbTx{tx: tx, n: db.network}
 		fn(dtx)
 		return dtx.err
 	})
@@ -185,7 +186,7 @@ func (db DBStore) view(fn func(tx *dbTx)) error {
 
 func (db DBStore) update(fn func(tx *dbTx)) error {
 	return db.db.Update(func(tx DBTx) error {
-		dtx := &dbTx{tx: tx}
+		dtx := &dbTx{tx: tx, n: db.network}
 		fn(dtx)
 		return dtx.err
 	})
@@ -245,8 +246,8 @@ func (db DBStore) BestIndex(height uint64) (index types.ChainIndex, err error) {
 
 // NewDBStore creates a new DBStore using the provided database. The current
 // checkpoint is also returned.
-func NewDBStore(db DB, genesisState consensus.State, genesisBlock types.Block) (*DBStore, Checkpoint, error) {
-	dbs := &DBStore{db: db}
+func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (*DBStore, Checkpoint, error) {
+	dbs := &DBStore{db: db, network: n}
 	err := dbs.update(func(tx *dbTx) {
 		if _, ok := tx.getCheckpoint(genesisBlock.ID()); ok {
 			return // already initialized
@@ -264,35 +265,12 @@ func NewDBStore(db DB, genesisState consensus.State, genesisBlock types.Block) (
 		}
 
 		// add genesis checkpoint and effects
+		genesisState := n.GenesisState()
 		cs := consensus.ApplyState(genesisState, tx, genesisBlock)
 		diff := consensus.ApplyDiff(genesisState, tx, genesisBlock)
 		tx.putCheckpoint(Checkpoint{genesisBlock, cs, &diff})
 		tx.applyState(cs)
 		tx.applyDiff(cs, diff)
-	})
-	if err != nil {
-		return nil, Checkpoint{}, err
-	}
-
-	// rollback 10 blocks
-	err = dbs.update(func(tx *dbTx) {
-		for i := 0; i < 1000; i++ {
-			index, ok := tx.BestIndex(tx.getHeight())
-			if !ok {
-				break
-			}
-			c, ok := tx.getCheckpoint(index.ID)
-			if !ok {
-				break
-			}
-			pc, ok := tx.getCheckpoint(c.Block.ParentID)
-			if !ok {
-				break
-			}
-			tx.revertDiff(pc.State, *c.Diff)
-			tx.revertState(pc.State)
-			tx.deleteCheckpoint(index.ID)
-		}
 	})
 	if err != nil {
 		return nil, Checkpoint{}, err
@@ -358,6 +336,7 @@ func (b *dbBucket) delete(key []byte) {
 
 type dbTx struct {
 	tx  DBTx
+	n   *consensus.Network // for getCheckpoint
 	err error
 }
 
@@ -411,6 +390,7 @@ func (tx *dbTx) putHeight(height uint64) {
 
 func (tx *dbTx) getCheckpoint(id types.BlockID) (c Checkpoint, ok bool) {
 	ok = tx.bucket(bCheckpoints).get(id[:], &c)
+	c.State.Network = tx.n
 	return
 }
 

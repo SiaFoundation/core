@@ -12,48 +12,6 @@ import (
 	"go.sia.tech/core/types"
 )
 
-type networkParams struct {
-	hardforkHeightDevAddr      uint64
-	hardforkHeightTax          uint64
-	hardforkHeightStorageProof uint64
-	hardforkHeightOak          uint64
-	hardforkHeightOakFix       uint64
-	hardforkHeightASIC         uint64
-	hardforkHeightFoundation   uint64
-
-	hardforkASICTotalTarget types.BlockID
-	hardforkASICTotalTime   time.Duration
-	minimumCoinbase         uint32 // in SC
-}
-
-var mainnetParams = &networkParams{
-	hardforkHeightDevAddr:      10000,
-	hardforkHeightTax:          21000,
-	hardforkHeightStorageProof: 100000,
-	hardforkHeightOak:          135000,
-	hardforkHeightOakFix:       139000,
-	hardforkHeightASIC:         179000,
-	hardforkHeightFoundation:   298000,
-
-	hardforkASICTotalTarget: types.BlockID{8: 32},
-	hardforkASICTotalTime:   120000 * time.Second,
-	minimumCoinbase:         30000,
-}
-
-var testnetParams = &networkParams{
-	hardforkHeightDevAddr:      10000,
-	hardforkHeightTax:          2,
-	hardforkHeightStorageProof: 100000,
-	hardforkHeightOak:          10,
-	hardforkHeightOakFix:       12,
-	hardforkHeightASIC:         20,
-	hardforkHeightFoundation:   30,
-
-	hardforkASICTotalTarget: types.BlockID{4: 1},
-	hardforkASICTotalTime:   10000 * time.Second,
-	minimumCoinbase:         300000,
-}
-
 // Pool for reducing heap allocations when hashing. This is only necessary
 // because blake2b.New256 returns a hash.Hash interface, which prevents the
 // compiler from doing escape analysis. Can be removed if we switch to an
@@ -76,19 +34,74 @@ type Store interface {
 	MissedFileContracts(height uint64) []types.FileContractID
 }
 
-// State represents the constant-size state of the chain as of a particular
-// block.
+// A Network specifies the fixed parameters of a Sia blockchain.
+type Network struct {
+	InitialCoinbase types.Currency
+	MinimumCoinbase types.Currency
+	InitialTarget   types.BlockID
+
+	HardforkDevAddr struct {
+		Height     uint64
+		OldAddress types.Address
+		NewAddress types.Address
+	}
+	HardforkTax struct {
+		Height uint64
+	}
+	HardforkStorageProof struct {
+		Height uint64
+	}
+	HardforkOak struct {
+		Height           uint64
+		FixHeight        uint64
+		GenesisTimestamp time.Time
+	}
+	HardforkASIC struct {
+		Height    uint64
+		OakTime   time.Duration
+		OakTarget types.BlockID
+	}
+	HardforkFoundation struct {
+		Height          uint64
+		PrimaryAddress  types.Address
+		FailsafeAddress types.Address
+	}
+}
+
+// GenesisState returns the state to which the genesis block should be applied.
+func (n *Network) GenesisState() State {
+	return State{
+		Network: n,
+
+		Index:          types.ChainIndex{Height: ^uint64(0)},
+		PrevTimestamps: [11]time.Time{},
+		Depth:          intToTarget(maxTarget),
+		ChildTarget:    n.InitialTarget,
+		SiafundPool:    types.ZeroCurrency,
+
+		OakTime:   0,
+		OakTarget: intToTarget(maxTarget),
+
+		FoundationPrimaryAddress:  n.HardforkFoundation.PrimaryAddress,
+		FoundationFailsafeAddress: n.HardforkFoundation.FailsafeAddress,
+	}
+}
+
+// State represents the state of the chain as of a particular block.
 type State struct {
-	Index                     types.ChainIndex `json:"index"`
-	PrevTimestamps            [11]time.Time    `json:"prevTimestamps"`
-	Depth                     types.BlockID    `json:"depth"`
-	ChildTarget               types.BlockID    `json:"childTarget"`
-	OakTarget                 types.BlockID    `json:"oakTarget"`
-	OakTime                   time.Duration    `json:"oakTime"`
-	GenesisTimestamp          time.Time        `json:"genesisTimestamp"`
-	SiafundPool               types.Currency   `json:"siafundPool"`
-	FoundationPrimaryAddress  types.Address    `json:"foundationPrimaryAddress"`
-	FoundationFailsafeAddress types.Address    `json:"foundationFailsafeAddress"`
+	Network *Network `json:"-"` // network parameters are not encoded
+
+	Index          types.ChainIndex `json:"index"`
+	PrevTimestamps [11]time.Time    `json:"prevTimestamps"`
+	Depth          types.BlockID    `json:"depth"`
+	ChildTarget    types.BlockID    `json:"childTarget"`
+	SiafundPool    types.Currency   `json:"siafundPool"`
+
+	// hardfork-related state
+	OakTime                   time.Duration `json:"oakTime"`
+	OakTarget                 types.BlockID `json:"oakTarget"`
+	FoundationPrimaryAddress  types.Address `json:"foundationPrimaryAddress"`
+	FoundationFailsafeAddress types.Address `json:"foundationFailsafeAddress"`
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -99,10 +112,10 @@ func (s State) EncodeTo(e *types.Encoder) {
 	}
 	s.Depth.EncodeTo(e)
 	s.ChildTarget.EncodeTo(e)
-	s.OakTarget.EncodeTo(e)
-	e.WriteUint64(uint64(s.OakTime))
-	e.WriteTime(s.GenesisTimestamp)
 	s.SiafundPool.EncodeTo(e)
+
+	e.WriteUint64(uint64(s.OakTime))
+	s.OakTarget.EncodeTo(e)
 	s.FoundationPrimaryAddress.EncodeTo(e)
 	s.FoundationFailsafeAddress.EncodeTo(e)
 }
@@ -115,21 +128,12 @@ func (s *State) DecodeFrom(d *types.Decoder) {
 	}
 	s.Depth.DecodeFrom(d)
 	s.ChildTarget.DecodeFrom(d)
-	s.OakTarget.DecodeFrom(d)
-	s.OakTime = time.Duration(d.ReadUint64())
-	s.GenesisTimestamp = d.ReadTime()
 	s.SiafundPool.DecodeFrom(d)
+
+	s.OakTime = time.Duration(d.ReadUint64())
+	s.OakTarget.DecodeFrom(d)
 	s.FoundationPrimaryAddress.DecodeFrom(d)
 	s.FoundationFailsafeAddress.DecodeFrom(d)
-}
-
-var mainnetGenesisTimestamp = time.Unix(1433600000, 0) // June 6th, 2015 @ 2:13pm UTC
-
-func (s State) params() *networkParams {
-	if s.GenesisTimestamp.Equal(mainnetGenesisTimestamp) {
-		return mainnetParams
-	}
-	return testnetParams
 }
 
 func (s State) childHeight() uint64 { return s.Index.Height + 1 }
@@ -164,18 +168,17 @@ func (s State) BlockInterval() time.Duration {
 
 // BlockReward returns the reward for mining a child block.
 func (s State) BlockReward() types.Currency {
-	initialCoinbase := uint32(300000)
-	minimumCoinbase := s.params().minimumCoinbase
-	if s.childHeight() < uint64(initialCoinbase-minimumCoinbase) {
-		return types.Siacoins(initialCoinbase - uint32(s.childHeight()))
+	r, underflow := s.Network.InitialCoinbase.SubWithUnderflow(types.Siacoins(uint32(s.childHeight())))
+	if underflow || r.Cmp(s.Network.MinimumCoinbase) < 0 {
+		return s.Network.MinimumCoinbase
 	}
-	return types.Siacoins(minimumCoinbase)
+	return r
 }
 
 // MaturityHeight is the height at which various outputs created in the child
 // block will "mature" (become spendable).
 func (s State) MaturityHeight() uint64 {
-	return (s.Index.Height + 1) + 144
+	return s.childHeight() + 144
 }
 
 // SiafundCount is the number of siafunds in existence.
@@ -191,7 +194,7 @@ func (s State) FoundationSubsidy() (sco types.SiacoinOutput) {
 	subsidyPerBlock := types.Siacoins(30000)
 	const blocksPerYear = 144 * 365
 	const blocksPerMonth = blocksPerYear / 12
-	hardforkHeight := s.params().hardforkHeightFoundation
+	hardforkHeight := s.Network.HardforkFoundation.Height
 	if s.childHeight() < hardforkHeight || (s.childHeight()-hardforkHeight)%blocksPerMonth != 0 {
 		sco.Value = types.ZeroCurrency
 	} else if s.childHeight() == hardforkHeight {
@@ -204,7 +207,7 @@ func (s State) FoundationSubsidy() (sco types.SiacoinOutput) {
 
 // NonceFactor is the factor by which all block nonces must be divisible.
 func (s State) NonceFactor() uint64 {
-	if s.childHeight() < s.params().hardforkHeightASIC {
+	if s.childHeight() < s.Network.HardforkASIC.Height {
 		return 1
 	}
 	return 1009
@@ -233,7 +236,7 @@ func (s State) BlockWeight(txns []types.Transaction) uint64 {
 func (s State) FileContractTax(fc types.FileContract) types.Currency {
 	// multiply by tax rate
 	i := fc.Payout.Big()
-	if s.childHeight() < s.params().hardforkHeightTax {
+	if s.childHeight() < s.Network.HardforkTax.Height {
 		r := new(big.Rat).SetInt(i)
 		r.Mul(r, new(big.Rat).SetFloat64(0.039))
 		i.Div(r.Num(), r.Denom())
@@ -275,9 +278,9 @@ func (s State) StorageProofLeafIndex(filesize uint64, windowStart types.ChainInd
 // after each hardfork to prevent replay attacks.
 func (s State) replayPrefix() []byte {
 	switch {
-	case s.Index.Height >= s.params().hardforkHeightFoundation:
+	case s.Index.Height >= s.Network.HardforkFoundation.Height:
 		return []byte{1}
-	case s.Index.Height >= s.params().hardforkHeightASIC:
+	case s.Index.Height >= s.Network.HardforkASIC.Height:
 		return []byte{0}
 	default:
 		return nil
@@ -382,20 +385,4 @@ func (s State) PartialSigHash(txn types.Transaction, cf types.CoveredFields) typ
 	}
 
 	return h.Sum()
-}
-
-// GenesisState returns the state to which the genesis block should be applied.
-func GenesisState(genesisTimestamp time.Time, initialTarget types.BlockID, foundationPrimaryAddr, foundationFailsafeAddr types.Address) State {
-	return State{
-		Index:                     types.ChainIndex{Height: ^uint64(0)},
-		PrevTimestamps:            [11]time.Time{0: genesisTimestamp},
-		Depth:                     intToTarget(maxTarget),
-		ChildTarget:               initialTarget,
-		OakTime:                   0,
-		OakTarget:                 intToTarget(maxTarget),
-		GenesisTimestamp:          genesisTimestamp,
-		SiafundPool:               types.ZeroCurrency,
-		FoundationPrimaryAddress:  foundationPrimaryAddr,
-		FoundationFailsafeAddress: foundationFailsafeAddr,
-	}
 }

@@ -37,21 +37,21 @@ func mulTargetFrac(x types.BlockID, n, d int64) (m types.BlockID) {
 	return intToTarget(i)
 }
 
-func updateOakTime(s State, blockTimestamp time.Time) time.Duration {
-	if s.childHeight() == s.params().hardforkHeightASIC-1 {
-		return s.params().hardforkASICTotalTime
+func updateOakTime(s State, blockTimestamp, parentTimestamp time.Time) time.Duration {
+	if s.childHeight() == s.Network.HardforkASIC.Height-1 {
+		return s.Network.HardforkASIC.OakTime
 	}
 	prevTotalTime := s.OakTime
-	if s.childHeight() == s.params().hardforkHeightOak-1 {
+	if s.childHeight() == s.Network.HardforkOak.Height-1 {
 		prevTotalTime = s.BlockInterval() * time.Duration(s.childHeight())
 	}
 	decayedTime := (((prevTotalTime / time.Second) * 995) / 1000) * time.Second
-	return decayedTime + blockTimestamp.Sub(s.PrevTimestamps[0])
+	return decayedTime + blockTimestamp.Sub(parentTimestamp)
 }
 
 func updateOakTarget(s State) types.BlockID {
-	if s.childHeight() == s.params().hardforkHeightASIC-1 {
-		return s.params().hardforkASICTotalTarget
+	if s.childHeight() == s.Network.HardforkASIC.Height-1 {
+		return s.Network.HardforkASIC.OakTarget
 	}
 	return addTarget(mulTargetFrac(s.OakTarget, 1000, 995), s.ChildTarget)
 }
@@ -60,7 +60,7 @@ func adjustTarget(s State, blockTimestamp time.Time, store Store) types.BlockID 
 	blockInterval := int64(s.BlockInterval() / time.Second)
 
 	// pre-Oak algorithm
-	if s.childHeight() <= s.params().hardforkHeightOak {
+	if s.childHeight() <= s.Network.HardforkOak.Height {
 		windowSize := uint64(1000)
 		if s.childHeight()%(windowSize/2) != 0 {
 			return s.ChildTarget // no change
@@ -85,11 +85,11 @@ func adjustTarget(s State, blockTimestamp time.Time, store Store) types.BlockID 
 	oakTotalTime := int64(s.OakTime / time.Second)
 
 	var delta int64
-	if s.Index.Height < s.params().hardforkHeightOakFix {
+	if s.Index.Height < s.Network.HardforkOak.FixHeight {
 		delta = (blockInterval * int64(s.Index.Height)) - oakTotalTime
 	} else {
 		parentTimestamp := s.PrevTimestamps[0]
-		delta = (blockInterval * int64(s.Index.Height)) + s.GenesisTimestamp.Unix() - parentTimestamp.Unix()
+		delta = (blockInterval * int64(s.Index.Height)) - (parentTimestamp.Unix() - s.Network.HardforkOak.GenesisTimestamp.Unix())
 	}
 
 	// square the delta and preserve its sign
@@ -137,7 +137,7 @@ func adjustTarget(s State, blockTimestamp time.Time, store Store) types.BlockID 
 	//
 	// NOTE: the multiplications are flipped re: siad because we are comparing
 	// work, not targets
-	if s.childHeight() == s.params().hardforkHeightASIC {
+	if s.childHeight() == s.Network.HardforkASIC.Height {
 		return newTarget
 	}
 	min := mulTargetFrac(s.ChildTarget, 1004, 1000)
@@ -166,16 +166,16 @@ func ApplyState(s State, store Store, b types.Block) State {
 	// update state
 	newFoundationPrimaryAddress := s.FoundationPrimaryAddress
 	newFoundationFailsafeAddress := s.FoundationFailsafeAddress
-	var updatedFoundation bool // Foundation addresses can only be updated once per block
-	for _, txn := range b.Transactions {
-		if s.Index.Height >= s.params().hardforkHeightFoundation {
+	if s.Index.Height >= s.Network.HardforkFoundation.Height {
+	outer:
+		for _, txn := range b.Transactions {
 			for _, arb := range txn.ArbitraryData {
-				if bytes.HasPrefix(arb, types.SpecifierFoundation[:]) && !updatedFoundation {
+				if bytes.HasPrefix(arb, types.SpecifierFoundation[:]) {
 					var update types.FoundationAddressUpdate
 					update.DecodeFrom(types.NewBufDecoder(arb[len(types.SpecifierFoundation):]))
 					newFoundationPrimaryAddress = update.NewPrimary
 					newFoundationFailsafeAddress = update.NewFailsafe
-					updatedFoundation = true
+					break outer // Foundation addresses can only be updated once per block
 				}
 			}
 		}
@@ -184,14 +184,16 @@ func ApplyState(s State, store Store, b types.Block) State {
 	if b.ParentID == (types.BlockID{}) {
 		// special handling for genesis block
 		return State{
-			Index:                     types.ChainIndex{Height: 0, ID: b.ID()},
-			PrevTimestamps:            [11]time.Time{0: b.Timestamp},
-			Depth:                     s.Depth,
-			ChildTarget:               s.ChildTarget,
-			OakTime:                   updateOakTime(s, b.Timestamp),
+			Network: s.Network,
+
+			Index:          types.ChainIndex{Height: 0, ID: b.ID()},
+			PrevTimestamps: [11]time.Time{0: b.Timestamp},
+			Depth:          s.Depth,
+			ChildTarget:    s.ChildTarget,
+			SiafundPool:    siafundPool,
+
+			OakTime:                   updateOakTime(s, b.Timestamp, b.Timestamp),
 			OakTarget:                 updateOakTarget(s),
-			GenesisTimestamp:          b.Timestamp,
-			SiafundPool:               siafundPool,
 			FoundationPrimaryAddress:  newFoundationPrimaryAddress,
 			FoundationFailsafeAddress: newFoundationFailsafeAddress,
 		}
@@ -201,14 +203,16 @@ func ApplyState(s State, store Store, b types.Block) State {
 	copy(prevTimestamps[1:], s.PrevTimestamps[:])
 	prevTimestamps[0] = b.Timestamp
 	return State{
-		Index:                     types.ChainIndex{Height: s.Index.Height + 1, ID: b.ID()},
-		PrevTimestamps:            prevTimestamps,
-		Depth:                     addTarget(s.Depth, s.ChildTarget),
-		ChildTarget:               adjustTarget(s, b.Timestamp, store),
-		OakTime:                   updateOakTime(s, b.Timestamp),
+		Network: s.Network,
+
+		Index:          types.ChainIndex{Height: s.Index.Height + 1, ID: b.ID()},
+		PrevTimestamps: prevTimestamps,
+		Depth:          addTarget(s.Depth, s.ChildTarget),
+		ChildTarget:    adjustTarget(s, b.Timestamp, store),
+		SiafundPool:    siafundPool,
+
+		OakTime:                   updateOakTime(s, b.Timestamp, s.PrevTimestamps[0]),
 		OakTarget:                 updateOakTarget(s),
-		GenesisTimestamp:          s.GenesisTimestamp,
-		SiafundPool:               siafundPool,
 		FoundationPrimaryAddress:  newFoundationPrimaryAddress,
 		FoundationFailsafeAddress: newFoundationFailsafeAddress,
 	}
