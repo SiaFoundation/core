@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/binary"
 	"hash"
 	"math/bits"
 	"sync"
@@ -74,4 +75,43 @@ func (acc *merkleAccumulator) root() Hash256 {
 		}
 	}
 	return root
+}
+
+func standardUnlockHash(pk PublicKey) Address {
+	// An Address is the Merkle root of UnlockConditions. Since the standard
+	// UnlockConditions use a single public key, the Merkle tree is:
+	//
+	//           ┌─────────┴──────────┐
+	//     ┌─────┴─────┐              │
+	//  timelock     pubkey     sigsrequired
+	//
+	// This implies a total of 5 BLAKE2b hashes: 3 leaves and 2 nodes. However,
+	// in standard UnlockConditions, the timelock and sigsrequired are always
+	// the same (0 and 1, respectively), so we can precompute these hashes,
+	// bringing the total down to 3 BLAKE2b hashes.
+
+	// calculate the leaf hash for the pubkey.
+	buf := make([]byte, 1+16+8+32)
+	buf[0] = leafHashPrefix
+	copy(buf[1:], SpecifierEd25519[:])
+	binary.LittleEndian.PutUint64(buf[17:], 32)
+	copy(buf[25:], pk[:])
+	pubkeyHash := blake2b.Sum256(buf)
+
+	// BLAKE2b(0x00 | uint64(0))
+	timelockHash := Hash256{
+		0x51, 0x87, 0xb7, 0xa8, 0x02, 0x1b, 0xf4, 0xf2,
+		0xc0, 0x04, 0xea, 0x3a, 0x54, 0xcf, 0xec, 0xe1,
+		0x75, 0x4f, 0x11, 0xc7, 0x62, 0x4d, 0x23, 0x63,
+		0xc7, 0xf4, 0xcf, 0x4f, 0xdd, 0xd1, 0x44, 0x1e,
+	}
+	// BLAKE2b(0x00 | uint64(1))
+	sigsrequiredHash := Hash256{
+		0xb3, 0x60, 0x10, 0xeb, 0x28, 0x5c, 0x15, 0x4a,
+		0x8c, 0xd6, 0x30, 0x84, 0xac, 0xbe, 0x7e, 0xac,
+		0x0c, 0x4d, 0x62, 0x5a, 0xb4, 0xe1, 0xa7, 0x6e,
+		0x62, 0x4a, 0x87, 0x98, 0xcb, 0x63, 0x49, 0x7b,
+	}
+
+	return Address(blake2b.SumPair(blake2b.SumPair(timelockHash, pubkeyHash), sigsrequiredHash))
 }

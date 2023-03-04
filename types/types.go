@@ -50,6 +50,19 @@ func (pk PublicKey) UnlockKey() UnlockKey {
 	}
 }
 
+// StandardAddress returns the standard address derived from pk.
+func (pk PublicKey) StandardAddress() Address {
+	return standardUnlockHash(pk)
+}
+
+// StandardUnlockConditions returns the standard unlock conditions for pk.
+func (pk PublicKey) StandardUnlockConditions() UnlockConditions {
+	return UnlockConditions{
+		PublicKeys:         []UnlockKey{pk.UnlockKey()},
+		SignaturesRequired: 1,
+	}
+}
+
 // A PrivateKey is an Ed25519 private key.
 type PrivateKey []byte
 
@@ -111,6 +124,15 @@ type UnlockConditions struct {
 // UnlockHash computes the hash of a set of UnlockConditions. Such hashes are
 // most commonly used as addresses, but are also used in file contracts.
 func (uc UnlockConditions) UnlockHash() Address {
+	// almost all UnlockConditions are standard, so optimize for that case
+	if uc.Timelock == 0 &&
+		len(uc.PublicKeys) == 1 &&
+		uc.PublicKeys[0].Algorithm == SpecifierEd25519 &&
+		len(uc.PublicKeys[0].Key) == len(PublicKey{}) &&
+		uc.SignaturesRequired == 1 {
+		return standardUnlockHash(*(*PublicKey)(uc.PublicKeys[0].Key))
+	}
+
 	h := hasherPool.Get().(*Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()

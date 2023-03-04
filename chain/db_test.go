@@ -8,7 +8,6 @@ import (
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
-	"go.sia.tech/core/wallet"
 	"lukechampine.com/frand"
 )
 
@@ -98,7 +97,7 @@ func TestChainManager(t *testing.T) {
 
 	cc, _ := Mainnet()
 	cc.InitialTarget = types.BlockID{0xFF}
-	giftAddress := wallet.StandardAddress(privateKey.PublicKey())
+	giftAddress := privateKey.PublicKey().StandardAddress()
 	giftAmountSC := types.Siacoins(100)
 	giftAmountSF := uint64(100)
 	giftTxn := types.Transaction{
@@ -161,14 +160,14 @@ func TestChainManager(t *testing.T) {
 		SiacoinInputs: []types.SiacoinInput{
 			{
 				ParentID:         giftTxn.SiacoinOutputID(0),
-				UnlockConditions: wallet.StandardUnlockConditions(privateKey.PublicKey()),
+				UnlockConditions: privateKey.PublicKey().StandardUnlockConditions(),
 			},
 		},
 		SiafundInputs: []types.SiafundInput{
 			{
 				ParentID:         giftTxn.SiafundOutputID(0),
 				ClaimAddress:     types.VoidAddress,
-				UnlockConditions: wallet.StandardUnlockConditions(privateKey.PublicKey()),
+				UnlockConditions: privateKey.PublicKey().StandardUnlockConditions(),
 			},
 		},
 		SiacoinOutputs: []types.SiacoinOutput{
