@@ -7,9 +7,12 @@ import (
 	"go.sia.tech/core/types"
 )
 
+// SectorSize is the size of one sector in bytes.
+const SectorSize = 1 << 22 // 4 MiB
+
 // ContractFormationCost returns the cost of forming a contract.
-func ContractFormationCost(fc types.FileContract, contractFee types.Currency) types.Currency {
-	return fc.ValidRenterPayout().Add(contractFee).Add(contractTax(fc))
+func ContractFormationCost(cs consensus.State, fc types.FileContract, contractFee types.Currency) types.Currency {
+	return fc.ValidRenterPayout().Add(contractFee).Add(cs.FileContractTax(fc))
 }
 
 // ContractFormationCollateral returns the amount of collateral we add when
@@ -66,8 +69,8 @@ func PrepareContractFormation(renterKey types.PrivateKey, hostKey types.PublicKe
 // ContractRenewalCost returns the cost of renewing a contract for the renter.
 // In other words, this is the amount of money that the renter needs to fund the
 // contract txn with.
-func ContractRenewalCost(fc types.FileContract, contractFee, minerFee, basePrice types.Currency) types.Currency {
-	return fc.ValidRenterPayout().Add(contractFee).Add(minerFee).Add(basePrice).Add(contractTax(fc))
+func ContractRenewalCost(cs consensus.State, fc types.FileContract, contractFee, minerFee, basePrice types.Currency) types.Currency {
+	return fc.ValidRenterPayout().Add(contractFee).Add(minerFee).Add(basePrice).Add(cs.FileContractTax(fc))
 }
 
 // ContractRenewalCollateral returns the amount of collateral we add on top of
