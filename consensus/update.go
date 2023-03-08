@@ -131,6 +131,9 @@ func adjustTarget(s State, blockTimestamp time.Time, store Store) types.BlockID 
 	estimatedHashrate := new(big.Int).Div(maxTarget, new(big.Int).SetBytes(s.OakTarget[:]))
 	estimatedHashrate.Div(estimatedHashrate, big.NewInt(oakTotalTime))
 	estimatedHashrate.Mul(estimatedHashrate, big.NewInt(targetBlockTime))
+	if estimatedHashrate.BitLen() == 0 {
+		estimatedHashrate = big.NewInt(1)
+	}
 	newTarget := intToTarget(new(big.Int).Div(maxTarget, estimatedHashrate))
 
 	// clamp the adjustment to 0.4%, except for ASIC hardfork block

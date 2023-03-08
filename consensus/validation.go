@@ -119,7 +119,7 @@ func validateDoubleSpends(s State, txns []types.Transaction) error {
 		}
 		for _, sfi := range txn.SiafundInputs {
 			if doubleSpent(types.Hash256(sfi.ParentID)) {
-				return fmt.Errorf("transaction %v double-spends siacoin input %v", i, sfi.ParentID)
+				return fmt.Errorf("transaction %v double-spends siafund input %v", i, sfi.ParentID)
 			}
 		}
 		for _, sp := range txn.StorageProofs {
