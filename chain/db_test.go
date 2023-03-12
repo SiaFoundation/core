@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"go.sia.tech/core/consensus"
+	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"lukechampine.com/frand"
 )
@@ -66,6 +67,9 @@ func signTxn(cs consensus.State, privateKey types.PrivateKey, txn *types.Transac
 	}
 	for i := range txn.SiafundInputs {
 		AppendTransactionSignature(cs, privateKey, types.Hash256(txn.SiafundInputs[i].ParentID), txn)
+	}
+	for i := range txn.FileContractRevisions {
+		AppendTransactionSignature(cs, privateKey, types.Hash256(txn.FileContractRevisions[i].ParentID), txn)
 	}
 }
 
@@ -285,11 +289,21 @@ func TestChainManager(t *testing.T) {
 func TestConsensusValidate(t *testing.T) {
 	db := NewMemDB()
 
-	privateKey := types.GeneratePrivateKey()
+	giftPrivateKey := types.GeneratePrivateKey()
+	hostPrivateKey := types.GeneratePrivateKey()
+	renterPrivateKey := types.GeneratePrivateKey()
 
-	giftAddress := privateKey.PublicKey().StandardAddress()
+	giftPublicKey := giftPrivateKey.PublicKey()
+	hostPublicKey := hostPrivateKey.PublicKey()
+
+	giftAddress := giftPublicKey.StandardAddress()
 	giftAmountSC := types.Siacoins(100)
 	giftAmountSF := uint64(100)
+
+	giftFC := rhpv2.PrepareContractFormation(renterPrivateKey, hostPublicKey, types.Siacoins(1), types.Siacoins(1), 0, rhpv2.HostSettings{}, types.VoidAddress)
+	giftFC.WindowEnd += 100
+	giftFC.UnlockHash = types.Hash256(giftPublicKey.StandardUnlockConditions().UnlockHash())
+
 	giftTxn := types.Transaction{
 		SiacoinOutputs: []types.SiacoinOutput{
 			{Address: giftAddress, Value: giftAmountSC},
@@ -297,6 +311,7 @@ func TestConsensusValidate(t *testing.T) {
 		SiafundOutputs: []types.SiafundOutput{
 			{Address: giftAddress, Value: giftAmountSF},
 		},
+		FileContracts: []types.FileContract{giftFC},
 	}
 	genesisBlock := types.Block{
 		Transactions: []types.Transaction{giftTxn},
@@ -345,14 +360,14 @@ func TestConsensusValidate(t *testing.T) {
 		SiacoinInputs: []types.SiacoinInput{
 			{
 				ParentID:         giftTxn.SiacoinOutputID(0),
-				UnlockConditions: privateKey.PublicKey().StandardUnlockConditions(),
+				UnlockConditions: giftPublicKey.StandardUnlockConditions(),
 			},
 		},
 		SiafundInputs: []types.SiafundInput{
 			{
 				ParentID:         giftTxn.SiafundOutputID(0),
 				ClaimAddress:     types.VoidAddress,
-				UnlockConditions: privateKey.PublicKey().StandardUnlockConditions(),
+				UnlockConditions: giftPublicKey.StandardUnlockConditions(),
 			},
 		},
 		SiacoinOutputs: []types.SiacoinOutput{
@@ -364,7 +379,7 @@ func TestConsensusValidate(t *testing.T) {
 			{Value: giftAmountSF / 2, Address: types.VoidAddress},
 		},
 	}
-	signTxn(cm.TipState(), privateKey, &txnB2)
+	signTxn(cm.TipState(), giftPrivateKey, &txnB2)
 
 	cs := cm.TipState()
 	b2 := types.Block{
@@ -380,27 +395,43 @@ func TestConsensusValidate(t *testing.T) {
 	}
 
 	cs = cm.TipState()
+	fc := rhpv2.PrepareContractFormation(renterPrivateKey, hostPublicKey, types.Siacoins(1), types.Siacoins(1), cs.Index.Height+1, rhpv2.HostSettings{}, types.VoidAddress)
+	fc.WindowEnd += 100
+	fc.UnlockHash = types.Hash256(giftPublicKey.StandardUnlockConditions().UnlockHash())
+
+	revision := giftFC
+	revision.RevisionNumber += 1
+	revision.WindowStart = cs.Index.Height + 1
+	revision.WindowEnd = revision.WindowStart + 100
+
 	txnB3 := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{
 			{
 				ParentID:         txnB2.SiacoinOutputID(0),
-				UnlockConditions: privateKey.PublicKey().StandardUnlockConditions(),
+				UnlockConditions: giftPublicKey.StandardUnlockConditions(),
 			},
 		},
 		SiafundInputs: []types.SiafundInput{
 			{
 				ParentID:         txnB2.SiafundOutputID(0),
 				ClaimAddress:     types.VoidAddress,
-				UnlockConditions: privateKey.PublicKey().StandardUnlockConditions(),
+				UnlockConditions: giftPublicKey.StandardUnlockConditions(),
 			},
 		},
 		SiacoinOutputs: []types.SiacoinOutput{
-			{Value: giftAmountSC.Div64(4), Address: giftAddress},
-			{Value: giftAmountSC.Div64(4), Address: types.VoidAddress},
+			{Value: giftAmountSC.Div64(2).Sub(fc.Payout), Address: giftAddress},
 		},
 		SiafundOutputs: []types.SiafundOutput{
 			{Value: giftAmountSF / 4, Address: giftAddress},
 			{Value: giftAmountSF / 4, Address: types.VoidAddress},
+		},
+		FileContracts: []types.FileContract{fc},
+		FileContractRevisions: []types.FileContractRevision{
+			{
+				ParentID:         giftTxn.FileContractID(0),
+				UnlockConditions: giftPublicKey.StandardUnlockConditions(),
+				FileContract:     revision,
+			},
 		},
 	}
 
@@ -419,6 +450,15 @@ func TestConsensusValidate(t *testing.T) {
 			desc    string
 			corrupt func(*types.Block)
 		}{
+			{
+				"weight that exceeds the limit",
+				func(b *types.Block) {
+					data := make([]byte, cs.MaxBlockWeight())
+					b.Transactions = append(b.Transactions, types.Transaction{
+						ArbitraryData: [][]byte{data},
+					})
+				},
+			},
 			{
 				"wrong parent ID",
 				func(b *types.Block) {
@@ -474,7 +514,7 @@ func TestConsensusValidate(t *testing.T) {
 				t.Fatal(err)
 			}
 			test.corrupt(&corruptBlock)
-			signTxn(cm.TipState(), privateKey, &corruptBlock.Transactions[0])
+			signTxn(cm.TipState(), giftPrivateKey, &corruptBlock.Transactions[0])
 			FindBlockNonce(cs, &corruptBlock)
 
 			if err := dbStore.WithConsensus(func(cstore consensus.Store) error {
@@ -499,6 +539,7 @@ func TestConsensusValidate(t *testing.T) {
 						txn.SiacoinOutputs[i].Value = types.ZeroCurrency
 					}
 					txn.SiacoinInputs = nil
+					txn.FileContracts = nil
 					return
 				},
 			},
@@ -626,6 +667,79 @@ func TestConsensusValidate(t *testing.T) {
 					return
 				},
 			},
+			{
+				"window that starts in the past",
+				func(txn *types.Transaction) {
+					txn.FileContracts[0].WindowStart = 0
+				},
+			},
+			{
+				"window that ends before it begins",
+				func(txn *types.Transaction) {
+					txn.FileContracts[0].WindowStart = txn.FileContracts[0].WindowEnd
+				},
+			},
+			{
+				"valid payout that does not equal missed payout",
+				func(txn *types.Transaction) {
+					txn.FileContracts[0].ValidProofOutputs[0].Value = txn.FileContracts[0].ValidProofOutputs[0].Value.Add(types.Siacoins(1))
+				},
+			},
+			{
+				"incorrect payout tax",
+				func(txn *types.Transaction) {
+					txn.SiacoinOutputs[0].Value = txn.SiacoinOutputs[0].Value.Add(types.Siacoins(1))
+					txn.FileContracts[0].Payout = txn.FileContracts[0].Payout.Sub(types.Siacoins(1))
+				},
+			},
+			{
+				"revision with window that starts in past",
+				func(txn *types.Transaction) {
+					txn.FileContractRevisions[0].WindowStart = cs.Index.Height
+				},
+			},
+			{
+				"revision with window that ends before it begins",
+				func(txn *types.Transaction) {
+					txn.FileContractRevisions[0].WindowStart = txn.FileContractRevisions[0].WindowEnd
+				},
+			},
+			{
+				"revision with lower revision number than its parent",
+				func(txn *types.Transaction) {
+					txn.FileContractRevisions[0].RevisionNumber = 0
+				},
+			},
+			{
+				"revision claiming incorrect unlock conditions",
+				func(txn *types.Transaction) {
+					txn.FileContractRevisions[0].UnlockConditions.PublicKeys[0].Key[0] ^= 255
+				},
+			},
+			{
+				"revision having different valid payout sum",
+				func(txn *types.Transaction) {
+					txn.FileContractRevisions[0].ValidProofOutputs = append(txn.FileContractRevisions[0].ValidProofOutputs, types.SiacoinOutput{
+						Value: types.Siacoins(1),
+					})
+				},
+			},
+			{
+				"revision having different missed payout sum",
+				func(txn *types.Transaction) {
+					txn.FileContractRevisions[0].MissedProofOutputs = append(txn.FileContractRevisions[0].MissedProofOutputs, types.SiacoinOutput{
+						Value: types.Siacoins(1),
+					})
+				},
+			},
+			{
+				"conflicting revisions in same transaction",
+				func(txn *types.Transaction) {
+					newRevision := txn.FileContractRevisions[0]
+					newRevision.RevisionNumber++
+					txn.FileContractRevisions = append(txn.FileContractRevisions, newRevision)
+				},
+			},
 		}
 		for _, test := range tests {
 			corruptBlock, err := deepCopyBlock(b3)
@@ -633,7 +747,7 @@ func TestConsensusValidate(t *testing.T) {
 				t.Fatal(err)
 			}
 			test.corrupt(&corruptBlock.Transactions[0])
-			signTxn(cm.TipState(), privateKey, &corruptBlock.Transactions[0])
+			signTxn(cm.TipState(), giftPrivateKey, &corruptBlock.Transactions[0])
 			FindBlockNonce(cs, &corruptBlock)
 
 			if err := dbStore.WithConsensus(func(cstore consensus.Store) error {
