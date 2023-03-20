@@ -10,7 +10,8 @@ import (
 	"go.sia.tech/core/types"
 )
 
-func validateHeader(s State, h types.BlockHeader) error {
+// ValidateHeader validates h in the context of s.
+func ValidateHeader(s State, h types.BlockHeader) error {
 	if h.ParentID != s.Index.ID {
 		return errors.New("wrong parent ID")
 	} else if h.Timestamp.Before(s.medianTimestamp()) {
@@ -581,7 +582,7 @@ func ValidateBlock(s State, store Store, b types.Block) error {
 	// TODO: calculate size more efficiently
 	if types.EncodedLen(b) > s.MaxBlockWeight() {
 		return errors.New("block exceeds maximum weight")
-	} else if err := validateHeader(s, b.Header()); err != nil {
+	} else if err := ValidateHeader(s, b.Header()); err != nil {
 		return err
 	} else if err := validateMinerPayouts(s, b); err != nil {
 		return err
@@ -595,7 +596,7 @@ func ValidateBlock(s State, store Store, b types.Block) error {
 func ValidateOrphan(s State, b types.Block) error {
 	if types.EncodedLen(b) > s.MaxBlockWeight() {
 		return errors.New("block exceeds maximum weight")
-	} else if err := validateHeader(s, b.Header()); err != nil {
+	} else if err := ValidateHeader(s, b.Header()); err != nil {
 		return err
 	} else if err := validateMinerPayouts(s, b); err != nil {
 		return err
