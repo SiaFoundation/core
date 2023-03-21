@@ -500,11 +500,36 @@ type (
 		Signature types.Signature
 	}
 
+	// RPCLatestRevisionRequest is the request object for the latest revision RPC.
 	RPCLatestRevisionRequest struct {
 		ContractID types.FileContractID
 	}
 
+	// RPCLatestRevisionResponse is the response object for the latest revision RPC.
 	RPCLatestRevisionResponse struct {
 		Revision types.FileContractRevision
+	}
+
+	// RPCRenewContractRequest is the request object for the renew contract RPC.
+	RPCRenewContractRequest struct {
+		TransactionSet         []types.Transaction
+		RenterKey              types.UnlockKey
+		FinalRevisionSignature types.Signature
+	}
+
+	// RPCRenewContractHostAdditions is a response object containing the host's
+	// additions for the renew contract RPC.
+	RPCRenewContractHostAdditions struct {
+		Parents                []types.Transaction
+		SiacoinInputs          []types.SiacoinInput
+		SiacoinOutputs         []types.SiacoinOutput
+		FinalRevisionSignature types.Signature
+	}
+
+	// RPCRenewSignatures is a response object for transferring signatures in
+	// the renew contract RPC.
+	RPCRenewSignatures struct {
+		TransactionSignatures []types.TransactionSignature
+		RevisionSignature     types.Signature
 	}
 )

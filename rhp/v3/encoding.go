@@ -395,6 +395,78 @@ func (r *RPCLatestRevisionResponse) DecodeFrom(d *types.Decoder) {
 	r.Revision.DecodeFrom(d)
 }
 
+// EncodeTo implements ProtocolObject.
+func (r *RPCRenewContractRequest) EncodeTo(e *types.Encoder) {
+	e.WritePrefix(len(r.TransactionSet))
+	for i := range r.TransactionSet {
+		r.TransactionSet[i].EncodeTo(e)
+	}
+	r.RenterKey.EncodeTo(e)
+	r.FinalRevisionSignature.EncodeTo(e)
+}
+
+// DecodeFrom implements ProtocolObject
+func (r *RPCRenewContractRequest) DecodeFrom(d *types.Decoder) {
+	r.TransactionSet = make([]types.Transaction, d.ReadPrefix())
+	for i := range r.TransactionSet {
+		r.TransactionSet[i].DecodeFrom(d)
+	}
+	r.RenterKey.DecodeFrom(d)
+	r.FinalRevisionSignature.DecodeFrom(d)
+}
+
+// EncodeTo implements ProtocolObject
+func (r *RPCRenewContractHostAdditions) EncodeTo(e *types.Encoder) {
+	e.WritePrefix(len(r.Parents))
+	for i := range r.Parents {
+		r.Parents[i].EncodeTo(e)
+	}
+	e.WritePrefix(len(r.SiacoinInputs))
+	for i := range r.SiacoinInputs {
+		r.SiacoinInputs[i].EncodeTo(e)
+	}
+	e.WritePrefix(len(r.SiacoinOutputs))
+	for i := range r.SiacoinOutputs {
+		r.SiacoinOutputs[i].EncodeTo(e)
+	}
+	r.FinalRevisionSignature.EncodeTo(e)
+}
+
+// DecodeFrom implements ProtocolObject
+func (r *RPCRenewContractHostAdditions) DecodeFrom(d *types.Decoder) {
+	r.Parents = make([]types.Transaction, d.ReadPrefix())
+	for i := range r.Parents {
+		r.Parents[i].DecodeFrom(d)
+	}
+	r.SiacoinInputs = make([]types.SiacoinInput, d.ReadPrefix())
+	for i := range r.SiacoinInputs {
+		r.SiacoinInputs[i].DecodeFrom(d)
+	}
+	r.SiacoinOutputs = make([]types.SiacoinOutput, d.ReadPrefix())
+	for i := range r.SiacoinOutputs {
+		r.SiacoinOutputs[i].DecodeFrom(d)
+	}
+	r.FinalRevisionSignature.DecodeFrom(d)
+}
+
+// EncodeTo implements ProtocolObject
+func (r *RPCRenewSignatures) EncodeTo(e *types.Encoder) {
+	e.WritePrefix(len(r.TransactionSignatures))
+	for i := range r.TransactionSignatures {
+		r.TransactionSignatures[i].EncodeTo(e)
+	}
+	r.RevisionSignature.EncodeTo(e)
+}
+
+// DecodeFrom implements ProtocolObject
+func (r *RPCRenewSignatures) DecodeFrom(d *types.Decoder) {
+	r.TransactionSignatures = make([]types.TransactionSignature, d.ReadPrefix())
+	for i := range r.TransactionSignatures {
+		r.TransactionSignatures[i].DecodeFrom(d)
+	}
+	r.RevisionSignature.DecodeFrom(d)
+}
+
 func instructionID(instr Instruction) types.Specifier {
 	switch instr.(type) {
 	case *InstrAppendSector:
