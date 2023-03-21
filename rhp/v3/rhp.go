@@ -499,4 +499,12 @@ type (
 	RPCFinalizeProgramResponse struct {
 		Signature types.Signature
 	}
+
+	RPCLatestRevisionRequest struct {
+		ContractID types.FileContractID
+	}
+
+	RPCLatestRevisionResponse struct {
+		Revision types.FileContractRevision
+	}
 )

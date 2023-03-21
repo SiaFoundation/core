@@ -375,6 +375,26 @@ func (r *RPCFinalizeProgramResponse) DecodeFrom(d *types.Decoder) {
 	copy(r.Signature[:], d.ReadBytes())
 }
 
+// EncodeTo implements ProtocolObject.
+func (r *RPCLatestRevisionRequest) EncodeTo(e *types.Encoder) {
+	r.ContractID.EncodeTo(e)
+}
+
+// DecodeFrom implements ProtocolObject.
+func (r *RPCLatestRevisionRequest) DecodeFrom(d *types.Decoder) {
+	r.ContractID.DecodeFrom(d)
+}
+
+// EncodeTo implements ProtocolObject.
+func (r *RPCLatestRevisionResponse) EncodeTo(e *types.Encoder) {
+	r.Revision.EncodeTo(e)
+}
+
+// DecodeFrom implements ProtocolObject.
+func (r *RPCLatestRevisionResponse) DecodeFrom(d *types.Decoder) {
+	r.Revision.DecodeFrom(d)
+}
+
 func instructionID(instr Instruction) types.Specifier {
 	switch instr.(type) {
 	case *InstrAppendSector:
