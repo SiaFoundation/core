@@ -238,7 +238,7 @@ func (i *InstrReadOffset) DecodeFrom(d *types.Decoder) {
 
 // RequiresContract implements Instruction.
 func (i *InstrReadSector) RequiresContract() bool {
-	return true
+	return false
 }
 
 // RequiresFinalization implements Instruction.
