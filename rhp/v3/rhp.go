@@ -530,6 +530,6 @@ type (
 	// the renew contract RPC.
 	RPCRenewSignatures struct {
 		TransactionSignatures []types.TransactionSignature
-		RevisionSignature     types.Signature
+		RevisionSignature     types.TransactionSignature
 	}
 )
