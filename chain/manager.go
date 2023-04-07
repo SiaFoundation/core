@@ -354,7 +354,6 @@ func (m *Manager) AddSubscriber(s Subscriber, tip types.ChainIndex) error {
 		if !ok {
 			return fmt.Errorf("missing revert parent checkpoint %v", c.Block.ParentID)
 		}
-
 		if err := s.ProcessChainRevertUpdate(&RevertUpdate{c.Block, pc.State, *c.Diff}); err != nil {
 			return fmt.Errorf("couldn't process revert update: %w", err)
 		}
@@ -374,6 +373,13 @@ func (m *Manager) AddSubscriber(s Subscriber, tip types.ChainIndex) error {
 	}
 	m.subscribers = append(m.subscribers, s)
 	return nil
+}
+
+// WithConsensusStore calls fn on the current tip state and consensus store.
+func (m *Manager) WithConsensusStore(fn func(s consensus.State, cstore consensus.Store)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.store.WithConsensus(func(cstore consensus.Store) { fn(m.tipState, cstore) })
 }
 
 // NewManager returns a Manager initialized with the provided Store and State.
