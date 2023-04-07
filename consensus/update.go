@@ -448,7 +448,6 @@ type BlockDiff struct {
 	MaturedSiacoinOutputs  []DelayedSiacoinOutputDiff
 	ImmatureSiacoinOutputs []DelayedSiacoinOutputDiff
 	MissedFileContracts    []FileContractDiff
-	FoundationSubsidy      *DelayedSiacoinOutputDiff
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -645,12 +644,12 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 		}
 	}
 	if subsidy := s.FoundationSubsidy(); !subsidy.Value.IsZero() {
-		diff.FoundationSubsidy = &DelayedSiacoinOutputDiff{
+		diff.ImmatureSiacoinOutputs = append(diff.ImmatureSiacoinOutputs, DelayedSiacoinOutputDiff{
 			ID:             bid.FoundationOutputID(),
 			Output:         subsidy,
 			Source:         OutputSourceFoundation,
 			MaturityHeight: s.MaturityHeight(),
-		}
+		})
 	}
 
 	return diff

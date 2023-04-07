@@ -277,9 +277,7 @@ func TestChainManager(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := dbStore.RevertDiff(cm.TipState(), *s.cau); err != nil {
-		t.Fatal(err)
-	}
+	dbStore.RevertDiff(cm.TipState(), *s.cau)
 
 	if err := db.View(checkDBOutputs(txn)); err == nil {
 		t.Fatal("should be missing siacoin/siafund outputs from reverted block")
@@ -517,14 +515,11 @@ func TestConsensusValidate(t *testing.T) {
 			signTxn(cm.TipState(), giftPrivateKey, &corruptBlock.Transactions[0])
 			FindBlockNonce(cs, &corruptBlock)
 
-			if err := dbStore.WithConsensus(func(cstore consensus.Store) error {
+			dbStore.WithConsensus(func(cstore consensus.Store) {
 				if err := consensus.ValidateBlock(cs, cstore, corruptBlock); err == nil {
-					return fmt.Errorf("accepted block with %v", test.desc)
+					t.Fatalf("accepted block with %v", test.desc)
 				}
-				return nil
-			}); err != nil {
-				t.Fatal(err)
-			}
+			})
 		}
 	}
 	{
@@ -750,14 +745,11 @@ func TestConsensusValidate(t *testing.T) {
 			signTxn(cm.TipState(), giftPrivateKey, &corruptBlock.Transactions[0])
 			FindBlockNonce(cs, &corruptBlock)
 
-			if err := dbStore.WithConsensus(func(cstore consensus.Store) error {
+			dbStore.WithConsensus(func(cstore consensus.Store) {
 				if err := consensus.ValidateBlock(cs, cstore, corruptBlock); err == nil {
-					return fmt.Errorf("accepted block with %v", test.desc)
+					t.Fatalf("accepted block with %v", test.desc)
 				}
-				return nil
-			}); err != nil {
-				t.Fatal(err)
-			}
+			})
 		}
 	}
 }

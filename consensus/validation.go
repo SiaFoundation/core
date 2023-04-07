@@ -573,32 +573,28 @@ func ValidateTransactionSet(s State, store Store, txns []types.Transaction) erro
 	return nil
 }
 
+// ValidateOrphan validates b in the context of s.
+func ValidateOrphan(s State, b types.Block) error {
+	// TODO: calculate size more efficiently
+	if uint64(types.EncodedLen(b)) > s.MaxBlockWeight() {
+		return errors.New("block exceeds maximum weight")
+	} else if err := ValidateHeader(s, b.Header()); err != nil {
+		return err
+	} else if err := validateMinerPayouts(s, b); err != nil {
+		return err
+	}
+	return nil
+}
+
 // ValidateBlock validates b in the context of s and store.
 //
 // This function does not check whether the header's timestamp is too far in the
 // future. That check should be performed at the time the block is received,
 // e.g. in p2p networking code; see MaxFutureTimestamp.
 func ValidateBlock(s State, store Store, b types.Block) error {
-	// TODO: calculate size more efficiently
-	if types.EncodedLen(b) > s.MaxBlockWeight() {
-		return errors.New("block exceeds maximum weight")
-	} else if err := ValidateHeader(s, b.Header()); err != nil {
-		return err
-	} else if err := validateMinerPayouts(s, b); err != nil {
+	if err := ValidateOrphan(s, b); err != nil {
 		return err
 	} else if err := ValidateTransactionSet(s, store, b.Transactions); err != nil {
-		return err
-	}
-	return nil
-}
-
-// ValidateOrphan validates b in the context of s.
-func ValidateOrphan(s State, b types.Block) error {
-	if types.EncodedLen(b) > s.MaxBlockWeight() {
-		return errors.New("block exceeds maximum weight")
-	} else if err := ValidateHeader(s, b.Header()); err != nil {
-		return err
-	} else if err := validateMinerPayouts(s, b); err != nil {
 		return err
 	}
 	return nil

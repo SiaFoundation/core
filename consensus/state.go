@@ -214,7 +214,7 @@ func (s State) NonceFactor() uint64 {
 }
 
 // MaxBlockWeight is the maximum "weight" of a valid child block.
-func (s State) MaxBlockWeight() int {
+func (s State) MaxBlockWeight() uint64 {
 	return 2_000_000
 }
 

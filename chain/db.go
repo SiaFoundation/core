@@ -176,81 +176,78 @@ type DBStore struct {
 	network *consensus.Network
 }
 
-func (db DBStore) view(fn func(tx *dbTx)) error {
-	return db.db.View(func(tx DBTx) error {
+func (db DBStore) view(fn func(tx *dbTx)) {
+	err := db.db.View(func(tx DBTx) error {
 		dtx := &dbTx{tx: tx, n: db.network}
 		fn(dtx)
 		return dtx.err
 	})
+	if err != nil {
+		panic(err)
+	}
 }
 
-func (db DBStore) update(fn func(tx *dbTx)) error {
-	return db.db.Update(func(tx DBTx) error {
+func (db DBStore) update(fn func(tx *dbTx)) {
+	err := db.db.Update(func(tx DBTx) error {
 		dtx := &dbTx{tx: tx, n: db.network}
 		fn(dtx)
 		return dtx.err
 	})
+	if err != nil {
+		panic(err)
+	}
 }
 
 // ApplyDiff implements Store.
-func (db DBStore) ApplyDiff(s consensus.State, diff consensus.BlockDiff) (mayCommit bool, err error) {
+func (db DBStore) ApplyDiff(s consensus.State, diff consensus.BlockDiff) (mayCommit bool) {
 	// NOTE: for now, we always return true; later, we should explore buffering
 	// writes in a MemDB until some flush threshold is reached.
-	return true, db.update(func(tx *dbTx) {
+	db.update(func(tx *dbTx) {
 		tx.applyState(s)
 		tx.applyDiff(s, diff)
 	})
+	return true
 }
 
 // RevertDiff implements Store.
-func (db DBStore) RevertDiff(s consensus.State, diff consensus.BlockDiff) error {
-	return db.update(func(tx *dbTx) {
+func (db DBStore) RevertDiff(s consensus.State, diff consensus.BlockDiff) {
+	db.update(func(tx *dbTx) {
 		tx.revertDiff(s, diff)
 		tx.revertState(s)
 	})
 }
 
 // WithConsensus implements Store.
-func (db DBStore) WithConsensus(fn func(consensus.Store) error) error {
-	return db.view(func(tx *dbTx) { tx.setErr(fn(tx)) })
+func (db DBStore) WithConsensus(fn func(consensus.Store)) {
+	db.view(func(tx *dbTx) { fn(tx) })
 }
 
 // AddCheckpoint implements Store.
-func (db DBStore) AddCheckpoint(c Checkpoint) error {
-	return db.update(func(tx *dbTx) { tx.putCheckpoint(c) })
+func (db DBStore) AddCheckpoint(c Checkpoint) {
+	db.update(func(tx *dbTx) { tx.putCheckpoint(c) })
 }
 
 // Checkpoint implements Store.
-func (db DBStore) Checkpoint(id types.BlockID) (c Checkpoint, err error) {
-	err = db.view(func(tx *dbTx) {
-		var ok bool
-		c, ok = tx.getCheckpoint(id)
-		if !ok && tx.err == nil {
-			tx.err = fmt.Errorf("no checkpoint for block %v", id)
-		}
-	})
+func (db DBStore) Checkpoint(id types.BlockID) (c Checkpoint, ok bool) {
+	db.view(func(tx *dbTx) { c, ok = tx.getCheckpoint(id) })
 	return
 }
 
 // BestIndex implements Store.
-func (db DBStore) BestIndex(height uint64) (index types.ChainIndex, err error) {
-	err = db.view(func(tx *dbTx) {
-		var ok bool
-		index, ok = tx.BestIndex(height)
-		if !ok && tx.err == nil {
-			tx.err = fmt.Errorf("no index at height %v", height)
-		}
-	})
+func (db DBStore) BestIndex(height uint64) (index types.ChainIndex, ok bool) {
+	db.view(func(tx *dbTx) { index, ok = tx.BestIndex(height) })
 	return
 }
 
 // NewDBStore creates a new DBStore using the provided database. The current
 // checkpoint is also returned.
 func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (*DBStore, Checkpoint, error) {
-	dbs := &DBStore{db: db, network: n}
-	err := dbs.update(func(tx *dbTx) {
+	// call Update manually so that we can return an error instead of panicking
+	err := db.Update(func(dtx DBTx) error {
+		tx := &dbTx{tx: dtx, n: n}
+
 		if _, ok := tx.getCheckpoint(genesisBlock.ID()); ok {
-			return // already initialized
+			return nil // already initialized
 		}
 		for _, bucket := range [][]byte{
 			bMainChain,
@@ -259,8 +256,8 @@ func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (*DBStore
 			bSiacoinOutputs,
 			bSiafundOutputs,
 		} {
-			if tx.err == nil {
-				_, tx.err = tx.tx.CreateBucket(bucket)
+			if _, err := dtx.CreateBucket(bucket); err != nil {
+				return err
 			}
 		}
 
@@ -271,17 +268,27 @@ func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (*DBStore
 		tx.putCheckpoint(Checkpoint{genesisBlock, cs, &diff})
 		tx.applyState(cs)
 		tx.applyDiff(cs, diff)
+		return tx.err
 	})
 	if err != nil {
 		return nil, Checkpoint{}, err
 	}
 
 	var c Checkpoint
-	err = dbs.view(func(tx *dbTx) {
+	err = db.View(func(dtx DBTx) error {
+		tx := &dbTx{tx: dtx, n: n}
 		index, _ := tx.BestIndex(tx.getHeight())
 		c, _ = tx.getCheckpoint(index.ID)
+		return tx.err
 	})
-	return dbs, c, err
+	if err != nil {
+		return nil, Checkpoint{}, err
+	}
+
+	return &DBStore{
+		db:      db,
+		network: n,
+	}, c, nil
 }
 
 // wrappers with sticky errors and helper methods
@@ -396,10 +403,6 @@ func (tx *dbTx) getCheckpoint(id types.BlockID) (c Checkpoint, ok bool) {
 
 func (tx *dbTx) putCheckpoint(c Checkpoint) {
 	tx.bucket(bCheckpoints).put(c.State.Index.ID[:], c)
-}
-
-func (tx *dbTx) deleteCheckpoint(id types.BlockID) {
-	tx.bucket(bCheckpoints).delete(id[:])
 }
 
 func (tx *dbTx) AncestorTimestamp(id types.BlockID, n uint64) time.Time {
@@ -653,22 +656,19 @@ func (tx *dbTx) applyDiff(s consensus.State, diff consensus.BlockDiff) {
 		tx.deleteFileContracts(td.ValidFileContracts)
 	}
 	tx.putDelayedSiacoinOutputs(diff.ImmatureSiacoinOutputs)
+	for _, dscod := range diff.ImmatureSiacoinOutputs {
+		if dscod.Source == consensus.OutputSourceFoundation {
+			tx.putFoundationOutput(dscod.ID)
+		}
+	}
 	tx.deleteDelayedSiacoinOutputs(diff.MaturedSiacoinOutputs)
 	for _, scod := range diff.MaturedSiacoinOutputs {
 		tx.putSiacoinOutput(scod.ID, scod.Output)
 	}
 	tx.deleteFileContracts(diff.MissedFileContracts)
-	if diff.FoundationSubsidy != nil {
-		tx.putDelayedSiacoinOutputs([]consensus.DelayedSiacoinOutputDiff{*diff.FoundationSubsidy})
-		tx.putFoundationOutput(diff.FoundationSubsidy.ID)
-	}
 }
 
 func (tx *dbTx) revertDiff(s consensus.State, diff consensus.BlockDiff) {
-	if diff.FoundationSubsidy != nil {
-		tx.deleteFoundationOutput(diff.FoundationSubsidy.ID)
-		tx.deleteDelayedSiacoinOutputs([]consensus.DelayedSiacoinOutputDiff{*diff.FoundationSubsidy})
-	}
 	for _, fcd := range diff.MissedFileContracts {
 		tx.putFileContract(fcd.ID, fcd.Contract)
 	}
@@ -676,6 +676,11 @@ func (tx *dbTx) revertDiff(s consensus.State, diff consensus.BlockDiff) {
 		tx.deleteSiacoinOutput(scod.ID)
 	}
 	tx.putDelayedSiacoinOutputs(diff.MaturedSiacoinOutputs)
+	for _, dscod := range diff.ImmatureSiacoinOutputs {
+		if dscod.Source == consensus.OutputSourceFoundation {
+			tx.deleteFoundationOutput(dscod.ID)
+		}
+	}
 	tx.deleteDelayedSiacoinOutputs(diff.ImmatureSiacoinOutputs)
 	for i := len(diff.Transactions) - 1; i >= 0; i-- {
 		td := diff.Transactions[i]
