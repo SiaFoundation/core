@@ -448,7 +448,6 @@ type BlockDiff struct {
 	MaturedSiacoinOutputs  []DelayedSiacoinOutputDiff
 	ImmatureSiacoinOutputs []DelayedSiacoinOutputDiff
 	MissedFileContracts    []FileContractDiff
-	FoundationSubsidy      *DelayedSiacoinOutputDiff
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -491,49 +490,45 @@ func (bd *BlockDiff) DecodeFrom(d *types.Decoder) {
 	}
 }
 
+// ApplyTransaction applies a transaction to the MidState.
+func (ms *MidState) ApplyTransaction(store Store, txn types.Transaction) {
+	txid := txn.ID()
+	for _, sci := range txn.SiacoinInputs {
+		ms.spends[types.Hash256(sci.ParentID)] = txid
+	}
+	for i, sco := range txn.SiacoinOutputs {
+		ms.scos[txn.SiacoinOutputID(i)] = sco
+	}
+	for _, sfi := range txn.SiafundInputs {
+		ms.spends[types.Hash256(sfi.ParentID)] = txid
+	}
+	for i, sfo := range txn.SiafundOutputs {
+		sfoid := txn.SiafundOutputID(i)
+		ms.sfos[sfoid] = sfo
+		ms.claims[sfoid] = ms.siafundPool
+	}
+	for i, fc := range txn.FileContracts {
+		ms.fcs[txn.FileContractID(i)] = fc
+		ms.siafundPool = ms.siafundPool.Add(ms.base.FileContractTax(fc))
+	}
+	for _, fcr := range txn.FileContractRevisions {
+		fc := ms.mustFileContract(store, fcr.ParentID)
+		newContract := fcr.FileContract
+		newContract.Payout = fc.Payout // see types.FileContractRevision docstring
+		ms.fcs[fcr.ParentID] = newContract
+	}
+	for _, sp := range txn.StorageProofs {
+		ms.spends[types.Hash256(sp.ParentID)] = txid
+	}
+}
+
 // ApplyDiff applies b to s, returning the resulting effects.
 func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 	if s.Index.Height > 0 && s.Index.ID != b.ParentID {
 		panic("consensus: cannot apply non-child block")
 	}
 
-	siafundPool := s.SiafundPool
-	ephemeralSC := make(map[types.SiacoinOutputID]types.SiacoinOutput)
-	ephemeralSF := make(map[types.SiafundOutputID]types.SiafundOutput)
-	ephemeralClaims := make(map[types.SiafundOutputID]types.Currency)
-	ephemeralFC := make(map[types.FileContractID]types.FileContract)
-	hasStorageProof := make(map[types.FileContractID]bool)
-	getSC := func(id types.SiacoinOutputID) types.SiacoinOutput {
-		sco, ok := ephemeralSC[id]
-		if !ok {
-			sco, ok = store.SiacoinOutput(id)
-			if !ok {
-				panic("missing SiacoinOutput")
-			}
-		}
-		return sco
-	}
-	getSF := func(id types.SiafundOutputID) (types.SiafundOutput, types.Currency) {
-		sfo, ok := ephemeralSF[id]
-		claim := ephemeralClaims[id]
-		if !ok {
-			sfo, claim, ok = store.SiafundOutput(id)
-			if !ok {
-				panic("missing SiafundOutput")
-			}
-		}
-		return sfo, claim
-	}
-	getFC := func(id types.FileContractID) types.FileContract {
-		fc, ok := ephemeralFC[id]
-		if !ok {
-			fc, ok = store.FileContract(id)
-			if !ok {
-				panic("missing FileContract")
-			}
-		}
-		return fc
-	}
+	ms := NewMidState(s)
 
 	var diff BlockDiff
 	for _, txn := range b.Transactions {
@@ -541,7 +536,7 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 		for _, sci := range txn.SiacoinInputs {
 			tdiff.SpentSiacoinOutputs = append(tdiff.SpentSiacoinOutputs, SiacoinOutputDiff{
 				ID:     sci.ParentID,
-				Output: getSC(sci.ParentID),
+				Output: ms.mustSiacoinOutput(store, sci.ParentID),
 			})
 		}
 		for i, sco := range txn.SiacoinOutputs {
@@ -550,7 +545,6 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 				ID:     scoid,
 				Output: sco,
 			})
-			ephemeralSC[scoid] = sco
 		}
 		for i, fc := range txn.FileContracts {
 			fcid := txn.FileContractID(i)
@@ -558,17 +552,14 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 				ID:       fcid,
 				Contract: fc,
 			})
-			ephemeralFC[fcid] = fc
-			siafundPool = siafundPool.Add(s.FileContractTax(fc))
 		}
 		for _, sfi := range txn.SiafundInputs {
-			sfo, claimStart := getSF(sfi.ParentID)
+			sfo, claimStart, claimPortion := ms.mustSiafundOutput(store, sfi.ParentID)
 			tdiff.SpentSiafundOutputs = append(tdiff.SpentSiafundOutputs, SiafundOutputDiff{
 				ID:         sfi.ParentID,
 				Output:     sfo,
 				ClaimStart: claimStart,
 			})
-			claimPortion := siafundPool.Sub(claimStart).Div64(s.SiafundCount()).Mul64(sfo.Value)
 			tdiff.ImmatureSiacoinOutputs = append(tdiff.ImmatureSiacoinOutputs, DelayedSiacoinOutputDiff{
 				ID:             sfi.ParentID.ClaimOutputID(),
 				Output:         types.SiacoinOutput{Value: claimPortion, Address: sfi.ClaimAddress},
@@ -581,13 +572,11 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 			tdiff.CreatedSiafundOutputs = append(tdiff.CreatedSiafundOutputs, SiafundOutputDiff{
 				ID:         sfoid,
 				Output:     sfo,
-				ClaimStart: siafundPool,
+				ClaimStart: ms.siafundPool,
 			})
-			ephemeralSF[sfoid] = sfo
-			ephemeralClaims[sfoid] = siafundPool
 		}
 		for _, fcr := range txn.FileContractRevisions {
-			fc := getFC(fcr.ParentID)
+			fc := ms.mustFileContract(store, fcr.ParentID)
 			newContract := fcr.FileContract
 			newContract.Payout = fc.Payout // see types.FileContractRevision docstring
 			tdiff.RevisedFileContracts = append(tdiff.RevisedFileContracts, FileContractRevisionDiff{
@@ -595,10 +584,9 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 				OldContract: fc,
 				NewContract: newContract,
 			})
-			ephemeralFC[fcr.ParentID] = newContract
 		}
 		for _, sp := range txn.StorageProofs {
-			fc := getFC(sp.ParentID)
+			fc := ms.mustFileContract(store, sp.ParentID)
 			tdiff.ValidFileContracts = append(tdiff.ValidFileContracts, FileContractDiff{
 				ID:       sp.ParentID,
 				Contract: fc,
@@ -611,9 +599,9 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 					MaturityHeight: s.MaturityHeight(),
 				})
 			}
-			hasStorageProof[sp.ParentID] = true
 		}
 		diff.Transactions = append(diff.Transactions, tdiff)
+		ms.ApplyTransaction(store, txn)
 	}
 
 	bid := b.ID()
@@ -627,10 +615,10 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 		})
 	}
 	for _, fcid := range store.MissedFileContracts(s.childHeight()) {
-		if hasStorageProof[fcid] {
+		if _, ok := ms.spent(types.Hash256(fcid)); ok {
 			continue
 		}
-		fc := getFC(fcid)
+		fc := ms.mustFileContract(store, fcid)
 		diff.MissedFileContracts = append(diff.MissedFileContracts, FileContractDiff{
 			ID:       fcid,
 			Contract: fc,
@@ -645,12 +633,12 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 		}
 	}
 	if subsidy := s.FoundationSubsidy(); !subsidy.Value.IsZero() {
-		diff.FoundationSubsidy = &DelayedSiacoinOutputDiff{
+		diff.ImmatureSiacoinOutputs = append(diff.ImmatureSiacoinOutputs, DelayedSiacoinOutputDiff{
 			ID:             bid.FoundationOutputID(),
 			Output:         subsidy,
 			Source:         OutputSourceFoundation,
 			MaturityHeight: s.MaturityHeight(),
-		}
+		})
 	}
 
 	return diff
