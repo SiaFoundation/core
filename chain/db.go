@@ -131,6 +131,9 @@ func (tx *memTx) delete(bucket string, key []byte) error {
 }
 
 func (tx *memTx) Bucket(name []byte) DBBucket {
+	if tx.db.buckets[string(name)] == nil && tx.puts[string(name)] == nil && tx.dels[string(name)] == nil {
+		return nil
+	}
 	return memBucket{string(name), tx}
 }
 
@@ -249,6 +252,11 @@ func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (*DBStore
 		if _, ok := tx.getCheckpoint(genesisBlock.ID()); ok {
 			return nil // already initialized
 		}
+		// don't accidentally overwrite a siad database
+		if dtx.Bucket([]byte("ChangeLog")) != nil {
+			return errors.New("detected siad database, refusing to proceed")
+		}
+
 		for _, bucket := range [][]byte{
 			bMainChain,
 			bCheckpoints,
