@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -573,6 +574,18 @@ func (ci *ChainIndex) UnmarshalText(b []byte) (err error) {
 		return fmt.Errorf("decoding <height>::<id> failed: %w", io.ErrUnexpectedEOF)
 	}
 	return nil
+}
+
+// MarshalJSON implements json.Marshaler.
+func (ci ChainIndex) MarshalJSON() ([]byte, error) {
+	type jsonCI ChainIndex // hide MarshalText method
+	return json.Marshal(jsonCI(ci))
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (ci *ChainIndex) UnmarshalJSON(b []byte) error {
+	type jsonCI ChainIndex // hide UnmarshalText method
+	return json.Unmarshal(b, (*jsonCI)(ci))
 }
 
 // ParseChainIndex parses a chain index from a string.
