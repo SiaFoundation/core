@@ -117,9 +117,9 @@ type UnlockKey struct {
 // UnlockConditions specify the conditions for spending an output or revising a
 // file contract.
 type UnlockConditions struct {
-	Timelock           uint64
-	PublicKeys         []UnlockKey
-	SignaturesRequired uint64
+	Timelock           uint64      `json:"timelock"`
+	PublicKeys         []UnlockKey `json:"publicKeys"`
+	SignaturesRequired uint64      `json:"signaturesRequired"`
 }
 
 // UnlockHash computes the hash of a set of UnlockConditions. Such hashes are
@@ -192,15 +192,15 @@ type TransactionID Hash256
 
 // A ChainIndex pairs a block's height with its ID.
 type ChainIndex struct {
-	Height uint64
-	ID     BlockID
+	Height uint64  `json:"height"`
+	ID     BlockID `json:"ID"`
 }
 
 // A SiacoinOutput is the recipient of some of the siacoins spent in a
 // transaction.
 type SiacoinOutput struct {
-	Value   Currency
-	Address Address
+	Value   Currency `json:"value"`
+	Address Address  `json:"address"`
 }
 
 // A SiacoinOutputID uniquely identifies a siacoin output.
@@ -209,15 +209,15 @@ type SiacoinOutputID Hash256
 // A SiacoinInput spends an unspent SiacoinOutput in the UTXO set by
 // revealing and satisfying its unlock conditions.
 type SiacoinInput struct {
-	ParentID         SiacoinOutputID
-	UnlockConditions UnlockConditions
+	ParentID         SiacoinOutputID  `json:"parentID"`
+	UnlockConditions UnlockConditions `json:"unlockConditions"`
 }
 
 // A SiafundOutput is the recipient of some of the siafunds spent in a
 // transaction.
 type SiafundOutput struct {
-	Value   uint64
-	Address Address
+	Value   uint64  `json:"value"`
+	Address Address `json:"address"`
 }
 
 // A SiafundOutputID uniquely identifies a siafund output.
@@ -234,9 +234,9 @@ func (sfoid SiafundOutputID) ClaimOutputID() SiacoinOutputID {
 // ClaimAddress, specifying the recipient of the siacoins that were earned by
 // the output.
 type SiafundInput struct {
-	ParentID         SiafundOutputID
-	UnlockConditions UnlockConditions
-	ClaimAddress     Address
+	ParentID         SiafundOutputID  `json:"parentID"`
+	UnlockConditions UnlockConditions `json:"unlockConditions"`
+	ClaimAddress     Address          `json:"claimAddress"`
 }
 
 // A FileContract is a storage agreement between a renter and a host. It
@@ -244,15 +244,15 @@ type SiafundInput struct {
 // "missed" depending on whether a valid StorageProof is submitted for the
 // contract.
 type FileContract struct {
-	Filesize           uint64
-	FileMerkleRoot     Hash256
-	WindowStart        uint64
-	WindowEnd          uint64
-	Payout             Currency
-	ValidProofOutputs  []SiacoinOutput
-	MissedProofOutputs []SiacoinOutput
-	UnlockHash         Hash256
-	RevisionNumber     uint64
+	Filesize           uint64          `json:"filesize"`
+	FileMerkleRoot     Hash256         `json:"fileMerkleRoot"`
+	WindowStart        uint64          `json:"windowStart"`
+	WindowEnd          uint64          `json:"windowEnd"`
+	Payout             Currency        `json:"payout"`
+	ValidProofOutputs  []SiacoinOutput `json:"validProofOutputs"`
+	MissedProofOutputs []SiacoinOutput `json:"missedProofOutputs"`
+	UnlockHash         Hash256         `json:"unlockHash"`
+	RevisionNumber     uint64          `json:"revisionNumber"`
 }
 
 // EndHeight returns the height at which the contract's host is no longer
@@ -320,8 +320,8 @@ func (fcid FileContractID) MissedOutputID(i int) SiacoinOutputID {
 
 // A FileContractRevision updates the state of an existing file contract.
 type FileContractRevision struct {
-	ParentID         FileContractID
-	UnlockConditions UnlockConditions
+	ParentID         FileContractID   `json:"parentID"`
+	UnlockConditions UnlockConditions `json:"unlockConditions"`
 	// NOTE: the Payout field of the contract is not "really" part of a
 	// revision. A revision cannot change the total payout, so the original siad
 	// code defines FileContractRevision as an entirely separate struct without
@@ -342,48 +342,48 @@ type StorageProof struct {
 // A FoundationAddressUpdate updates the primary and failsafe Foundation subsidy
 // addresses.
 type FoundationAddressUpdate struct {
-	NewPrimary  Address
-	NewFailsafe Address
+	NewPrimary  Address `json:"newPrimary"`
+	NewFailsafe Address `json:"newFailsafe"`
 }
 
 // CoveredFields indicates which fields of a transaction are covered by a
 // signature.
 type CoveredFields struct {
-	WholeTransaction      bool
-	SiacoinInputs         []uint64
-	SiacoinOutputs        []uint64
-	FileContracts         []uint64
-	FileContractRevisions []uint64
-	StorageProofs         []uint64
-	SiafundInputs         []uint64
-	SiafundOutputs        []uint64
-	MinerFees             []uint64
-	ArbitraryData         []uint64
-	Signatures            []uint64
+	WholeTransaction      bool     `json:"wholeTransaction,omitempty"`
+	SiacoinInputs         []uint64 `json:"siacoinInputs,omitempty"`
+	SiacoinOutputs        []uint64 `json:"siacoinOutputs,omitempty"`
+	FileContracts         []uint64 `json:"fileContracts,omitempty"`
+	FileContractRevisions []uint64 `json:"fileContractRevisions,omitempty"`
+	StorageProofs         []uint64 `json:"storageProofs,omitempty"`
+	SiafundInputs         []uint64 `json:"siafundInputs,omitempty"`
+	SiafundOutputs        []uint64 `json:"siafundOutputs,omitempty"`
+	MinerFees             []uint64 `json:"minerFees,omitempty"`
+	ArbitraryData         []uint64 `json:"arbitraryData,omitempty"`
+	Signatures            []uint64 `json:"signatures,omitempty"`
 }
 
 // A TransactionSignature signs transaction data.
 type TransactionSignature struct {
-	ParentID       Hash256
-	PublicKeyIndex uint64
-	Timelock       uint64
-	CoveredFields  CoveredFields
-	Signature      []byte
+	ParentID       Hash256       `json:"parentID"`
+	PublicKeyIndex uint64        `json:"publicKeyIndex"`
+	Timelock       uint64        `json:"timelock,omitempty"`
+	CoveredFields  CoveredFields `json:"coveredFields"`
+	Signature      []byte        `json:"signature"`
 }
 
 // A Transaction transfers value by consuming existing Outputs and creating new
 // Outputs.
 type Transaction struct {
-	SiacoinInputs         []SiacoinInput
-	SiacoinOutputs        []SiacoinOutput
-	FileContracts         []FileContract
-	FileContractRevisions []FileContractRevision
-	StorageProofs         []StorageProof
-	SiafundInputs         []SiafundInput
-	SiafundOutputs        []SiafundOutput
-	MinerFees             []Currency
-	ArbitraryData         [][]byte
-	Signatures            []TransactionSignature
+	SiacoinInputs         []SiacoinInput         `json:"siacoinInputs,omitempty"`
+	SiacoinOutputs        []SiacoinOutput        `json:"siacoinOutputs,omitempty"`
+	FileContracts         []FileContract         `json:"fileContracts,omitempty"`
+	FileContractRevisions []FileContractRevision `json:"fileContractRevisions,omitempty"`
+	StorageProofs         []StorageProof         `json:"storageProofs,omitempty"`
+	SiafundInputs         []SiafundInput         `json:"siafundInputs,omitempty"`
+	SiafundOutputs        []SiafundOutput        `json:"siafundOutputs,omitempty"`
+	MinerFees             []Currency             `json:"minerFees,omitempty"`
+	ArbitraryData         [][]byte               `json:"arbitraryData,omitempty"`
+	Signatures            []TransactionSignature `json:"signatures,omitempty"`
 }
 
 // ID returns the "semantic hash" of the transaction, covering all of the
@@ -441,10 +441,10 @@ func (txn *Transaction) FileContractID(i int) FileContractID {
 
 // A BlockHeader contains a Block's non-transaction data.
 type BlockHeader struct {
-	ParentID   BlockID
-	Nonce      uint64
-	Timestamp  time.Time
-	MerkleRoot Hash256
+	ParentID   BlockID   `json:"parentID"`
+	Nonce      uint64    `json:"nonce"`
+	Timestamp  time.Time `json:"timestamp"`
+	MerkleRoot Hash256   `json:"merkleRoot"`
 }
 
 // ID returns a hash that uniquely identifies a block.
@@ -463,11 +463,11 @@ func CurrentTimestamp() time.Time { return time.Now().Round(time.Second).UTC() }
 
 // A Block is a set of transactions grouped under a header.
 type Block struct {
-	ParentID     BlockID
-	Nonce        uint64
-	Timestamp    time.Time
-	MinerPayouts []SiacoinOutput
-	Transactions []Transaction
+	ParentID     BlockID         `json:"parentID"`
+	Nonce        uint64          `json:"nonce"`
+	Timestamp    time.Time       `json:"timestamp"`
+	MinerPayouts []SiacoinOutput `json:"minerPayouts"`
+	Transactions []Transaction   `json:"transactions"`
 }
 
 // Header returns the header for the block.
@@ -598,6 +598,24 @@ func (s *Specifier) UnmarshalText(b []byte) error {
 	return nil
 }
 
+// MarshalText implements encoding.TextMarshaler.
+func (uk UnlockKey) MarshalText() ([]byte, error) {
+	return marshalHex(uk.Algorithm.String(), uk.Key[:])
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (uk *UnlockKey) UnmarshalText(b []byte) error {
+	parts := bytes.Split(b, []byte(":"))
+	if len(parts) != 2 {
+		return fmt.Errorf("decoding <algorithm>::<key> failed: wrong number of separators")
+	} else if err := uk.Algorithm.UnmarshalText(parts[0]); err != nil {
+		return fmt.Errorf("decoding <algorithm>::<key> failed: %w", err)
+	} else if uk.Key, err = hex.DecodeString(string(parts[1])); err != nil {
+		return fmt.Errorf("decoding <algorithm>::<key> failed: %w", err)
+	}
+	return nil
+}
+
 // String implements fmt.Stringer.
 func (a Address) String() string {
 	checksum := HashBytes(a[:])
@@ -694,3 +712,30 @@ func (sig Signature) MarshalText() ([]byte, error) { return marshalHex("sig", si
 
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (sig *Signature) UnmarshalText(b []byte) error { return unmarshalHex(sig[:], "sig", b) }
+
+// MarshalJSON implements json.Marshaler.
+func (sp StorageProof) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		ParentID FileContractID `json:"parentID"`
+		Leaf     string         `json:"leaf"`
+		Proof    []Hash256      `json:"proof"`
+	}{sp.ParentID, hex.EncodeToString(sp.Leaf[:]), sp.Proof})
+}
+
+// UnmarshalJSON implements json.Marshaler.
+func (sp *StorageProof) UnmarshalJSON(b []byte) error {
+	var leaf string
+	err := json.Unmarshal(b, &struct {
+		ParentID *FileContractID
+		Leaf     *string
+		Proof    *[]Hash256
+	}{&sp.ParentID, &leaf, &sp.Proof})
+	if err != nil {
+		return err
+	} else if len(leaf) != len(sp.Leaf)*2 {
+		return errors.New("invalid storage proof leaf length")
+	} else if _, err = hex.Decode(sp.Leaf[:], []byte(leaf)); err != nil {
+		return err
+	}
+	return nil
+}
