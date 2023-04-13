@@ -105,16 +105,6 @@ func (a *Account) DecodeFrom(d *types.Decoder) {
 	copy(a[:], spk.Key)
 }
 
-// MarshalJSON implements json.Marshaler.
-func (a Account) MarshalJSON() ([]byte, error) {
-	return types.PublicKey(a).MarshalJSON()
-}
-
-// UnmarshalJSON implements json.Unmarshaler.
-func (a *Account) UnmarshalJSON(b []byte) error {
-	return (*types.PublicKey)(a).UnmarshalJSON(b)
-}
-
 // MarshalText implements encoding.TextUnmarshaler.
 func (a Account) MarshalText() ([]byte, error) { return types.PublicKey(a).MarshalText() }
 

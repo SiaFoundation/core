@@ -526,14 +526,6 @@ func unmarshalHex(dst []byte, prefix string, data []byte) error {
 	return nil
 }
 
-func marshalJSONHex(prefix string, data []byte) ([]byte, error) {
-	return []byte(`"` + stringerHex(prefix, data) + `"`), nil
-}
-
-func unmarshalJSONHex(dst []byte, prefix string, data []byte) error {
-	return unmarshalHex(dst, prefix, bytes.Trim(data, `"`))
-}
-
 // String implements fmt.Stringer.
 func (h Hash256) String() string { return stringerHex("h", h[:]) }
 
@@ -542,12 +534,6 @@ func (h Hash256) MarshalText() ([]byte, error) { return marshalHex("h", h[:]) }
 
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (h *Hash256) UnmarshalText(b []byte) error { return unmarshalHex(h[:], "h", b) }
-
-// MarshalJSON implements json.Marshaler.
-func (h Hash256) MarshalJSON() ([]byte, error) { return marshalJSONHex("h", h[:]) }
-
-// UnmarshalJSON implements json.Unmarshaler.
-func (h *Hash256) UnmarshalJSON(b []byte) error { return unmarshalJSONHex(h[:], "h", b) }
 
 // String implements fmt.Stringer.
 func (ci ChainIndex) String() string {
@@ -612,12 +598,6 @@ func (s *Specifier) UnmarshalText(b []byte) error {
 	return nil
 }
 
-// MarshalJSON implements json.Marshaler.
-func (s Specifier) MarshalJSON() ([]byte, error) { return []byte(s.String()), nil }
-
-// UnmarshalJSON implements json.Unmarshaler.
-func (s *Specifier) UnmarshalJSON(b []byte) error { return s.UnmarshalText(b) }
-
 // String implements fmt.Stringer.
 func (a Address) String() string {
 	checksum := HashBytes(a[:])
@@ -642,17 +622,6 @@ func (a *Address) UnmarshalText(b []byte) (err error) {
 	return
 }
 
-// MarshalJSON implements json.Marshaler.
-func (a Address) MarshalJSON() ([]byte, error) {
-	checksum := HashBytes(a[:])
-	return marshalJSONHex("addr", append(a[:], checksum[:6]...))
-}
-
-// UnmarshalJSON implements json.Unmarshaler.
-func (a *Address) UnmarshalJSON(b []byte) (err error) {
-	return a.UnmarshalText(bytes.Trim(b, `"`))
-}
-
 // ParseAddress parses an address from a prefixed hex encoded string.
 func ParseAddress(s string) (a Address, err error) {
 	err = a.UnmarshalText([]byte(s))
@@ -668,12 +637,6 @@ func (bid BlockID) MarshalText() ([]byte, error) { return marshalHex("bid", bid[
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (bid *BlockID) UnmarshalText(b []byte) error { return unmarshalHex(bid[:], "bid", b) }
 
-// MarshalJSON implements json.Marshaler.
-func (bid BlockID) MarshalJSON() ([]byte, error) { return marshalJSONHex("bid", bid[:]) }
-
-// UnmarshalJSON implements json.Unmarshaler.
-func (bid *BlockID) UnmarshalJSON(b []byte) error { return unmarshalJSONHex(bid[:], "bid", b) }
-
 // String implements fmt.Stringer.
 func (pk PublicKey) String() string { return stringerHex("ed25519", pk[:]) }
 
@@ -682,12 +645,6 @@ func (pk PublicKey) MarshalText() ([]byte, error) { return marshalHex("ed25519",
 
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (pk *PublicKey) UnmarshalText(b []byte) error { return unmarshalHex(pk[:], "ed25519", b) }
-
-// MarshalJSON implements json.Marshaler.
-func (pk PublicKey) MarshalJSON() ([]byte, error) { return marshalJSONHex("ed25519", pk[:]) }
-
-// UnmarshalJSON implements json.Unmarshaler.
-func (pk *PublicKey) UnmarshalJSON(b []byte) error { return unmarshalJSONHex(pk[:], "ed25519", b) }
 
 // String implements fmt.Stringer.
 func (tid TransactionID) String() string { return stringerHex("txid", tid[:]) }
@@ -698,12 +655,6 @@ func (tid TransactionID) MarshalText() ([]byte, error) { return marshalHex("txid
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (tid *TransactionID) UnmarshalText(b []byte) error { return unmarshalHex(tid[:], "txid", b) }
 
-// MarshalJSON implements json.Marshaler.
-func (tid TransactionID) MarshalJSON() ([]byte, error) { return marshalJSONHex("txid", tid[:]) }
-
-// UnmarshalJSON implements json.Unmarshaler.
-func (tid *TransactionID) UnmarshalJSON(b []byte) error { return unmarshalJSONHex(tid[:], "txid", b) }
-
 // String implements fmt.Stringer.
 func (scoid SiacoinOutputID) String() string { return stringerHex("scoid", scoid[:]) }
 
@@ -713,14 +664,6 @@ func (scoid SiacoinOutputID) MarshalText() ([]byte, error) { return marshalHex("
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (scoid *SiacoinOutputID) UnmarshalText(b []byte) error {
 	return unmarshalHex(scoid[:], "scoid", b)
-}
-
-// MarshalJSON implements json.Marshaler.
-func (scoid SiacoinOutputID) MarshalJSON() ([]byte, error) { return marshalJSONHex("scoid", scoid[:]) }
-
-// UnmarshalJSON implements json.Unmarshaler.
-func (scoid *SiacoinOutputID) UnmarshalJSON(b []byte) error {
-	return unmarshalJSONHex(scoid[:], "scoid", b)
 }
 
 // String implements fmt.Stringer.
@@ -734,14 +677,6 @@ func (sfoid *SiafundOutputID) UnmarshalText(b []byte) error {
 	return unmarshalHex(sfoid[:], "sfoid", b)
 }
 
-// MarshalJSON implements json.Marshaler.
-func (sfoid SiafundOutputID) MarshalJSON() ([]byte, error) { return marshalJSONHex("sfoid", sfoid[:]) }
-
-// UnmarshalJSON implements json.Unmarshaler.
-func (sfoid *SiafundOutputID) UnmarshalJSON(b []byte) error {
-	return unmarshalJSONHex(sfoid[:], "sfoid", b)
-}
-
 // String implements fmt.Stringer.
 func (fcid FileContractID) String() string { return stringerHex("fcid", fcid[:]) }
 
@@ -751,14 +686,6 @@ func (fcid FileContractID) MarshalText() ([]byte, error) { return marshalHex("fc
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (fcid *FileContractID) UnmarshalText(b []byte) error { return unmarshalHex(fcid[:], "fcid", b) }
 
-// MarshalJSON implements json.Marshaler.
-func (fcid FileContractID) MarshalJSON() ([]byte, error) { return marshalJSONHex("fcid", fcid[:]) }
-
-// UnmarshalJSON implements json.Unmarshaler.
-func (fcid *FileContractID) UnmarshalJSON(b []byte) error {
-	return unmarshalJSONHex(fcid[:], "fcid", b)
-}
-
 // String implements fmt.Stringer.
 func (sig Signature) String() string { return stringerHex("sig", sig[:]) }
 
@@ -767,9 +694,3 @@ func (sig Signature) MarshalText() ([]byte, error) { return marshalHex("sig", si
 
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (sig *Signature) UnmarshalText(b []byte) error { return unmarshalHex(sig[:], "sig", b) }
-
-// MarshalJSON implements json.Marshaler.
-func (sig Signature) MarshalJSON() ([]byte, error) { return marshalJSONHex("sig", sig[:]) }
-
-// UnmarshalJSON implements json.Unmarshaler.
-func (sig *Signature) UnmarshalJSON(b []byte) error { return unmarshalJSONHex(sig[:], "sig", b) }
