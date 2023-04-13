@@ -3,6 +3,7 @@ package chain
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -84,6 +85,15 @@ type Manager struct {
 	tipState    consensus.State
 	subscribers []Subscriber
 	lastCommit  time.Time
+
+	txpool struct {
+		txns         []types.Transaction
+		indices      map[types.TransactionID]int
+		ms           *consensus.MidState
+		medianFee    *types.Currency
+		parentMap    map[types.Hash256]int
+		lastReverted []types.Transaction
+	}
 
 	mu sync.Mutex
 }
@@ -328,6 +338,16 @@ func (m *Manager) reorgTo(index types.ChainIndex) error {
 			return fmt.Errorf("couldn't apply block %v: %w", index, err)
 		}
 	}
+
+	// invalidate txpool caches
+	m.txpool.ms = nil
+	m.txpool.medianFee = nil
+	m.txpool.parentMap = nil
+	if len(revert) > 0 {
+		c, _ := m.store.Checkpoint(revert[0].ID)
+		m.txpool.lastReverted = c.Block.Transactions
+	}
+
 	return nil
 }
 
@@ -375,18 +395,263 @@ func (m *Manager) AddSubscriber(s Subscriber, tip types.ChainIndex) error {
 	return nil
 }
 
-// WithConsensusStore calls fn on the current tip state and consensus store.
-func (m *Manager) WithConsensusStore(fn func(s consensus.State, cstore consensus.Store)) {
+func (m *Manager) revalidatePool() {
+	if m.txpool.ms != nil {
+		return
+	}
+
+	// remove and re-add all transactions
+	for txid := range m.txpool.indices {
+		delete(m.txpool.indices, txid)
+	}
+	txns := append(m.txpool.txns, m.txpool.lastReverted...)
+	m.txpool.txns = m.txpool.txns[:0]
+	m.store.WithConsensus(func(cstore consensus.Store) {
+		m.txpool.ms = consensus.NewMidState(m.tipState)
+		for _, txn := range txns {
+			if consensus.ValidateTransaction(m.txpool.ms, cstore, txn) == nil {
+				m.txpool.ms.ApplyTransaction(cstore, txn)
+				m.txpool.indices[txn.ID()] = len(m.txpool.txns)
+				m.txpool.txns = append(m.txpool.txns, txn)
+			}
+		}
+	})
+}
+
+func (m *Manager) computeMedianFee() types.Currency {
+	if m.txpool.medianFee != nil {
+		return *m.txpool.medianFee
+	}
+
+	calculateBlockMedianFee := func(cs consensus.State, b types.Block) types.Currency {
+		type weightedFee struct {
+			weight uint64
+			fee    types.Currency
+		}
+		var fees []weightedFee
+		for _, txn := range b.Transactions {
+			var fee types.Currency
+			for _, mf := range txn.MinerFees {
+				fee = fee.Add(mf)
+			}
+			fees = append(fees, weightedFee{cs.TransactionWeight(txn), fee})
+		}
+		// account for the remaining space in the block, for which no fees were paid
+		remaining := cs.MaxBlockWeight()
+		for _, wf := range fees {
+			remaining -= wf.weight
+		}
+		fees = append(fees, weightedFee{remaining, types.ZeroCurrency})
+		sort.Slice(fees, func(i, j int) bool { return fees[i].fee.Cmp(fees[j].fee) < 0 })
+		var progress uint64
+		var i int
+		for i = range fees {
+			// use the 75th percentile
+			if progress += fees[i].weight; progress > cs.MaxBlockWeight()/4 {
+				break
+			}
+		}
+		return fees[i].fee
+	}
+	prevFees := make([]types.Currency, 0, 10)
+	for i := uint64(0); i < 10; i++ {
+		index, ok1 := m.store.BestIndex(m.tipState.Index.Height - i)
+		c, ok2 := m.store.Checkpoint(index.ID)
+		pc, ok3 := m.store.Checkpoint(c.Block.ParentID)
+		if !ok3 && m.tipState.Index.Height == 0 {
+			// bit of a hack to make the genesis block work
+			pc.State = c.State.Network.GenesisState()
+			ok3 = true
+		}
+		if ok1 && ok2 && ok3 {
+			prevFees = append(prevFees, calculateBlockMedianFee(pc.State, c.Block))
+		}
+	}
+	sort.Slice(prevFees, func(i, j int) bool { return prevFees[i].Cmp(prevFees[j]) < 0 })
+	if len(prevFees) == 0 {
+		return types.ZeroCurrency
+	}
+	m.txpool.medianFee = &prevFees[len(prevFees)/2]
+	return *m.txpool.medianFee
+}
+
+func (m *Manager) computeParentMap() map[types.Hash256]int {
+	if m.txpool.parentMap != nil {
+		return m.txpool.parentMap
+	}
+	m.txpool.parentMap = make(map[types.Hash256]int)
+	for index, txn := range m.txpool.txns {
+		for i := range txn.SiacoinOutputs {
+			m.txpool.parentMap[types.Hash256(txn.SiacoinOutputID(i))] = index
+		}
+		for i := range txn.SiafundInputs {
+			m.txpool.parentMap[types.Hash256(txn.SiafundClaimOutputID(i))] = index
+		}
+		for i := range txn.SiafundOutputs {
+			m.txpool.parentMap[types.Hash256(txn.SiafundOutputID(i))] = index
+		}
+		for i := range txn.FileContracts {
+			m.txpool.parentMap[types.Hash256(txn.FileContractID(i))] = index
+		}
+	}
+	return m.txpool.parentMap
+}
+
+// PoolTransaction returns the transaction with the specified ID, if it is
+// currently in the pool.
+func (m *Manager) PoolTransaction(id types.TransactionID) (types.Transaction, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.store.WithConsensus(func(cstore consensus.Store) { fn(m.tipState, cstore) })
+	m.revalidatePool()
+	i, ok := m.txpool.indices[id]
+	if !ok {
+		return types.Transaction{}, false
+	}
+	return m.txpool.txns[i], ok
+}
+
+// PoolTransactions returns the transactions currently in the txpool. Any prefix
+// of the returned slice constitutes a valid transaction set.
+func (m *Manager) PoolTransactions() []types.Transaction {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.revalidatePool()
+	return append([]types.Transaction(nil), m.txpool.txns...)
+}
+
+// RecommendedFee returns the recommended fee (per weight unit) to ensure a high
+// probability of inclusion in the next block.
+func (m *Manager) RecommendedFee() types.Currency {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.revalidatePool()
+
+	medianFee := m.computeMedianFee()
+
+	// calculate a fee proportional to the size of the pool
+	var poolSize uint64
+	for _, txn := range m.txpool.txns {
+		poolSize += uint64(types.EncodedLen(txn)) // TODO: wasteful; cache this?
+	}
+	// estimate the impact of the txn on the pool size
+	if poolSize < 1e6 {
+		poolSize += 250e3
+	} else {
+		poolSize += poolSize / 4
+	}
+	// the target size of the pool is 3 MB of transaction data, with an average
+	// fee of 1 SC / 1 KB; compute targetFee * (poolSize / targetSize)^3
+	const targetSize = 3e6
+	proportionalFee := types.Siacoins(1).Div64(1000).
+		Mul64(poolSize).Mul64(poolSize).Mul64(poolSize).
+		Div64(targetSize).Div64(targetSize).Div64(targetSize)
+
+	// finally, an absolute minumum fee: 1 SC / 100 KB
+	minFee := types.Siacoins(1).Div64(100e3)
+
+	// use the largest of all calculated fees
+	fee := medianFee
+	if fee.Cmp(proportionalFee) < 0 {
+		fee = proportionalFee
+	}
+	if fee.Cmp(minFee) < 0 {
+		fee = minFee
+	}
+	return fee
+}
+
+// UnconfirmedParents returns the transactions in the txpool that are referenced
+// by txn.
+func (m *Manager) UnconfirmedParents(txn types.Transaction) []types.Transaction {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.revalidatePool()
+
+	parentMap := m.computeParentMap()
+	var parents []types.Transaction
+	seen := make(map[int]bool)
+	check := func(id types.Hash256) {
+		if index, ok := parentMap[id]; ok && !seen[index] {
+			seen[index] = true
+			parents = append(parents, m.txpool.txns[index])
+		}
+	}
+	addParents := func(txn types.Transaction) {
+		for _, sci := range txn.SiacoinInputs {
+			check(types.Hash256(sci.ParentID))
+		}
+		for _, sfi := range txn.SiafundInputs {
+			check(types.Hash256(sfi.ParentID))
+		}
+		for _, fcr := range txn.FileContractRevisions {
+			check(types.Hash256(fcr.ParentID))
+		}
+		for _, sp := range txn.StorageProofs {
+			check(types.Hash256(sp.ParentID))
+		}
+	}
+
+	// check txn, then keep checking parents until done
+	addParents(txn)
+	for {
+		n := len(parents)
+		for _, txn := range parents {
+			addParents(txn)
+		}
+		if len(parents) == n {
+			break
+		}
+	}
+	// reverse so that parents always come before children
+	for i := 0; i < len(parents)/2; i++ {
+		j := len(parents) - 1 - i
+		parents[i], parents[j] = parents[j], parents[i]
+	}
+	return parents
+}
+
+// AddPoolTransactions validates a transaction set and adds it to the txpool. If
+// any transaction references an element (SiacoinOutput, SiafundOutput, or
+// FileContract) not present in the blockchain, that element must be created by
+// a previous transaction in the set.
+//
+// If any transaction in the set is invalid, the entire set is rejected and none
+// of the transactions are added to the pool.
+func (m *Manager) AddPoolTransactions(txns []types.Transaction) (err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.revalidatePool()
+	m.store.WithConsensus(func(cstore consensus.Store) {
+		// validate as a standalone set
+		ms := consensus.NewMidState(m.tipState)
+		for _, txn := range txns {
+			if err = consensus.ValidateTransaction(ms, cstore, txn); err != nil {
+				err = fmt.Errorf("transaction %v is invalid: %v", txn.ID(), err)
+				return
+			}
+			ms.ApplyTransaction(cstore, txn)
+		}
+
+		for _, txn := range txns {
+			txid := txn.ID()
+			if _, ok := m.txpool.indices[txid]; ok {
+				continue // skip transactions already in pool
+			}
+			m.txpool.ms.ApplyTransaction(cstore, txn)
+			m.txpool.indices[txid] = len(m.txpool.txns)
+			m.txpool.txns = append(m.txpool.txns, txn)
+		}
+	})
+	return err
 }
 
 // NewManager returns a Manager initialized with the provided Store and State.
 func NewManager(store Store, cs consensus.State) *Manager {
-	return &Manager{
+	m := &Manager{
 		store:      store,
 		tipState:   cs,
 		lastCommit: time.Now(),
 	}
+	m.txpool.indices = make(map[types.TransactionID]int)
+	return m
 }

@@ -133,10 +133,14 @@ func TestnetZen() (*consensus.Network, types.Block) {
 	b := types.Block{
 		Timestamp: n.HardforkOak.GenesisTimestamp,
 		Transactions: []types.Transaction{{
-			SiacoinOutputs: []types.SiacoinOutput{{Address: parseAddr("addr:3d7f707d05f2e0ec7ccc9220ed7c8af3bc560fbee84d068c2cc28151d617899e1ee8bc069946"), Value: types.Siacoins(1).Mul64(1e12)}},
-			SiafundOutputs: []types.SiafundOutput{
-				{Address: parseAddr("addr:053b2def3cbdd078c19d62ce2b4f0b1a3c5e0ffbeeff01280efb1f8969b2f5bb4fdc680f0807"), Value: 10000},
-			},
+			SiacoinOutputs: []types.SiacoinOutput{{
+				Address: parseAddr("addr:3d7f707d05f2e0ec7ccc9220ed7c8af3bc560fbee84d068c2cc28151d617899e1ee8bc069946"),
+				Value:   types.Siacoins(1).Mul64(1e12),
+			}},
+			SiafundOutputs: []types.SiafundOutput{{
+				Address: parseAddr("addr:053b2def3cbdd078c19d62ce2b4f0b1a3c5e0ffbeeff01280efb1f8969b2f5bb4fdc680f0807"),
+				Value:   10000,
+			}},
 		}},
 	}
 
