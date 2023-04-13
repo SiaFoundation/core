@@ -267,14 +267,38 @@ func (d DelayedOutputSource) String() string {
 	}[d]
 }
 
+// MarshalText implements encoding.TextMarshaler.
+func (d DelayedOutputSource) MarshalText() ([]byte, error) {
+	return []byte(d.String()), nil
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (d *DelayedOutputSource) UnmarshalText(b []byte) error {
+	switch string(b) {
+	case OutputSourceMiner.String():
+		*d = OutputSourceMiner
+	case OutputSourceValidContract.String():
+		*d = OutputSourceValidContract
+	case OutputSourceMissedContract.String():
+		*d = OutputSourceMissedContract
+	case OutputSourceSiafundClaim.String():
+		*d = OutputSourceSiafundClaim
+	case OutputSourceFoundation.String():
+		*d = OutputSourceFoundation
+	default:
+		return fmt.Errorf("unrecognized DelayedOutputSource %q", b)
+	}
+	return nil
+}
+
 // A DelayedSiacoinOutputDiff records the creation, deletion, or maturation of a
 // delayed SiacoinOutput. "Delayed" means that the output is immature when
 // created; it may only be spent when the "MaturityHeight" is reached.
 type DelayedSiacoinOutputDiff struct {
-	ID             types.SiacoinOutputID
-	Output         types.SiacoinOutput
-	Source         DelayedOutputSource
-	MaturityHeight uint64
+	ID             types.SiacoinOutputID `json:"ID"`
+	Output         types.SiacoinOutput   `json:"output"`
+	Source         DelayedOutputSource   `json:"source"`
+	MaturityHeight uint64                `json:"maturityHeight"`
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -296,9 +320,9 @@ func (dscod *DelayedSiacoinOutputDiff) DecodeFrom(d *types.Decoder) {
 // A SiafundOutputDiff records the creation, deletion, or spending of a
 // SiafundOutput.
 type SiafundOutputDiff struct {
-	ID         types.SiafundOutputID
-	Output     types.SiafundOutput
-	ClaimStart types.Currency
+	ID         types.SiafundOutputID `json:"ID"`
+	Output     types.SiafundOutput   `json:"output"`
+	ClaimStart types.Currency        `json:"claimStart"`
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -318,8 +342,8 @@ func (sfod *SiafundOutputDiff) DecodeFrom(d *types.Decoder) {
 // A FileContractDiff records the creation, deletion, or resolution of a
 // FileContract.
 type FileContractDiff struct {
-	ID       types.FileContractID
-	Contract types.FileContract
+	ID       types.FileContractID `json:"ID"`
+	Contract types.FileContract   `json:"contract"`
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -336,9 +360,9 @@ func (fcd *FileContractDiff) DecodeFrom(d *types.Decoder) {
 
 // A FileContractRevisionDiff records the revision of a FileContract.
 type FileContractRevisionDiff struct {
-	ID          types.FileContractID
-	OldContract types.FileContract
-	NewContract types.FileContract
+	ID          types.FileContractID `json:"ID"`
+	OldContract types.FileContract   `json:"oldContract"`
+	NewContract types.FileContract   `json:"newContract"`
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -358,15 +382,15 @@ func (fcrd *FileContractRevisionDiff) DecodeFrom(d *types.Decoder) {
 // A TransactionDiff represents the changes to an ElementStore resulting from
 // the application of a transaction.
 type TransactionDiff struct {
-	CreatedSiacoinOutputs  []SiacoinOutputDiff
-	ImmatureSiacoinOutputs []DelayedSiacoinOutputDiff
-	CreatedSiafundOutputs  []SiafundOutputDiff
-	CreatedFileContracts   []FileContractDiff
+	CreatedSiacoinOutputs  []SiacoinOutputDiff        `json:"createdSiacoinOutputs"`
+	ImmatureSiacoinOutputs []DelayedSiacoinOutputDiff `json:"immatureSiacoinOutputs"`
+	CreatedSiafundOutputs  []SiafundOutputDiff        `json:"createdSiafundOutputs"`
+	CreatedFileContracts   []FileContractDiff         `json:"createdFileContracts"`
 
-	SpentSiacoinOutputs  []SiacoinOutputDiff
-	SpentSiafundOutputs  []SiafundOutputDiff
-	RevisedFileContracts []FileContractRevisionDiff
-	ValidFileContracts   []FileContractDiff
+	SpentSiacoinOutputs  []SiacoinOutputDiff        `json:"spentSiacoinOutputs"`
+	SpentSiafundOutputs  []SiafundOutputDiff        `json:"spentSiafundOutputs"`
+	RevisedFileContracts []FileContractRevisionDiff `json:"revisedFileContracts"`
+	ValidFileContracts   []FileContractDiff         `json:"validFileContracts"`
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -444,10 +468,10 @@ func (td *TransactionDiff) DecodeFrom(d *types.Decoder) {
 // A BlockDiff represents the changes to a Store resulting from the application
 // of a block.
 type BlockDiff struct {
-	Transactions           []TransactionDiff
-	MaturedSiacoinOutputs  []DelayedSiacoinOutputDiff
-	ImmatureSiacoinOutputs []DelayedSiacoinOutputDiff
-	MissedFileContracts    []FileContractDiff
+	Transactions           []TransactionDiff          `json:"transactions"`
+	MaturedSiacoinOutputs  []DelayedSiacoinOutputDiff `json:"maturedSiacoinOutputs"`
+	ImmatureSiacoinOutputs []DelayedSiacoinOutputDiff `json:"immatureSiacoinOutputs"`
+	MissedFileContracts    []FileContractDiff         `json:"missedFileContracts"`
 }
 
 // EncodeTo implements types.EncoderTo.

@@ -36,36 +36,36 @@ type Store interface {
 
 // A Network specifies the fixed parameters of a Sia blockchain.
 type Network struct {
-	InitialCoinbase types.Currency
-	MinimumCoinbase types.Currency
-	InitialTarget   types.BlockID
+	InitialCoinbase types.Currency `json:"initialCoinbase"`
+	MinimumCoinbase types.Currency `json:"minimumCoinbase"`
+	InitialTarget   types.BlockID  `json:"initialTarget"`
 
 	HardforkDevAddr struct {
-		Height     uint64
-		OldAddress types.Address
-		NewAddress types.Address
-	}
+		Height     uint64        `json:"height"`
+		OldAddress types.Address `json:"oldAddress"`
+		NewAddress types.Address `json:"newAddress"`
+	} `json:"hardforkDevAddr"`
 	HardforkTax struct {
-		Height uint64
-	}
+		Height uint64 `json:"height"`
+	} `json:"hardforkTax"`
 	HardforkStorageProof struct {
-		Height uint64
-	}
+		Height uint64 `json:"height"`
+	} `json:"hardforkStorageProof"`
 	HardforkOak struct {
-		Height           uint64
-		FixHeight        uint64
-		GenesisTimestamp time.Time
-	}
+		Height           uint64    `json:"height"`
+		FixHeight        uint64    `json:"fixHeight"`
+		GenesisTimestamp time.Time `json:"genesisTimestamp"`
+	} `json:"hardforkOak"`
 	HardforkASIC struct {
-		Height    uint64
-		OakTime   time.Duration
-		OakTarget types.BlockID
-	}
+		Height    uint64        `json:"height"`
+		OakTime   time.Duration `json:"oakTime"`
+		OakTarget types.BlockID `json:"oakTarget"`
+	} `json:"hardforkASIC"`
 	HardforkFoundation struct {
-		Height          uint64
-		PrimaryAddress  types.Address
-		FailsafeAddress types.Address
-	}
+		Height          uint64        `json:"height"`
+		PrimaryAddress  types.Address `json:"primaryAddress"`
+		FailsafeAddress types.Address `json:"failsafeAddress"`
+	} `json:"hardforkFoundation"`
 }
 
 // GenesisState returns the state to which the genesis block should be applied.
