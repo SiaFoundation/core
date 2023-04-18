@@ -107,7 +107,7 @@ func Mainnet() (*consensus.Network, types.Block) {
 // testnet chain.
 func TestnetZen() (*consensus.Network, types.Block) {
 	n := &consensus.Network{
-		Name: "testnetzen",
+		Name: "zen",
 
 		InitialCoinbase: types.Siacoins(300000),
 		MinimumCoinbase: types.Siacoins(300000),
