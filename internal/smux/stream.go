@@ -49,6 +49,13 @@ func (s *Stream) Read(b []byte) (n int, err error) {
 		deadline = timer.C
 	}
 
+	// privilege shutdown
+	select {
+	case <-s.die:
+		return 0, errBrokenPipe
+	default:
+	}
+
 READ:
 	s.bufferLock.Lock()
 	n, err = s.buffer.Read(b)
