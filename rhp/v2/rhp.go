@@ -43,7 +43,7 @@ func (c ContractRevision) HostKey() (pk types.PublicKey) {
 
 // RenterFunds returns the funds remaining in the contract's Renter payout.
 func (c ContractRevision) RenterFunds() types.Currency {
-	return c.Revision.ValidProofOutputs[0].Value
+	return c.Revision.ValidRenterPayout()
 }
 
 // NumSectors returns the number of sectors covered by the contract.

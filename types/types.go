@@ -17,9 +17,19 @@ import (
 	"lukechampine.com/frand"
 )
 
-// MaxRevisionNumber is used to finalize a FileContract. When a contract's
-// RevisionNumber is set to this value, no further revisions are possible.
-const MaxRevisionNumber = math.MaxUint64
+const (
+	// MaxRevisionNumber is used to finalize a FileContract. When a contract's
+	// RevisionNumber is set to this value, no further revisions are possible.
+	MaxRevisionNumber = math.MaxUint64
+
+	// RenterContractIndex defines the index of the renter's output and public
+	// key in a FileContract.
+	RenterContractIndex = 0
+
+	// HostcontractIndex defines the index of the host's output and public key in
+	// a FileContract.
+	HostcontractIndex = 1
+)
 
 // Various specifiers.
 var (
@@ -261,7 +271,9 @@ func (fc *FileContract) EndHeight() uint64 { return fc.WindowStart }
 
 // ValidRenterOutput returns the output that will be created for the renter if
 // the contract resolves valid.
-func (fc *FileContract) ValidRenterOutput() SiacoinOutput { return fc.ValidProofOutputs[0] }
+func (fc *FileContract) ValidRenterOutput() SiacoinOutput {
+	return fc.ValidProofOutputs[RenterContractIndex]
+}
 
 // ValidRenterPayout returns the amount of siacoins that the renter will receive
 // if the contract resolves valid.
@@ -269,7 +281,9 @@ func (fc *FileContract) ValidRenterPayout() Currency { return fc.ValidRenterOutp
 
 // MissedRenterOutput returns the output that will be created for the renter if
 // the contract resolves missed.
-func (fc *FileContract) MissedRenterOutput() SiacoinOutput { return fc.MissedProofOutputs[0] }
+func (fc *FileContract) MissedRenterOutput() SiacoinOutput {
+	return fc.MissedProofOutputs[RenterContractIndex]
+}
 
 // MissedRenterPayout returns the amount of siacoins that the renter will receive
 // if the contract resolves missed.
@@ -277,7 +291,9 @@ func (fc *FileContract) MissedRenterPayout() Currency { return fc.MissedRenterOu
 
 // ValidHostOutput returns the output that will be created for the host if
 // the contract resolves valid.
-func (fc *FileContract) ValidHostOutput() SiacoinOutput { return fc.ValidProofOutputs[1] }
+func (fc *FileContract) ValidHostOutput() SiacoinOutput {
+	return fc.ValidProofOutputs[HostcontractIndex]
+}
 
 // ValidHostPayout returns the amount of siacoins that the host will receive
 // if the contract resolves valid.
@@ -285,7 +301,9 @@ func (fc *FileContract) ValidHostPayout() Currency { return fc.ValidHostOutput()
 
 // MissedHostOutput returns the output that will be created for the host if
 // the contract resolves missed.
-func (fc *FileContract) MissedHostOutput() SiacoinOutput { return fc.MissedProofOutputs[1] }
+func (fc *FileContract) MissedHostOutput() SiacoinOutput {
+	return fc.MissedProofOutputs[HostcontractIndex]
+}
 
 // MissedHostPayout returns the amount of siacoins that the host will receive
 // if the contract resolves missed.
