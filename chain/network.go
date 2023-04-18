@@ -19,6 +19,8 @@ func parseAddr(s string) types.Address {
 // blockchain.
 func Mainnet() (*consensus.Network, types.Block) {
 	n := &consensus.Network{
+		Name: "mainnet",
+
 		InitialCoinbase: types.Siacoins(300000),
 		MinimumCoinbase: types.Siacoins(30000),
 		InitialTarget:   types.BlockID{4: 32},
@@ -105,6 +107,8 @@ func Mainnet() (*consensus.Network, types.Block) {
 // testnet chain.
 func TestnetZen() (*consensus.Network, types.Block) {
 	n := &consensus.Network{
+		Name: "testnetzen",
+
 		InitialCoinbase: types.Siacoins(300000),
 		MinimumCoinbase: types.Siacoins(300000),
 		InitialTarget:   types.BlockID{4: 32},
