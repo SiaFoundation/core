@@ -68,10 +68,10 @@ func PayByContract(rev *types.FileContractRevision, amount types.Currency, refun
 	if rev.ValidRenterPayout().Cmp(amount) < 0 || rev.MissedRenterPayout().Cmp(amount) < 0 {
 		return PayByContractRequest{}, false
 	}
-	rev.ValidProofOutputs[0].Value = rev.ValidProofOutputs[0].Value.Sub(amount)
-	rev.ValidProofOutputs[1].Value = rev.ValidProofOutputs[1].Value.Add(amount)
-	rev.MissedProofOutputs[0].Value = rev.MissedProofOutputs[0].Value.Sub(amount)
-	rev.MissedProofOutputs[1].Value = rev.MissedProofOutputs[1].Value.Add(amount)
+	rev.ValidProofOutputs[types.RenterContractIndex].Value = rev.ValidProofOutputs[types.RenterContractIndex].Value.Sub(amount)
+	rev.ValidProofOutputs[types.HostcontractIndex].Value = rev.ValidProofOutputs[types.HostcontractIndex].Value.Add(amount)
+	rev.MissedProofOutputs[types.RenterContractIndex].Value = rev.MissedProofOutputs[types.RenterContractIndex].Value.Sub(amount)
+	rev.MissedProofOutputs[types.HostcontractIndex].Value = rev.MissedProofOutputs[types.HostcontractIndex].Value.Add(amount)
 	rev.RevisionNumber++
 
 	newValid := make([]types.Currency, len(rev.ValidProofOutputs))
