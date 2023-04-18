@@ -36,6 +36,8 @@ type Store interface {
 
 // A Network specifies the fixed parameters of a Sia blockchain.
 type Network struct {
+	Name string `json:"name"`
+
 	InitialCoinbase types.Currency `json:"initialCoinbase"`
 	MinimumCoinbase types.Currency `json:"minimumCoinbase"`
 	InitialTarget   types.BlockID  `json:"initialTarget"`
