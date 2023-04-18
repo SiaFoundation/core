@@ -75,6 +75,12 @@ func (p *Peer) SetErr(err error) error {
 	return p.err
 }
 
+// Close closes the peer's connection.
+func (p *Peer) Close() error {
+	p.SetErr(errors.New("closing"))
+	return nil
+}
+
 // An RPCHandler handles RPCs received from a peer.
 type RPCHandler interface {
 	PeersForShare() []string
@@ -224,9 +230,9 @@ func (p *Peer) SendBlocks(history [32]types.BlockID, fn func([]types.Block) erro
 	for r.MoreAvailable {
 		s.SetDeadline(time.Now().Add(120 * time.Second))
 		if err := withDecoder(s, r.maxBlocksResponseLen(), r.decodeBlocksResponse); err != nil {
-			return fmt.Errorf("couldn't read response2: %w", err)
+			return fmt.Errorf("couldn't read response: %w", err)
 		} else if err := withDecoder(s, r.maxMoreAvailableResponseLen(), r.decodeMoreAvailableResponse); err != nil {
-			return fmt.Errorf("couldn't read response1: %w", err)
+			return fmt.Errorf("couldn't read response: %w", err)
 		} else if err := fn(r.Blocks); err != nil {
 			return err
 		}
