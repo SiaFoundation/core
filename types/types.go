@@ -26,9 +26,9 @@ const (
 	// key in a FileContract.
 	RenterContractIndex = 0
 
-	// HostcontractIndex defines the index of the host's output and public key in
+	// HostContractIndex defines the index of the host's output and public key in
 	// a FileContract.
-	HostcontractIndex = 1
+	HostContractIndex = 1
 )
 
 // Various specifiers.
@@ -292,7 +292,7 @@ func (fc *FileContract) MissedRenterPayout() Currency { return fc.MissedRenterOu
 // ValidHostOutput returns the output that will be created for the host if
 // the contract resolves valid.
 func (fc *FileContract) ValidHostOutput() SiacoinOutput {
-	return fc.ValidProofOutputs[HostcontractIndex]
+	return fc.ValidProofOutputs[HostContractIndex]
 }
 
 // ValidHostPayout returns the amount of siacoins that the host will receive
@@ -302,7 +302,7 @@ func (fc *FileContract) ValidHostPayout() Currency { return fc.ValidHostOutput()
 // MissedHostOutput returns the output that will be created for the host if
 // the contract resolves missed.
 func (fc *FileContract) MissedHostOutput() SiacoinOutput {
-	return fc.MissedProofOutputs[HostcontractIndex]
+	return fc.MissedProofOutputs[HostContractIndex]
 }
 
 // MissedHostPayout returns the amount of siacoins that the host will receive
