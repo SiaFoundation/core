@@ -282,9 +282,15 @@ type (
 
 // RPCSectorRootsCost returns the price of a SectorRoots RPC.
 func RPCSectorRootsCost(settings HostSettings, n uint64) types.Currency {
-	return settings.BaseRPCPrice.
-		Add(settings.DownloadBandwidthPrice.Mul64(n * 32)).  // roots
-		Add(settings.DownloadBandwidthPrice.Mul64(128 * 32)) // proof
+	roots, overflow := settings.DownloadBandwidthPrice.Mul64WithOverflow(n * 32)
+	if overflow {
+		return types.MaxCurrency
+	}
+	proof, overflow := settings.DownloadBandwidthPrice.Mul64WithOverflow(128 * 32)
+	if overflow {
+		return types.MaxCurrency
+	}
+	return settings.BaseRPCPrice.Add(roots).Add(proof)
 }
 
 // RPCReadCost returns the price of a Read RPC.
@@ -298,27 +304,65 @@ func RPCReadCost(settings HostSettings, sections []RPCReadRequestSection) types.
 	if bandwidth < minMessageSize {
 		bandwidth = minMessageSize
 	}
-	bandwidthPrice := settings.DownloadBandwidthPrice.Mul64(bandwidth)
+	bandwidthPrice, overflow := settings.DownloadBandwidthPrice.Mul64WithOverflow(bandwidth)
+	if overflow {
+		return types.MaxCurrency
+	}
 	return settings.BaseRPCPrice.Add(sectorAccessPrice).Add(bandwidthPrice)
 }
 
 // RPCAppendCost returns the price and collateral of a Write RPC with a single
 // append operation.
 func RPCAppendCost(settings HostSettings, storageDuration uint64) (price, collateral types.Currency) {
-	price = settings.BaseRPCPrice.
-		Add(settings.StoragePrice.Mul64(SectorSize).Mul64(storageDuration)).
-		Add(settings.UploadBandwidthPrice.Mul64(SectorSize)).
-		Add(settings.DownloadBandwidthPrice.Mul64(128 * 32)) // proof
-	collateral = settings.Collateral.Mul64(SectorSize).Mul64(storageDuration)
+	storageCost, overflow := settings.StoragePrice.Mul64WithOverflow(SectorSize)
+	if overflow {
+		return types.MaxCurrency, types.MaxCurrency
+	}
+	storageCost, overflow = storageCost.Mul64WithOverflow(storageDuration)
+	if overflow {
+		return types.MaxCurrency, types.MaxCurrency
+	}
+	uploadCost, overflow := settings.UploadBandwidthPrice.Mul64WithOverflow(SectorSize)
+	if overflow {
+		return types.MaxCurrency, types.MaxCurrency
+	}
+	downloadCost, overflow := settings.DownloadBandwidthPrice.Mul64WithOverflow(128 * 32) // proof
+	if overflow {
+		return types.MaxCurrency, types.MaxCurrency
+	}
+	price = settings.BaseRPCPrice.Add(storageCost).Add(uploadCost).Add(downloadCost)
+	collateral, overflow = settings.Collateral.Mul64WithOverflow(SectorSize)
+	if overflow {
+		return types.MaxCurrency, types.MaxCurrency
+	}
+	collateral, overflow = collateral.Mul64WithOverflow(storageDuration)
+	if overflow {
+		return types.MaxCurrency, types.MaxCurrency
+	}
 	// add some leeway to reduce chance of host rejecting
-	price = price.Mul64(125).Div64(100)
-	collateral = collateral.Mul64(95).Div64(100)
+	price, overflow = price.Mul64WithOverflow(125)
+	if overflow {
+		return types.MaxCurrency, types.MaxCurrency
+	}
+	price = price.Div64(100)
+	collateral, overflow = collateral.Mul64WithOverflow(95)
+	if overflow {
+		return types.MaxCurrency, types.MaxCurrency
+	}
+	collateral = collateral.Div64(100)
 	return
 }
 
 // RPCDeleteCost returns the price of a Write RPC that deletes n sectors.
 func RPCDeleteCost(settings HostSettings, n int) types.Currency {
-	price := settings.BaseRPCPrice.
-		Add(settings.DownloadBandwidthPrice.Mul64(128 * 32)) // proof
-	return price.Mul64(105).Div64(100)
+	price, overflow := settings.DownloadBandwidthPrice.Mul64WithOverflow(128 * 32) // proof
+	if overflow {
+		return types.MaxCurrency
+	}
+	price = settings.BaseRPCPrice.Add(price)
+	price, overflow = price.Mul64WithOverflow(105)
+	if overflow {
+		return types.MaxCurrency
+	}
+	return price.Div64(100)
 }
