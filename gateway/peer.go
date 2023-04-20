@@ -52,9 +52,9 @@ type Peer struct {
 // String implements fmt.Stringer.
 func (p *Peer) String() string {
 	if p.Inbound {
-		return p.Addr + " (inbound)"
+		return "<-" + p.Addr
 	}
-	return p.Addr + " (outbound)"
+	return "->" + p.Addr
 }
 
 // Err returns the error that caused the peer to disconnect, if any.
