@@ -306,6 +306,12 @@ func (m *Manager) reorgPath(a, b types.ChainIndex) (revert, apply []types.ChainI
 		}
 	}
 
+	// special case: if a is uninitialized, we're starting from genesis
+	if a == (types.ChainIndex{}) {
+		a, _ = m.store.BestIndex(0)
+		apply = append(apply, a)
+	}
+
 	// now rewind both until we reach a common ancestor
 	for a != b {
 		revert = append(revert, a)
