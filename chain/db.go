@@ -163,6 +163,7 @@ func NewMemDB() *MemDB {
 }
 
 var (
+	bVersion        = []byte("Version")
 	bMainChain      = []byte("MainChain")
 	bCheckpoints    = []byte("Checkpoints")
 	bFileContracts  = []byte("FileContracts")
@@ -258,6 +259,7 @@ func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (*DBStore
 		}
 
 		for _, bucket := range [][]byte{
+			bVersion,
 			bMainChain,
 			bCheckpoints,
 			bFileContracts,
@@ -268,6 +270,7 @@ func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (*DBStore
 				return err
 			}
 		}
+		tx.bucket(bVersion).putRaw(bVersion, []byte{1})
 
 		// add genesis checkpoint and effects
 		genesisState := n.GenesisState()
