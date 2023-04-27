@@ -307,6 +307,13 @@ func (pt *HostPriceTable) HasSectorCost() ResourceCost {
 	}
 }
 
+// InitProgramCost is the cost of initialising an mdm program.
+func (pt *HostPriceTable) InitProgramCost() ResourceCost {
+	return ResourceCost{
+		Base: pt.InitBaseCost,
+	}
+}
+
 // ReadOffsetCost returns the cost of executing the ReadOffset instruction.
 func (pt *HostPriceTable) ReadOffsetCost(length uint64) ResourceCost {
 	return ResourceCost{
