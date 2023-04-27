@@ -41,20 +41,21 @@ func validateHeader(ours, theirs Header) error {
 
 // A Peer is a connected gateway peer.
 type Peer struct {
-	Addr    string
-	Inbound bool
-	Version string
-	mux     *smux.Session
-	mu      sync.Mutex
-	err     error
+	Addr     string
+	ConnAddr string
+	Inbound  bool
+	Version  string
+	mux      *smux.Session
+	mu       sync.Mutex
+	err      error
 }
 
 // String implements fmt.Stringer.
 func (p *Peer) String() string {
 	if p.Inbound {
-		return "<-" + p.Addr
+		return "<-" + p.ConnAddr
 	}
-	return "->" + p.Addr
+	return "->" + p.ConnAddr
 }
 
 // Err returns the error that caused the peer to disconnect, if any.
@@ -272,6 +273,7 @@ func DialPeer(conn net.Conn, ourHeader Header) (_ *Peer, err error) {
 	// exchange headers
 	var accept string
 	var peerHeader Header
+	var dialAddr string
 	if err := withEncoder(conn, ourHeader.encodeTo); err != nil {
 		return nil, fmt.Errorf("could not write our header: %w", err)
 	} else if err := withDecoder(conn, 128, func(d *types.Decoder) { accept = d.ReadString() }); err != nil {
@@ -285,6 +287,12 @@ func DialPeer(conn net.Conn, ourHeader Header) (_ *Peer, err error) {
 		return nil, fmt.Errorf("unacceptable header: %w", err)
 	} else if err := withEncoder(conn, func(e *types.Encoder) { e.WriteString("accept") }); err != nil {
 		return nil, fmt.Errorf("could not write accept: %w", err)
+	} else if host, _, err := net.SplitHostPort(conn.RemoteAddr().String()); err != nil {
+		return nil, fmt.Errorf("invalid remote addr (%q): %w", conn.RemoteAddr(), err)
+	} else if _, port, err := net.SplitHostPort(peerHeader.NetAddress); err != nil {
+		return nil, fmt.Errorf("peer provided invalid net address (%q): %w", peerHeader.NetAddress, err)
+	} else {
+		dialAddr = net.JoinHostPort(host, port)
 	}
 
 	// establish mux session
@@ -294,10 +302,11 @@ func DialPeer(conn net.Conn, ourHeader Header) (_ *Peer, err error) {
 	}
 
 	return &Peer{
-		Addr:    conn.RemoteAddr().String(),
-		Inbound: false,
-		Version: theirVersion,
-		mux:     m,
+		Addr:     dialAddr,
+		ConnAddr: conn.RemoteAddr().String(),
+		Inbound:  false,
+		Version:  theirVersion,
+		mux:      m,
 	}, nil
 }
 
@@ -317,6 +326,7 @@ func AcceptPeer(conn net.Conn, ourHeader Header) (_ *Peer, err error) {
 	// exchange headers
 	var accept string
 	var peerHeader Header
+	var dialAddr string
 	if err := withDecoder(conn, 32+8+128, peerHeader.decodeFrom); err != nil {
 		return nil, fmt.Errorf("could not read peer's header: %w", err)
 	} else if err := validateHeader(ourHeader, peerHeader); err != nil {
@@ -330,6 +340,12 @@ func AcceptPeer(conn net.Conn, ourHeader Header) (_ *Peer, err error) {
 		return nil, fmt.Errorf("could not read peer version: %w", err)
 	} else if accept != "accept" {
 		return nil, fmt.Errorf("peer rejected our header: %v", accept)
+	} else if host, _, err := net.SplitHostPort(conn.RemoteAddr().String()); err != nil {
+		return nil, fmt.Errorf("invalid remote addr (%q): %w", conn.RemoteAddr(), err)
+	} else if _, port, err := net.SplitHostPort(peerHeader.NetAddress); err != nil {
+		return nil, fmt.Errorf("peer provided invalid net address (%q): %w", peerHeader.NetAddress, err)
+	} else {
+		dialAddr = net.JoinHostPort(host, port)
 	}
 
 	// establish mux session
@@ -339,9 +355,10 @@ func AcceptPeer(conn net.Conn, ourHeader Header) (_ *Peer, err error) {
 	}
 
 	return &Peer{
-		Addr:    conn.RemoteAddr().String(),
-		Inbound: true,
-		Version: theirVersion,
-		mux:     m,
+		Addr:     dialAddr,
+		ConnAddr: conn.RemoteAddr().String(),
+		Inbound:  true,
+		Version:  theirVersion,
+		mux:      m,
 	}, nil
 }
