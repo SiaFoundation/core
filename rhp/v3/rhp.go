@@ -307,8 +307,8 @@ func (pt *HostPriceTable) HasSectorCost() ResourceCost {
 	}
 }
 
-// InitProgramCost is the cost of initialising an mdm program.
-func (pt *HostPriceTable) InitProgramCost() ResourceCost {
+// BaseCost is the cost of initialising an mdm program.
+func (pt *HostPriceTable) BaseCost() ResourceCost {
 	return ResourceCost{
 		Base: pt.InitBaseCost,
 	}
