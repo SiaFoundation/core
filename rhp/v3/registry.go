@@ -106,6 +106,8 @@ func ValidateRegistryEntry(re RegistryEntry) (err error) {
 	}
 	if !re.PublicKey.VerifyHash(re.Hash(), re.Signature) {
 		return errors.New("invalid signature")
+	} else if len(re.Data) > MaxValueDataSize {
+		return fmt.Errorf("data size exceeds maximum: %d > %d", len(re.Data), MaxValueDataSize)
 	}
 	return nil
 }
