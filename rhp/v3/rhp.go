@@ -230,7 +230,7 @@ type (
 )
 
 // Add adds two ResourceCosts together.
-func (a *ResourceCost) Add(b ResourceCost) ResourceCost {
+func (a ResourceCost) Add(b ResourceCost) ResourceCost {
 	return ResourceCost{
 		Base:       a.Base.Add(b.Base),
 		Storage:    a.Storage.Add(b.Storage),
@@ -241,7 +241,7 @@ func (a *ResourceCost) Add(b ResourceCost) ResourceCost {
 }
 
 // Total returns the total cost and collateral of a ResourceCost.
-func (a *ResourceCost) Total() (cost, collateral types.Currency) {
+func (a ResourceCost) Total() (cost, collateral types.Currency) {
 	cost = a.Base.Add(a.Storage).Add(a.Egress).Add(a.Ingress)
 	collateral = a.Collateral
 	return
@@ -304,6 +304,13 @@ func (pt *HostPriceTable) HasSectorCost() ResourceCost {
 		Base:    pt.HasSectorBaseCost,
 		Ingress: pt.UploadBandwidthCost.Mul64(32), // sector root
 		Egress:  pt.DownloadBandwidthCost,         // boolean response
+	}
+}
+
+// BaseCost is the cost of initialising an mdm program.
+func (pt *HostPriceTable) BaseCost() ResourceCost {
+	return ResourceCost{
+		Base: pt.InitBaseCost,
 	}
 }
 
