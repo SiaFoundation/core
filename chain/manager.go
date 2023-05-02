@@ -116,6 +116,12 @@ func (m *Manager) Block(id types.BlockID) (types.Block, bool) {
 	return c.Block, ok
 }
 
+// BestIndex returns the index of the block at the specified height within the
+// best chain.
+func (m *Manager) BestIndex(height uint64) (types.ChainIndex, bool) {
+	return m.store.BestIndex(height)
+}
+
 // History returns a set of block IDs that span the best chain, beginning with
 // the 10 most-recent blocks, and subsequently spaced exponentionally farther
 // apart until reaching the genesis block.
