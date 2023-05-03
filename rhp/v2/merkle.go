@@ -435,12 +435,6 @@ func VerifyAppendProof(numLeaves uint64, treeHashes []types.Hash256, sectorRoot,
 	return acc.root() == newRoot
 }
 
-// DiffProofSize returns the size of a Merkle diff proof for the specified
-// actions within a tree containing n leaves.
-func DiffProofSize(n uint64, actions []RPCWriteAction) uint64 {
-	return 128 // TODO
-}
-
 // BuildDiffProof constructs a diff proof for the specified actions.
 // ActionUpdate is not supported.
 func BuildDiffProof(actions []RPCWriteAction, sectorRoots []types.Hash256) (treeHashes, leafHashes []types.Hash256) {
@@ -475,7 +469,7 @@ func VerifyDiffProof(actions []RPCWriteAction, numLeaves uint64, treeHashes, lea
 	verifyMulti := func(proofIndices []uint64, treeHashes, leafHashes []types.Hash256, numLeaves uint64, root types.Hash256) bool {
 		var acc proofAccumulator
 		insertRange := func(i, j uint64) {
-			for i < j {
+			for i < j && len(treeHashes) > 0 {
 				subtreeSize := nextSubtreeSize(i, j)
 				height := bits.TrailingZeros64(subtreeSize) // log2
 				acc.insertNode(treeHashes[0], height)
@@ -492,7 +486,7 @@ func VerifyDiffProof(actions []RPCWriteAction, numLeaves uint64, treeHashes, lea
 		}
 		insertRange(start, numLeaves)
 
-		return acc.root() == root
+		return acc.root() == root && len(treeHashes) == 0
 	}
 
 	// first use the original proof to construct oldRoot
