@@ -599,7 +599,7 @@ func ParseChainIndex(s string) (ci ChainIndex, err error) {
 }
 
 // String implements fmt.Stringer.
-func (s Specifier) String() string { return strconv.Quote(string(bytes.Trim(s[:], "\x00"))) }
+func (s Specifier) String() string { return string(bytes.Trim(s[:], "\x00")) }
 
 // MarshalText implements encoding.TextMarshaler.
 func (s Specifier) MarshalText() ([]byte, error) { return []byte(s.String()), nil }
@@ -608,8 +608,9 @@ func (s Specifier) MarshalText() ([]byte, error) { return []byte(s.String()), ni
 func (s *Specifier) UnmarshalText(b []byte) error {
 	str, err := strconv.Unquote(string(b))
 	if err != nil {
-		return err
-	} else if len(str) > len(s) {
+		str = string(b)
+	}
+	if len(str) > len(s) {
 		return fmt.Errorf("specifier %s too long", str)
 	}
 	copy(s[:], str)
