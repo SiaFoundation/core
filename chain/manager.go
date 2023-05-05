@@ -553,10 +553,13 @@ func (m *Manager) RecommendedFee() types.Currency {
 	}
 	// the target size of the pool is 3 MB of transaction data, with an average
 	// fee of 1 SC / 1 KB; compute targetFee * (poolSize / targetSize)^3
+	//
+	// NOTE: alternating the multiplications and divisions is crucial here to
+	// prevent immediate values from overflowing
 	const targetSize = 3e6
 	proportionalFee := types.Siacoins(1).Div64(1000).
-		Mul64(poolSize).Mul64(poolSize).Mul64(poolSize).
-		Div64(targetSize).Div64(targetSize).Div64(targetSize)
+		Mul64(poolSize).Div64(targetSize).Mul64(poolSize).
+		Div64(targetSize).Mul64(poolSize).Div64(targetSize)
 
 	// finally, an absolute minumum fee: 1 SC / 100 KB
 	minFee := types.Siacoins(1).Div64(100e3)
