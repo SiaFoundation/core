@@ -25,7 +25,9 @@ type Checkpoint struct {
 
 // EncodeTo implements types.EncoderTo.
 func (c Checkpoint) EncodeTo(e *types.Encoder) {
+	e.WriteUint8(1) // block version
 	c.Block.EncodeTo(e)
+	e.WriteUint8(1) // state version
 	c.State.EncodeTo(e)
 	e.WriteBool(c.Diff != nil)
 	if c.Diff != nil {
@@ -35,7 +37,13 @@ func (c Checkpoint) EncodeTo(e *types.Encoder) {
 
 // DecodeFrom implements types.DecoderFrom.
 func (c *Checkpoint) DecodeFrom(d *types.Decoder) {
+	if v := d.ReadUint8(); v != 1 {
+		d.SetErr(fmt.Errorf("incompatible block version (%d)", v))
+	}
 	c.Block.DecodeFrom(d)
+	if v := d.ReadUint8(); v != 1 {
+		d.SetErr(fmt.Errorf("incompatible state version (%d)", v))
+	}
 	c.State.DecodeFrom(d)
 	if d.ReadBool() {
 		c.Diff = new(consensus.BlockDiff)
