@@ -112,7 +112,7 @@ func (s HostSettings) MarshalJSON() ([]byte, error) {
 // to the host's siamux.
 func (s HostSettings) SiamuxAddr() string {
 	host, _, err := net.SplitHostPort(s.NetAddress)
-	if err != nil {
+	if err != nil || host == "" {
 		return ""
 	}
 	return net.JoinHostPort(host, s.SiaMuxPort)
