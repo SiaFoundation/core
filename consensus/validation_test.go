@@ -46,7 +46,7 @@ func TestValidateBlock(t *testing.T) {
 	giftAddress := giftPublicKey.StandardAddress()
 	giftAmountSC := types.Siacoins(100)
 	giftAmountSF := uint64(100)
-	giftFC := rhpv2.PrepareContractFormation(renterPrivateKey, hostPublicKey, types.Siacoins(1), types.Siacoins(1), 100, rhpv2.HostSettings{}, types.VoidAddress)
+	giftFC := rhpv2.PrepareContractFormation(renterPublicKey, hostPublicKey, types.Siacoins(1), types.Siacoins(1), 100, rhpv2.HostSettings{}, types.VoidAddress)
 	giftTxn := types.Transaction{
 		SiacoinOutputs: []types.SiacoinOutput{
 			{Address: giftAddress, Value: giftAmountSC},
@@ -87,7 +87,7 @@ func TestValidateBlock(t *testing.T) {
 	}
 
 	// construct a block that can be used to test all aspects of validation
-	fc := rhpv2.PrepareContractFormation(renterPrivateKey, hostPublicKey, types.Siacoins(1), types.Siacoins(1), cs.Index.Height+1, rhpv2.HostSettings{WindowSize: 100}, types.VoidAddress)
+	fc := rhpv2.PrepareContractFormation(renterPublicKey, hostPublicKey, types.Siacoins(1), types.Siacoins(1), cs.Index.Height+1, rhpv2.HostSettings{WindowSize: 100}, types.VoidAddress)
 
 	revision := giftFC
 	revision.RevisionNumber++

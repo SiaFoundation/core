@@ -28,11 +28,10 @@ func ContractFormationCollateral(period uint64, expectedStorage uint64, host Hos
 }
 
 // PrepareContractFormation constructs a contract formation transaction.
-func PrepareContractFormation(renterKey types.PrivateKey, hostKey types.PublicKey, renterPayout, hostCollateral types.Currency, endHeight uint64, host HostSettings, refundAddr types.Address) types.FileContract {
-	renterPubkey := renterKey.PublicKey()
+func PrepareContractFormation(renterPubKey types.PublicKey, hostKey types.PublicKey, renterPayout, hostCollateral types.Currency, endHeight uint64, host HostSettings, refundAddr types.Address) types.FileContract {
 	uc := types.UnlockConditions{
 		PublicKeys: []types.UnlockKey{
-			{Algorithm: types.SpecifierEd25519, Key: renterPubkey[:]},
+			{Algorithm: types.SpecifierEd25519, Key: renterPubKey[:]},
 			{Algorithm: types.SpecifierEd25519, Key: hostKey[:]},
 		},
 		SignaturesRequired: 2,
@@ -112,7 +111,7 @@ func ContractRenewalCollateral(fc types.FileContract, expectedNewStorage uint64,
 }
 
 // PrepareContractRenewal constructs a contract renewal transaction.
-func PrepareContractRenewal(currentRevision types.FileContractRevision, renterAddress types.Address, renterKey types.PrivateKey, renterPayout, newCollateral types.Currency, hostKey types.PublicKey, host HostSettings, endHeight uint64) (types.FileContract, types.Currency) {
+func PrepareContractRenewal(currentRevision types.FileContractRevision, renterAddress types.Address, renterPayout, newCollateral types.Currency, hostKey types.PublicKey, host HostSettings, endHeight uint64) (types.FileContract, types.Currency) {
 	hostValidPayout, hostMissedPayout, voidMissedPayout, basePrice := CalculateHostPayouts(currentRevision.FileContract, newCollateral, host, endHeight)
 
 	return types.FileContract{
