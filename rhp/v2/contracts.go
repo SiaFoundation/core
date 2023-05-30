@@ -111,7 +111,7 @@ func ContractRenewalCollateral(fc types.FileContract, expectedNewStorage uint64,
 }
 
 // PrepareContractRenewal constructs a contract renewal transaction.
-func PrepareContractRenewal(currentRevision types.FileContractRevision, renterAddress types.Address, renterPayout, newCollateral types.Currency, hostKey types.PublicKey, host HostSettings, endHeight uint64) (types.FileContract, types.Currency) {
+func PrepareContractRenewal(currentRevision types.FileContractRevision, renterAddress types.Address, renterPayout, newCollateral types.Currency, host HostSettings, endHeight uint64) (types.FileContract, types.Currency) {
 	hostValidPayout, hostMissedPayout, voidMissedPayout, basePrice := CalculateHostPayouts(currentRevision.FileContract, newCollateral, host, endHeight)
 
 	return types.FileContract{
