@@ -15,7 +15,7 @@ func ContractRenewalCost(cs consensus.State, pt HostPriceTable, fc types.FileCon
 }
 
 // PrepareContractRenewal constructs a contract renewal transaction.
-func PrepareContractRenewal(currentRevision types.FileContractRevision, hostAddress, renterAddress types.Address, renterPayout, newCollateral types.Currency, hostKey types.PublicKey, pt HostPriceTable, endHeight uint64) (types.FileContract, types.Currency) {
+func PrepareContractRenewal(currentRevision types.FileContractRevision, hostAddress, renterAddress types.Address, renterPayout, newCollateral types.Currency, pt HostPriceTable, endHeight uint64) (types.FileContract, types.Currency) {
 	hostValidPayout, hostMissedPayout, voidMissedPayout, basePrice := CalculateHostPayouts(currentRevision.FileContract, newCollateral, pt, endHeight)
 
 	return types.FileContract{
