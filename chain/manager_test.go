@@ -106,7 +106,7 @@ func TestTxPool(t *testing.T) {
 
 	giftPrivateKey := types.GeneratePrivateKey()
 	giftPublicKey := giftPrivateKey.PublicKey()
-	giftAddress := giftPublicKey.StandardAddress()
+	giftAddress := types.StandardUnlockHash(giftPublicKey)
 	giftAmountSC := types.Siacoins(100)
 	giftTxn := types.Transaction{
 		SiacoinOutputs: []types.SiacoinOutput{
@@ -137,7 +137,7 @@ func TestTxPool(t *testing.T) {
 	parentTxn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
 			ParentID:         giftTxn.SiacoinOutputID(0),
-			UnlockConditions: giftPublicKey.StandardUnlockConditions(),
+			UnlockConditions: types.StandardUnlockConditions(giftPublicKey),
 		}},
 		SiacoinOutputs: []types.SiacoinOutput{{
 			Address: giftAddress,
@@ -155,7 +155,7 @@ func TestTxPool(t *testing.T) {
 	childTxn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
 			ParentID:         parentTxn.SiacoinOutputID(0),
-			UnlockConditions: giftPublicKey.StandardUnlockConditions(),
+			UnlockConditions: types.StandardUnlockConditions(giftPublicKey),
 		}},
 		MinerFees: []types.Currency{giftAmountSC},
 	}

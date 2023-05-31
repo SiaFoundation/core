@@ -5,20 +5,21 @@ import (
 	"errors"
 	"fmt"
 	"math/bits"
+	"time"
 
 	"go.sia.tech/core/internal/blake2b"
 	"go.sia.tech/core/types"
 )
 
-// ValidateHeader validates h in the context of s.
-func ValidateHeader(s State, h types.BlockHeader) error {
-	if h.ParentID != s.Index.ID {
+// ValidateHeader validates a header in the context of s.
+func ValidateHeader(s State, parentID types.BlockID, timestamp time.Time, nonce uint64, id types.BlockID) error {
+	if parentID != s.Index.ID {
 		return errors.New("wrong parent ID")
-	} else if h.Timestamp.Before(s.medianTimestamp()) {
+	} else if timestamp.Before(s.medianTimestamp()) {
 		return errors.New("timestamp is too far in the past")
-	} else if h.Nonce%s.NonceFactor() != 0 {
+	} else if nonce%s.NonceFactor() != 0 {
 		return errors.New("nonce is not divisible by required factor")
-	} else if h.ID().CmpWork(s.ChildTarget) < 0 {
+	} else if id.CmpWork(s.ChildTarget) < 0 {
 		return errors.New("insufficient work")
 	}
 	return nil
@@ -61,7 +62,7 @@ func ValidateOrphan(s State, b types.Block) error {
 	// TODO: calculate size more efficiently
 	if uint64(types.EncodedLen(b)) > s.MaxBlockWeight() {
 		return errors.New("block exceeds maximum weight")
-	} else if err := ValidateHeader(s, b.Header()); err != nil {
+	} else if err := ValidateHeader(s, b.ParentID, b.Timestamp, b.Nonce, b.ID()); err != nil {
 		return err
 	} else if err := validateMinerPayouts(s, b); err != nil {
 		return err

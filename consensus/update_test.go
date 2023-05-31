@@ -17,7 +17,7 @@ func TestApplyBlock(t *testing.T) {
 
 	giftPrivateKey := types.GeneratePrivateKey()
 	giftPublicKey := giftPrivateKey.PublicKey()
-	giftAddress := giftPublicKey.StandardAddress()
+	giftAddress := types.StandardUnlockHash(giftPublicKey)
 	giftAmountSC := types.Siacoins(100)
 	giftAmountSF := uint64(100)
 	giftTxn := types.Transaction{
@@ -94,12 +94,12 @@ func TestApplyBlock(t *testing.T) {
 	txnB2 := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
 			ParentID:         giftTxn.SiacoinOutputID(0),
-			UnlockConditions: giftPublicKey.StandardUnlockConditions(),
+			UnlockConditions: types.StandardUnlockConditions(giftPublicKey),
 		}},
 		SiafundInputs: []types.SiafundInput{{
 			ParentID:         giftTxn.SiafundOutputID(0),
 			ClaimAddress:     types.VoidAddress,
-			UnlockConditions: giftPublicKey.StandardUnlockConditions(),
+			UnlockConditions: types.StandardUnlockConditions(giftPublicKey),
 		}},
 		SiacoinOutputs: []types.SiacoinOutput{
 			{Value: giftAmountSC.Div64(2), Address: giftAddress},

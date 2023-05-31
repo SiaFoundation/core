@@ -40,6 +40,20 @@ func (h *Header) decodeFrom(d *types.Decoder) {
 	h.NetAddress = d.ReadString()
 }
 
+func (h *BlockHeader) encodeTo(e *types.Encoder) {
+	h.ParentID.EncodeTo(e)
+	e.WriteUint64(h.Nonce)
+	e.WriteTime(h.Timestamp)
+	h.MerkleRoot.EncodeTo(e)
+}
+
+func (h *BlockHeader) decodeFrom(d *types.Decoder) {
+	h.ParentID.DecodeFrom(d)
+	h.Nonce = d.ReadUint64()
+	h.Timestamp = d.ReadTime()
+	h.MerkleRoot.DecodeFrom(d)
+}
+
 type object interface {
 	encodeRequest(e *types.Encoder)
 	decodeRequest(d *types.Decoder)
@@ -147,12 +161,12 @@ func (r *RPCSendBlk) maxResponseLen() int             { return 5e6 }
 
 // RPCRelayHeader relays a header.
 type RPCRelayHeader struct {
-	Header types.BlockHeader
+	Header BlockHeader
 	emptyResponse
 }
 
-func (r *RPCRelayHeader) encodeRequest(e *types.Encoder) { r.Header.EncodeTo(e) }
-func (r *RPCRelayHeader) decodeRequest(d *types.Decoder) { r.Header.DecodeFrom(d) }
+func (r *RPCRelayHeader) encodeRequest(e *types.Encoder) { r.Header.encodeTo(e) }
+func (r *RPCRelayHeader) decodeRequest(d *types.Decoder) { r.Header.decodeFrom(d) }
 func (r *RPCRelayHeader) maxRequestLen() int             { return 32 + 8 + 8 + 32 }
 
 // RPCRelayTransactionSet relays a transaction set.

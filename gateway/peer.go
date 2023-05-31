@@ -39,6 +39,24 @@ func validateHeader(ours, theirs Header) error {
 	return nil
 }
 
+// A BlockHeader contains a Block's non-transaction data.
+type BlockHeader struct {
+	ParentID   types.BlockID
+	Nonce      uint64
+	Timestamp  time.Time
+	MerkleRoot types.Hash256
+}
+
+// ID returns a hash that uniquely identifies the block.
+func (bh BlockHeader) ID() types.BlockID {
+	h := types.NewHasher()
+	bh.ParentID.EncodeTo(h.E)
+	h.E.WriteUint64(bh.Nonce)
+	h.E.WriteTime(bh.Timestamp)
+	bh.MerkleRoot.EncodeTo(h.E)
+	return types.BlockID(h.Sum())
+}
+
 // A Peer is a connected gateway peer.
 type Peer struct {
 	Addr     string
@@ -87,7 +105,7 @@ type RPCHandler interface {
 	PeersForShare() []string
 	Block(id types.BlockID) (types.Block, error)
 	BlocksForHistory(history [32]types.BlockID) ([]types.Block, bool, error)
-	RelayHeader(h types.BlockHeader, origin *Peer)
+	RelayHeader(h BlockHeader, origin *Peer)
 	RelayTransactionSet(txns []types.Transaction, origin *Peer)
 }
 
@@ -199,7 +217,7 @@ func (p *Peer) SendBlock(id types.BlockID, timeout time.Duration) (types.Block, 
 }
 
 // RelayHeader relays a header to the peer.
-func (p *Peer) RelayHeader(h types.BlockHeader, timeout time.Duration) error {
+func (p *Peer) RelayHeader(h BlockHeader, timeout time.Duration) error {
 	return p.callRPC(&RPCRelayHeader{Header: h}, timeout)
 }
 

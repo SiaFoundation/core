@@ -43,7 +43,7 @@ func TestValidateBlock(t *testing.T) {
 	giftPublicKey := giftPrivateKey.PublicKey()
 	renterPublicKey := renterPrivateKey.PublicKey()
 	hostPublicKey := hostPrivateKey.PublicKey()
-	giftAddress := giftPublicKey.StandardAddress()
+	giftAddress := types.StandardUnlockHash(giftPublicKey)
 	giftAmountSC := types.Siacoins(100)
 	giftAmountSF := uint64(100)
 	giftFC := rhpv2.PrepareContractFormation(renterPublicKey, hostPublicKey, types.Siacoins(1), types.Siacoins(1), 100, rhpv2.HostSettings{}, types.VoidAddress)
@@ -100,12 +100,12 @@ func TestValidateBlock(t *testing.T) {
 		Transactions: []types.Transaction{{
 			SiacoinInputs: []types.SiacoinInput{{
 				ParentID:         giftTxn.SiacoinOutputID(0),
-				UnlockConditions: giftPublicKey.StandardUnlockConditions(),
+				UnlockConditions: types.StandardUnlockConditions(giftPublicKey),
 			}},
 			SiafundInputs: []types.SiafundInput{{
 				ParentID:         giftTxn.SiafundOutputID(0),
 				ClaimAddress:     types.VoidAddress,
-				UnlockConditions: giftPublicKey.StandardUnlockConditions(),
+				UnlockConditions: types.StandardUnlockConditions(giftPublicKey),
 			}},
 			SiacoinOutputs: []types.SiacoinOutput{
 				{Value: giftAmountSC.Sub(fc.Payout), Address: giftAddress},

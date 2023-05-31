@@ -77,8 +77,20 @@ func (acc *merkleAccumulator) root() Hash256 {
 	return root
 }
 
-func standardUnlockHash(pk PublicKey) Address {
-	// An Address is the Merkle root of UnlockConditions. Since the standard
+// StandardAddress returns the standard v2 Address derived from pk. It is
+// equivalent to PolicyPublicKey(pk).Address().
+func StandardAddress(pk PublicKey) Address {
+	buf := make([]byte, 12+1+1+len(pk))
+	copy(buf, "sia/address|")
+	buf[12] = 1 // version
+	buf[13] = 2 // opPublicKey
+	copy(buf[14:], pk[:])
+	return Address(blake2b.Sum256(buf))
+}
+
+// StandardUnlockHash returns the standard UnlockHash derived from pk.
+func StandardUnlockHash(pk PublicKey) Address {
+	// An UnlockHash is the Merkle root of UnlockConditions. Since the standard
 	// UnlockConditions use a single public key, the Merkle tree is:
 	//
 	//           ┌─────────┴──────────┐
