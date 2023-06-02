@@ -23,10 +23,10 @@ func findBlockNonce(cs consensus.State, b *types.Block) {
 func deepCopyBlock(b types.Block) (b2 types.Block) {
 	var buf bytes.Buffer
 	e := types.NewEncoder(&buf)
-	b.EncodeTo(e)
+	types.V2Block(b).EncodeTo(e)
 	e.Flush()
 	d := types.NewBufDecoder(buf.Bytes())
-	b2.DecodeFrom(d)
+	(*types.V2Block)(&b2).DecodeFrom(d)
 	return
 }
 

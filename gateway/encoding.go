@@ -54,6 +54,24 @@ func (h *BlockHeader) decodeFrom(d *types.Decoder) {
 	h.MerkleRoot.DecodeFrom(d)
 }
 
+func (h *V2BlockHeader) encodeTo(e *types.Encoder) {
+	e.WriteUint64(h.Height)
+	h.ParentID.EncodeTo(e)
+	e.WriteUint64(h.Nonce)
+	e.WriteTime(h.Timestamp)
+	h.MinerAddress.EncodeTo(e)
+	h.Commitment.EncodeTo(e)
+}
+
+func (h *V2BlockHeader) decodeFrom(d *types.Decoder) {
+	h.Height = d.ReadUint64()
+	h.ParentID.DecodeFrom(d)
+	h.Nonce = d.ReadUint64()
+	h.Timestamp = d.ReadTime()
+	h.MinerAddress.DecodeFrom(d)
+	h.Commitment.DecodeFrom(d)
+}
+
 type object interface {
 	encodeRequest(e *types.Encoder)
 	decodeRequest(d *types.Decoder)
@@ -128,13 +146,13 @@ func (r *RPCSendBlocks) maxRequestLen() int { return 32 * 32 }
 func (r *RPCSendBlocks) encodeBlocksResponse(e *types.Encoder) {
 	e.WritePrefix(len(r.Blocks))
 	for i := range r.Blocks {
-		r.Blocks[i].EncodeTo(e)
+		types.V1Block(r.Blocks[i]).EncodeTo(e)
 	}
 }
 func (r *RPCSendBlocks) decodeBlocksResponse(d *types.Decoder) {
 	r.Blocks = make([]types.Block, d.ReadPrefix())
 	for i := range r.Blocks {
-		r.Blocks[i].DecodeFrom(d)
+		(*types.V1Block)(&r.Blocks[i]).DecodeFrom(d)
 	}
 }
 func (r *RPCSendBlocks) maxBlocksResponseLen() int { return 10 * 5e6 }
@@ -155,8 +173,8 @@ type RPCSendBlk struct {
 func (r *RPCSendBlk) encodeRequest(e *types.Encoder)  { r.ID.EncodeTo(e) }
 func (r *RPCSendBlk) decodeRequest(d *types.Decoder)  { r.ID.DecodeFrom(d) }
 func (r *RPCSendBlk) maxRequestLen() int              { return 32 }
-func (r *RPCSendBlk) encodeResponse(e *types.Encoder) { r.Block.EncodeTo(e) }
-func (r *RPCSendBlk) decodeResponse(d *types.Decoder) { r.Block.DecodeFrom(d) }
+func (r *RPCSendBlk) encodeResponse(e *types.Encoder) { (types.V1Block)(r.Block).EncodeTo(e) }
+func (r *RPCSendBlk) decodeResponse(d *types.Decoder) { (*types.V1Block)(&r.Block).DecodeFrom(d) }
 func (r *RPCSendBlk) maxResponseLen() int             { return 5e6 }
 
 // RPCRelayHeader relays a header.
@@ -168,6 +186,16 @@ type RPCRelayHeader struct {
 func (r *RPCRelayHeader) encodeRequest(e *types.Encoder) { r.Header.encodeTo(e) }
 func (r *RPCRelayHeader) decodeRequest(d *types.Decoder) { r.Header.decodeFrom(d) }
 func (r *RPCRelayHeader) maxRequestLen() int             { return 32 + 8 + 8 + 32 }
+
+// RPCRelayV2Header relays a v2 header.
+type RPCRelayV2Header struct {
+	Header V2BlockHeader
+	emptyResponse
+}
+
+func (r *RPCRelayV2Header) encodeRequest(e *types.Encoder) { r.Header.encodeTo(e) }
+func (r *RPCRelayV2Header) decodeRequest(d *types.Decoder) { r.Header.decodeFrom(d) }
+func (r *RPCRelayV2Header) maxRequestLen() int             { return 32 + 8 + 8 + 32 }
 
 // RPCRelayTransactionSet relays a transaction set.
 type RPCRelayTransactionSet struct {
@@ -188,6 +216,26 @@ func (r *RPCRelayTransactionSet) decodeRequest(d *types.Decoder) {
 	}
 }
 func (r *RPCRelayTransactionSet) maxRequestLen() int { return 5e6 }
+
+// RPCRelayV2TransactionSet relays a v2 transaction set.
+type RPCRelayV2TransactionSet struct {
+	Transactions []types.V2Transaction
+	emptyResponse
+}
+
+func (r *RPCRelayV2TransactionSet) encodeRequest(e *types.Encoder) {
+	e.WritePrefix(len(r.Transactions))
+	for i := range r.Transactions {
+		r.Transactions[i].EncodeTo(e)
+	}
+}
+func (r *RPCRelayV2TransactionSet) decodeRequest(d *types.Decoder) {
+	r.Transactions = make([]types.V2Transaction, d.ReadPrefix())
+	for i := range r.Transactions {
+		r.Transactions[i].DecodeFrom(d)
+	}
+}
+func (r *RPCRelayV2TransactionSet) maxRequestLen() int { return 5e6 }
 
 type rpcID types.Specifier
 

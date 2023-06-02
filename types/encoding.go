@@ -464,21 +464,6 @@ func (txn *Transaction) encodeNoSignatures(e *Encoder) {
 }
 
 // EncodeTo implements types.EncoderTo.
-func (b Block) EncodeTo(e *Encoder) {
-	b.ParentID.EncodeTo(e)
-	e.WriteUint64(b.Nonce)
-	e.WriteTime(b.Timestamp)
-	e.WritePrefix(len(b.MinerPayouts))
-	for i := range b.MinerPayouts {
-		b.MinerPayouts[i].EncodeTo(e)
-	}
-	e.WritePrefix(len(b.Transactions))
-	for i := range b.Transactions {
-		b.Transactions[i].EncodeTo(e)
-	}
-}
-
-// EncodeTo implements types.EncoderTo.
 func (p SpendPolicy) EncodeTo(e *Encoder) {
 	const (
 		version = 1
@@ -743,6 +728,36 @@ func (b V2BlockData) EncodeTo(e *Encoder) {
 	}
 }
 
+// V1Block provides v1 encoding for Block.
+type V1Block Block
+
+// EncodeTo implements types.EncoderTo.
+func (b V1Block) EncodeTo(e *Encoder) {
+	b.ParentID.EncodeTo(e)
+	e.WriteUint64(b.Nonce)
+	e.WriteTime(b.Timestamp)
+	e.WritePrefix(len(b.MinerPayouts))
+	for i := range b.MinerPayouts {
+		b.MinerPayouts[i].EncodeTo(e)
+	}
+	e.WritePrefix(len(b.Transactions))
+	for i := range b.Transactions {
+		b.Transactions[i].EncodeTo(e)
+	}
+}
+
+// V2Block provides v2 encoding for Block.
+type V2Block Block
+
+// EncodeTo implements types.EncoderTo.
+func (b V2Block) EncodeTo(e *Encoder) {
+	V1Block(b).EncodeTo(e)
+	e.WriteBool(b.V2 != nil)
+	if b.V2 != nil {
+		b.V2.EncodeTo(e)
+	}
+}
+
 // DecodeFrom implements types.DecoderFrom.
 func (h *Hash256) DecodeFrom(d *Decoder) { d.Read(h[:]) }
 
@@ -971,21 +986,6 @@ func (txn *Transaction) DecodeFrom(d *Decoder) {
 	txn.Signatures = make([]TransactionSignature, d.ReadPrefix())
 	for i := range txn.Signatures {
 		txn.Signatures[i].DecodeFrom(d)
-	}
-}
-
-// DecodeFrom implements types.DecoderFrom.
-func (b *Block) DecodeFrom(d *Decoder) {
-	b.ParentID.DecodeFrom(d)
-	b.Nonce = d.ReadUint64()
-	b.Timestamp = d.ReadTime()
-	b.MinerPayouts = make([]SiacoinOutput, d.ReadPrefix())
-	for i := range b.MinerPayouts {
-		b.MinerPayouts[i].DecodeFrom(d)
-	}
-	b.Transactions = make([]Transaction, d.ReadPrefix())
-	for i := range b.Transactions {
-		b.Transactions[i].DecodeFrom(d)
 	}
 }
 
@@ -1240,5 +1240,33 @@ func (b *V2BlockData) DecodeFrom(d *Decoder) {
 	b.Transactions = make([]V2Transaction, d.ReadPrefix())
 	for i := range b.Transactions {
 		b.Transactions[i].DecodeFrom(d)
+	}
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (b *V1Block) DecodeFrom(d *Decoder) {
+	b.ParentID.DecodeFrom(d)
+	b.Nonce = d.ReadUint64()
+	b.Timestamp = d.ReadTime()
+	b.MinerPayouts = make([]SiacoinOutput, d.ReadPrefix())
+	for i := range b.MinerPayouts {
+		b.MinerPayouts[i].DecodeFrom(d)
+	}
+	b.Transactions = make([]Transaction, d.ReadPrefix())
+	for i := range b.Transactions {
+		b.Transactions[i].DecodeFrom(d)
+	}
+	if d.ReadBool() {
+		b.V2 = new(V2BlockData)
+		b.V2.DecodeFrom(d)
+	}
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (b *V2Block) DecodeFrom(d *Decoder) {
+	(*V1Block)(b).DecodeFrom(d)
+	if d.ReadBool() {
+		b.V2 = new(V2BlockData)
+		b.V2.DecodeFrom(d)
 	}
 }

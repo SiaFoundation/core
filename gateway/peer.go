@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
@@ -48,13 +49,33 @@ type BlockHeader struct {
 }
 
 // ID returns a hash that uniquely identifies the block.
-func (bh BlockHeader) ID() types.BlockID {
-	h := types.NewHasher()
-	bh.ParentID.EncodeTo(h.E)
-	h.E.WriteUint64(bh.Nonce)
-	h.E.WriteTime(bh.Timestamp)
-	bh.MerkleRoot.EncodeTo(h.E)
-	return types.BlockID(h.Sum())
+func (h BlockHeader) ID() types.BlockID {
+	buf := make([]byte, 32+8+8+32)
+	copy(buf[:32], h.ParentID[:])
+	binary.LittleEndian.PutUint64(buf[32:], h.Nonce)
+	binary.LittleEndian.PutUint64(buf[40:], uint64(h.Timestamp.Unix()))
+	copy(buf[48:], h.MerkleRoot[:])
+	return types.BlockID(types.HashBytes(buf))
+}
+
+// A V2BlockHeader contains a Block's non-transaction data.
+type V2BlockHeader struct {
+	Height       uint64
+	ParentID     types.BlockID
+	Nonce        uint64
+	Timestamp    time.Time
+	MinerAddress types.Address
+	Commitment   types.Hash256
+}
+
+// ID returns a hash that uniquely identifies the block.
+func (h V2BlockHeader) ID() types.BlockID {
+	buf := make([]byte, 32+8+8+32)
+	copy(buf[:32], "sia/id/block|")
+	binary.LittleEndian.PutUint64(buf[32:], h.Nonce)
+	binary.LittleEndian.PutUint64(buf[40:], uint64(h.Timestamp.Unix()))
+	copy(buf[48:], h.Commitment[:])
+	return types.BlockID(types.HashBytes(buf))
 }
 
 // A Peer is a connected gateway peer.
@@ -107,6 +128,8 @@ type RPCHandler interface {
 	BlocksForHistory(history [32]types.BlockID) ([]types.Block, bool, error)
 	RelayHeader(h BlockHeader, origin *Peer)
 	RelayTransactionSet(txns []types.Transaction, origin *Peer)
+	RelayV2Header(h V2BlockHeader, origin *Peer)
+	RelayV2TransactionSet(txns []types.V2Transaction, origin *Peer)
 }
 
 // HandleRPC handles an RPC received from the peer.
@@ -130,11 +153,23 @@ func (p *Peer) HandleRPC(id types.Specifier, stream net.Conn, h RPCHandler) erro
 		}
 		h.RelayHeader(r.Header, p)
 		return nil
+	case *RPCRelayV2Header:
+		if err := withDecoder(stream, r.maxRequestLen(), r.decodeRequest); err != nil {
+			return err
+		}
+		h.RelayV2Header(r.Header, p)
+		return nil
 	case *RPCRelayTransactionSet:
 		if err := withDecoder(stream, r.maxRequestLen(), r.decodeRequest); err != nil {
 			return err
 		}
 		h.RelayTransactionSet(r.Transactions, p)
+		return nil
+	case *RPCRelayV2TransactionSet:
+		if err := withDecoder(stream, r.maxRequestLen(), r.decodeRequest); err != nil {
+			return err
+		}
+		h.RelayV2TransactionSet(r.Transactions, p)
 		return nil
 	case *RPCSendBlk:
 		err := withDecoder(stream, r.maxRequestLen(), r.decodeRequest)
