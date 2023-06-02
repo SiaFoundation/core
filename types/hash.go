@@ -3,7 +3,6 @@ package types
 import (
 	"encoding/binary"
 	"hash"
-	"math/bits"
 	"sync"
 
 	"go.sia.tech/core/internal/blake2b"
@@ -44,38 +43,6 @@ func NewHasher() *Hasher {
 var hasherPool = &sync.Pool{New: func() interface{} { return NewHasher() }}
 
 const leafHashPrefix = 0 // from RFC 6962
-
-type merkleAccumulator struct {
-	trees     [64]Hash256
-	numLeaves uint64
-}
-
-func (acc *merkleAccumulator) hasTreeAtHeight(height int) bool {
-	return acc.numLeaves&(1<<height) != 0
-}
-
-func (acc *merkleAccumulator) addLeaf(h Hash256) {
-	i := 0
-	for ; acc.hasTreeAtHeight(i); i++ {
-		h = blake2b.SumPair(acc.trees[i], h)
-	}
-	acc.trees[i] = h
-	acc.numLeaves++
-}
-
-func (acc *merkleAccumulator) root() Hash256 {
-	i := bits.TrailingZeros64(acc.numLeaves)
-	if i == 64 {
-		return Hash256{}
-	}
-	root := acc.trees[i]
-	for i++; i < 64; i++ {
-		if acc.hasTreeAtHeight(i) {
-			root = blake2b.SumPair(acc.trees[i], root)
-		}
-	}
-	return root
-}
 
 // StandardAddress returns the standard v2 Address derived from pk. It is
 // equivalent to PolicyPublicKey(pk).Address().
@@ -126,4 +93,44 @@ func StandardUnlockHash(pk PublicKey) Address {
 	}
 
 	return Address(blake2b.SumPair(blake2b.SumPair(timelockHash, pubkeyHash), sigsrequiredHash))
+}
+
+func unlockConditionsRoot(uc UnlockConditions) Address {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	var acc blake2b.Accumulator
+	h.Reset()
+	h.E.WriteUint8(leafHashPrefix)
+	h.E.WriteUint64(uc.Timelock)
+	acc.AddLeaf(h.Sum())
+	for _, key := range uc.PublicKeys {
+		h.Reset()
+		h.E.WriteUint8(leafHashPrefix)
+		key.EncodeTo(h.E)
+		acc.AddLeaf(h.Sum())
+	}
+	h.Reset()
+	h.E.WriteUint8(leafHashPrefix)
+	h.E.WriteUint64(uc.SignaturesRequired)
+	acc.AddLeaf(h.Sum())
+	return acc.Root()
+}
+
+func blockMerkleRoot(minerPayouts []SiacoinOutput, txns []Transaction) Hash256 {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	var acc blake2b.Accumulator
+	for _, mp := range minerPayouts {
+		h.Reset()
+		h.E.WriteUint8(leafHashPrefix)
+		mp.EncodeTo(h.E)
+		acc.AddLeaf(h.Sum())
+	}
+	for _, txn := range txns {
+		h.Reset()
+		h.E.WriteUint8(leafHashPrefix)
+		txn.EncodeTo(h.E)
+		acc.AddLeaf(h.Sum())
+	}
+	return acc.Root()
 }

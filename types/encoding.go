@@ -508,12 +508,7 @@ func (p SpendPolicy) EncodeTo(e *Encoder) {
 			}
 		case PolicyTypeUnlockConditions:
 			e.WriteUint8(opUnlockConditions)
-			e.WriteUint64(p.Timelock)
-			e.WriteUint8(uint8(len(p.PublicKeys)))
-			for i := range p.PublicKeys {
-				p.PublicKeys[i].EncodeTo(e)
-			}
-			e.WriteUint8(p.SignaturesRequired)
+			UnlockConditions(p).EncodeTo(e)
 		default:
 			panic(fmt.Sprintf("unhandled policy type %T", p))
 		}
@@ -1032,15 +1027,9 @@ func (p *SpendPolicy) DecodeFrom(d *Decoder) {
 			}
 			return PolicyThreshold(n, of), nil
 		case opUnlockConditions:
-			uc := PolicyTypeUnlockConditions{
-				Timelock:   d.ReadUint64(),
-				PublicKeys: make([]PublicKey, d.ReadUint8()),
-			}
-			for i := range uc.PublicKeys {
-				uc.PublicKeys[i].DecodeFrom(d)
-			}
-			uc.SignaturesRequired = d.ReadUint8()
-			return SpendPolicy{uc}, nil
+			var uc UnlockConditions
+			uc.DecodeFrom(d)
+			return SpendPolicy{PolicyTypeUnlockConditions(uc)}, nil
 		default:
 			return SpendPolicy{}, fmt.Errorf("unknown policy (opcode %d)", op)
 		}

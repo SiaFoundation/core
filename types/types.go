@@ -139,26 +139,7 @@ func (uc UnlockConditions) UnlockHash() Address {
 		uc.SignaturesRequired == 1 {
 		return StandardUnlockHash(*(*PublicKey)(uc.PublicKeys[0].Key))
 	}
-
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-
-	var acc merkleAccumulator
-	h.E.WriteUint8(leafHashPrefix)
-	h.E.WriteUint64(uc.Timelock)
-	acc.addLeaf(h.Sum())
-	for _, key := range uc.PublicKeys {
-		h.Reset()
-		h.E.WriteUint8(leafHashPrefix)
-		key.EncodeTo(h.E)
-		acc.addLeaf(h.Sum())
-	}
-	h.Reset()
-	h.E.WriteUint8(leafHashPrefix)
-	h.E.WriteUint64(uc.SignaturesRequired)
-	acc.addLeaf(h.Sum())
-	return Address(acc.root())
+	return unlockConditionsRoot(uc)
 }
 
 // An Address is the hash of a set of UnlockConditions.
@@ -801,22 +782,7 @@ type Block struct {
 // MerkleRoot returns the Merkle root of the block's miner payouts and
 // transactions.
 func (b *Block) MerkleRoot() Hash256 {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	var acc merkleAccumulator
-	for _, mp := range b.MinerPayouts {
-		h.Reset()
-		h.E.WriteUint8(leafHashPrefix)
-		mp.EncodeTo(h.E)
-		acc.addLeaf(h.Sum())
-	}
-	for _, txn := range b.Transactions {
-		h.Reset()
-		h.E.WriteUint8(leafHashPrefix)
-		txn.EncodeTo(h.E)
-		acc.addLeaf(h.Sum())
-	}
-	return acc.root()
+	return blockMerkleRoot(b.MinerPayouts, b.Transactions)
 }
 
 // ID returns a hash that uniquely identifies a block.

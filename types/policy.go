@@ -2,11 +2,9 @@ package types
 
 import (
 	"bytes"
-	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io"
-	"math/bits"
 	"strconv"
 	"strings"
 )
@@ -54,72 +52,19 @@ func AnyoneCanSpend() SpendPolicy {
 // PolicyTypeUnlockConditions reproduces the requirements imposed by Sia's
 // original "UnlockConditions" type. It exists for compatibility purposes and
 // should not be used to construct new policies.
-type PolicyTypeUnlockConditions struct {
-	Timelock           uint64
-	PublicKeys         []PublicKey
-	SignaturesRequired uint8
-}
+type PolicyTypeUnlockConditions UnlockConditions
 
 func (PolicyTypeAbove) isPolicy()            {}
 func (PolicyTypePublicKey) isPolicy()        {}
 func (PolicyTypeThreshold) isPolicy()        {}
 func (PolicyTypeUnlockConditions) isPolicy() {}
 
-func (uc PolicyTypeUnlockConditions) root() Hash256 {
-	buf := make([]byte, 65)
-	uint64Leaf := func(u uint64) Hash256 {
-		buf[0] = 0
-		binary.LittleEndian.PutUint64(buf[1:], u)
-		return HashBytes(buf[:9])
-	}
-	pubkeyLeaf := func(pk PublicKey) Hash256 {
-		buf[0] = 0
-		copy(buf[1:], "ed25519\x00\x00\x00\x00\x00\x00\x00\x00\x00")
-		binary.LittleEndian.PutUint64(buf[17:], uint64(len(pk)))
-		copy(buf[25:], pk[:])
-		return HashBytes(buf[:57])
-	}
-	nodeHash := func(left, right Hash256) Hash256 {
-		buf[0] = 1
-		copy(buf[1:], left[:])
-		copy(buf[33:], right[:])
-		return HashBytes(buf[:65])
-	}
-	var trees [8]Hash256
-	var numLeaves uint8
-	addLeaf := func(h Hash256) {
-		i := 0
-		for ; numLeaves&(1<<i) != 0; i++ {
-			h = nodeHash(trees[i], h)
-		}
-		trees[i] = h
-		numLeaves++
-	}
-	treeRoot := func() Hash256 {
-		i := bits.TrailingZeros8(numLeaves)
-		root := trees[i]
-		for i++; i < len(trees); i++ {
-			if numLeaves&(1<<i) != 0 {
-				root = nodeHash(trees[i], root)
-			}
-		}
-		return root
-	}
-
-	addLeaf(uint64Leaf(uc.Timelock))
-	for _, key := range uc.PublicKeys {
-		addLeaf(pubkeyLeaf(key))
-	}
-	addLeaf(uint64Leaf(uint64(uc.SignaturesRequired)))
-	return treeRoot()
-}
-
 // Address computes the opaque address for a given policy.
 func (p SpendPolicy) Address() Address {
 	if uc, ok := p.Type.(PolicyTypeUnlockConditions); ok {
 		// NOTE: to preserve compatibility, we use the original address
 		// derivation code for these policies
-		return Address(uc.root())
+		return unlockConditionsRoot(UnlockConditions(uc))
 	}
 	h := hasherPool.Get().(*Hasher)
 	defer hasherPool.Put(h)
@@ -163,7 +108,7 @@ func (p SpendPolicy) String() string {
 			if i > 0 {
 				sb.WriteByte(',')
 			}
-			sb.WriteString(hex.EncodeToString(pk[:]))
+			sb.WriteString(hex.EncodeToString(pk.Key[:]))
 		}
 		sb.WriteString("],")
 		sb.WriteString(strconv.FormatUint(uint64(p.SignaturesRequired), 10))
@@ -250,9 +195,9 @@ func ParseSpendPolicy(s string) (SpendPolicy, error) {
 			timelock := parseInt(64)
 			consume(',')
 			consume('[')
-			var pks []PublicKey
+			var pks []UnlockKey
 			for err == nil && peek() != ']' {
-				pks = append(pks, parsePubkey())
+				pks = append(pks, parsePubkey().UnlockKey())
 				if peek() != ']' {
 					consume(',')
 				}
@@ -264,7 +209,7 @@ func ParseSpendPolicy(s string) (SpendPolicy, error) {
 				PolicyTypeUnlockConditions{
 					Timelock:           timelock,
 					PublicKeys:         pks,
-					SignaturesRequired: uint8(sigsRequired),
+					SignaturesRequired: sigsRequired,
 				},
 			}
 		default:
