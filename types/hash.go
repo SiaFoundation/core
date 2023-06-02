@@ -19,8 +19,11 @@ type Hasher struct {
 	E *Encoder
 }
 
-// Reset resets the underlying hash digest state.
-func (h *Hasher) Reset() { h.h.Reset() }
+// Reset resets the underlying hash and encoder state.
+func (h *Hasher) Reset() {
+	h.E.n = 0
+	h.h.Reset()
+}
 
 // Sum returns the digest of the objects written to the Hasher.
 func (h *Hasher) Sum() (sum Hash256) {
