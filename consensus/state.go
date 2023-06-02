@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"go.sia.tech/core/internal/blake2b"
 	"go.sia.tech/core/types"
 )
 
@@ -386,5 +387,38 @@ func (s State) PartialSigHash(txn types.Transaction, cf types.CoveredFields) typ
 		txn.Signatures[i].EncodeTo(h.E)
 	}
 
+	return h.Sum()
+}
+
+// Commitment computes the commitment hash for a child block.
+func (s State) Commitment(minerAddr types.Address, txns []types.Transaction, v2txns []types.V2Transaction) types.Hash256 {
+	h := hasherPool.Get().(*types.Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+
+	// hash the state
+	s.EncodeTo(h.E)
+	stateHash := h.Sum()
+
+	// hash the transactions
+	var acc blake2b.Accumulator
+	for _, txn := range txns {
+		h.Reset()
+		txn.EncodeTo(h.E)
+		acc.AddLeaf(h.Sum())
+	}
+	for _, txn := range v2txns {
+		h.Reset()
+		txn.EncodeTo(h.E)
+		acc.AddLeaf(h.Sum())
+	}
+	txnsHash := types.Hash256(acc.Root())
+
+	// concatenate the hashes and the miner address
+	h.Reset()
+	h.E.WriteString("sia/commitment|")
+	stateHash.EncodeTo(h.E)
+	minerAddr.EncodeTo(h.E)
+	txnsHash.EncodeTo(h.E)
 	return h.Sum()
 }

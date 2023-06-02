@@ -782,7 +782,11 @@ type Block struct {
 // MerkleRoot returns the Merkle root of the block's miner payouts and
 // transactions.
 func (b *Block) MerkleRoot() Hash256 {
-	return blockMerkleRoot(b.MinerPayouts, b.Transactions)
+	var v2txns []V2Transaction
+	if b.V2 != nil {
+		v2txns = b.V2.Transactions
+	}
+	return blockMerkleRoot(b.MinerPayouts, b.Transactions, v2txns)
 }
 
 // ID returns a hash that uniquely identifies a block.
