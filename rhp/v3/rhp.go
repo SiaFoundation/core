@@ -2,6 +2,7 @@
 package rhp
 
 import (
+	"math"
 	"time"
 
 	"go.sia.tech/core/consensus"
@@ -65,6 +66,9 @@ func PayByEphemeralAccount(account Account, amount types.Currency, expiry uint64
 // PayByContract creates a PayByContractRequest by revising the supplied
 // contract.
 func PayByContract(rev *types.FileContractRevision, amount types.Currency, refundAcct Account, sk types.PrivateKey) (PayByContractRequest, bool) {
+	if rev.RevisionNumber == math.MaxUint64 {
+		return PayByContractRequest{}, false
+	}
 	if rev.ValidRenterPayout().Cmp(amount) < 0 || rev.MissedRenterPayout().Cmp(amount) < 0 {
 		return PayByContractRequest{}, false
 	}
