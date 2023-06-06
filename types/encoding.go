@@ -552,8 +552,8 @@ func (sfe SiafundElement) EncodeTo(e *Encoder) {
 func (fc V2FileContract) EncodeTo(e *Encoder) {
 	e.WriteUint64(fc.Filesize)
 	fc.FileMerkleRoot.EncodeTo(e)
-	e.WriteUint64(fc.WindowStart)
-	e.WriteUint64(fc.WindowEnd)
+	e.WriteUint64(fc.ProofHeight)
+	e.WriteUint64(fc.ExpirationHeight)
 	fc.RenterOutput.EncodeTo(e)
 	fc.HostOutput.EncodeTo(e)
 	fc.MissedHostValue.EncodeTo(e)
@@ -602,27 +602,26 @@ func (sp V2StorageProof) EncodeTo(e *Encoder) {
 }
 
 // EncodeTo implements types.EncoderTo.
+func (FileContractExpiration) EncodeTo(e *Encoder) {}
+
+// EncodeTo implements types.EncoderTo.
 func (res FileContractResolution) EncodeTo(e *Encoder) {
 	res.Parent.EncodeTo(e)
-	var fields uint8
-	for i, b := range [...]bool{
-		res.HasRenewal(),
-		res.HasStorageProof(),
-		res.HasFinalization(),
-	} {
-		if b {
-			fields |= 1 << i
-		}
-	}
-	e.WriteUint8(fields)
-	if fields&(1<<0) != 0 {
-		res.Renewal.EncodeTo(e)
-	}
-	if fields&(1<<1) != 0 {
-		res.StorageProof.EncodeTo(e)
-	}
-	if fields&(1<<2) != 0 {
-		res.Finalization.EncodeTo(e)
+	switch r := res.Resolution.(type) {
+	case FileContractRenewal:
+		e.WriteUint8(0)
+		r.EncodeTo(e)
+	case V2StorageProof:
+		e.WriteUint8(1)
+		r.EncodeTo(e)
+	case V2FileContract:
+		e.WriteUint8(2)
+		r.EncodeTo(e)
+	case FileContractExpiration:
+		e.WriteUint8(3)
+		r.EncodeTo(e)
+	default:
+		panic(fmt.Sprintf("unhandled resolution type %T", r))
 	}
 }
 
@@ -650,7 +649,7 @@ func (txn V2Transaction) EncodeTo(e *Encoder) {
 		len(txn.FileContractResolutions) != 0,
 		len(txn.Attestations) != 0,
 		len(txn.ArbitraryData) != 0,
-		txn.NewFoundationAddress != VoidAddress,
+		txn.NewFoundationAddress != nil,
 		!txn.MinerFee.IsZero(),
 	} {
 		if b {
@@ -1093,8 +1092,8 @@ func (sfe *SiafundElement) DecodeFrom(d *Decoder) {
 func (fc *V2FileContract) DecodeFrom(d *Decoder) {
 	fc.Filesize = d.ReadUint64()
 	fc.FileMerkleRoot.DecodeFrom(d)
-	fc.WindowStart = d.ReadUint64()
-	fc.WindowEnd = d.ReadUint64()
+	fc.ProofHeight = d.ReadUint64()
+	fc.ExpirationHeight = d.ReadUint64()
 	fc.RenterOutput.DecodeFrom(d)
 	fc.HostOutput.DecodeFrom(d)
 	fc.MissedHostValue.DecodeFrom(d)
@@ -1143,17 +1142,30 @@ func (sp *V2StorageProof) DecodeFrom(d *Decoder) {
 }
 
 // DecodeFrom implements types.DecoderFrom.
+func (*FileContractExpiration) DecodeFrom(d *Decoder) {}
+
+// DecodeFrom implements types.DecoderFrom.
 func (res *FileContractResolution) DecodeFrom(d *Decoder) {
 	res.Parent.DecodeFrom(d)
-	fields := d.ReadUint8()
-	if fields&(1<<0) != 0 {
-		res.Renewal.DecodeFrom(d)
-	}
-	if fields&(1<<1) != 0 {
-		res.StorageProof.DecodeFrom(d)
-	}
-	if fields&(1<<2) != 0 {
-		res.Finalization.DecodeFrom(d)
+	switch t := d.ReadUint8(); t {
+	case 0:
+		var r FileContractRenewal
+		r.DecodeFrom(d)
+		res.Resolution = r
+	case 1:
+		var r V2StorageProof
+		r.DecodeFrom(d)
+		res.Resolution = r
+	case 2:
+		var r V2FileContract
+		r.DecodeFrom(d)
+		res.Resolution = r
+	case 3:
+		var r FileContractExpiration
+		r.DecodeFrom(d)
+		res.Resolution = r
+	default:
+		d.SetErr(fmt.Errorf("unknown resolution type %d", t))
 	}
 }
 
@@ -1226,6 +1238,7 @@ func (txn *V2Transaction) DecodeFrom(d *Decoder) {
 		txn.ArbitraryData = d.ReadBytes()
 	}
 	if fields&(1<<9) != 0 {
+		txn.NewFoundationAddress = new(Address)
 		txn.NewFoundationAddress.DecodeFrom(d)
 	}
 	if fields&(1<<10) != 0 {
