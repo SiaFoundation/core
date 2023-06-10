@@ -105,6 +105,9 @@ type State struct {
 	OakTarget                 types.BlockID `json:"oakTarget"`
 	FoundationPrimaryAddress  types.Address `json:"foundationPrimaryAddress"`
 	FoundationFailsafeAddress types.Address `json:"foundationFailsafeAddress"`
+
+	Elements ElementAccumulator `json:"elements"`
+	History  HistoryAccumulator `json:"history"`
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -121,6 +124,8 @@ func (s State) EncodeTo(e *types.Encoder) {
 	s.OakTarget.EncodeTo(e)
 	s.FoundationPrimaryAddress.EncodeTo(e)
 	s.FoundationFailsafeAddress.EncodeTo(e)
+	s.Elements.EncodeTo(e)
+	s.History.EncodeTo(e)
 }
 
 // DecodeFrom implements types.DecoderFrom.
@@ -137,6 +142,8 @@ func (s *State) DecodeFrom(d *types.Decoder) {
 	s.OakTarget.DecodeFrom(d)
 	s.FoundationPrimaryAddress.DecodeFrom(d)
 	s.FoundationFailsafeAddress.DecodeFrom(d)
+	s.Elements.DecodeFrom(d)
+	s.History.DecodeFrom(d)
 }
 
 func (s State) childHeight() uint64 { return s.Index.Height + 1 }
@@ -257,6 +264,16 @@ func (s State) FileContractTax(fc types.FileContract) types.Currency {
 	return types.NewCurrency(lo, hi)
 }
 
+// V2FileContractTax computes the tax levied on a given v2 contract.
+func (s State) V2FileContractTax(fc types.V2FileContract) types.Currency {
+	sum := fc.RenterOutput.Value.Add(fc.HostOutput.Value)
+	tax := sum.Div64(25) // 4%
+	// round down to nearest multiple of SiafundCount
+	_, r := bits.Div64(0, tax.Hi, s.SiafundCount())
+	_, r = bits.Div64(r, tax.Lo, s.SiafundCount())
+	return tax.Sub(types.NewCurrency64(r))
+}
+
 // StorageProofLeafIndex returns the leaf index used when computing or
 // validating a storage proof.
 func (s State) StorageProofLeafIndex(filesize uint64, windowStart types.ChainIndex, fcid types.FileContractID) uint64 {
@@ -274,6 +291,16 @@ func (s State) StorageProofLeafIndex(filesize uint64, windowStart types.ChainInd
 		_, r = bits.Div64(r, binary.BigEndian.Uint64(seed[i:]), numLeaves)
 	}
 	return r
+}
+
+// StorageProofLeafHash computes the leaf hash of file contract data. If
+// len(leaf) < 64, it will be extended with zeros.
+func (s State) StorageProofLeafHash(leaf []byte) types.Hash256 {
+	const leafSize = len(types.StorageProof{}.Leaf)
+	buf := make([]byte, 1+leafSize)
+	buf[0] = leafHashPrefix
+	copy(buf[1:], leaf)
+	return types.HashBytes(buf)
 }
 
 // replayPrefix returns the replay protection prefix at the current height.
@@ -420,5 +447,99 @@ func (s State) Commitment(minerAddr types.Address, txns []types.Transaction, v2t
 	stateHash.EncodeTo(h.E)
 	minerAddr.EncodeTo(h.E)
 	txnsHash.EncodeTo(h.E)
+	return h.Sum()
+}
+
+// InputSigHash returns the hash that must be signed for each v2 transaction input.
+func (s State) InputSigHash(txn types.V2Transaction) types.Hash256 {
+	// NOTE: This currently covers exactly the same fields as txn.ID(), and for
+	// similar reasons.
+	h := hasherPool.Get().(*types.Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	h.E.WriteString("sia/id/transaction|")
+	h.E.WritePrefix(len(txn.SiacoinInputs))
+	for _, in := range txn.SiacoinInputs {
+		in.Parent.ID.EncodeTo(h.E)
+	}
+	h.E.WritePrefix(len(txn.SiacoinOutputs))
+	for _, out := range txn.SiacoinOutputs {
+		out.EncodeTo(h.E)
+	}
+	h.E.WritePrefix(len(txn.SiafundInputs))
+	for _, in := range txn.SiafundInputs {
+		in.Parent.ID.EncodeTo(h.E)
+	}
+	h.E.WritePrefix(len(txn.SiafundOutputs))
+	for _, out := range txn.SiafundOutputs {
+		out.EncodeTo(h.E)
+	}
+	h.E.WritePrefix(len(txn.FileContracts))
+	for _, fc := range txn.FileContracts {
+		fc.EncodeTo(h.E)
+	}
+	h.E.WritePrefix(len(txn.FileContractRevisions))
+	for _, fcr := range txn.FileContractRevisions {
+		fcr.Parent.ID.EncodeTo(h.E)
+		fcr.Revision.EncodeTo(h.E)
+	}
+	h.E.WritePrefix(len(txn.FileContractResolutions))
+	for _, fcr := range txn.FileContractResolutions {
+		fcr.Parent.ID.EncodeTo(h.E)
+		fcr.Resolution.(types.EncoderTo).EncodeTo(h.E)
+	}
+	for _, a := range txn.Attestations {
+		a.EncodeTo(h.E)
+	}
+	h.E.WriteBytes(txn.ArbitraryData)
+	h.E.WriteBool(txn.NewFoundationAddress != nil)
+	if txn.NewFoundationAddress != nil {
+		txn.NewFoundationAddress.EncodeTo(h.E)
+	}
+	txn.MinerFee.EncodeTo(h.E)
+	return h.Sum()
+}
+
+// ContractSigHash returns the hash that must be signed for a v2 contract revision.
+func (s State) ContractSigHash(fc types.V2FileContract) types.Hash256 {
+	h := hasherPool.Get().(*types.Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	h.E.WriteString("sia/sig/filecontract|")
+	h.E.WriteUint64(fc.Filesize)
+	fc.FileMerkleRoot.EncodeTo(h.E)
+	h.E.WriteUint64(fc.ProofHeight)
+	h.E.WriteUint64(fc.ExpirationHeight)
+	fc.RenterOutput.EncodeTo(h.E)
+	fc.HostOutput.EncodeTo(h.E)
+	fc.MissedHostValue.EncodeTo(h.E)
+	fc.RenterPublicKey.EncodeTo(h.E)
+	fc.HostPublicKey.EncodeTo(h.E)
+	h.E.WriteUint64(fc.RevisionNumber)
+	return h.Sum()
+}
+
+// RenewalSigHash returns the hash that must be signed for a file contract renewal.
+func (s State) RenewalSigHash(fcr types.FileContractRenewal) types.Hash256 {
+	h := hasherPool.Get().(*types.Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	h.E.WriteString("sia/sig/filecontractrenewal|")
+	fcr.FinalRevision.EncodeTo(h.E)
+	fcr.InitialRevision.EncodeTo(h.E)
+	fcr.RenterRollover.EncodeTo(h.E)
+	fcr.HostRollover.EncodeTo(h.E)
+	return h.Sum()
+}
+
+// AttestationSigHash returns the hash that must be signed for an attestation.
+func (s State) AttestationSigHash(a types.Attestation) types.Hash256 {
+	h := hasherPool.Get().(*types.Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	h.E.WriteString("sia/sig/attestation|")
+	a.PublicKey.EncodeTo(h.E)
+	h.E.WriteString(a.Key)
+	h.E.WriteBytes(a.Value)
 	return h.Sum()
 }

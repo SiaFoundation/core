@@ -29,6 +29,12 @@ const (
 	// HostContractIndex defines the index of the host's output and public key in
 	// a FileContract.
 	HostContractIndex = 1
+
+	// EphemeralLeafIndex is used as the LeafIndex of StateElements that are created
+	// and spent within the same block. Such elements do not require a proof of
+	// existence. They are, however, assigned a proper index and are incorporated
+	// into the state accumulator when the block is processed.
+	EphemeralLeafIndex = math.MaxUint64
 )
 
 // Various specifiers.
@@ -546,16 +552,15 @@ type FileContractRenewal struct {
 // Merkle tree of a V2FileContract's data.
 type V2StorageProof struct {
 	// Selecting the leaf requires a source of unpredictable entropy; we use the
-	// ID of the block at the start of the proof window. The StorageProof
-	// includes this ID, and asserts its presence in the chain via a separate
-	// Merkle proof.
+	// ID of the block at the contract's ProofHeight. The StorageProof includes
+	// this ID, and asserts its presence in the chain via a history proof.
 	//
-	// For convenience, WindowStart is a ChainIndex rather than a BlockID.
-	// Consequently, WindowStart.Height MUST match the WindowStart field of the
+	// For convenience, ProofStart is a ChainIndex rather than a BlockID.
+	// Consequently, ProofStart.Height MUST match the ProofStart field of the
 	// contract's final revision; otherwise, the prover could use any
-	// WindowStart, giving them control over the leaf index.
-	WindowStart ChainIndex
-	WindowProof []Hash256
+	// ProofStart, giving them control over the leaf index.
+	ProofStart   ChainIndex
+	HistoryProof []Hash256
 
 	// The leaf is always 64 bytes, extended with zeros if necessary.
 	Leaf  [64]byte
@@ -685,49 +690,38 @@ func (txn *V2Transaction) ID() TransactionID {
 	return TransactionID(h.Sum())
 }
 
-// SiacoinOutputID returns the ID of the siacoin output at index i.
-func (txn *V2Transaction) SiacoinOutputID(i int) SiacoinOutputID {
+// V2SiacoinOutputID returns the ID of the siacoin output at index i.
+func (txn *V2Transaction) EphemeralSiacoinOutput(i int) SiacoinElement {
 	h := hasherPool.Get().(*Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
 	SpecifierSiacoinOutput.EncodeTo(h.E)
 	txn.ID().EncodeTo(h.E)
 	h.E.WriteUint64(uint64(i))
-	return SiacoinOutputID(h.Sum())
+	return SiacoinElement{
+		StateElement: StateElement{
+			ID:        h.Sum(),
+			LeafIndex: EphemeralLeafIndex,
+		},
+		SiacoinOutput: txn.SiacoinOutputs[i],
+	}
 }
 
-// SiafundOutputID returns the ID of the siafund output at index i.
-func (txn *V2Transaction) SiafundOutputID(i int) SiafundOutputID {
+// V2SiafundOutputID returns the ID of the siafund output at index i.
+func (txn *V2Transaction) EphemeralSiafundOutput(i int) SiafundElement {
 	h := hasherPool.Get().(*Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
 	SpecifierSiafundOutput.EncodeTo(h.E)
 	txn.ID().EncodeTo(h.E)
 	h.E.WriteUint64(uint64(i))
-	return SiafundOutputID(h.Sum())
-}
-
-// SiafundClaimOutputID returns the ID of the siacoin claim output for the
-// siafund input at index i.
-func (txn *V2Transaction) SiafundClaimOutputID(i int) SiacoinOutputID {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	SpecifierClaimOutput.EncodeTo(h.E)
-	txn.ID().EncodeTo(h.E)
-	h.E.WriteUint64(uint64(i))
-	return SiacoinOutputID(h.Sum())
-}
-
-// FileContractID returns the ID of the file contract at index i.
-func (txn *V2Transaction) FileContractID(i int) FileContractID {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	SpecifierFileContract.EncodeTo(h.E)
-	txn.ID().EncodeTo(h.E)
-	h.E.WriteUint64(uint64(i))
-	return FileContractID(h.Sum())
+	return SiafundElement{
+		StateElement: StateElement{
+			ID:        h.Sum(),
+			LeafIndex: EphemeralLeafIndex,
+		},
+		SiafundOutput: txn.SiafundOutputs[i],
+	}
 }
 
 // DeepCopy returns a copy of txn that does not alias any of its memory.
@@ -754,7 +748,7 @@ func (txn *V2Transaction) DeepCopy() V2Transaction {
 	for i := range c.FileContractResolutions {
 		c.FileContractResolutions[i].Parent.MerkleProof = append([]Hash256(nil), c.FileContractResolutions[i].Parent.MerkleProof...)
 		if sp, ok := c.FileContractResolutions[i].Resolution.(V2StorageProof); ok {
-			sp.WindowProof = append([]Hash256(nil), sp.WindowProof...)
+			sp.HistoryProof = append([]Hash256(nil), sp.HistoryProof...)
 			sp.Proof = append([]Hash256(nil), sp.Proof...)
 			c.FileContractResolutions[i].Resolution = sp
 		}

@@ -589,9 +589,9 @@ func (ren FileContractRenewal) EncodeTo(e *Encoder) {
 
 // EncodeTo implements types.EncoderTo.
 func (sp V2StorageProof) EncodeTo(e *Encoder) {
-	sp.WindowStart.EncodeTo(e)
-	e.WritePrefix(len(sp.WindowProof))
-	for _, p := range sp.WindowProof {
+	sp.ProofStart.EncodeTo(e)
+	e.WritePrefix(len(sp.HistoryProof))
+	for _, p := range sp.HistoryProof {
 		p.EncodeTo(e)
 	}
 	e.Write(sp.Leaf[:])
@@ -1129,10 +1129,10 @@ func (ren *FileContractRenewal) DecodeFrom(d *Decoder) {
 
 // DecodeFrom implements types.DecoderFrom.
 func (sp *V2StorageProof) DecodeFrom(d *Decoder) {
-	sp.WindowStart.DecodeFrom(d)
-	sp.WindowProof = make([]Hash256, d.ReadPrefix())
-	for i := range sp.WindowProof {
-		sp.WindowProof[i].DecodeFrom(d)
+	sp.ProofStart.DecodeFrom(d)
+	sp.HistoryProof = make([]Hash256, d.ReadPrefix())
+	for i := range sp.HistoryProof {
+		sp.HistoryProof[i].DecodeFrom(d)
 	}
 	d.Read(sp.Leaf[:])
 	sp.Proof = make([]Hash256, d.ReadPrefix())

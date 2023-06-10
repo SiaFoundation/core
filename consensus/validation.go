@@ -27,16 +27,27 @@ func ValidateHeader(s State, parentID types.BlockID, timestamp time.Time, nonce 
 
 func validateMinerPayouts(s State, b types.Block) error {
 	expectedSum := s.BlockReward()
+	var overflow bool
 	for _, txn := range b.Transactions {
 		for _, fee := range txn.MinerFees {
 			if fee.IsZero() {
 				return errors.New("transaction fee has zero value")
 			}
-			var overflow bool
 			expectedSum, overflow = expectedSum.AddWithOverflow(fee)
 			if overflow {
 				return errors.New("transaction fees overflow")
 			}
+		}
+	}
+	if b.V2 != nil {
+		for _, txn := range b.V2.Transactions {
+			expectedSum, overflow = expectedSum.AddWithOverflow(txn.MinerFee)
+			if overflow {
+				return errors.New("transaction fees overflow")
+			}
+		}
+		if len(b.MinerPayouts) != 1 {
+			return errors.New("block has multiple miner payouts")
 		}
 	}
 
@@ -45,7 +56,6 @@ func validateMinerPayouts(s State, b types.Block) error {
 		if mp.Value.IsZero() {
 			return errors.New("miner payout has zero value")
 		}
-		var overflow bool
 		sum, overflow = sum.AddWithOverflow(mp.Value)
 		if overflow {
 			return errors.New("miner payouts overflow")
@@ -62,10 +72,18 @@ func ValidateOrphan(s State, b types.Block) error {
 	// TODO: calculate size more efficiently
 	if uint64(types.EncodedLen(b)) > s.MaxBlockWeight() {
 		return errors.New("block exceeds maximum weight")
-	} else if err := ValidateHeader(s, b.ParentID, b.Timestamp, b.Nonce, b.ID()); err != nil {
-		return err
 	} else if err := validateMinerPayouts(s, b); err != nil {
 		return err
+	} else if err := ValidateHeader(s, b.ParentID, b.Timestamp, b.Nonce, b.ID()); err != nil {
+		return err
+	}
+
+	if b.V2 != nil {
+		if b.V2.Height != s.Index.Height+1 {
+			return errors.New("block height does not increment parent height")
+		} else if s.Commitment(b.MinerPayouts[0].Address, b.Transactions, b.V2.Transactions) != b.V2.Commitment {
+			return errors.New("commitment hash does not match header")
+		}
 	}
 	return nil
 }
@@ -77,6 +95,7 @@ type MidState struct {
 	sfos        map[types.SiafundOutputID]types.SiafundOutput
 	claims      map[types.SiafundOutputID]types.Currency
 	fcs         map[types.FileContractID]types.FileContract
+	v2fcs       map[types.FileContractID]types.V2FileContract
 	spends      map[types.Hash256]types.TransactionID
 	siafundPool types.Currency
 }
@@ -136,9 +155,33 @@ func (ms *MidState) mustFileContract(store Store, id types.FileContractID) types
 	return fc
 }
 
+func contractRevisionID(id types.FileContractID, revisionNumber uint64) types.FileContractID {
+	h := hasherPool.Get().(*types.Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	id.EncodeTo(h.E)
+	h.E.WriteUint64(revisionNumber)
+	return types.FileContractID(h.Sum())
+}
+
+func (ms *MidState) mustFileContractParentRevision(store Store, id types.FileContractID, newRevisionNumber uint64) types.FileContract {
+	fc, ok := ms.fileContract(store, contractRevisionID(id, newRevisionNumber))
+	if !ok {
+		if fc, ok = ms.fileContract(store, id); !ok {
+			panic("missing FileContract")
+		}
+	}
+	return fc
+}
+
 func (ms *MidState) spent(id types.Hash256) (types.TransactionID, bool) {
 	txid, ok := ms.spends[id]
 	return txid, ok
+}
+
+func (ms *MidState) v2Revision(id types.FileContractID) (types.V2FileContract, bool) {
+	fc, ok := ms.v2fcs[id]
+	return fc, ok
 }
 
 // NewMidState constructs a MidState initialized to the provided base state.
@@ -149,6 +192,7 @@ func NewMidState(s State) *MidState {
 		sfos:        make(map[types.SiafundOutputID]types.SiafundOutput),
 		claims:      make(map[types.SiafundOutputID]types.Currency),
 		fcs:         make(map[types.FileContractID]types.FileContract),
+		v2fcs:       make(map[types.FileContractID]types.V2FileContract),
 		spends:      make(map[types.Hash256]types.TransactionID),
 		siafundPool: s.SiafundPool,
 	}
@@ -228,10 +272,6 @@ func validateMinimumValues(ms *MidState, txn types.Transaction) error {
 }
 
 func validateSiacoins(ms *MidState, store Store, txn types.Transaction) error {
-	// NOTE: storage proofs and siafund claim outputs can also create new
-	// siacoin outputs, but we don't need to account for them here because they
-	// have a maturity delay and are thus unspendable within the same block
-
 	var inputSum types.Currency
 	for i, sci := range txn.SiacoinInputs {
 		if sci.UnlockConditions.Timelock > ms.base.childHeight() {
@@ -407,7 +447,7 @@ func validateFileContracts(ms *MidState, store Store, txn types.Transaction) err
 
 	for i, sp := range txn.StorageProofs {
 		if txid, ok := ms.spent(types.Hash256(sp.ParentID)); ok {
-			return fmt.Errorf("storage proof %v conflicts with previous proof or revision (in %v)", i, txid)
+			return fmt.Errorf("storage proof %v conflicts with previous proof (in %v)", i, txid)
 		}
 		fc, ok := ms.fileContract(store, sp.ParentID)
 		if !ok {
@@ -555,6 +595,416 @@ func ValidateTransaction(ms *MidState, store Store, txn types.Transaction) error
 	return nil
 }
 
+func validateV2CurrencyValues(ms *MidState, txn types.V2Transaction) error {
+	// Add up all of the currency values in the transaction and check for
+	// overflow. This allows us to freely add any currency values in later
+	// validation functions without worrying about overflow.
+
+	var sum types.Currency
+	var overflow bool
+	add := func(x types.Currency) {
+		if !overflow {
+			sum, overflow = sum.AddWithOverflow(x)
+		}
+	}
+	addContract := func(fc types.V2FileContract) {
+		add(fc.RenterOutput.Value)
+		add(fc.HostOutput.Value)
+		add(fc.MissedHostValue)
+		add(fc.TotalCollateral)
+		add(ms.base.V2FileContractTax(fc))
+	}
+
+	for i, sco := range txn.SiacoinOutputs {
+		if sco.Value.IsZero() {
+			return fmt.Errorf("siacoin output %v has zero value", i)
+		}
+		add(sco.Value)
+	}
+	for i, sfo := range txn.SiafundOutputs {
+		if sfo.Value == 0 {
+			return fmt.Errorf("siafund output %v has zero value", i)
+		}
+		overflow = overflow || sfo.Value > ms.base.SiafundCount()
+	}
+	for i, fc := range txn.FileContracts {
+		if fc.RenterOutput.Value.IsZero() && fc.HostOutput.Value.IsZero() {
+			return fmt.Errorf("file contract %v has zero value", i)
+		}
+		addContract(fc)
+	}
+	for _, fc := range txn.FileContractRevisions {
+		addContract(fc.Revision)
+	}
+	for i, res := range txn.FileContractResolutions {
+		switch r := res.Resolution.(type) {
+		case types.FileContractRenewal:
+			if r.InitialRevision.RenterOutput.Value.IsZero() && r.InitialRevision.HostOutput.Value.IsZero() {
+				return fmt.Errorf("file contract renewal %v creates contract with zero value", i)
+			}
+			addContract(r.InitialRevision)
+			add(r.RenterRollover)
+			add(r.HostRollover)
+		case types.V2FileContract:
+			addContract(r)
+		}
+	}
+	add(txn.MinerFee)
+	if overflow {
+		return errors.New("transaction outputs exceed inputs") // technically true
+	}
+	return nil
+}
+
+func validateSpendPolicy(s State, p types.SpendPolicy, sigHash types.Hash256, sigs []types.Signature) error {
+	var verify func(types.SpendPolicy) error
+	verify = func(p types.SpendPolicy) error {
+		switch p := p.Type.(type) {
+		case types.PolicyTypeAbove:
+			if s.Index.Height > uint64(p) {
+				return nil
+			}
+			return fmt.Errorf("height not above %v", uint64(p))
+		case types.PolicyTypePublicKey:
+			for i := range sigs {
+				if types.PublicKey(p).VerifyHash(sigHash, sigs[i]) {
+					sigs = sigs[i+1:]
+					return nil
+				}
+			}
+			return errors.New("no signatures matching pubkey")
+		case types.PolicyTypeThreshold:
+			for i := 0; i < len(p.Of) && p.N > 0 && len(p.Of[i:]) >= int(p.N); i++ {
+				if verify(p.Of[i]) == nil {
+					p.N--
+				}
+			}
+			if p.N == 0 {
+				return nil
+			}
+			return errors.New("threshold not reached")
+		case types.PolicyTypeUnlockConditions:
+			if err := verify(types.PolicyAbove(p.Timelock)); err != nil {
+				return err
+			}
+			if p.SignaturesRequired > 255 {
+				return fmt.Errorf("too many signatures required (%v > 255)", p.SignaturesRequired)
+			}
+			n := uint8(p.SignaturesRequired)
+			of := make([]types.SpendPolicy, len(p.PublicKeys))
+			for i, pk := range p.PublicKeys {
+				if pk.Algorithm != types.SpecifierEd25519 {
+					return fmt.Errorf("unsupported algorithm %v", pk.Algorithm)
+				} else if len(pk.Key) != len(types.PublicKey{}) {
+					return fmt.Errorf("invalid Ed25519 key length %v", len(pk.Key))
+				}
+				of[i] = types.PolicyPublicKey(*(*types.PublicKey)(pk.Key))
+			}
+			return verify(types.PolicyThreshold(n, of))
+		default:
+			panic("invalid policy type") // developer error
+		}
+	}
+	return verify(p)
+}
+
+func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
+	sigHash := ms.base.InputSigHash(txn)
+	for i, sci := range txn.SiacoinInputs {
+		if txid, ok := ms.spent(sci.Parent.ID); ok {
+			return fmt.Errorf("siacoin input %v double-spends parent output (previously spent in %v)", i, txid)
+		}
+
+		// check accumulator
+		if sci.Parent.LeafIndex == types.EphemeralLeafIndex {
+			if _, ok := ms.scos[types.SiacoinOutputID(sci.Parent.ID)]; !ok {
+				return fmt.Errorf("siacoin input %v spends nonexistent ephemeral output %v", i, sci.Parent.ID)
+			}
+		} else if !ms.base.Elements.ContainsUnspentSiacoinElement(sci.Parent) {
+			if ms.base.Elements.ContainsSpentSiacoinElement(sci.Parent) {
+				return fmt.Errorf("siacoin input %v double-spends output %v", i, sci.Parent.ID)
+			}
+			return fmt.Errorf("siacoin input %v spends output (%v) not present in the accumulator", i, sci.Parent.ID)
+		}
+
+		// check spend policy
+		if sci.SpendPolicy.Address() != sci.Parent.Address {
+			return fmt.Errorf("siacoin input %v claims incorrect policy for parent address", i)
+		} else if err := validateSpendPolicy(ms.base, sci.SpendPolicy, sigHash, sci.Signatures); err != nil {
+			return fmt.Errorf("siacoin input %v failed to satisfy spend policy: %w", i, err)
+		}
+	}
+
+	var inputSum, outputSum types.Currency
+	for _, sci := range txn.SiacoinInputs {
+		inputSum = inputSum.Add(sci.Parent.Value)
+	}
+	for _, out := range txn.SiacoinOutputs {
+		outputSum = outputSum.Add(out.Value)
+	}
+	for _, fc := range txn.FileContracts {
+		outputSum = outputSum.Add(fc.RenterOutput.Value).Add(fc.HostOutput.Value).Add(ms.base.V2FileContractTax(fc))
+	}
+	for _, res := range txn.FileContractResolutions {
+		if r, ok := res.Resolution.(types.FileContractRenewal); ok {
+			// a renewal creates a new contract, optionally "rolling over" funds
+			// from the old contract
+			inputSum = inputSum.Add(r.RenterRollover)
+			inputSum = inputSum.Add(r.HostRollover)
+
+			rev := r.InitialRevision
+			outputSum = outputSum.Add(rev.RenterOutput.Value).Add(rev.HostOutput.Value).Add(ms.base.V2FileContractTax(rev))
+		}
+	}
+	outputSum = outputSum.Add(txn.MinerFee)
+	if inputSum != outputSum {
+		return fmt.Errorf("siacoin inputs (%d H) do not equal outputs (%d H)", inputSum, outputSum)
+	}
+
+	return nil
+}
+
+func validateV2Siafunds(ms *MidState, txn types.V2Transaction) error {
+	sigHash := ms.base.InputSigHash(txn)
+	for i, sci := range txn.SiafundInputs {
+		if txid, ok := ms.spent(sci.Parent.ID); ok {
+			return fmt.Errorf("siafund input %v double-spends parent output (previously spent in %v)", i, txid)
+		}
+
+		// check accumulator
+		if sci.Parent.LeafIndex == types.EphemeralLeafIndex {
+			if _, ok := ms.sfos[types.SiafundOutputID(sci.Parent.ID)]; !ok {
+				return fmt.Errorf("siafund input %v spends nonexistent ephemeral output %v", i, sci.Parent.ID)
+			}
+		} else if !ms.base.Elements.ContainsUnspentSiafundElement(sci.Parent) {
+			if ms.base.Elements.ContainsSpentSiafundElement(sci.Parent) {
+				return fmt.Errorf("siafund input %v double-spends output %v", i, sci.Parent.ID)
+			}
+			return fmt.Errorf("siafund input %v spends output (%v) not present in the accumulator", i, sci.Parent.ID)
+		}
+
+		// check spend policy
+		if sci.SpendPolicy.Address() != sci.Parent.Address {
+			return fmt.Errorf("siafund input %v claims incorrect policy for parent address", i)
+		} else if err := validateSpendPolicy(ms.base, sci.SpendPolicy, sigHash, sci.Signatures); err != nil {
+			return fmt.Errorf("siafund input %v failed to satisfy spend policy: %w", i, err)
+		}
+	}
+
+	var inputSum, outputSum uint64
+	for _, in := range txn.SiafundInputs {
+		inputSum += in.Parent.Value
+	}
+	for _, out := range txn.SiafundOutputs {
+		outputSum += out.Value
+	}
+	if inputSum != outputSum {
+		return fmt.Errorf("siafund inputs (%d SF) do not equal outputs (%d SF)", inputSum, outputSum)
+	}
+	return nil
+}
+
+func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
+	// Contract resolutions are height-sensitive, and thus can be invalidated by
+	// shallow reorgs; to minimize disruption, we require that transactions
+	// containing a resolution do not create new outputs. Creating, revising or
+	// resolving contracts *is* permitted, as these effects are generally not
+	// "built upon" as quickly as outputs, and therefore cause less disruption.
+	if len(txn.FileContractResolutions) > 0 &&
+		(len(txn.SiacoinOutputs) > 0 || len(txn.SiafundOutputs) > 0) {
+		return errors.New("transaction both resolves a file contract and creates new outputs")
+	}
+
+	validateParent := func(fce types.FileContractElement) error {
+		if txid, ok := ms.spent(fce.ID); ok {
+			return fmt.Errorf("has already been resolved in transaction %v", txid)
+		} else if !ms.base.Elements.ContainsUnresolvedFileContractElement(fce) {
+			if ms.base.Elements.ContainsResolvedFileContractElement(fce) {
+				return errors.New("has already been resolved in a previous block")
+			}
+			return errors.New("is not present in the accumulator")
+		}
+		return nil
+	}
+
+	validateContract := func(fc types.V2FileContract) error {
+		switch {
+		case fc.ProofHeight < ms.base.childHeight():
+			return fmt.Errorf("has proof height (%v) that has already passed", fc.ProofHeight)
+		case fc.ExpirationHeight <= fc.ProofHeight:
+			return fmt.Errorf("leaves no time between proof height (%v) and expiration height (%v)", fc.ProofHeight, fc.ExpirationHeight)
+		case fc.MissedHostValue.Cmp(fc.HostOutput.Value) > 0:
+			return fmt.Errorf("has missed host value (%d H) exceeding valid host value (%d H)", fc.MissedHostValue, fc.HostOutput.Value)
+		case fc.TotalCollateral.Cmp(fc.HostOutput.Value) > 0:
+			return fmt.Errorf("has total collateral (%d H) exceeding valid host value (%d H)", fc.TotalCollateral, fc.HostOutput.Value)
+		}
+		contractHash := ms.base.ContractSigHash(fc)
+		if !fc.RenterPublicKey.VerifyHash(contractHash, fc.RenterSignature) {
+			return fmt.Errorf("has invalid renter signature")
+		} else if !fc.HostPublicKey.VerifyHash(contractHash, fc.HostSignature) {
+			return fmt.Errorf("has invalid host signature")
+		}
+		return nil
+	}
+
+	validateRevision := func(cur, rev types.V2FileContract) error {
+		curOutputSum := cur.RenterOutput.Value.Add(cur.HostOutput.Value)
+		revOutputSum := rev.RenterOutput.Value.Add(rev.HostOutput.Value)
+		switch {
+		case rev.RevisionNumber <= cur.RevisionNumber:
+			return fmt.Errorf("does not increase revision number (%v -> %v)", cur.RevisionNumber, rev.RevisionNumber)
+		case !revOutputSum.Equals(curOutputSum):
+			return fmt.Errorf("modifies output sum (%d H -> %d H)", curOutputSum, revOutputSum)
+		case rev.TotalCollateral != cur.TotalCollateral:
+			return fmt.Errorf("modifies total collateral")
+		case rev.ProofHeight < ms.base.childHeight():
+			return fmt.Errorf("has proof height (%v) that has already passed", rev.ProofHeight)
+		case rev.ExpirationHeight <= rev.ProofHeight:
+			return fmt.Errorf("leaves no time between proof height (%v) and expiration height (%v)", rev.ProofHeight, rev.ExpirationHeight)
+		}
+
+		// verify signatures
+		//
+		// NOTE: very important that we verify with the *current* keys!
+		contractHash := ms.base.ContractSigHash(rev)
+		if !cur.RenterPublicKey.VerifyHash(contractHash, rev.RenterSignature) {
+			return fmt.Errorf("has invalid renter signature")
+		} else if !cur.HostPublicKey.VerifyHash(contractHash, rev.HostSignature) {
+			return fmt.Errorf("has invalid host signature")
+		}
+		return nil
+	}
+
+	for i, fc := range txn.FileContracts {
+		if err := validateContract(fc); err != nil {
+			return fmt.Errorf("file contract %v %s", i, err)
+		}
+	}
+
+	for i, fcr := range txn.FileContractRevisions {
+		cur, rev := fcr.Parent.V2FileContract, fcr.Revision
+		if fc, ok := ms.v2Revision(types.FileContractID(fcr.Parent.ID)); ok {
+			cur = fc
+		}
+		if err := validateParent(fcr.Parent); err != nil {
+			return fmt.Errorf("file contract revision %v parent (%v) %s", i, fcr.Parent.ID, err)
+		} else if cur.ProofHeight < ms.base.childHeight() {
+			return fmt.Errorf("file contract revision %v cannot be applied to contract after proof height (%v)", i, cur.ProofHeight)
+		} else if rev.RevisionNumber == types.MaxRevisionNumber {
+			// NOTE: disallowing this means that resolutions always take
+			// precedence over revisions
+			return fmt.Errorf("file contract revision %v resolves contract", i)
+		} else if err := validateRevision(cur, rev); err != nil {
+			return fmt.Errorf("file contract revision %v %s", i, err)
+		}
+	}
+
+	for i, fcr := range txn.FileContractResolutions {
+		if err := validateParent(fcr.Parent); err != nil {
+			return fmt.Errorf("file contract renewal %v parent (%v) %s", i, fcr.Parent.ID, err)
+		}
+		fc := fcr.Parent.V2FileContract
+		switch r := fcr.Resolution.(type) {
+		case types.FileContractRenewal:
+			renewal := r
+			old, renewed := renewal.FinalRevision, renewal.InitialRevision
+			if old.RevisionNumber != types.MaxRevisionNumber {
+				return fmt.Errorf("file contract renewal %v does not finalize old contract", i)
+			} else if err := validateRevision(fc, old); err != nil {
+				return fmt.Errorf("file contract renewal %v final revision %s", i, err)
+			} else if err := validateContract(renewed); err != nil {
+				return fmt.Errorf("file contract renewal %v initial revision %s", i, err)
+			}
+
+			rollover := renewal.RenterRollover.Add(renewal.HostRollover)
+			newContractCost := renewed.RenterOutput.Value.Add(renewed.HostOutput.Value).Add(ms.base.V2FileContractTax(renewed))
+			if renewal.RenterRollover.Cmp(old.RenterOutput.Value) > 0 {
+				return fmt.Errorf("file contract renewal %v has renter rollover (%d H) exceeding old output (%d H)", i, renewal.RenterRollover, old.RenterOutput.Value)
+			} else if renewal.HostRollover.Cmp(old.HostOutput.Value) > 0 {
+				return fmt.Errorf("file contract renewal %v has host rollover (%d H) exceeding old output (%d H)", i, renewal.HostRollover, old.HostOutput.Value)
+			} else if rollover.Cmp(newContractCost) > 0 {
+				return fmt.Errorf("file contract renewal %v has rollover (%d H) exceeding new contract cost (%d H)", i, rollover, newContractCost)
+			}
+
+			renewalHash := ms.base.RenewalSigHash(renewal)
+			if !fc.RenterPublicKey.VerifyHash(renewalHash, renewal.RenterSignature) {
+				return fmt.Errorf("file contract renewal %v has invalid renter signature", i)
+			} else if !fc.HostPublicKey.VerifyHash(renewalHash, renewal.HostSignature) {
+				return fmt.Errorf("file contract renewal %v has invalid host signature", i)
+			}
+		case types.V2FileContract:
+			finalRevision := r
+			if finalRevision.RevisionNumber != types.MaxRevisionNumber {
+				return fmt.Errorf("file contract finalization %v does not set maximum revision number", i)
+			} else if err := validateRevision(fc, finalRevision); err != nil {
+				return fmt.Errorf("file contract finalization %v %s", i, err)
+			}
+		case types.V2StorageProof:
+			sp := r
+			if ms.base.childHeight() < fc.ProofHeight {
+				return fmt.Errorf("file contract storage proof %v cannot be submitted until after proof height (%v)", i, fc.ProofHeight)
+			} else if sp.ProofStart.Height != fc.ProofHeight {
+				// see note on this field in types.StorageProof
+				return fmt.Errorf("file contract storage proof %v has ProofStart (%v) that does not match contract ProofStart (%v)", i, sp.ProofStart.Height, fc.ProofHeight)
+			} else if ms.base.History.Contains(sp.ProofStart, sp.HistoryProof) {
+				return fmt.Errorf("file contract storage proof %v has invalid history proof", i)
+			}
+			leafIndex := ms.base.StorageProofLeafIndex(fc.Filesize, sp.ProofStart, types.FileContractID(fcr.Parent.ID))
+			if proofRoot(ms.base.StorageProofLeafHash(sp.Leaf[:]), leafIndex, sp.Proof) != fc.FileMerkleRoot {
+				return fmt.Errorf("file contract storage proof %v has root that does not match contract Merkle root", i)
+			}
+		case types.FileContractExpiration:
+			if ms.base.childHeight() <= fc.ExpirationHeight {
+				return fmt.Errorf("file contract expiration %v cannot be submitted until after expiration height (%v) ", i, fc.ExpirationHeight)
+			}
+		}
+	}
+
+	return nil
+}
+
+func validateAttestations(ms *MidState, txn types.V2Transaction) error {
+	for i, a := range txn.Attestations {
+		switch {
+		case len(a.Key) == 0:
+			return fmt.Errorf("attestation %v has empty key", i)
+		case !a.PublicKey.VerifyHash(ms.base.AttestationSigHash(a), a.Signature):
+			return fmt.Errorf("attestation %v has invalid signature", i)
+		}
+	}
+	return nil
+}
+
+func validateFoundationUpdate(ms *MidState, txn types.V2Transaction) error {
+	if txn.NewFoundationAddress == nil {
+		return nil
+	}
+	for _, in := range txn.SiacoinInputs {
+		if in.Parent.Address == ms.base.FoundationPrimaryAddress {
+			return nil
+		}
+	}
+	return errors.New("transaction changes Foundation address, but does not spend an input controlled by current address")
+}
+
+// ValidateV2Transaction validates txn within the context of ms.
+func ValidateV2Transaction(ms *MidState, txn types.V2Transaction) error {
+	if err := validateV2CurrencyValues(ms, txn); err != nil {
+		return err
+	} else if err := validateV2Siacoins(ms, txn); err != nil {
+		return err
+	} else if err := validateV2Siafunds(ms, txn); err != nil {
+		return err
+	} else if err := validateV2FileContracts(ms, txn); err != nil {
+		return err
+	} else if err := validateAttestations(ms, txn); err != nil {
+		return err
+	} else if err := validateFoundationUpdate(ms, txn); err != nil {
+		return err
+	}
+	return nil
+}
+
 // ValidateBlock validates b in the context of s and store.
 //
 // This function does not check whether the header's timestamp is too far in the
@@ -570,6 +1020,14 @@ func ValidateBlock(s State, store Store, b types.Block) error {
 			return err
 		}
 		ms.ApplyTransaction(store, txn)
+	}
+	if b.V2 != nil {
+		for _, txn := range b.V2.Transactions {
+			if err := ValidateV2Transaction(ms, txn); err != nil {
+				return err
+			}
+			ms.ApplyV2Transaction(txn)
+		}
 	}
 	return nil
 }
