@@ -98,6 +98,7 @@ type Manager struct {
 		txns         []types.Transaction
 		indices      map[types.TransactionID]int
 		ms           *consensus.MidState
+		weight       uint64
 		medianFee    *types.Currency
 		parentMap    map[types.Hash256]int
 		lastReverted []types.Transaction
@@ -416,8 +417,43 @@ func (m *Manager) AddSubscriber(s Subscriber, tip types.ChainIndex) error {
 }
 
 func (m *Manager) revalidatePool() {
-	if m.txpool.ms != nil {
+	txpoolMaxWeight := m.tipState.MaxBlockWeight() * 10
+	if m.txpool.ms != nil && m.txpool.weight < txpoolMaxWeight {
 		return
+	}
+	// if the pool is full, remove low-fee transactions until we are below 75%
+	//
+	// NOTE: ideally we would consider the total fees of each *set* of dependent
+	// transactions, but that's expensive; this approach should work fine in
+	// practice.
+	if m.txpool.weight >= txpoolMaxWeight {
+		// sort txns fee without modifying the actual pool slice
+		type feeTxn struct {
+			index int
+			fees  types.Currency
+		}
+		txnFees := make([]feeTxn, len(m.txpool.txns))
+		for i, txn := range m.txpool.txns {
+			txnFees[i].index = i
+			for _, fee := range txn.MinerFees {
+				txnFees[i].fees = txnFees[i].fees.Add(fee)
+			}
+		}
+		sort.Slice(txnFees, func(i, j int) bool {
+			return txnFees[i].fees.Cmp(txnFees[j].fees) < 0
+		})
+		for m.txpool.weight >= (txpoolMaxWeight*3)/4 {
+			m.txpool.weight -= m.tipState.TransactionWeight(m.txpool.txns[txnFees[0].index])
+			txnFees = txnFees[1:]
+		}
+		sort.Slice(txnFees, func(i, j int) bool {
+			return txnFees[i].index < txnFees[j].index
+		})
+		rem := m.txpool.txns[:0]
+		for _, ft := range txnFees {
+			rem = append(rem, m.txpool.txns[ft.index])
+		}
+		m.txpool.txns = rem
 	}
 
 	// remove and re-add all transactions
@@ -433,6 +469,7 @@ func (m *Manager) revalidatePool() {
 				m.txpool.ms.ApplyTransaction(cstore, txn)
 				m.txpool.indices[txn.ID()] = len(m.txpool.txns)
 				m.txpool.txns = append(m.txpool.txns, txn)
+				m.txpool.weight += m.tipState.TransactionWeight(txn)
 			}
 		}
 	})
@@ -548,34 +585,27 @@ func (m *Manager) RecommendedFee() types.Currency {
 
 	medianFee := m.computeMedianFee()
 
-	// calculate a fee proportional to the size of the pool
-	var poolSize uint64
-	for _, txn := range m.txpool.txns {
-		poolSize += uint64(types.EncodedLen(txn)) // TODO: wasteful; cache this?
-	}
-	// estimate the impact of the txn on the pool size
-	if poolSize < 1e6 {
-		poolSize += 250e3
-	} else {
-		poolSize += poolSize / 4
-	}
-	// the target size of the pool is 3 MB of transaction data, with an average
-	// fee of 1 SC / 1 KB; compute targetFee * (poolSize / targetSize)^3
+	// calculate a fee relative to the total txpool weight
+	//
+	// NOTE: empirically, the average txn weight is ~1000
+	estPoolWeight := m.txpool.weight + uint64(10e3)
+	// the target weight of the pool is 3e6, with an average fee of 1 SC / 1e3;
+	// compute targetFee * (estPoolWeight / targetWeight)^3
 	//
 	// NOTE: alternating the multiplications and divisions is crucial here to
 	// prevent immediate values from overflowing
-	const targetSize = 3e6
-	proportionalFee := types.Siacoins(1).Div64(1000).
-		Mul64(poolSize).Div64(targetSize).Mul64(poolSize).
-		Div64(targetSize).Mul64(poolSize).Div64(targetSize)
+	const targetWeight = 3e6
+	weightFee := types.Siacoins(1).Div64(1000).
+		Mul64(estPoolWeight).Div64(targetWeight).Mul64(estPoolWeight).
+		Div64(targetWeight).Mul64(estPoolWeight).Div64(targetWeight)
 
 	// finally, an absolute minumum fee: 1 SC / 100 KB
 	minFee := types.Siacoins(1).Div64(100e3)
 
 	// use the largest of all calculated fees
 	fee := medianFee
-	if fee.Cmp(proportionalFee) < 0 {
-		fee = proportionalFee
+	if fee.Cmp(weightFee) < 0 {
+		fee = weightFee
 	}
 	if fee.Cmp(minFee) < 0 {
 		fee = minFee
@@ -663,6 +693,7 @@ func (m *Manager) AddPoolTransactions(txns []types.Transaction) (err error) {
 			m.txpool.ms.ApplyTransaction(cstore, txn)
 			m.txpool.indices[txid] = len(m.txpool.txns)
 			m.txpool.txns = append(m.txpool.txns, txn)
+			m.txpool.weight += m.tipState.TransactionWeight(txn)
 		}
 	})
 	return err
