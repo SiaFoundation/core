@@ -416,6 +416,18 @@ func (m *Manager) AddSubscriber(s Subscriber, tip types.ChainIndex) error {
 	return nil
 }
 
+// RemoveSubscriber unsubscribes s from m.
+func (m *Manager) RemoveSubscriber(s Subscriber) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.subscribers {
+		if m.subscribers[i] == s {
+			m.subscribers = append(m.subscribers[:i], m.subscribers[i+1:]...)
+			return
+		}
+	}
+}
+
 func (m *Manager) revalidatePool() {
 	txpoolMaxWeight := m.tipState.MaxBlockWeight() * 10
 	if m.txpool.ms != nil && m.txpool.weight < txpoolMaxWeight {
