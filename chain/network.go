@@ -111,7 +111,7 @@ func TestnetZen() (*consensus.Network, types.Block) {
 
 		InitialCoinbase: types.Siacoins(300000),
 		MinimumCoinbase: types.Siacoins(300000),
-		InitialTarget:   types.BlockID{4: 32},
+		InitialTarget:   types.BlockID{3: 1},
 	}
 
 	n.HardforkDevAddr.Height = 1
@@ -128,7 +128,7 @@ func TestnetZen() (*consensus.Network, types.Block) {
 
 	n.HardforkASIC.Height = 20
 	n.HardforkASIC.OakTime = 10000 * time.Second
-	n.HardforkASIC.OakTarget = types.BlockID{4: 1}
+	n.HardforkASIC.OakTarget = types.BlockID{3: 1}
 
 	n.HardforkFoundation.Height = 30
 	n.HardforkFoundation.PrimaryAddress = parseAddr("addr:053b2def3cbdd078c19d62ce2b4f0b1a3c5e0ffbeeff01280efb1f8969b2f5bb4fdc680f0807")
