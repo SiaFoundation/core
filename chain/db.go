@@ -250,8 +250,20 @@ func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (*DBStore
 	err := db.Update(func(dtx DBTx) error {
 		tx := &dbTx{tx: dtx, n: n}
 
-		if _, ok := tx.getCheckpoint(genesisBlock.ID()); ok {
-			return nil // already initialized
+		if dbGenesis, ok := tx.BestIndex(0); ok {
+			if dbGenesis.ID == genesisBlock.ID() {
+				return nil // already initialized
+			} else {
+				_, mainnetGenesis := Mainnet()
+				_, zenGenesis := TestnetZen()
+				if genesisBlock.ID() == mainnetGenesis.ID() && dbGenesis.ID == zenGenesis.ID() {
+					return errors.New("cannot use Zen testnet database on mainnet")
+				} else if genesisBlock.ID() == zenGenesis.ID() && dbGenesis.ID == mainnetGenesis.ID() {
+					return errors.New("cannot use mainnet database on Zen testnet")
+				} else {
+					return errors.New("database previous initialized with different genesis block")
+				}
+			}
 		}
 		// don't accidentally overwrite a siad database
 		if dtx.Bucket([]byte("ChangeLog")) != nil {
