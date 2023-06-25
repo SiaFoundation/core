@@ -1015,13 +1015,21 @@ func ValidateBlock(s State, store Store, b types.Block) error {
 		return err
 	}
 	ms := NewMidState(s)
-	for _, txn := range b.Transactions {
-		if err := ValidateTransaction(ms, store, txn); err != nil {
-			return err
+	if len(b.Transactions) > 0 {
+		if s.childHeight() >= ms.base.Network.HardforkV2.RequireHeight {
+			return errors.New("v1 transactions are not allowed after v2 hardfork is complete")
 		}
-		ms.ApplyTransaction(store, txn)
+		for _, txn := range b.Transactions {
+			if err := ValidateTransaction(ms, store, txn); err != nil {
+				return err
+			}
+			ms.ApplyTransaction(store, txn)
+		}
 	}
 	if b.V2 != nil {
+		if s.childHeight() < ms.base.Network.HardforkV2.AllowHeight {
+			return errors.New("v2 transactions are not allowed until v2 hardfork begins")
+		}
 		for _, txn := range b.V2.Transactions {
 			if err := ValidateV2Transaction(ms, txn); err != nil {
 				return err

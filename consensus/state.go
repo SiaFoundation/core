@@ -69,6 +69,10 @@ type Network struct {
 		PrimaryAddress  types.Address `json:"primaryAddress"`
 		FailsafeAddress types.Address `json:"failsafeAddress"`
 	} `json:"hardforkFoundation"`
+	HardforkV2 struct {
+		AllowHeight   uint64 `json:"allowHeight"`
+		RequireHeight uint64 `json:"requireHeight"`
+	} `json:"hardforkV2"`
 }
 
 // GenesisState returns the state to which the genesis block should be applied.
