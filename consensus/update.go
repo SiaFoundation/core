@@ -165,6 +165,13 @@ func ApplyState(s State, store Store, b types.Block) State {
 			siafundPool = siafundPool.Add(s.FileContractTax(fc))
 		}
 	}
+	if b.V2 != nil {
+		for _, txn := range b.V2.Transactions {
+			for _, fc := range txn.FileContracts {
+				siafundPool = siafundPool.Add(s.V2FileContractTax(fc))
+			}
+		}
+	}
 
 	// update state
 	newFoundationPrimaryAddress := s.FoundationPrimaryAddress
@@ -180,6 +187,14 @@ func ApplyState(s State, store Store, b types.Block) State {
 					newFoundationFailsafeAddress = update.NewFailsafe
 					break outer // Foundation addresses can only be updated once per block
 				}
+			}
+		}
+	}
+	if b.V2 != nil {
+		for _, txn := range b.V2.Transactions {
+			if txn.NewFoundationAddress != nil {
+				newFoundationPrimaryAddress = *txn.NewFoundationAddress
+				newFoundationFailsafeAddress = *txn.NewFoundationAddress
 			}
 		}
 	}
