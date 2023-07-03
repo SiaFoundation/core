@@ -14,14 +14,15 @@ import (
 
 // A DB is a generic key-value database.
 type DB interface {
-	View(func(DBTx) error) error
-	Update(func(DBTx) error) error
+	Begin() (DBTx, error)
 }
 
 // A DBTx is a transaction executed on a key-value database.
 type DBTx interface {
 	Bucket(name []byte) DBBucket
 	CreateBucket(name []byte) (DBBucket, error)
+	Commit() error
+	Cancel()
 }
 
 // A DBBucket is a set of key-value pairs.
@@ -36,59 +37,50 @@ type MemDB struct {
 	buckets map[string]map[string][]byte
 }
 
-func (db *MemDB) tx(writeable bool) *memTx {
+// Begin implements DB.
+func (db *MemDB) Begin() (DBTx, error) {
 	tx := &memTx{
-		puts:      make(map[string]map[string][]byte),
-		dels:      make(map[string]map[string]struct{}),
-		writeable: writeable,
-		db:        db,
+		puts: make(map[string]map[string][]byte),
+		dels: make(map[string]map[string]struct{}),
+		db:   db,
 	}
 	for name := range db.buckets {
 		tx.puts[name] = make(map[string][]byte)
 		tx.dels[name] = make(map[string]struct{})
 	}
-	return tx
+	return tx, nil
 }
 
-func (db *MemDB) commit(tx *memTx) error {
+type memTx struct {
+	puts map[string]map[string][]byte
+	dels map[string]map[string]struct{}
+	db   *MemDB
+}
+
+// Commit implements DBTx.
+func (tx *memTx) Commit() error {
 	for bucket, puts := range tx.puts {
-		if db.buckets[bucket] == nil {
-			db.buckets[bucket] = make(map[string][]byte)
+		if tx.db.buckets[bucket] == nil {
+			tx.db.buckets[bucket] = make(map[string][]byte)
 		}
 		for key, val := range puts {
-			db.buckets[bucket][key] = val
+			tx.db.buckets[bucket][key] = val
 		}
 	}
 	for bucket, dels := range tx.dels {
-		if db.buckets[bucket] == nil {
-			db.buckets[bucket] = make(map[string][]byte)
+		if tx.db.buckets[bucket] == nil {
+			tx.db.buckets[bucket] = make(map[string][]byte)
 		}
 		for key := range dels {
-			delete(db.buckets[bucket], key)
+			delete(tx.db.buckets[bucket], key)
 		}
 	}
 	return nil
 }
 
-// View implements DB.
-func (db *MemDB) View(fn func(DBTx) error) error {
-	return fn(db.tx(false))
-}
-
-// Update implements DB.
-func (db *MemDB) Update(fn func(DBTx) error) error {
-	tx := db.tx(true)
-	if err := fn(tx); err != nil {
-		return err
-	}
-	return db.commit(tx)
-}
-
-type memTx struct {
-	puts      map[string]map[string][]byte
-	dels      map[string]map[string]struct{}
-	writeable bool
-	db        *MemDB
+func (tx *memTx) Cancel() {
+	tx.puts = nil
+	tx.dels = nil
 }
 
 func (tx *memTx) get(bucket string, key []byte) []byte {
@@ -101,9 +93,6 @@ func (tx *memTx) get(bucket string, key []byte) []byte {
 }
 
 func (tx *memTx) put(bucket string, key, value []byte) error {
-	if !tx.writeable {
-		panic("cannot Put within a read-only transaction")
-	}
 	if tx.puts[bucket] == nil {
 		if tx.db.buckets[bucket] == nil {
 			return errors.New("bucket does not exist")
@@ -116,9 +105,6 @@ func (tx *memTx) put(bucket string, key, value []byte) error {
 }
 
 func (tx *memTx) delete(bucket string, key []byte) error {
-	if !tx.writeable {
-		panic("cannot Delete within a read-only transaction")
-	}
 	if tx.dels[bucket] == nil {
 		if tx.db.buckets[bucket] == nil {
 			return errors.New("bucket does not exist")
@@ -176,100 +162,91 @@ var (
 
 // DBStore implements Store using a key-value database.
 type DBStore struct {
-	db      DB
-	network *consensus.Network
+	db DB
+	tx *dbTx
 }
 
-func (db DBStore) view(fn func(tx *dbTx)) {
-	err := db.db.View(func(tx DBTx) error {
-		dtx := &dbTx{tx: tx, n: db.network}
-		fn(dtx)
-		return dtx.err
-	})
-	if err != nil {
-		panic(err)
+func (db *DBStore) shouldCommit() bool {
+	return true // TODO: commit only after some length of time or number of bytes written
+}
+
+func (db *DBStore) commit() {
+	err := db.tx.commit()
+	if err == nil {
+		db.tx.tx, err = db.db.Begin()
 	}
-}
-
-func (db DBStore) update(fn func(tx *dbTx)) {
-	err := db.db.Update(func(tx DBTx) error {
-		dtx := &dbTx{tx: tx, n: db.network}
-		fn(dtx)
-		return dtx.err
-	})
 	if err != nil {
 		panic(err)
 	}
 }
 
 // ApplyDiff implements Store.
-func (db DBStore) ApplyDiff(s consensus.State, diff consensus.BlockDiff) (mayCommit bool) {
-	// NOTE: for now, we always return true; later, we should explore buffering
-	// writes in a MemDB until some flush threshold is reached.
-	db.update(func(tx *dbTx) {
-		tx.applyState(s)
-		tx.applyDiff(s, diff)
-	})
-	return true
+func (db *DBStore) Close() error {
+	if db.tx != nil {
+		err := db.tx.commit()
+		db.tx = nil
+		return err
+	}
+	return nil
+}
+
+// ApplyDiff implements Store.
+func (db *DBStore) ApplyDiff(s consensus.State, diff consensus.BlockDiff, mustCommit bool) (committed bool) {
+	db.tx.applyState(s)
+	db.tx.applyDiff(s, diff)
+	committed = mustCommit || db.shouldCommit()
+	if committed {
+		db.commit()
+	}
+	return
 }
 
 // RevertDiff implements Store.
-func (db DBStore) RevertDiff(s consensus.State, diff consensus.BlockDiff) {
-	db.update(func(tx *dbTx) {
-		tx.revertDiff(s, diff)
-		tx.revertState(s)
-	})
+func (db *DBStore) RevertDiff(s consensus.State, diff consensus.BlockDiff) {
+	db.tx.revertDiff(s, diff)
+	db.tx.revertState(s)
+	if db.shouldCommit() {
+		db.commit()
+	}
 }
 
 // WithConsensus implements Store.
-func (db DBStore) WithConsensus(fn func(consensus.Store)) {
-	db.view(func(tx *dbTx) { fn(tx) })
+func (db *DBStore) WithConsensus(fn func(consensus.Store)) {
+	fn(db.tx)
 }
 
 // AddCheckpoint implements Store.
-func (db DBStore) AddCheckpoint(c Checkpoint) {
-	db.update(func(tx *dbTx) { tx.putCheckpoint(c) })
+func (db *DBStore) AddCheckpoint(c Checkpoint) {
+	db.tx.putCheckpoint(c)
 }
 
 // Checkpoint implements Store.
-func (db DBStore) Checkpoint(id types.BlockID) (c Checkpoint, ok bool) {
-	db.view(func(tx *dbTx) { c, ok = tx.getCheckpoint(id) })
-	return
+func (db *DBStore) Checkpoint(id types.BlockID) (c Checkpoint, ok bool) {
+	return db.tx.getCheckpoint(id)
 }
 
 // BestIndex implements Store.
-func (db DBStore) BestIndex(height uint64) (index types.ChainIndex, ok bool) {
-	db.view(func(tx *dbTx) { index, ok = tx.BestIndex(height) })
-	return
+func (db *DBStore) BestIndex(height uint64) (index types.ChainIndex, ok bool) {
+	return db.tx.BestIndex(height)
 }
 
 // NewDBStore creates a new DBStore using the provided database. The current
 // checkpoint is also returned.
 func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (*DBStore, Checkpoint, error) {
-	// call Update manually so that we can return an error instead of panicking
-	err := db.Update(func(dtx DBTx) error {
-		tx := &dbTx{tx: dtx, n: n}
+	dtx, err := db.Begin()
+	if err != nil {
+		return nil, Checkpoint{}, err
+	}
+	tx := &dbTx{tx: dtx, n: n, nopanic: true} // don't panic during initialization
 
-		if dbGenesis, ok := tx.BestIndex(0); ok {
-			if dbGenesis.ID == genesisBlock.ID() {
-				return nil // already initialized
-			} else {
-				_, mainnetGenesis := Mainnet()
-				_, zenGenesis := TestnetZen()
-				if genesisBlock.ID() == mainnetGenesis.ID() && dbGenesis.ID == zenGenesis.ID() {
-					return errors.New("cannot use Zen testnet database on mainnet")
-				} else if genesisBlock.ID() == zenGenesis.ID() && dbGenesis.ID == mainnetGenesis.ID() {
-					return errors.New("cannot use mainnet database on Zen testnet")
-				} else {
-					return errors.New("database previous initialized with different genesis block")
-				}
-			}
-		}
-		// don't accidentally overwrite a siad database
-		if dtx.Bucket([]byte("ChangeLog")) != nil {
-			return errors.New("detected siad database, refusing to proceed")
-		}
+	// don't accidentally overwrite a siad database
+	if dtx.Bucket([]byte("ChangeLog")) != nil {
+		return nil, Checkpoint{}, errors.New("detected siad database, refusing to proceed")
+	}
 
+	// if the db is empty, initialize it; otherwise, check that the genesis
+	// block is correct
+	if dbGenesis, ok := tx.BestIndex(0); !ok {
 		for _, bucket := range [][]byte{
 			bVersion,
 			bMainChain,
@@ -279,38 +256,44 @@ func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (*DBStore
 			bSiafundOutputs,
 		} {
 			if _, err := dtx.CreateBucket(bucket); err != nil {
-				return err
+				dtx.Cancel()
+				return nil, Checkpoint{}, err
 			}
 		}
 		tx.bucket(bVersion).putRaw(bVersion, []byte{1})
 
-		// add genesis checkpoint and effects
+		// add genesis checkpoint and apply its effects
 		genesisState := n.GenesisState()
 		cs := consensus.ApplyState(genesisState, tx, genesisBlock)
 		diff := consensus.ApplyDiff(genesisState, tx, genesisBlock)
 		tx.putCheckpoint(Checkpoint{genesisBlock, cs, &diff})
 		tx.applyState(cs)
 		tx.applyDiff(cs, diff)
-		return tx.err
-	})
-	if err != nil {
+	} else if dbGenesis.ID != genesisBlock.ID() {
+		_, mainnetGenesis := Mainnet()
+		_, zenGenesis := TestnetZen()
+		if genesisBlock.ID() == mainnetGenesis.ID() && dbGenesis.ID == zenGenesis.ID() {
+			return nil, Checkpoint{}, errors.New("cannot use Zen testnet database on mainnet")
+		} else if genesisBlock.ID() == zenGenesis.ID() && dbGenesis.ID == mainnetGenesis.ID() {
+			return nil, Checkpoint{}, errors.New("cannot use mainnet database on Zen testnet")
+		} else {
+			return nil, Checkpoint{}, errors.New("database previously initialized with different genesis block")
+		}
+	}
+
+	index, _ := tx.BestIndex(tx.getHeight())
+	c, _ := tx.getCheckpoint(index.ID)
+	if err := tx.commit(); err != nil {
 		return nil, Checkpoint{}, err
 	}
 
-	var c Checkpoint
-	err = db.View(func(dtx DBTx) error {
-		tx := &dbTx{tx: dtx, n: n}
-		index, _ := tx.BestIndex(tx.getHeight())
-		c, _ = tx.getCheckpoint(index.ID)
-		return tx.err
-	})
+	tx.tx, err = db.Begin()
 	if err != nil {
 		return nil, Checkpoint{}, err
 	}
-
 	return &DBStore{
-		db:      db,
-		network: n,
+		db: db,
+		tx: tx,
 	}, c, nil
 }
 
@@ -365,15 +348,26 @@ func (b *dbBucket) delete(key []byte) {
 }
 
 type dbTx struct {
-	tx  DBTx
-	n   *consensus.Network // for getCheckpoint
-	err error
+	tx      DBTx
+	n       *consensus.Network // for getCheckpoint
+	err     error
+	nopanic bool
 }
 
 func (tx *dbTx) setErr(err error) {
-	if tx.err == nil {
+	if !tx.nopanic {
+		panic(err)
+	} else if tx.err == nil {
 		tx.err = err
 	}
+}
+
+func (tx *dbTx) commit() error {
+	if tx.err != nil {
+		tx.tx.Cancel()
+		return tx.err
+	}
+	return tx.tx.Commit()
 }
 
 func (tx *dbTx) bucket(name []byte) *dbBucket {

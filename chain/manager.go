@@ -82,7 +82,9 @@ type Store interface {
 	AddCheckpoint(c Checkpoint)
 	Checkpoint(id types.BlockID) (Checkpoint, bool)
 	BestIndex(height uint64) (types.ChainIndex, bool)
-	ApplyDiff(s consensus.State, diff consensus.BlockDiff) (mayCommit bool)
+	// Except when mustCommit is set, ApplyDiff and RevertDiff are free to
+	// commit whenever they see fit.
+	ApplyDiff(s consensus.State, diff consensus.BlockDiff, mustCommit bool) (committed bool)
 	RevertDiff(s consensus.State, diff consensus.BlockDiff)
 }
 
@@ -280,11 +282,19 @@ func (m *Manager) applyTip(index types.ChainIndex) error {
 		}
 		m.store.AddCheckpoint(c)
 	}
-	mayCommit := m.store.ApplyDiff(c.State, *c.Diff)
+
+	// force the store to commit if we're at the tip (or close to it), or at
+	// least every 10 seconds; this ensures that the amount of uncommitted data
+	// never grows too large
+	forceCommit := time.Since(c.Block.Timestamp) < c.State.BlockInterval()*10 || time.Since(m.lastCommit) > 10*time.Second
+	committed := m.store.ApplyDiff(c.State, *c.Diff, forceCommit)
+	if committed {
+		m.lastCommit = time.Now()
+	}
 
 	update := ApplyUpdate{c.Block, c.State, *c.Diff}
 	for _, s := range m.subscribers {
-		if err := s.ProcessChainApplyUpdate(&update, mayCommit); err != nil {
+		if err := s.ProcessChainApplyUpdate(&update, committed); err != nil {
 			return fmt.Errorf("subscriber %T: %w", s, err)
 		}
 	}

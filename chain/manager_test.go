@@ -43,6 +43,7 @@ func TestManager(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer store.Close()
 	cm := NewManager(store, checkpoint.State)
 
 	var hs historySubscriber
