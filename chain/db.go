@@ -179,22 +179,20 @@ func (db *DBStore) shouldCommit() bool {
 }
 
 func (db *DBStore) commit() {
-	err := db.tx.commit()
-	if err == nil {
-		db.tx.tx, err = db.db.Begin()
-		db.lastCommit = time.Now().Unix()
-	}
+	db.tx.commit()
+	tx, err := db.db.Begin()
 	if err != nil {
 		panic(err)
 	}
+	db.tx.tx = tx
+	db.lastCommit = time.Now().Unix()
 }
 
 // ApplyDiff implements Store.
 func (db *DBStore) Close() error {
 	if db.tx != nil {
-		err := db.tx.commit()
+		db.tx.commit()
 		db.tx = nil
-		return err
 	}
 	return nil
 }
@@ -246,7 +244,15 @@ func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (*DBStore
 	if err != nil {
 		return nil, Checkpoint{}, err
 	}
-	tx := &dbTx{tx: dtx, n: n, nopanic: true} // don't panic during initialization
+	tx := &dbTx{tx: dtx, n: n}
+
+	// during initialization, we should return an error instead of panicking
+	var txErr error
+	defer func() {
+		if r := recover(); r != nil {
+			txErr = fmt.Errorf("panic during database initialization: %v", r)
+		}
+	}()
 
 	// don't accidentally overwrite a siad database
 	if dtx.Bucket([]byte("ChangeLog")) != nil {
@@ -271,13 +277,18 @@ func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (*DBStore
 		}
 		tx.bucket(bVersion).putRaw(bVersion, []byte{1})
 
-		// add genesis checkpoint and apply its effects
+		// store genesis checkpoint and its effects, catching panic
 		genesisState := n.GenesisState()
 		cs := consensus.ApplyState(genesisState, tx, genesisBlock)
 		diff := consensus.ApplyDiff(genesisState, tx, genesisBlock)
 		tx.putCheckpoint(Checkpoint{genesisBlock, cs, &diff})
 		tx.applyState(cs)
 		tx.applyDiff(cs, diff)
+		tx.commit()
+		tx.tx, err = db.Begin()
+		if err != nil {
+			return nil, Checkpoint{}, err
+		}
 	} else if dbGenesis.ID != genesisBlock.ID() {
 		_, mainnetGenesis := Mainnet()
 		_, zenGenesis := TestnetZen()
@@ -290,21 +301,15 @@ func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (*DBStore
 		}
 	}
 
+	// load current checkpoint
 	index, _ := tx.BestIndex(tx.getHeight())
 	c, _ := tx.getCheckpoint(index.ID)
-	if err := tx.commit(); err != nil {
-		return nil, Checkpoint{}, err
-	}
 
-	tx.tx, err = db.Begin()
-	if err != nil {
-		return nil, Checkpoint{}, err
-	}
 	return &DBStore{
 		db:         db,
 		tx:         tx,
 		lastCommit: time.Now().Unix(),
-	}, c, nil
+	}, c, txErr
 }
 
 // wrappers with sticky errors and helper methods
@@ -315,31 +320,25 @@ type dbBucket struct {
 }
 
 func (b *dbBucket) getRaw(key []byte) []byte {
-	if b == nil || b.tx.err != nil {
-		return nil
-	}
 	return b.b.Get(key)
 }
 
 func (b *dbBucket) get(key []byte, v types.DecoderFrom) bool {
 	val := b.getRaw(key)
-	if val == nil || b.tx.err != nil {
+	if val == nil {
 		return false
 	}
 	d := types.NewBufDecoder(val)
 	v.DecodeFrom(d)
 	if d.Err() != nil {
-		b.tx.setErr(fmt.Errorf("error decoding %T: %w", v, d.Err()))
+		b.tx.check(fmt.Errorf("error decoding %T: %w", v, d.Err()))
 		return false
 	}
 	return true
 }
 
 func (b *dbBucket) putRaw(key, value []byte) {
-	if b == nil || b.tx.err != nil {
-		return
-	}
-	b.tx.setErr(b.b.Put(key, value))
+	b.tx.check(b.b.Put(key, value))
 	b.tx.size += len(value)
 }
 
@@ -352,46 +351,28 @@ func (b *dbBucket) put(key []byte, v types.EncoderTo) {
 }
 
 func (b *dbBucket) delete(key []byte) {
-	if b == nil || b.tx.err != nil {
-		return
-	}
-	b.tx.setErr(b.b.Delete(key))
+	b.tx.check(b.b.Delete(key))
 }
 
 type dbTx struct {
-	tx      DBTx
-	n       *consensus.Network // for getCheckpoint
-	err     error
-	nopanic bool
-	size    int
+	tx   DBTx
+	n    *consensus.Network // for getCheckpoint
+	size int
 }
 
-func (tx *dbTx) setErr(err error) {
-	if !tx.nopanic {
+func (tx *dbTx) check(err error) {
+	if err != nil {
 		panic(err)
-	} else if tx.err == nil {
-		tx.err = err
 	}
 }
 
-func (tx *dbTx) commit() error {
+func (tx *dbTx) commit() {
+	tx.check(tx.tx.Commit())
 	tx.size = 0
-	if tx.err != nil {
-		tx.tx.Cancel()
-		return tx.err
-	}
-	return tx.tx.Commit()
 }
 
 func (tx *dbTx) bucket(name []byte) *dbBucket {
-	if tx.err != nil {
-		return nil
-	}
-	b := tx.tx.Bucket(name)
-	if b == nil {
-		return nil
-	}
-	return &dbBucket{b, tx}
+	return &dbBucket{tx.tx.Bucket(name), tx}
 }
 
 func (tx *dbTx) encHeight(height uint64) []byte {
@@ -494,7 +475,7 @@ func (tx *dbTx) deleteFileContracts(fcds []consensus.FileContractDiff) {
 	for _, fcd := range fcds {
 		var fc types.FileContract
 		if !b.get(fcd.ID[:], &fc) {
-			tx.setErr(fmt.Errorf("missing file contract %v", fcd.ID))
+			tx.check(fmt.Errorf("missing file contract %v", fcd.ID))
 		}
 		b.delete(fcd.ID[:])
 		byHeight[fc.WindowEnd] = append(byHeight[fc.WindowEnd], fcd.ID)
@@ -518,7 +499,7 @@ func (tx *dbTx) deleteFileContracts(fcds []consensus.FileContractDiff) {
 		}
 		b.putRaw(key, val)
 		if len(toDelete) != 0 {
-			tx.setErr(errors.New("missing expired file contract(s)"))
+			tx.check(errors.New("missing expired file contract(s)"))
 		}
 	}
 }
@@ -564,7 +545,7 @@ func (tx *dbTx) MaturedSiacoinOutputs(height uint64) (dscods []consensus.Delayed
 		dscods = append(dscods, dscod)
 	}
 	if !errors.Is(d.Err(), io.EOF) {
-		tx.setErr(d.Err())
+		tx.check(d.Err())
 	}
 	return
 }
@@ -580,7 +561,7 @@ func (tx *dbTx) putDelayedSiacoinOutputs(dscods []consensus.DelayedSiacoinOutput
 	e := types.NewEncoder(&buf)
 	for _, dscod := range dscods {
 		if dscod.MaturityHeight != maturityHeight {
-			tx.setErr(errors.New("mismatched maturity heights"))
+			tx.check(errors.New("mismatched maturity heights"))
 			return
 		}
 		dscod.EncodeTo(e)
@@ -597,7 +578,7 @@ func (tx *dbTx) deleteDelayedSiacoinOutputs(dscods []consensus.DelayedSiacoinOut
 	toDelete := make(map[types.SiacoinOutputID]struct{})
 	for _, dscod := range dscods {
 		if dscod.MaturityHeight != maturityHeight {
-			tx.setErr(errors.New("mismatched maturity heights"))
+			tx.check(errors.New("mismatched maturity heights"))
 			return
 		}
 		toDelete[dscod.ID] = struct{}{}
@@ -611,7 +592,7 @@ func (tx *dbTx) deleteDelayedSiacoinOutputs(dscods []consensus.DelayedSiacoinOut
 		delete(toDelete, mdscod.ID)
 	}
 	if len(toDelete) != 0 {
-		tx.setErr(errors.New("missing delayed siacoin output(s)"))
+		tx.check(errors.New("missing delayed siacoin output(s)"))
 		return
 	}
 	e.Flush()
@@ -633,7 +614,7 @@ func (tx *dbTx) deleteFoundationOutput(id types.SiacoinOutputID) {
 			return
 		}
 	}
-	tx.setErr(fmt.Errorf("missing Foundation output %v", id))
+	tx.check(fmt.Errorf("missing Foundation output %v", id))
 }
 
 func (tx *dbTx) moveFoundationOutputs(addr types.Address) {
