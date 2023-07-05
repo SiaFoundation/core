@@ -167,7 +167,9 @@ type DBStore struct {
 }
 
 func (db *DBStore) shouldCommit() bool {
-	return true // TODO: commit only after some length of time or number of bytes written
+	// minimum number of bytes written in the transaction until we commit it
+	const commitSizeThreshold = 1 << 20 // ~1 MB
+	return db.tx.size >= commitSizeThreshold
 }
 
 func (db *DBStore) commit() {
@@ -330,6 +332,7 @@ func (b *dbBucket) putRaw(key, value []byte) {
 		return
 	}
 	b.tx.setErr(b.b.Put(key, value))
+	b.tx.size += len(value)
 }
 
 func (b *dbBucket) put(key []byte, v types.EncoderTo) {
@@ -352,6 +355,7 @@ type dbTx struct {
 	n       *consensus.Network // for getCheckpoint
 	err     error
 	nopanic bool
+	size    int
 }
 
 func (tx *dbTx) setErr(err error) {
@@ -363,6 +367,7 @@ func (tx *dbTx) setErr(err error) {
 }
 
 func (tx *dbTx) commit() error {
+	tx.size = 0
 	if tx.err != nil {
 		tx.tx.Cancel()
 		return tx.err
