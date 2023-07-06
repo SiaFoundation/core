@@ -136,11 +136,9 @@ func TestValidateBlock(t *testing.T) {
 	validBlock := deepCopyBlock(b)
 	signTxn(&validBlock.Transactions[0])
 	findBlockNonce(cs, &validBlock)
-	dbStore.WithConsensus(func(cstore consensus.Store) {
-		if err := consensus.ValidateBlock(cs, cstore, validBlock); err != nil {
-			t.Fatal(err)
-		}
-	})
+	if err := consensus.ValidateBlock(cs, dbStore, validBlock); err != nil {
+		t.Fatal(err)
+	}
 
 	{
 		tests := []struct {
@@ -416,11 +414,9 @@ func TestValidateBlock(t *testing.T) {
 			signTxn(&corruptBlock.Transactions[0])
 			findBlockNonce(cs, &corruptBlock)
 
-			dbStore.WithConsensus(func(cstore consensus.Store) {
-				if err := consensus.ValidateBlock(cs, cstore, corruptBlock); err == nil {
-					t.Fatalf("accepted block with %v", test.desc)
-				}
-			})
+			if err := consensus.ValidateBlock(cs, dbStore, corruptBlock); err == nil {
+				t.Fatalf("accepted block with %v", test.desc)
+			}
 		}
 	}
 }

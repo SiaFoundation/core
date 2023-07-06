@@ -34,6 +34,7 @@ func TestApplyBlock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer dbStore.Close()
 	cs := checkpoint.State
 
 	signTxn := func(txn *types.Transaction) {
@@ -57,13 +58,11 @@ func TestApplyBlock(t *testing.T) {
 		}
 	}
 	addBlock := func(b types.Block) (diff consensus.BlockDiff, err error) {
-		dbStore.WithConsensus(func(cstore consensus.Store) {
-			if err = consensus.ValidateBlock(cs, cstore, b); err != nil {
-				return
-			}
-			diff = consensus.ApplyDiff(cs, cstore, b)
-			cs = consensus.ApplyState(cs, cstore, b)
-		})
+		if err = consensus.ValidateBlock(cs, dbStore, b); err != nil {
+			return
+		}
+		diff = consensus.ApplyDiff(cs, dbStore, b)
+		cs = consensus.ApplyState(cs, dbStore, b)
 		return
 	}
 

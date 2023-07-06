@@ -60,9 +60,7 @@ func TestManager(t *testing.T) {
 				}},
 			}
 			findBlockNonce(cs, &b)
-			store.WithConsensus(func(cstore consensus.Store) {
-				cs = consensus.ApplyState(cs, cstore, b)
-			})
+			cs = consensus.ApplyState(cs, store, b)
 			blocks = append(blocks, b)
 		}
 		return
