@@ -164,18 +164,25 @@ var (
 type DBStore struct {
 	db DB
 	tx *dbTx
+
+	lastCommit int64
 }
 
 func (db *DBStore) shouldCommit() bool {
-	// minimum number of bytes written in the transaction until we commit it
-	const commitSizeThreshold = 1 << 20 // ~1 MB
-	return db.tx.size >= commitSizeThreshold
+	const (
+		// minimum number of bytes written in the transaction until we commit
+		commitSizeThreshold = 1 << 20 // ~1 MB
+		// ...or we will also commit if a certain amount of time has passed
+		commitDurationThreshold = 5 // seconds
+	)
+	return db.tx.size >= commitSizeThreshold || (time.Now().Unix()-db.lastCommit) >= commitDurationThreshold
 }
 
 func (db *DBStore) commit() {
 	err := db.tx.commit()
 	if err == nil {
 		db.tx.tx, err = db.db.Begin()
+		db.lastCommit = time.Now().Unix()
 	}
 	if err != nil {
 		panic(err)
@@ -294,8 +301,9 @@ func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (*DBStore
 		return nil, Checkpoint{}, err
 	}
 	return &DBStore{
-		db: db,
-		tx: tx,
+		db:         db,
+		tx:         tx,
+		lastCommit: time.Now().Unix(),
 	}, c, nil
 }
 
