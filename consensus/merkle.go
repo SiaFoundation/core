@@ -35,6 +35,23 @@ func proofRoot(leafHash types.Hash256, leafIndex uint64, proof []types.Hash256) 
 	return root
 }
 
+func storageProofRoot(leafHash types.Hash256, leafIndex uint64, filesize uint64, proof []types.Hash256) types.Hash256 {
+	const leafSize = uint64(len(types.V2StorageProof{}.Leaf))
+	lastLeafIndex := filesize / leafSize
+	if filesize%leafSize == 0 {
+		lastLeafIndex--
+	}
+	subtreeHeight := bits.Len64(leafIndex ^ lastLeafIndex)
+	if len(proof) < subtreeHeight {
+		return types.Hash256{} // invalid proof
+	}
+	root := proofRoot(leafHash, leafIndex, proof[:subtreeHeight])
+	for _, h := range proof[subtreeHeight:] {
+		root = blake2b.SumPair(root, h)
+	}
+	return root
+}
+
 // An ElementLeaf represents a leaf in the ElementAccumulator Merkle tree.
 type ElementLeaf struct {
 	types.StateElement
@@ -97,6 +114,21 @@ func FileContractLeaf(e types.FileContractElement, spent bool) ElementLeaf {
 	defer hasherPool.Put(h)
 	h.Reset()
 	h.E.WriteString("sia/leaf/filecontract|")
+	e.ID.EncodeTo(h.E)
+	e.FileContract.EncodeTo(h.E)
+	return ElementLeaf{
+		StateElement: e.StateElement,
+		ElementHash:  h.Sum(),
+		Spent:        spent,
+	}
+}
+
+// V2FileContractLeaf returns the ElementLeaf for a V2FileContractElement.
+func V2FileContractLeaf(e types.V2FileContractElement, spent bool) ElementLeaf {
+	h := hasherPool.Get().(*types.Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	h.E.WriteString("sia/leaf/v2filecontract|")
 	e.ID.EncodeTo(h.E)
 	e.V2FileContract.EncodeTo(h.E)
 	return ElementLeaf{
@@ -204,16 +236,16 @@ func (acc *ElementAccumulator) ContainsSpentSiafundElement(sfe types.SiafundElem
 	return acc.containsLeaf(SiafundLeaf(sfe, true))
 }
 
-// ContainsUnresolvedFileContractElement returns true if the accumulator
+// ContainsUnresolvedV2FileContractElement returns true if the accumulator
 // contains fce as an unresolved file contract.
-func (acc *ElementAccumulator) ContainsUnresolvedFileContractElement(fce types.FileContractElement) bool {
-	return acc.containsLeaf(FileContractLeaf(fce, false))
+func (acc *ElementAccumulator) ContainsUnresolvedV2FileContractElement(fce types.V2FileContractElement) bool {
+	return acc.containsLeaf(V2FileContractLeaf(fce, false))
 }
 
-// ContainsResolvedFileContractElement returns true if the accumulator contains
+// ContainsResolvedV2FileContractElement returns true if the accumulator contains
 // fce as a resolved file contract.
-func (acc *ElementAccumulator) ContainsResolvedFileContractElement(fce types.FileContractElement) bool {
-	return acc.containsLeaf(FileContractLeaf(fce, true))
+func (acc *ElementAccumulator) ContainsResolvedV2FileContractElement(fce types.V2FileContractElement) bool {
+	return acc.containsLeaf(V2FileContractLeaf(fce, true))
 }
 
 // addLeaves adds the supplied leaves to the accumulator, filling in their

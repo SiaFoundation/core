@@ -524,7 +524,7 @@ func (s State) ContractSigHash(fc types.V2FileContract) types.Hash256 {
 }
 
 // RenewalSigHash returns the hash that must be signed for a file contract renewal.
-func (s State) RenewalSigHash(fcr types.FileContractRenewal) types.Hash256 {
+func (s State) RenewalSigHash(fcr types.V2FileContractRenewal) types.Hash256 {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()

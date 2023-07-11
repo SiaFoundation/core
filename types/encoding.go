@@ -568,6 +568,12 @@ func (fc V2FileContract) EncodeTo(e *Encoder) {
 // EncodeTo implements types.EncoderTo.
 func (fce FileContractElement) EncodeTo(e *Encoder) {
 	fce.StateElement.EncodeTo(e)
+	fce.FileContract.EncodeTo(e)
+}
+
+// EncodeTo implements types.EncoderTo.
+func (fce V2FileContractElement) EncodeTo(e *Encoder) {
+	fce.StateElement.EncodeTo(e)
 	fce.V2FileContract.EncodeTo(e)
 }
 
@@ -578,7 +584,7 @@ func (rev V2FileContractRevision) EncodeTo(e *Encoder) {
 }
 
 // EncodeTo implements types.EncoderTo.
-func (ren FileContractRenewal) EncodeTo(e *Encoder) {
+func (ren V2FileContractRenewal) EncodeTo(e *Encoder) {
 	ren.FinalRevision.EncodeTo(e)
 	ren.InitialRevision.EncodeTo(e)
 	ren.RenterRollover.EncodeTo(e)
@@ -602,13 +608,13 @@ func (sp V2StorageProof) EncodeTo(e *Encoder) {
 }
 
 // EncodeTo implements types.EncoderTo.
-func (FileContractExpiration) EncodeTo(e *Encoder) {}
+func (V2FileContractExpiration) EncodeTo(e *Encoder) {}
 
 // EncodeTo implements types.EncoderTo.
-func (res FileContractResolution) EncodeTo(e *Encoder) {
+func (res V2FileContractResolution) EncodeTo(e *Encoder) {
 	res.Parent.EncodeTo(e)
 	switch r := res.Resolution.(type) {
-	case FileContractRenewal:
+	case V2FileContractRenewal:
 		e.WriteUint8(0)
 		r.EncodeTo(e)
 	case V2StorageProof:
@@ -617,7 +623,7 @@ func (res FileContractResolution) EncodeTo(e *Encoder) {
 	case V2FileContract:
 		e.WriteUint8(2)
 		r.EncodeTo(e)
-	case FileContractExpiration:
+	case V2FileContractExpiration:
 		e.WriteUint8(3)
 		r.EncodeTo(e)
 	default:
@@ -1108,6 +1114,12 @@ func (fc *V2FileContract) DecodeFrom(d *Decoder) {
 // DecodeFrom implements types.DecoderFrom.
 func (fce *FileContractElement) DecodeFrom(d *Decoder) {
 	fce.StateElement.DecodeFrom(d)
+	fce.FileContract.DecodeFrom(d)
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (fce *V2FileContractElement) DecodeFrom(d *Decoder) {
+	fce.StateElement.DecodeFrom(d)
 	fce.V2FileContract.DecodeFrom(d)
 }
 
@@ -1118,7 +1130,7 @@ func (rev *V2FileContractRevision) DecodeFrom(d *Decoder) {
 }
 
 // DecodeFrom implements types.DecoderFrom.
-func (ren *FileContractRenewal) DecodeFrom(d *Decoder) {
+func (ren *V2FileContractRenewal) DecodeFrom(d *Decoder) {
 	ren.FinalRevision.DecodeFrom(d)
 	ren.InitialRevision.DecodeFrom(d)
 	ren.RenterRollover.DecodeFrom(d)
@@ -1142,14 +1154,14 @@ func (sp *V2StorageProof) DecodeFrom(d *Decoder) {
 }
 
 // DecodeFrom implements types.DecoderFrom.
-func (*FileContractExpiration) DecodeFrom(d *Decoder) {}
+func (*V2FileContractExpiration) DecodeFrom(d *Decoder) {}
 
 // DecodeFrom implements types.DecoderFrom.
-func (res *FileContractResolution) DecodeFrom(d *Decoder) {
+func (res *V2FileContractResolution) DecodeFrom(d *Decoder) {
 	res.Parent.DecodeFrom(d)
 	switch t := d.ReadUint8(); t {
 	case 0:
-		var r FileContractRenewal
+		var r V2FileContractRenewal
 		r.DecodeFrom(d)
 		res.Resolution = r
 	case 1:
@@ -1161,7 +1173,7 @@ func (res *FileContractResolution) DecodeFrom(d *Decoder) {
 		r.DecodeFrom(d)
 		res.Resolution = r
 	case 3:
-		var r FileContractExpiration
+		var r V2FileContractExpiration
 		r.DecodeFrom(d)
 		res.Resolution = r
 	default:
@@ -1223,7 +1235,7 @@ func (txn *V2Transaction) DecodeFrom(d *Decoder) {
 		}
 	}
 	if fields&(1<<6) != 0 {
-		txn.FileContractResolutions = make([]FileContractResolution, d.ReadPrefix())
+		txn.FileContractResolutions = make([]V2FileContractResolution, d.ReadPrefix())
 		for i := range txn.FileContractResolutions {
 			txn.FileContractResolutions[i].DecodeFrom(d)
 		}

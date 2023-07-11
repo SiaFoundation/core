@@ -491,12 +491,12 @@ type V2SiafundInput struct {
 
 // A V2FileContractRevision updates the state of an existing file contract.
 type V2FileContractRevision struct {
-	Parent   FileContractElement `json:"parent"`
-	Revision V2FileContract      `json:"revision"`
+	Parent   V2FileContractElement `json:"parent"`
+	Revision V2FileContract        `json:"revision"`
 }
 
-// A FileContractResolution closes a file contract's payment channel. There are
-// four ways a contract can be resolved:
+// A V2FileContractResolution closes a v2 file contract's payment channel. There
+// are four ways a contract can be resolved:
 //
 // 1) The host can submit a storage proof. This is considered a "valid"
 // resolution: the RenterOutput and HostOutput fields of the (finalized)
@@ -521,23 +521,23 @@ type V2FileContractRevision struct {
 // ExpirationHeight. Since anyone can submit an expiration, it is generally in
 // the renter and/or host's interest to submit a different type of resolution
 // prior to the ExpirationHeight.
-type FileContractResolution struct {
-	Parent     FileContractElement        `json:"parent"`
-	Resolution FileContractResolutionType `json:"resolution"`
+type V2FileContractResolution struct {
+	Parent     V2FileContractElement        `json:"parent"`
+	Resolution V2FileContractResolutionType `json:"resolution"`
 }
 
-// FileContractResolutionType enumerates the types of file contract resolution.
-type FileContractResolutionType interface {
-	isFileContractResolution()
+// V2FileContractResolutionType enumerates the types of file contract resolution.
+type V2FileContractResolutionType interface {
+	isV2FileContractResolution()
 }
 
-func (FileContractRenewal) isFileContractResolution()    {}
-func (V2StorageProof) isFileContractResolution()         {}
-func (V2FileContract) isFileContractResolution()         {} // finalization
-func (FileContractExpiration) isFileContractResolution() {}
+func (V2FileContractRenewal) isV2FileContractResolution()    {}
+func (V2StorageProof) isV2FileContractResolution()           {}
+func (V2FileContract) isV2FileContractResolution()           {} // finalization
+func (V2FileContractExpiration) isV2FileContractResolution() {}
 
-// A FileContractRenewal renews a file contract.
-type FileContractRenewal struct {
+// A V2FileContractRenewal renews a file contract.
+type V2FileContractRenewal struct {
 	FinalRevision   V2FileContract `json:"finalRevision"`
 	InitialRevision V2FileContract `json:"initialRevision"`
 	RenterRollover  Currency       `json:"renterRollover"`
@@ -567,10 +567,10 @@ type V2StorageProof struct {
 	Proof []Hash256
 }
 
-// A FileContractExpiration resolves an expired contract. A contract is
+// A V2FileContractExpiration resolves an expired contract. A contract is
 // considered expired when its proof window has elapsed. If the contract is not
 // storing any data, it will resolve as valid; otherwise, it resolves as missed.
-type FileContractExpiration struct{}
+type V2FileContractExpiration struct{}
 
 // A StateElement is a generic element within the state accumulator.
 type StateElement struct {
@@ -598,6 +598,12 @@ type SiafundElement struct {
 // A FileContractElement is a storage agreement between a renter and a host.
 type FileContractElement struct {
 	StateElement
+	FileContract
+}
+
+// A V2FileContractElement is a storage agreement between a renter and a host.
+type V2FileContractElement struct {
+	StateElement
 	V2FileContract
 }
 
@@ -616,17 +622,17 @@ type Attestation struct {
 
 // A V2Transaction effects a change of blockchain state.
 type V2Transaction struct {
-	SiacoinInputs           []V2SiacoinInput         `json:"siacoinInputs,omitempty"`
-	SiacoinOutputs          []SiacoinOutput          `json:"siacoinOutputs,omitempty"`
-	SiafundInputs           []V2SiafundInput         `json:"siafundInputs,omitempty"`
-	SiafundOutputs          []SiafundOutput          `json:"siafundOutputs,omitempty"`
-	FileContracts           []V2FileContract         `json:"fileContracts,omitempty"`
-	FileContractRevisions   []V2FileContractRevision `json:"fileContractRevisions,omitempty"`
-	FileContractResolutions []FileContractResolution `json:"fileContractResolutions,omitempty"`
-	Attestations            []Attestation            `json:"attestations,omitempty"`
-	ArbitraryData           []byte                   `json:"arbitraryData,omitempty"`
-	NewFoundationAddress    *Address                 `json:"newFoundationAddress,omitempty"`
-	MinerFee                Currency                 `json:"minerFee"`
+	SiacoinInputs           []V2SiacoinInput           `json:"siacoinInputs,omitempty"`
+	SiacoinOutputs          []SiacoinOutput            `json:"siacoinOutputs,omitempty"`
+	SiafundInputs           []V2SiafundInput           `json:"siafundInputs,omitempty"`
+	SiafundOutputs          []SiafundOutput            `json:"siafundOutputs,omitempty"`
+	FileContracts           []V2FileContract           `json:"fileContracts,omitempty"`
+	FileContractRevisions   []V2FileContractRevision   `json:"fileContractRevisions,omitempty"`
+	FileContractResolutions []V2FileContractResolution `json:"fileContractResolutions,omitempty"`
+	Attestations            []Attestation              `json:"attestations,omitempty"`
+	ArbitraryData           []byte                     `json:"arbitraryData,omitempty"`
+	NewFoundationAddress    *Address                   `json:"newFoundationAddress,omitempty"`
+	MinerFee                Currency                   `json:"minerFee"`
 }
 
 // ID returns the "semantic hash" of the transaction, covering all of the
@@ -744,7 +750,7 @@ func (txn *V2Transaction) DeepCopy() V2Transaction {
 	for i := range c.FileContractRevisions {
 		c.FileContractRevisions[i].Parent.MerkleProof = append([]Hash256(nil), c.FileContractRevisions[i].Parent.MerkleProof...)
 	}
-	c.FileContractResolutions = append([]FileContractResolution(nil), c.FileContractResolutions...)
+	c.FileContractResolutions = append([]V2FileContractResolution(nil), c.FileContractResolutions...)
 	for i := range c.FileContractResolutions {
 		c.FileContractResolutions[i].Parent.MerkleProof = append([]Hash256(nil), c.FileContractResolutions[i].Parent.MerkleProof...)
 		if sp, ok := c.FileContractResolutions[i].Resolution.(V2StorageProof); ok {
@@ -1045,29 +1051,29 @@ func (sp *StorageProof) UnmarshalJSON(b []byte) error {
 }
 
 // MarshalJSON implements json.Marshaler.
-func (res FileContractResolution) MarshalJSON() ([]byte, error) {
+func (res V2FileContractResolution) MarshalJSON() ([]byte, error) {
 	var typ string
 	switch res.Resolution.(type) {
-	case FileContractRenewal:
+	case V2FileContractRenewal:
 		typ = "renewal"
 	case V2StorageProof:
 		typ = "storage proof"
 	case V2FileContract:
 		typ = "finalization"
-	case FileContractExpiration:
+	case V2FileContractExpiration:
 		typ = "expiration"
 	}
 	return json.Marshal(struct {
-		Parent     FileContractElement        `json:"parent"`
-		Type       string                     `json:"type"`
-		Resolution FileContractResolutionType `json:"resolution,omitempty"`
+		Parent     V2FileContractElement        `json:"parent"`
+		Type       string                       `json:"type"`
+		Resolution V2FileContractResolutionType `json:"resolution,omitempty"`
 	}{res.Parent, typ, res.Resolution})
 }
 
 // UnmarshalJSON implements json.Marshaler.
-func (res *FileContractResolution) UnmarshalJSON(b []byte) error {
+func (res *V2FileContractResolution) UnmarshalJSON(b []byte) error {
 	var p struct {
-		Parent     FileContractElement
+		Parent     V2FileContractElement
 		Type       string
 		Resolution json.RawMessage
 	}
@@ -1076,7 +1082,7 @@ func (res *FileContractResolution) UnmarshalJSON(b []byte) error {
 	}
 	switch p.Type {
 	case "renewal":
-		var r FileContractRenewal
+		var r V2FileContractRenewal
 		if err := json.Unmarshal(p.Resolution, &r); err != nil {
 			return err
 		}
@@ -1094,7 +1100,7 @@ func (res *FileContractResolution) UnmarshalJSON(b []byte) error {
 		}
 		res.Resolution = r
 	case "expiration":
-		var r FileContractExpiration
+		var r V2FileContractExpiration
 		if err := json.Unmarshal(p.Resolution, &r); err != nil {
 			return err
 		}

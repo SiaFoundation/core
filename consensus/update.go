@@ -525,9 +525,9 @@ func (td *TransactionDiff) DecodeFrom(d *types.Decoder) {
 // A V2TransactionDiff contains the elements added to the state accumulator by a
 // v2 transaction.
 type V2TransactionDiff struct {
-	CreatedSiacoinElements []types.SiacoinElement      `json:"createdSiacoinElements,omitempty"`
-	CreatedSiafundElements []types.SiafundElement      `json:"createdSiafundElements,omitempty"`
-	CreatedFileContracts   []types.FileContractElement `json:"createdFileContracts,omitempty"`
+	CreatedSiacoinElements []types.SiacoinElement        `json:"createdSiacoinElements,omitempty"`
+	CreatedSiafundElements []types.SiafundElement        `json:"createdSiafundElements,omitempty"`
+	CreatedFileContracts   []types.V2FileContractElement `json:"createdFileContracts,omitempty"`
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -556,7 +556,7 @@ func (td *V2TransactionDiff) DecodeFrom(d *types.Decoder) {
 	for i := range td.CreatedSiafundElements {
 		td.CreatedSiafundElements[i].DecodeFrom(d)
 	}
-	td.CreatedFileContracts = make([]types.FileContractElement, d.ReadPrefix())
+	td.CreatedFileContracts = make([]types.V2FileContractElement, d.ReadPrefix())
 	for i := range td.CreatedFileContracts {
 		td.CreatedFileContracts[i].DecodeFrom(d)
 	}
@@ -767,7 +767,7 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 				})
 			}
 			for _, fc := range txn.FileContracts {
-				tdiff.CreatedFileContracts = append(tdiff.CreatedFileContracts, types.FileContractElement{
+				tdiff.CreatedFileContracts = append(tdiff.CreatedFileContracts, types.V2FileContractElement{
 					StateElement:   types.StateElement{ID: types.Hash256(v2FileContractID(txid, len(tdiff.CreatedFileContracts)))},
 					V2FileContract: fc,
 				})
@@ -788,8 +788,8 @@ func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
 				})
 			}
 			for _, res := range txn.FileContractResolutions {
-				if r, ok := res.Resolution.(types.FileContractRenewal); ok {
-					tdiff.CreatedFileContracts = append(tdiff.CreatedFileContracts, types.FileContractElement{
+				if r, ok := res.Resolution.(types.V2FileContractRenewal); ok {
+					tdiff.CreatedFileContracts = append(tdiff.CreatedFileContracts, types.V2FileContractElement{
 						StateElement:   types.StateElement{ID: types.Hash256(v2FileContractID(txid, len(tdiff.CreatedFileContracts)))},
 						V2FileContract: r.InitialRevision,
 					})

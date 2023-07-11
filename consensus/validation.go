@@ -638,7 +638,7 @@ func validateV2CurrencyValues(ms *MidState, txn types.V2Transaction) error {
 	}
 	for i, res := range txn.FileContractResolutions {
 		switch r := res.Resolution.(type) {
-		case types.FileContractRenewal:
+		case types.V2FileContractRenewal:
 			if r.InitialRevision.RenterOutput.Value.IsZero() && r.InitialRevision.HostOutput.Value.IsZero() {
 				return fmt.Errorf("file contract renewal %v creates contract with zero value", i)
 			}
@@ -746,7 +746,7 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 		outputSum = outputSum.Add(fc.RenterOutput.Value).Add(fc.HostOutput.Value).Add(ms.base.V2FileContractTax(fc))
 	}
 	for _, res := range txn.FileContractResolutions {
-		if r, ok := res.Resolution.(types.FileContractRenewal); ok {
+		if r, ok := res.Resolution.(types.V2FileContractRenewal); ok {
 			// a renewal creates a new contract, optionally "rolling over" funds
 			// from the old contract
 			inputSum = inputSum.Add(r.RenterRollover)
@@ -815,11 +815,11 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 		return errors.New("transaction both resolves a file contract and creates new outputs")
 	}
 
-	validateParent := func(fce types.FileContractElement) error {
+	validateParent := func(fce types.V2FileContractElement) error {
 		if txid, ok := ms.spent(fce.ID); ok {
 			return fmt.Errorf("has already been resolved in transaction %v", txid)
-		} else if !ms.base.Elements.ContainsUnresolvedFileContractElement(fce) {
-			if ms.base.Elements.ContainsResolvedFileContractElement(fce) {
+		} else if !ms.base.Elements.ContainsUnresolvedV2FileContractElement(fce) {
+			if ms.base.Elements.ContainsResolvedV2FileContractElement(fce) {
 				return errors.New("has already been resolved in a previous block")
 			}
 			return errors.New("is not present in the accumulator")
@@ -905,7 +905,7 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 		}
 		fc := fcr.Parent.V2FileContract
 		switch r := fcr.Resolution.(type) {
-		case types.FileContractRenewal:
+		case types.V2FileContractRenewal:
 			renewal := r
 			old, renewed := renewal.FinalRevision, renewal.InitialRevision
 			if old.RevisionNumber != types.MaxRevisionNumber {
@@ -950,10 +950,10 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 				return fmt.Errorf("file contract storage proof %v has invalid history proof", i)
 			}
 			leafIndex := ms.base.StorageProofLeafIndex(fc.Filesize, sp.ProofStart, types.FileContractID(fcr.Parent.ID))
-			if proofRoot(ms.base.StorageProofLeafHash(sp.Leaf[:]), leafIndex, sp.Proof) != fc.FileMerkleRoot {
+			if storageProofRoot(ms.base.StorageProofLeafHash(sp.Leaf[:]), leafIndex, fc.Filesize, sp.Proof) != fc.FileMerkleRoot {
 				return fmt.Errorf("file contract storage proof %v has root that does not match contract Merkle root", i)
 			}
-		case types.FileContractExpiration:
+		case types.V2FileContractExpiration:
 			if ms.base.childHeight() <= fc.ExpirationHeight {
 				return fmt.Errorf("file contract expiration %v cannot be submitted until after expiration height (%v) ", i, fc.ExpirationHeight)
 			}
