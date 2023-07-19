@@ -275,9 +275,9 @@ func (m *Manager) applyTip(index types.ChainIndex) error {
 	}
 
 	// force the store to commit if we're at the tip (or close to it), or at
-	// least every 10 seconds; this ensures that the amount of uncommitted data
+	// least every 2 seconds; this ensures that the amount of uncommitted data
 	// never grows too large
-	forceCommit := time.Since(c.Block.Timestamp) < c.State.BlockInterval()*10 || time.Since(m.lastCommit) > 10*time.Second
+	forceCommit := time.Since(c.Block.Timestamp) < c.State.BlockInterval()*2 || time.Since(m.lastCommit) > 2*time.Second
 	committed := m.store.ApplyDiff(c.State, *c.Diff, forceCommit)
 	if committed {
 		m.lastCommit = time.Now()

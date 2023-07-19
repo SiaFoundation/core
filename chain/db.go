@@ -567,8 +567,10 @@ func (db *DBStore) Checkpoint(id types.BlockID) (c Checkpoint, ok bool) {
 }
 
 func (db *DBStore) shouldFlush() bool {
-	const flushSizeThreshold = 1 << 20 // ~1 MB
-	const flushDurationThreshold = 5 * time.Second
+	// NOTE: these values were chosen empirically and should constitute a
+	// sensible default; if necessary, we can make them configurable
+	const flushSizeThreshold = 2e6
+	const flushDurationThreshold = 100 * time.Millisecond
 	return db.unflushed >= flushSizeThreshold || time.Since(db.lastFlush) >= flushDurationThreshold
 }
 
