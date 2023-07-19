@@ -78,11 +78,13 @@ type Subscriber interface {
 // A Store durably commits Manager-related data to storage. I/O errors must be
 // handled internally, e.g. by panicking or calling os.Exit.
 type Store interface {
-	WithConsensus(func(consensus.Store))
+	consensus.Store
+
 	AddCheckpoint(c Checkpoint)
 	Checkpoint(id types.BlockID) (Checkpoint, bool)
-	BestIndex(height uint64) (types.ChainIndex, bool)
-	ApplyDiff(s consensus.State, diff consensus.BlockDiff) (mayCommit bool)
+	// Except when mustCommit is set, ApplyDiff and RevertDiff are free to
+	// commit whenever they see fit.
+	ApplyDiff(s consensus.State, diff consensus.BlockDiff, mustCommit bool) (committed bool)
 	RevertDiff(s consensus.State, diff consensus.BlockDiff)
 }
 
@@ -217,9 +219,7 @@ func (m *Manager) AddBlocks(blocks []types.Block) error {
 		} else if err := consensus.ValidateOrphan(cs, b); err != nil {
 			return fmt.Errorf("block %v is invalid: %w", types.ChainIndex{Height: cs.Index.Height + 1, ID: b.ID()}, err)
 		}
-		m.store.WithConsensus(func(cstore consensus.Store) {
-			cs = consensus.ApplyState(cs, cstore, b)
-		})
+		cs = consensus.ApplyState(cs, m.store, b)
 		m.store.AddCheckpoint(Checkpoint{b, cs, nil})
 	}
 
@@ -266,25 +266,26 @@ func (m *Manager) applyTip(index types.ChainIndex) error {
 		panic("applyTip called with non-attaching block")
 	}
 	if c.Diff == nil {
-		var err error
-		m.store.WithConsensus(func(cstore consensus.Store) {
-			if err = consensus.ValidateBlock(m.tipState, cstore, c.Block); err != nil {
-				err = fmt.Errorf("block %v is invalid: %w", index, err)
-				return
-			}
-			diff := consensus.ApplyDiff(m.tipState, cstore, c.Block)
-			c.Diff = &diff
-		})
-		if err != nil {
-			return err
+		if err := consensus.ValidateBlock(m.tipState, m.store, c.Block); err != nil {
+			return fmt.Errorf("block %v is invalid: %w", index, err)
 		}
+		diff := consensus.ApplyDiff(m.tipState, m.store, c.Block)
+		c.Diff = &diff
 		m.store.AddCheckpoint(c)
 	}
-	mayCommit := m.store.ApplyDiff(c.State, *c.Diff)
+
+	// force the store to commit if we're at the tip (or close to it), or at
+	// least every 2 seconds; this ensures that the amount of uncommitted data
+	// never grows too large
+	forceCommit := time.Since(c.Block.Timestamp) < c.State.BlockInterval()*2 || time.Since(m.lastCommit) > 2*time.Second
+	committed := m.store.ApplyDiff(c.State, *c.Diff, forceCommit)
+	if committed {
+		m.lastCommit = time.Now()
+	}
 
 	update := ApplyUpdate{c.Block, c.State, *c.Diff}
 	for _, s := range m.subscribers {
-		if err := s.ProcessChainApplyUpdate(&update, mayCommit); err != nil {
+		if err := s.ProcessChainApplyUpdate(&update, committed); err != nil {
 			return fmt.Errorf("subscriber %T: %w", s, err)
 		}
 	}
@@ -474,17 +475,15 @@ func (m *Manager) revalidatePool() {
 	}
 	txns := append(m.txpool.txns, m.txpool.lastReverted...)
 	m.txpool.txns = m.txpool.txns[:0]
-	m.store.WithConsensus(func(cstore consensus.Store) {
-		m.txpool.ms = consensus.NewMidState(m.tipState)
-		for _, txn := range txns {
-			if consensus.ValidateTransaction(m.txpool.ms, cstore, txn) == nil {
-				m.txpool.ms.ApplyTransaction(cstore, txn)
-				m.txpool.indices[txn.ID()] = len(m.txpool.txns)
-				m.txpool.txns = append(m.txpool.txns, txn)
-				m.txpool.weight += m.tipState.TransactionWeight(txn)
-			}
+	m.txpool.ms = consensus.NewMidState(m.tipState)
+	for _, txn := range txns {
+		if consensus.ValidateTransaction(m.txpool.ms, m.store, txn) == nil {
+			m.txpool.ms.ApplyTransaction(m.store, txn)
+			m.txpool.indices[txn.ID()] = len(m.txpool.txns)
+			m.txpool.txns = append(m.txpool.txns, txn)
+			m.txpool.weight += m.tipState.TransactionWeight(txn)
 		}
-	})
+	}
 }
 
 func (m *Manager) computeMedianFee() types.Currency {
@@ -682,33 +681,31 @@ func (m *Manager) UnconfirmedParents(txn types.Transaction) []types.Transaction 
 //
 // If any transaction in the set is invalid, the entire set is rejected and none
 // of the transactions are added to the pool.
-func (m *Manager) AddPoolTransactions(txns []types.Transaction) (err error) {
+func (m *Manager) AddPoolTransactions(txns []types.Transaction) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.revalidatePool()
-	m.store.WithConsensus(func(cstore consensus.Store) {
-		// validate as a standalone set
-		ms := consensus.NewMidState(m.tipState)
-		for _, txn := range txns {
-			if err = consensus.ValidateTransaction(ms, cstore, txn); err != nil {
-				err = fmt.Errorf("transaction %v is invalid: %v", txn.ID(), err)
-				return
-			}
-			ms.ApplyTransaction(cstore, txn)
-		}
 
-		for _, txn := range txns {
-			txid := txn.ID()
-			if _, ok := m.txpool.indices[txid]; ok {
-				continue // skip transactions already in pool
-			}
-			m.txpool.ms.ApplyTransaction(cstore, txn)
-			m.txpool.indices[txid] = len(m.txpool.txns)
-			m.txpool.txns = append(m.txpool.txns, txn)
-			m.txpool.weight += m.tipState.TransactionWeight(txn)
+	// validate as a standalone set
+	ms := consensus.NewMidState(m.tipState)
+	for _, txn := range txns {
+		if err := consensus.ValidateTransaction(ms, m.store, txn); err != nil {
+			return fmt.Errorf("transaction %v is invalid: %v", txn.ID(), err)
 		}
-	})
-	return err
+		ms.ApplyTransaction(m.store, txn)
+	}
+
+	for _, txn := range txns {
+		txid := txn.ID()
+		if _, ok := m.txpool.indices[txid]; ok {
+			continue // skip transactions already in pool
+		}
+		m.txpool.ms.ApplyTransaction(m.store, txn)
+		m.txpool.indices[txid] = len(m.txpool.txns)
+		m.txpool.txns = append(m.txpool.txns, txn)
+		m.txpool.weight += m.tipState.TransactionWeight(txn)
+	}
+	return nil
 }
 
 // NewManager returns a Manager initialized with the provided Store and State.
