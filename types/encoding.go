@@ -572,6 +572,12 @@ func (fce FileContractElement) EncodeTo(e *Encoder) {
 }
 
 // EncodeTo implements types.EncoderTo.
+func (fcer FileContractElementRevision) EncodeTo(e *Encoder) {
+	fcer.Parent.EncodeTo(e)
+	fcer.Revision.EncodeTo(e)
+}
+
+// EncodeTo implements types.EncoderTo.
 func (fce V2FileContractElement) EncodeTo(e *Encoder) {
 	fce.StateElement.EncodeTo(e)
 	fce.V2FileContract.EncodeTo(e)
@@ -1115,6 +1121,12 @@ func (fc *V2FileContract) DecodeFrom(d *Decoder) {
 func (fce *FileContractElement) DecodeFrom(d *Decoder) {
 	fce.StateElement.DecodeFrom(d)
 	fce.FileContract.DecodeFrom(d)
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (fcer *FileContractElementRevision) DecodeFrom(d *Decoder) {
+	fcer.Parent.DecodeFrom(d)
+	fcer.Revision.DecodeFrom(d)
 }
 
 // DecodeFrom implements types.DecoderFrom.

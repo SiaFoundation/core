@@ -20,9 +20,6 @@ func mergeHeight(x, y uint64) int { return bits.Len64(x ^ y) }
 // clearBits clears the n least significant bits of x.
 func clearBits(x uint64, n int) uint64 { return x &^ (1<<n - 1) }
 
-// trailingOnes returns the number of trailing one bits in x.
-func trailingOnes(x uint64) int { return bits.TrailingZeros64(x + 1) }
-
 func proofRoot(leafHash types.Hash256, leafIndex uint64, proof []types.Hash256) types.Hash256 {
 	root := leafHash
 	for i, h := range proof {
@@ -251,18 +248,47 @@ func (acc *ElementAccumulator) ContainsResolvedV2FileContractElement(fce types.V
 // addLeaves adds the supplied leaves to the accumulator, filling in their
 // Merkle proofs and returning the new node hashes that extend each existing
 // tree.
-func (acc *ElementAccumulator) addLeaves(leaves []ElementLeaf) [64][]types.Hash256 {
+func (acc *ElementAccumulator) addLeaves(diff *BlockDiff) [64][]types.Hash256 {
+	element := func(i int) *types.StateElement {
+		for _, tdiff := range diff.Transactions {
+			if i < len(tdiff.CreatedSiacoinElements) {
+				return &tdiff.CreatedSiacoinElements[i].StateElement
+			}
+			i -= len(tdiff.CreatedSiacoinElements)
+			if i < len(tdiff.CreatedSiafundElements) {
+				return &tdiff.CreatedSiafundElements[i].StateElement
+			}
+			i -= len(tdiff.CreatedSiafundElements)
+			if i < len(tdiff.CreatedFileContracts) {
+				return &tdiff.CreatedFileContracts[i].StateElement
+			}
+			i -= len(tdiff.CreatedFileContracts)
+		}
+		for _, tdiff := range diff.V2Transactions {
+			if i < len(tdiff.CreatedSiacoinElements) {
+				return &tdiff.CreatedSiacoinElements[i].StateElement
+			}
+			i -= len(tdiff.CreatedSiacoinElements)
+			if i < len(tdiff.CreatedSiafundElements) {
+				return &tdiff.CreatedSiafundElements[i].StateElement
+			}
+			i -= len(tdiff.CreatedSiafundElements)
+			if i < len(tdiff.CreatedFileContracts) {
+				return &tdiff.CreatedFileContracts[i].StateElement
+			}
+			i -= len(tdiff.CreatedFileContracts)
+		}
+		panic("unreachable")
+	}
+
 	initialLeaves := acc.numLeaves
 	var treeGrowth [64][]types.Hash256
-	for i := range leaves {
-		leaves[i].LeafIndex = acc.numLeaves
-		// TODO: preallocate this more accurately
-		leaves[i].MerkleProof = make([]types.Hash256, 0, trailingOnes(acc.numLeaves))
+	add := func(i int, h types.Hash256) (leafIndex uint64) {
+		leafIndex = acc.numLeaves
 
 		// Walk "up" the Forest, merging trees of the same height, but before
 		// merging two trees, append each of their roots to the proofs under the
 		// opposite tree.
-		h := leaves[i].Hash()
 		for height := range &acc.trees {
 			if !acc.hasTreeAtHeight(height) {
 				// no tree at this height; insert the new tree
@@ -281,10 +307,10 @@ func (acc *ElementAccumulator) addLeaves(leaves []ElementLeaf) [64][]types.Hash2
 			startOfOldTree := i - 1<<(height+1)
 			j := i
 			for ; j > startOfNewTree && j >= 0; j-- {
-				leaves[j].MerkleProof = append(leaves[j].MerkleProof, oldRoot)
+				element(j).MerkleProof = append(element(j).MerkleProof, oldRoot)
 			}
 			for ; j > startOfOldTree && j >= 0; j-- {
-				leaves[j].MerkleProof = append(leaves[j].MerkleProof, h)
+				element(j).MerkleProof = append(element(j).MerkleProof, h)
 			}
 			// Record the left- and right-hand roots in treeGrowth, where
 			// applicable.
@@ -306,7 +332,39 @@ func (acc *ElementAccumulator) addLeaves(leaves []ElementLeaf) [64][]types.Hash2
 			// root is always the left-hand sibling.
 			h = blake2b.SumPair(oldRoot, h)
 		}
+		return
 	}
+
+	i := 0
+	for _, tdiff := range diff.Transactions {
+		for _, sce := range tdiff.CreatedSiacoinElements {
+			sce.LeafIndex = add(i, SiacoinLeaf(sce, false).ElementHash)
+			i++
+		}
+		for _, sfe := range tdiff.CreatedSiafundElements {
+			sfe.LeafIndex = add(i, SiafundLeaf(sfe, false).ElementHash)
+			i++
+		}
+		for _, fce := range tdiff.CreatedFileContracts {
+			fce.LeafIndex = add(i, FileContractLeaf(fce, false).ElementHash)
+			i++
+		}
+	}
+	for _, tdiff := range diff.V2Transactions {
+		for _, sce := range tdiff.CreatedSiacoinElements {
+			sce.LeafIndex = add(i, SiacoinLeaf(sce, false).ElementHash)
+			i++
+		}
+		for _, sfe := range tdiff.CreatedSiafundElements {
+			sfe.LeafIndex = add(i, SiafundLeaf(sfe, false).ElementHash)
+			i++
+		}
+		for _, fce := range tdiff.CreatedFileContracts {
+			fce.LeafIndex = add(i, V2FileContractLeaf(fce, false).ElementHash)
+			i++
+		}
+	}
+
 	return treeGrowth
 }
 
@@ -318,7 +376,66 @@ func splitLeaves(ls []ElementLeaf, mid uint64) (left, right []ElementLeaf) {
 // updateLeaves overwrites the specified leaves in the accumulator. It updates
 // the Merkle proofs of each leaf, and returns the leaves (grouped by tree) for
 // later use.
-func (acc *ElementAccumulator) updateLeaves(leaves []ElementLeaf) [64][]ElementLeaf {
+func (acc *ElementAccumulator) updateLeaves(diff *BlockDiff) [64][]ElementLeaf {
+	var leaves []ElementLeaf
+	for _, tdiff := range diff.Transactions {
+		for _, sce := range tdiff.SpentSiacoinElements {
+			leaves = append(leaves, SiacoinLeaf(sce, true))
+		}
+		for _, sfe := range tdiff.SpentSiafundElements {
+			leaves = append(leaves, SiafundLeaf(sfe, true))
+		}
+		for _, fce := range tdiff.ValidFileContracts {
+			leaves = append(leaves, FileContractLeaf(fce, true))
+		}
+		for _, fcer := range tdiff.RevisedFileContracts {
+			leaves = append(leaves, FileContractLeaf(fcer.Parent, false))
+		}
+	}
+	for _, fce := range diff.MissedFileContracts {
+		leaves = append(leaves, FileContractLeaf(fce, true))
+	}
+	for _, tdiff := range diff.V2Transactions {
+		for _, sce := range tdiff.SpentSiacoinElements {
+			leaves = append(leaves, SiacoinLeaf(sce, true))
+		}
+		for _, sfe := range tdiff.SpentSiafundElements {
+			leaves = append(leaves, SiafundLeaf(sfe, true))
+		}
+		for _, fcr := range tdiff.RevisedFileContracts {
+			fce := fcr.Parent
+			fce.V2FileContract = fcr.Revision
+			leaves = append(leaves, V2FileContractLeaf(fce, false))
+		}
+		for _, res := range tdiff.ResolvedFileContracts {
+			fce := res.Parent
+			switch r := res.Resolution.(type) {
+			case types.V2FileContractRenewal:
+				fce.V2FileContract = r.FinalRevision
+			case types.V2FileContract: // finalization
+				fce.V2FileContract = r
+			}
+			leaves = append(leaves, V2FileContractLeaf(fce, true))
+		}
+	}
+
+	// Group leaves by tree, and sort them by leaf index.
+	var trees [64][]ElementLeaf
+	sort.Slice(leaves, func(i, j int) bool {
+		if len(leaves[i].MerkleProof) != len(leaves[j].MerkleProof) {
+			return len(leaves[i].MerkleProof) < len(leaves[j].MerkleProof)
+		}
+		return leaves[i].LeafIndex < leaves[j].LeafIndex
+	})
+	for len(leaves) > 0 {
+		i := 0
+		for i < len(leaves) && len(leaves[i].MerkleProof) == len(leaves[0].MerkleProof) {
+			i++
+		}
+		trees[len(leaves[0].MerkleProof)] = leaves[:i]
+		leaves = leaves[i:]
+	}
+
 	var recompute func(i, j uint64, leaves []ElementLeaf) types.Hash256
 	recompute = func(i, j uint64, leaves []ElementLeaf) types.Hash256 {
 		height := bits.TrailingZeros64(j - i) // equivalent to log2(j-i), as j-i is always a power of two
@@ -347,23 +464,6 @@ func (acc *ElementAccumulator) updateLeaves(leaves []ElementLeaf) [64][]ElementL
 		return blake2b.SumPair(leftRoot, rightRoot)
 	}
 
-	// Group leaves by tree, and sort them by leaf index.
-	var trees [64][]ElementLeaf
-	sort.Slice(leaves, func(i, j int) bool {
-		if len(leaves[i].MerkleProof) != len(leaves[j].MerkleProof) {
-			return len(leaves[i].MerkleProof) < len(leaves[j].MerkleProof)
-		}
-		return leaves[i].LeafIndex < leaves[j].LeafIndex
-	})
-	for len(leaves) > 0 {
-		i := 0
-		for i < len(leaves) && len(leaves[i].MerkleProof) == len(leaves[0].MerkleProof) {
-			i++
-		}
-		trees[len(leaves[0].MerkleProof)] = leaves[:i]
-		leaves = leaves[i:]
-	}
-
 	// Recompute the root of each tree with updated leaves, and fill in the
 	// proof of each leaf.
 	for height, leaves := range &trees {
@@ -378,14 +478,53 @@ func (acc *ElementAccumulator) updateLeaves(leaves []ElementLeaf) [64][]ElementL
 		end := start + 1<<height
 		acc.trees[height] = recompute(start, end, leaves)
 	}
+
+	// update the proofs in the diff
+	nextProof := func() []types.Hash256 {
+		l := leaves[0]
+		leaves = leaves[1:]
+		return l.MerkleProof
+	}
+	for _, tdiff := range diff.Transactions {
+		for i := range tdiff.SpentSiacoinElements {
+			tdiff.SpentSiacoinElements[i].MerkleProof = nextProof()
+		}
+		for i := range tdiff.SpentSiafundElements {
+			tdiff.SpentSiafundElements[i].MerkleProof = nextProof()
+		}
+		for i := range tdiff.ValidFileContracts {
+			tdiff.ValidFileContracts[i].MerkleProof = nextProof()
+		}
+		for i := range tdiff.RevisedFileContracts {
+			tdiff.RevisedFileContracts[i].Parent.MerkleProof = nextProof()
+		}
+	}
+	for i := range diff.MissedFileContracts {
+		diff.MissedFileContracts[i].MerkleProof = nextProof()
+	}
+	for _, tdiff := range diff.V2Transactions {
+		for i := range tdiff.SpentSiacoinElements {
+			tdiff.SpentSiacoinElements[i].MerkleProof = nextProof()
+		}
+		for i := range tdiff.SpentSiafundElements {
+			tdiff.SpentSiafundElements[i].MerkleProof = nextProof()
+		}
+		for i := range tdiff.RevisedFileContracts {
+			tdiff.RevisedFileContracts[i].Parent.MerkleProof = nextProof()
+		}
+		for i := range tdiff.ResolvedFileContracts {
+			tdiff.ResolvedFileContracts[i].Parent.MerkleProof = nextProof()
+		}
+	}
+
 	return trees
 }
 
 // ApplyBlock applies the supplied leaves to the accumulator, modifying it and
 // producing an update.
-func (acc *ElementAccumulator) ApplyBlock(updated, added []ElementLeaf) (eau ElementApplyUpdate) {
-	eau.updated = acc.updateLeaves(updated)
-	eau.treeGrowth = acc.addLeaves(added)
+func (acc *ElementAccumulator) ApplyBlock(diff *BlockDiff) (eau ElementApplyUpdate) {
+	eau.updated = acc.updateLeaves(diff)
+	eau.treeGrowth = acc.addLeaves(diff)
 	return eau
 }
 

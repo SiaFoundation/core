@@ -601,6 +601,20 @@ type FileContractElement struct {
 	FileContract
 }
 
+// A FileContractElementRevision updates the state of an existing file contract.
+type FileContractElementRevision struct {
+	Parent   FileContractElement `json:"parent"`
+	Revision FileContract        `json:"revision"`
+}
+
+// RevisedElement returns the post-revision FileContractElement.
+func (fcer FileContractElementRevision) RevisedElement() FileContractElement {
+	fce := fcer.Parent
+	fce.FileContract = fcer.Revision
+	fce.Payout = fcer.Parent.Payout // see FileContractRevision docstring
+	return fce
+}
+
 // A V2FileContractElement is a storage agreement between a renter and a host.
 type V2FileContractElement struct {
 	StateElement

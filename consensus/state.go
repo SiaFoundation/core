@@ -28,10 +28,9 @@ var hasherPool = &sync.Pool{New: func() interface{} { return types.NewHasher() }
 type Store interface {
 	BestIndex(height uint64) (types.ChainIndex, bool)
 	AncestorTimestamp(id types.BlockID, n uint64) time.Time
-	SiacoinOutput(id types.SiacoinOutputID) (types.SiacoinOutput, bool)
-	SiafundOutput(id types.SiafundOutputID) (types.SiafundOutput, types.Currency, bool)
-	FileContract(id types.FileContractID) (types.FileContract, bool)
-	MaturedSiacoinOutputs(height uint64) []DelayedSiacoinOutputDiff
+	SiacoinElement(id types.SiacoinOutputID) (types.SiacoinElement, bool)
+	SiafundElement(id types.SiafundOutputID) (types.SiafundElement, bool)
+	FileContractElement(id types.FileContractID) (types.FileContractElement, bool)
 	MissedFileContracts(height uint64) []types.FileContractID
 }
 

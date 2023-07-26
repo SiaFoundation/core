@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
+	"math/bits"
 	"time"
 
 	"go.sia.tech/core/consensus"
@@ -187,15 +187,15 @@ func (b *dbBucket) delete(key []byte) {
 }
 
 var (
-	bVersion        = []byte("Version")
-	bMainChain      = []byte("MainChain")
-	bCheckpoints    = []byte("Checkpoints")
-	bFileContracts  = []byte("FileContracts")
-	bSiacoinOutputs = []byte("SiacoinOutputs")
-	bSiafundOutputs = []byte("SiafundOutputs")
+	bVersion              = []byte("Version")
+	bMainChain            = []byte("MainChain")
+	bCheckpoints          = []byte("Checkpoints")
+	bFileContractElements = []byte("FileContracts")
+	bSiacoinElements      = []byte("SiacoinElements")
+	bSiafundElements      = []byte("SiafundElements")
+	bTree                 = []byte("Tree")
 
-	keyFoundationOutputs = []byte("FoundationOutputs")
-	keyHeight            = []byte("Height")
+	keyHeight = []byte("Height")
 )
 
 // DBStore implements Store using a key-value database.
@@ -242,250 +242,201 @@ func (db *DBStore) putCheckpoint(c Checkpoint) {
 	db.bucket(bCheckpoints).put(c.State.Index.ID[:], c)
 }
 
-func (db *DBStore) putSiacoinOutput(id types.SiacoinOutputID, sco types.SiacoinOutput) {
-	db.bucket(bSiacoinOutputs).put(id[:], sco)
+func (db *DBStore) encLeaf(index uint64, height int) []byte {
+	// For a given leaf index and height, we want to compute a key corresponding
+	// to the tree node at the given height within the leaf's proof path. For
+	// example, if height is 3, then we should return the same key for indices
+	// 0, 1, 2, and 3 (since all of these leaves share a parent at that height),
+	// and a different key for indices 4, 5, 6, and 7.
+	//
+	// This is easily achieved by masking the least significant height bits of
+	// index and prepending the height (to avoid collisions with lower levels).
+	// We can assume that the total number of elements is less than 2^32 (and
+	// thus the height will be less than 2^8), so the resulting key is 5 bytes.
+	//
+	// Can we do better? Yes -- we can fit it in 4 bytes, if we assume that the
+	// total number of elements is less than 2^31. This gives us 2^31 values for
+	// storing leaves, and 2^31 values for storing all the other nodes. We
+	// distinguish them by setting the top bit. Going up a level, we see that at
+	// most 2^30 values are needed, leaving 2^30 for the remaining levels; we
+	// distinguish these by setting the penultimate bit. Each time we ascend a
+	// level, we have one fewer bit to work with; but since each level requires
+	// half as many nodes as the previous, it balances out and we always have
+	// enough space.
+	return binary.BigEndian.AppendUint32(nil, bits.RotateLeft32(uint32(index)|((1<<height)-1), -height))
 }
 
-func (db *DBStore) deleteSiacoinOutput(id types.SiacoinOutputID) {
-	db.bucket(bSiacoinOutputs).delete(id[:])
-}
-
-func (db *DBStore) putFileContract(id types.FileContractID, fc types.FileContract) {
-	b := db.bucket(bFileContracts)
-	b.put(id[:], fc)
-
-	key := db.encHeight(fc.WindowEnd)
-	b.putRaw(key, append(b.getRaw(key), id[:]...))
-}
-
-func (db *DBStore) reviseFileContract(id types.FileContractID, fc types.FileContract) {
-	db.bucket(bFileContracts).put(id[:], fc)
-}
-
-func (db *DBStore) deleteFileContracts(fcds []consensus.FileContractDiff) {
-	byHeight := make(map[uint64][]types.FileContractID)
-	b := db.bucket(bFileContracts)
-	for _, fcd := range fcds {
-		var fc types.FileContract
-		if !b.get(fcd.ID[:], &fc) {
-			check(fmt.Errorf("missing file contract %v", fcd.ID))
-		}
-		b.delete(fcd.ID[:])
-		byHeight[fc.WindowEnd] = append(byHeight[fc.WindowEnd], fcd.ID)
-	}
-
-	for height, ids := range byHeight {
-		toDelete := make(map[types.FileContractID]struct{})
-		for _, id := range ids {
-			toDelete[id] = struct{}{}
-		}
-		key := db.encHeight(height)
-		val := append([]byte(nil), b.getRaw(key)...)
-		for i := 0; i < len(val); i += 32 {
-			id := *(*types.FileContractID)(val[i:])
-			if _, ok := toDelete[id]; ok {
-				copy(val[i:], val[len(val)-32:])
-				val = val[:len(val)-32]
-				i -= 32
-				delete(toDelete, id)
-			}
-		}
-		b.putRaw(key, val)
-		if len(toDelete) != 0 {
-			check(errors.New("missing expired file contract(s)"))
-		}
+func (db *DBStore) putElementProof(leafIndex uint64, proof []types.Hash256) {
+	for i, p := range proof {
+		db.bucket(bTree).put(db.encLeaf(leafIndex, i), p)
 	}
 }
 
-type claimSFO struct {
-	Output     types.SiafundOutput
-	ClaimStart types.Currency
-}
-
-func (sfo claimSFO) EncodeTo(e *types.Encoder) {
-	sfo.Output.EncodeTo(e)
-	sfo.ClaimStart.EncodeTo(e)
-}
-
-func (sfo *claimSFO) DecodeFrom(d *types.Decoder) {
-	sfo.Output.DecodeFrom(d)
-	sfo.ClaimStart.DecodeFrom(d)
-}
-
-func (db *DBStore) putSiafundOutput(id types.SiafundOutputID, sfo types.SiafundOutput, claimStart types.Currency) {
-	db.bucket(bSiafundOutputs).put(id[:], claimSFO{Output: sfo, ClaimStart: claimStart})
-}
-
-func (db *DBStore) deleteSiafundOutput(id types.SiafundOutputID) {
-	db.bucket(bSiafundOutputs).delete(id[:])
-}
-
-func (db *DBStore) putDelayedSiacoinOutputs(dscods []consensus.DelayedSiacoinOutputDiff) {
-	if len(dscods) == 0 {
-		return
+func (db *DBStore) getElementProof(leafIndex uint64) (proof []types.Hash256) {
+	var p types.Hash256
+	for db.bucket(bTree).get(db.encLeaf(leafIndex, len(proof)), &p) {
+		proof = append(proof, p)
 	}
-	maturityHeight := dscods[0].MaturityHeight
-	b := db.bucket(bSiacoinOutputs)
-	key := db.encHeight(maturityHeight)
-	var buf bytes.Buffer
-	b.db.enc.Reset(&buf)
-	for _, dscod := range dscods {
-		if dscod.MaturityHeight != maturityHeight {
-			check(errors.New("mismatched maturity heights"))
-			return
-		}
-		dscod.EncodeTo(&b.db.enc)
-	}
-	b.db.enc.Flush()
-	b.putRaw(key, append(b.getRaw(key), buf.Bytes()[:]...))
+	return
 }
 
-func (db *DBStore) deleteDelayedSiacoinOutputs(dscods []consensus.DelayedSiacoinOutputDiff) {
-	if len(dscods) == 0 {
-		return
-	}
-	maturityHeight := dscods[0].MaturityHeight
-	toDelete := make(map[types.SiacoinOutputID]struct{})
-	for _, dscod := range dscods {
-		if dscod.MaturityHeight != maturityHeight {
-			check(errors.New("mismatched maturity heights"))
-			return
-		}
-		toDelete[dscod.ID] = struct{}{}
-	}
-	var buf bytes.Buffer
-	db.enc.Reset(&buf)
-	for _, mdscod := range db.MaturedSiacoinOutputs(maturityHeight) {
-		if _, ok := toDelete[mdscod.ID]; !ok {
-			mdscod.EncodeTo(&db.enc)
-		}
-		delete(toDelete, mdscod.ID)
-	}
-	if len(toDelete) != 0 {
-		check(errors.New("missing delayed siacoin output(s)"))
-		return
-	}
-	db.enc.Flush()
-	db.bucket(bSiacoinOutputs).putRaw(db.encHeight(maturityHeight), buf.Bytes())
+func (db *DBStore) putSiacoinElement(sce types.SiacoinElement) {
+	db.putElementProof(sce.LeafIndex, sce.MerkleProof)
+	sce.MerkleProof = nil
+	db.bucket(bSiacoinElements).put(sce.ID[:], sce)
 }
 
-func (db *DBStore) putFoundationOutput(id types.SiacoinOutputID) {
-	b := db.bucket(bSiacoinOutputs)
-	b.putRaw(keyFoundationOutputs, append(b.getRaw(keyFoundationOutputs), id[:]...))
+func (db *DBStore) deleteSiacoinElement(id types.SiacoinOutputID) {
+	db.bucket(bSiacoinElements).delete(id[:])
 }
 
-func (db *DBStore) deleteFoundationOutput(id types.SiacoinOutputID) {
-	b := db.bucket(bSiacoinOutputs)
-	ids := append([]byte(nil), b.getRaw(keyFoundationOutputs)...)
-	for i := 0; i < len(ids); i += 32 {
-		if *(*types.SiacoinOutputID)(ids[i:]) == id {
-			copy(ids[i:], ids[len(ids)-32:])
-			b.putRaw(keyFoundationOutputs, ids[:len(ids)-32])
+func (db *DBStore) putFileContract(fce types.FileContractElement) {
+	b := db.bucket(bFileContractElements)
+	db.putElementProof(fce.LeafIndex, fce.MerkleProof)
+	fce.MerkleProof = nil
+	b.put(fce.ID[:], fce)
+
+	key := db.encHeight(fce.WindowEnd)
+	b.putRaw(key, append(b.getRaw(key), fce.ID[:]...))
+}
+
+func (db *DBStore) deleteFileContract(id types.FileContractID, windowEnd uint64) {
+	b := db.bucket(bFileContractElements)
+	b.delete(id[:])
+
+	key := db.encHeight(windowEnd)
+	val := append([]byte(nil), b.getRaw(key)...)
+	for i := 0; i < len(val); i += 32 {
+		if *(*types.FileContractID)(val[i:]) == id {
+			copy(val[i:], val[len(val)-32:])
+			val = val[:len(val)-32]
+			i -= 32
+			b.putRaw(key, val)
 			return
 		}
 	}
-	check(fmt.Errorf("missing Foundation output %v", id))
+	panic("missing file contract expiration")
 }
 
-func (db *DBStore) moveFoundationOutputs(addr types.Address) {
-	ids := db.bucket(bSiacoinOutputs).getRaw(keyFoundationOutputs)
-	for i := 0; i < len(ids); i += 32 {
-		id := *(*types.SiacoinOutputID)(ids[i:])
-		if sco, ok := db.SiacoinOutput(id); ok {
-			if sco.Address == addr {
-				return // address unchanged; no migration necessary
-			}
-			sco.Address = addr
-			db.putSiacoinOutput(id, sco)
-		}
-	}
+func (db *DBStore) putSiafundElement(sfe types.SiafundElement) {
+	db.putElementProof(sfe.LeafIndex, sfe.MerkleProof)
+	sfe.MerkleProof = nil
+	db.bucket(bSiafundElements).put(sfe.ID[:], sfe)
+}
+
+func (db *DBStore) deleteSiafundElement(id types.SiafundOutputID) {
+	db.bucket(bSiafundElements).delete(id[:])
 }
 
 func (db *DBStore) applyState(next consensus.State) {
-	db.moveFoundationOutputs(next.FoundationPrimaryAddress)
 	db.putBestIndex(next.Index)
 	db.putHeight(next.Index.Height)
 }
 
 func (db *DBStore) revertState(prev consensus.State) {
-	db.moveFoundationOutputs(prev.FoundationPrimaryAddress)
 	db.deleteBestIndex(prev.Index.Height + 1)
 	db.putHeight(prev.Index.Height)
 }
 
-func (db *DBStore) applyDiff(s consensus.State, diff consensus.BlockDiff) {
+func (db *DBStore) applyDiff(diff consensus.BlockDiff) {
 	for _, td := range diff.Transactions {
-		for _, scod := range td.CreatedSiacoinOutputs {
-			db.putSiacoinOutput(scod.ID, scod.Output)
+		for _, sce := range td.CreatedSiacoinElements {
+			db.putSiacoinElement(sce)
 		}
-		db.putDelayedSiacoinOutputs(td.ImmatureSiacoinOutputs)
-		for _, sfod := range td.CreatedSiafundOutputs {
-			db.putSiafundOutput(sfod.ID, sfod.Output, sfod.ClaimStart)
+		for _, sfe := range td.CreatedSiafundElements {
+			db.putSiafundElement(sfe)
 		}
-		for _, fcd := range td.CreatedFileContracts {
-			db.putFileContract(fcd.ID, fcd.Contract)
+		for _, fce := range td.CreatedFileContracts {
+			db.putFileContract(fce)
 		}
-		for _, scod := range td.SpentSiacoinOutputs {
-			db.deleteSiacoinOutput(scod.ID)
+		for _, sce := range td.SpentSiacoinElements {
+			db.deleteSiacoinElement(types.SiacoinOutputID(sce.ID))
 		}
-		for _, sfod := range td.SpentSiafundOutputs {
-			db.deleteSiafundOutput(sfod.ID)
+		for _, sfe := range td.SpentSiafundElements {
+			db.deleteSiafundElement(types.SiafundOutputID(sfe.ID))
 		}
-		for _, fcrd := range td.RevisedFileContracts {
-			db.reviseFileContract(fcrd.ID, fcrd.NewContract)
+		for _, fcer := range td.RevisedFileContracts {
+			db.deleteFileContract(types.FileContractID(fcer.Parent.ID), fcer.Parent.WindowEnd)
+			db.putFileContract(fcer.RevisedElement())
 		}
-		db.deleteFileContracts(td.ValidFileContracts)
-	}
-	db.putDelayedSiacoinOutputs(diff.ImmatureSiacoinOutputs)
-	for _, dscod := range diff.ImmatureSiacoinOutputs {
-		if dscod.Source == consensus.OutputSourceFoundation {
-			db.putFoundationOutput(dscod.ID)
+		for _, fce := range td.ValidFileContracts {
+			db.deleteFileContract(types.FileContractID(fce.ID), fce.WindowEnd)
 		}
 	}
-	db.deleteDelayedSiacoinOutputs(diff.MaturedSiacoinOutputs)
-	for _, scod := range diff.MaturedSiacoinOutputs {
-		db.putSiacoinOutput(scod.ID, scod.Output)
+
+	for _, td := range diff.V2Transactions {
+		for _, sce := range td.CreatedSiacoinElements {
+			db.putSiacoinElement(sce)
+		}
+		for _, sfe := range td.CreatedSiafundElements {
+			db.putSiafundElement(sfe)
+		}
+		for _, sce := range td.SpentSiacoinElements {
+			db.deleteSiacoinElement(types.SiacoinOutputID(sce.ID))
+		}
+		for _, sfe := range td.SpentSiafundElements {
+			db.deleteSiafundElement(types.SiafundOutputID(sfe.ID))
+		}
 	}
-	db.deleteFileContracts(diff.MissedFileContracts)
+
+	for _, sce := range diff.CreatedSiacoinElements {
+		db.putSiacoinElement(sce)
+	}
+	for _, fce := range diff.MissedFileContracts {
+		db.deleteFileContract(types.FileContractID(fce.ID), fce.WindowEnd)
+	}
 }
 
-func (db *DBStore) revertDiff(s consensus.State, diff consensus.BlockDiff) {
-	for _, fcd := range diff.MissedFileContracts {
-		db.putFileContract(fcd.ID, fcd.Contract)
+func (db *DBStore) revertDiff(diff consensus.BlockDiff) {
+	for _, fce := range diff.MissedFileContracts {
+		db.putFileContract(fce)
 	}
-	for _, scod := range diff.MaturedSiacoinOutputs {
-		db.deleteSiacoinOutput(scod.ID)
+	for _, sce := range diff.CreatedSiacoinElements {
+		db.deleteSiacoinElement(types.SiacoinOutputID(sce.ID))
 	}
-	db.putDelayedSiacoinOutputs(diff.MaturedSiacoinOutputs)
-	for _, dscod := range diff.ImmatureSiacoinOutputs {
-		if dscod.Source == consensus.OutputSourceFoundation {
-			db.deleteFoundationOutput(dscod.ID)
-		}
-	}
-	db.deleteDelayedSiacoinOutputs(diff.ImmatureSiacoinOutputs)
 	for i := len(diff.Transactions) - 1; i >= 0; i-- {
 		td := diff.Transactions[i]
-		for _, fcd := range td.ValidFileContracts {
-			db.putFileContract(fcd.ID, fcd.Contract)
+		for _, fce := range td.ValidFileContracts {
+			db.putFileContract(fce)
 		}
-		for _, fcrd := range td.RevisedFileContracts {
-			db.reviseFileContract(fcrd.ID, fcrd.OldContract)
+		for _, fcer := range td.RevisedFileContracts {
+			db.deleteFileContract(types.FileContractID(fcer.Parent.ID), fcer.Revision.WindowEnd)
+			db.putFileContract(fcer.Parent)
 		}
-		for _, sfod := range td.SpentSiafundOutputs {
-			db.putSiafundOutput(sfod.ID, sfod.Output, sfod.ClaimStart)
+		for _, sfe := range td.SpentSiafundElements {
+			db.putSiafundElement(sfe)
 		}
-		for _, scod := range td.SpentSiacoinOutputs {
-			db.putSiacoinOutput(scod.ID, scod.Output)
+		for _, sce := range td.SpentSiacoinElements {
+			db.putSiacoinElement(sce)
 		}
-		db.deleteFileContracts(td.CreatedFileContracts)
-		for _, sfod := range td.CreatedSiafundOutputs {
-			db.deleteSiafundOutput(sfod.ID)
+		for _, fce := range td.CreatedFileContracts {
+			db.deleteFileContract(types.FileContractID(fce.ID), fce.WindowEnd)
 		}
-		db.deleteDelayedSiacoinOutputs(td.ImmatureSiacoinOutputs)
-		for _, scod := range td.CreatedSiacoinOutputs {
-			db.deleteSiacoinOutput(scod.ID)
+		for _, sfe := range td.CreatedSiafundElements {
+			db.deleteSiafundElement(types.SiafundOutputID(sfe.ID))
+		}
+		for _, sce := range td.CreatedSiacoinElements {
+			db.deleteSiacoinElement(types.SiacoinOutputID(sce.ID))
 		}
 	}
+
+	for i := len(diff.V2Transactions) - 1; i >= 0; i-- {
+		td := diff.V2Transactions[i]
+		for _, sfe := range td.SpentSiafundElements {
+			db.putSiafundElement(sfe)
+		}
+		for _, sce := range td.SpentSiacoinElements {
+			db.putSiacoinElement(sce)
+		}
+		for _, sfe := range td.CreatedSiafundElements {
+			db.deleteSiafundElement(types.SiafundOutputID(sfe.ID))
+		}
+		for _, sce := range td.CreatedSiacoinElements {
+			db.deleteSiacoinElement(types.SiacoinOutputID(sce.ID))
+		}
+	}
+
+	// TODO: proofs!!!!
 }
 
 // BestIndex implements consensus.Store.
@@ -510,21 +461,23 @@ func (db *DBStore) AncestorTimestamp(id types.BlockID, n uint64) time.Time {
 	return c.Block.Timestamp
 }
 
-// SiacoinOutput implements consensus.Store.
-func (db *DBStore) SiacoinOutput(id types.SiacoinOutputID) (sco types.SiacoinOutput, ok bool) {
-	ok = db.bucket(bSiacoinOutputs).get(id[:], &sco)
+// SiacoinElement implements consensus.Store.
+func (db *DBStore) SiacoinElement(id types.SiacoinOutputID) (sce types.SiacoinElement, ok bool) {
+	ok = db.bucket(bSiacoinElements).get(id[:], &sce)
+	sce.MerkleProof = db.getElementProof(sce.LeafIndex)
 	return
 }
 
-// FileContract implements consensus.Store.
-func (db *DBStore) FileContract(id types.FileContractID) (fc types.FileContract, ok bool) {
-	ok = db.bucket(bFileContracts).get(id[:], &fc)
+// FileContractElement implements consensus.Store.
+func (db *DBStore) FileContractElement(id types.FileContractID) (fce types.FileContractElement, ok bool) {
+	ok = db.bucket(bFileContractElements).get(id[:], &fce)
+	fce.MerkleProof = db.getElementProof(fce.LeafIndex)
 	return
 }
 
 // MissedFileContracts implements consensus.Store.
 func (db *DBStore) MissedFileContracts(height uint64) (fcids []types.FileContractID) {
-	ids := db.bucket(bFileContracts).getRaw(db.encHeight(height))
+	ids := db.bucket(bFileContractElements).getRaw(db.encHeight(height))
 	for i := 0; i < len(ids); i += 32 {
 		fcids = append(fcids, *(*types.FileContractID)(ids[i:]))
 	}
@@ -532,27 +485,9 @@ func (db *DBStore) MissedFileContracts(height uint64) (fcids []types.FileContrac
 }
 
 // SiafundOutput implements consensus.Store.
-func (db *DBStore) SiafundOutput(id types.SiafundOutputID) (sfo types.SiafundOutput, claimStart types.Currency, ok bool) {
-	var csfo claimSFO
-	ok = db.bucket(bSiafundOutputs).get(id[:], &csfo)
-	return csfo.Output, csfo.ClaimStart, ok
-}
-
-// MaturedSiacoinOutputs implements consensus.Store.
-func (db *DBStore) MaturedSiacoinOutputs(height uint64) (dscods []consensus.DelayedSiacoinOutputDiff) {
-	dscos := db.bucket(bSiacoinOutputs).getRaw(db.encHeight(height))
-	d := types.NewBufDecoder(dscos)
-	for {
-		var dscod consensus.DelayedSiacoinOutputDiff
-		dscod.DecodeFrom(d)
-		if d.Err() != nil {
-			break
-		}
-		dscods = append(dscods, dscod)
-	}
-	if !errors.Is(d.Err(), io.EOF) {
-		check(d.Err())
-	}
+func (db *DBStore) SiafundElement(id types.SiafundOutputID) (sfe types.SiafundElement, ok bool) {
+	ok = db.bucket(bSiafundElements).get(id[:], &sfe)
+	sfe.MerkleProof = db.getElementProof(sfe.LeafIndex)
 	return
 }
 
@@ -587,7 +522,7 @@ func (db *DBStore) flush() {
 // ApplyDiff implements Store.
 func (db *DBStore) ApplyDiff(s consensus.State, diff consensus.BlockDiff, mustCommit bool) (committed bool) {
 	db.applyState(s)
-	db.applyDiff(s, diff)
+	db.applyDiff(diff)
 	committed = mustCommit || db.shouldFlush()
 	if committed {
 		db.flush()
@@ -597,7 +532,7 @@ func (db *DBStore) ApplyDiff(s consensus.State, diff consensus.BlockDiff, mustCo
 
 // RevertDiff implements Store.
 func (db *DBStore) RevertDiff(s consensus.State, diff consensus.BlockDiff) {
-	db.revertDiff(s, diff)
+	db.revertDiff(diff)
 	db.revertState(s)
 	if db.shouldFlush() {
 		db.flush()
@@ -637,9 +572,10 @@ func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (_ *DBSto
 			bVersion,
 			bMainChain,
 			bCheckpoints,
-			bFileContracts,
-			bSiacoinOutputs,
-			bSiafundOutputs,
+			bFileContractElements,
+			bSiacoinElements,
+			bSiafundElements,
+			bTree,
 		} {
 			if _, err := db.CreateBucket(bucket); err != nil {
 				panic(err)
@@ -653,7 +589,7 @@ func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (_ *DBSto
 		diff := consensus.ApplyDiff(genesisState, dbs, genesisBlock)
 		dbs.putCheckpoint(Checkpoint{genesisBlock, cs, &diff})
 		dbs.applyState(cs)
-		dbs.applyDiff(cs, diff)
+		dbs.applyDiff(diff)
 		dbs.flush()
 	} else if dbGenesis.ID != genesisBlock.ID() {
 		// try to detect network so we can provide a more helpful error message

@@ -73,12 +73,11 @@ func TestApplyBlock(t *testing.T) {
 		MinerPayouts: []types.SiacoinOutput{{Address: types.VoidAddress, Value: cs.BlockReward()}},
 	}
 	expect := consensus.BlockDiff{
-		ImmatureSiacoinOutputs: []consensus.DelayedSiacoinOutputDiff{
+		CreatedSiacoinElements: []types.SiacoinElement{
 			{
-				ID:             b1.ID().MinerOutputID(0),
-				Output:         b1.MinerPayouts[0],
+				StateElement:   types.StateElement{ID: types.Hash256(b1.ID().MinerOutputID(0))},
+				SiacoinOutput:  b1.MinerPayouts[0],
 				MaturityHeight: cs.MaturityHeight(),
-				Source:         consensus.OutputSourceMiner,
 			},
 		},
 	}
@@ -119,32 +118,31 @@ func TestApplyBlock(t *testing.T) {
 	}
 	expect = consensus.BlockDiff{
 		Transactions: []consensus.TransactionDiff{{
-			CreatedSiacoinOutputs: []consensus.SiacoinOutputDiff{
-				{ID: txnB2.SiacoinOutputID(0), Output: txnB2.SiacoinOutputs[0]},
-				{ID: txnB2.SiacoinOutputID(1), Output: txnB2.SiacoinOutputs[1]},
+			CreatedSiacoinElements: []types.SiacoinElement{
+				{StateElement: types.StateElement{ID: types.Hash256(txnB2.SiacoinOutputID(0))}, SiacoinOutput: txnB2.SiacoinOutputs[0]},
+				{StateElement: types.StateElement{ID: types.Hash256(txnB2.SiacoinOutputID(1))}, SiacoinOutput: txnB2.SiacoinOutputs[1]},
+				{
+					StateElement:   types.StateElement{ID: types.Hash256(giftTxn.SiafundOutputID(0).ClaimOutputID())},
+					SiacoinOutput:  types.SiacoinOutput{Value: types.NewCurrency64(0), Address: txnB2.SiafundInputs[0].ClaimAddress},
+					MaturityHeight: cs.MaturityHeight(),
+				},
 			},
-			SpentSiacoinOutputs: []consensus.SiacoinOutputDiff{
-				{ID: giftTxn.SiacoinOutputID(0), Output: giftTxn.SiacoinOutputs[0]},
+			SpentSiacoinElements: []types.SiacoinElement{
+				{StateElement: types.StateElement{ID: types.Hash256(giftTxn.SiacoinOutputID(0))}, SiacoinOutput: giftTxn.SiacoinOutputs[0]},
 			},
-			CreatedSiafundOutputs: []consensus.SiafundOutputDiff{
-				{ID: txnB2.SiafundOutputID(0), Output: txnB2.SiafundOutputs[0]},
-				{ID: txnB2.SiafundOutputID(1), Output: txnB2.SiafundOutputs[1]},
+			CreatedSiafundElements: []types.SiafundElement{
+				{StateElement: types.StateElement{ID: types.Hash256(txnB2.SiafundOutputID(0))}, SiafundOutput: txnB2.SiafundOutputs[0]},
+				{StateElement: types.StateElement{ID: types.Hash256(txnB2.SiafundOutputID(1))}, SiafundOutput: txnB2.SiafundOutputs[1]},
 			},
-			SpentSiafundOutputs: []consensus.SiafundOutputDiff{
-				{ID: giftTxn.SiafundOutputID(0), Output: giftTxn.SiafundOutputs[0]},
+			SpentSiafundElements: []types.SiafundElement{
+				{StateElement: types.StateElement{ID: types.Hash256(giftTxn.SiafundOutputID(0))}, SiafundOutput: giftTxn.SiafundOutputs[0]},
 			},
-			ImmatureSiacoinOutputs: []consensus.DelayedSiacoinOutputDiff{{
-				ID:             giftTxn.SiafundOutputID(0).ClaimOutputID(),
-				Output:         types.SiacoinOutput{Value: types.NewCurrency64(0), Address: txnB2.SiafundInputs[0].ClaimAddress},
-				MaturityHeight: cs.MaturityHeight(),
-				Source:         consensus.OutputSourceSiafundClaim,
-			}},
 		}},
-		ImmatureSiacoinOutputs: []consensus.DelayedSiacoinOutputDiff{{
-			ID:             b2.ID().MinerOutputID(0),
-			Output:         b2.MinerPayouts[0],
+
+		CreatedSiacoinElements: []types.SiacoinElement{{
+			StateElement:   types.StateElement{ID: types.Hash256(b2.ID().MinerOutputID(0))},
+			SiacoinOutput:  b2.MinerPayouts[0],
 			MaturityHeight: cs.MaturityHeight(),
-			Source:         consensus.OutputSourceMiner,
 		}},
 	}
 	if diff, err := addBlock(b2); err != nil {
