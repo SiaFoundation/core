@@ -176,9 +176,9 @@ func (b *dbBucket) putRaw(key, value []byte) {
 
 func (b *dbBucket) put(key []byte, v types.EncoderTo) {
 	var buf bytes.Buffer
-	e := types.NewEncoder(&buf)
-	v.EncodeTo(e)
-	e.Flush()
+	b.db.enc.Reset(&buf)
+	v.EncodeTo(b.db.enc)
+	b.db.enc.Flush()
 	b.putRaw(key, buf.Bytes())
 }
 
@@ -205,6 +205,8 @@ type DBStore struct {
 
 	unflushed int
 	lastFlush time.Time
+
+	enc *types.Encoder
 }
 
 func (db *DBStore) bucket(name []byte) *dbBucket {
@@ -326,15 +328,15 @@ func (db *DBStore) putDelayedSiacoinOutputs(dscods []consensus.DelayedSiacoinOut
 	b := db.bucket(bSiacoinOutputs)
 	key := db.encHeight(maturityHeight)
 	var buf bytes.Buffer
-	e := types.NewEncoder(&buf)
+	b.db.enc.Reset(&buf)
 	for _, dscod := range dscods {
 		if dscod.MaturityHeight != maturityHeight {
 			check(errors.New("mismatched maturity heights"))
 			return
 		}
-		dscod.EncodeTo(e)
+		dscod.EncodeTo(b.db.enc)
 	}
-	e.Flush()
+	b.db.enc.Flush()
 	b.putRaw(key, append(b.getRaw(key), buf.Bytes()[:]...))
 }
 
@@ -352,10 +354,10 @@ func (db *DBStore) deleteDelayedSiacoinOutputs(dscods []consensus.DelayedSiacoin
 		toDelete[dscod.ID] = struct{}{}
 	}
 	var buf bytes.Buffer
-	e := types.NewEncoder(&buf)
+	db.enc.Reset(&buf)
 	for _, mdscod := range db.MaturedSiacoinOutputs(maturityHeight) {
 		if _, ok := toDelete[mdscod.ID]; !ok {
-			mdscod.EncodeTo(e)
+			mdscod.EncodeTo(db.enc)
 		}
 		delete(toDelete, mdscod.ID)
 	}
@@ -363,7 +365,7 @@ func (db *DBStore) deleteDelayedSiacoinOutputs(dscods []consensus.DelayedSiacoin
 		check(errors.New("missing delayed siacoin output(s)"))
 		return
 	}
-	e.Flush()
+	db.enc.Flush()
 	db.bucket(bSiacoinOutputs).putRaw(db.encHeight(maturityHeight), buf.Bytes())
 }
 
@@ -623,7 +625,11 @@ func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (_ *DBSto
 		return nil, Checkpoint{}, errors.New("detected siad database, refusing to proceed")
 	}
 
-	dbs := &DBStore{db: db, n: n}
+	dbs := &DBStore{
+		db:  db,
+		n:   n,
+		enc: &types.Encoder{},
+	}
 
 	// if the db is empty, initialize it; otherwise, check that the genesis
 	// block is correct
