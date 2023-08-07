@@ -80,6 +80,14 @@ func (e *Encoder) WriteString(s string) {
 	e.WriteBytes([]byte(s))
 }
 
+// Reset resets the Encoder to write to w. Any unflushed data, along with any
+// error previously encountered, is discarded.
+func (e *Encoder) Reset(w io.Writer) {
+	e.w = w
+	e.n = 0
+	e.err = nil
+}
+
 // NewEncoder returns an Encoder that wraps the provided stream.
 func NewEncoder(w io.Writer) *Encoder {
 	return &Encoder{
