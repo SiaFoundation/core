@@ -177,7 +177,7 @@ func (b *dbBucket) putRaw(key, value []byte) {
 func (b *dbBucket) put(key []byte, v types.EncoderTo) {
 	var buf bytes.Buffer
 	b.db.enc.Reset(&buf)
-	v.EncodeTo(b.db.enc)
+	v.EncodeTo(&b.db.enc)
 	b.db.enc.Flush()
 	b.putRaw(key, buf.Bytes())
 }
@@ -206,7 +206,7 @@ type DBStore struct {
 	unflushed int
 	lastFlush time.Time
 
-	enc *types.Encoder
+	enc types.Encoder
 }
 
 func (db *DBStore) bucket(name []byte) *dbBucket {
@@ -334,7 +334,7 @@ func (db *DBStore) putDelayedSiacoinOutputs(dscods []consensus.DelayedSiacoinOut
 			check(errors.New("mismatched maturity heights"))
 			return
 		}
-		dscod.EncodeTo(b.db.enc)
+		dscod.EncodeTo(&b.db.enc)
 	}
 	b.db.enc.Flush()
 	b.putRaw(key, append(b.getRaw(key), buf.Bytes()[:]...))
@@ -357,7 +357,7 @@ func (db *DBStore) deleteDelayedSiacoinOutputs(dscods []consensus.DelayedSiacoin
 	db.enc.Reset(&buf)
 	for _, mdscod := range db.MaturedSiacoinOutputs(maturityHeight) {
 		if _, ok := toDelete[mdscod.ID]; !ok {
-			mdscod.EncodeTo(db.enc)
+			mdscod.EncodeTo(&db.enc)
 		}
 		delete(toDelete, mdscod.ID)
 	}
@@ -626,9 +626,8 @@ func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (_ *DBSto
 	}
 
 	dbs := &DBStore{
-		db:  db,
-		n:   n,
-		enc: &types.Encoder{},
+		db: db,
+		n:  n,
 	}
 
 	// if the db is empty, initialize it; otherwise, check that the genesis
