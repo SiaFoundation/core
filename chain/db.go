@@ -200,13 +200,12 @@ var (
 
 // DBStore implements Store using a key-value database.
 type DBStore struct {
-	db DB
-	n  *consensus.Network // for getCheckpoint
+	db  DB
+	n   *consensus.Network // for getCheckpoint
+	enc types.Encoder
 
 	unflushed int
 	lastFlush time.Time
-
-	enc types.Encoder
 }
 
 func (db *DBStore) bucket(name []byte) *dbBucket {
@@ -215,8 +214,7 @@ func (db *DBStore) bucket(name []byte) *dbBucket {
 
 func (db *DBStore) encHeight(height uint64) []byte {
 	var buf [8]byte
-	binary.BigEndian.PutUint64(buf[:], height)
-	return buf[:]
+	return binary.BigEndian.AppendUint64(buf[:0], height)
 }
 
 func (db *DBStore) putBestIndex(index types.ChainIndex) {
@@ -262,26 +260,38 @@ func (db *DBStore) encLeaf(index uint64, height int) []byte {
 	// distinguish these by setting the penultimate bit. Each time we ascend a
 	// level, we have one fewer bit to work with; but since each level requires
 	// half as many nodes as the previous, it balances out and we always have
-	// enough space.
-	return binary.BigEndian.AppendUint32(nil, bits.RotateLeft32(uint32(index)|((1<<height)-1), -height))
+	// enough space. Below, we implement this trick with a bitwise rotation to
+	// demonstrate that these high bits are not "clobbering" any other bits.
+	var buf [4]byte
+	return binary.BigEndian.AppendUint32(buf[:0], bits.RotateLeft32(uint32(index)|((1<<height)-1), -height))
 }
 
-func (db *DBStore) putElementProof(leafIndex uint64, proof []types.Hash256) {
-	for i, p := range proof {
-		db.bucket(bTree).put(db.encLeaf(leafIndex, i), p)
+func (db *DBStore) putElementProof(e types.StateElement) {
+	for i, p := range e.MerkleProof {
+		db.bucket(bTree).put(db.encLeaf(e.LeafIndex, i), p)
 	}
 }
 
-func (db *DBStore) getElementProof(leafIndex uint64) (proof []types.Hash256) {
-	var p types.Hash256
-	for db.bucket(bTree).get(db.encLeaf(leafIndex, len(proof)), &p) {
-		proof = append(proof, p)
+func (db *DBStore) getElementProof(leafIndex, numLeaves uint64) (proof []types.Hash256) {
+	// The size of the proof is the mergeHeight of leafIndex and numLeaves-1. To
+	// see why, imagine a tree large enough to contain both leafIndex and
+	// numLeaves-1 within the same subtree; the height at which the paths to
+	// those leaves diverge must be the size of the subtree containing leafIndex
+	// in the actual tree.
+	proof = make([]types.Hash256, bits.Len64(leafIndex^(numLeaves-1)))
+	for i := range proof {
+		db.bucket(bTree).get(db.encLeaf(leafIndex, i), &proof[i])
 	}
 	return
 }
 
+func (db *DBStore) getSiacoinElement(id types.SiacoinOutputID, numLeaves uint64) (sce types.SiacoinElement, ok bool) {
+	ok = db.bucket(bSiacoinElements).get(id[:], &sce)
+	sce.MerkleProof = db.getElementProof(sce.LeafIndex, numLeaves)
+	return
+}
+
 func (db *DBStore) putSiacoinElement(sce types.SiacoinElement) {
-	db.putElementProof(sce.LeafIndex, sce.MerkleProof)
 	sce.MerkleProof = nil
 	db.bucket(bSiacoinElements).put(sce.ID[:], sce)
 }
@@ -290,20 +300,44 @@ func (db *DBStore) deleteSiacoinElement(id types.SiacoinOutputID) {
 	db.bucket(bSiacoinElements).delete(id[:])
 }
 
-func (db *DBStore) putFileContract(fce types.FileContractElement) {
-	b := db.bucket(bFileContractElements)
-	db.putElementProof(fce.LeafIndex, fce.MerkleProof)
-	fce.MerkleProof = nil
-	b.put(fce.ID[:], fce)
-
-	key := db.encHeight(fce.WindowEnd)
-	b.putRaw(key, append(b.getRaw(key), fce.ID[:]...))
+func (db *DBStore) getSiafundElement(id types.SiafundOutputID, numLeaves uint64) (sfe types.SiafundElement, ok bool) {
+	ok = db.bucket(bSiafundElements).get(id[:], &sfe)
+	sfe.MerkleProof = db.getElementProof(sfe.LeafIndex, numLeaves)
+	return
 }
 
-func (db *DBStore) deleteFileContract(id types.FileContractID, windowEnd uint64) {
-	b := db.bucket(bFileContractElements)
-	b.delete(id[:])
+func (db *DBStore) putSiafundElement(sfe types.SiafundElement) {
+	sfe.MerkleProof = nil
+	db.bucket(bSiafundElements).put(sfe.ID[:], sfe)
+}
 
+func (db *DBStore) deleteSiafundElement(id types.SiafundOutputID) {
+	db.bucket(bSiafundElements).delete(id[:])
+}
+
+func (db *DBStore) getFileContractElement(id types.FileContractID, numLeaves uint64) (fce types.FileContractElement, ok bool) {
+	ok = db.bucket(bFileContractElements).get(id[:], &fce)
+	fce.MerkleProof = db.getElementProof(fce.LeafIndex, numLeaves)
+	return
+}
+
+func (db *DBStore) putFileContractElement(fce types.FileContractElement) {
+	fce.MerkleProof = nil
+	db.bucket(bFileContractElements).put(fce.ID[:], fce)
+}
+
+func (db *DBStore) deleteFileContractElement(id types.FileContractID) {
+	db.bucket(bFileContractElements).delete(id[:])
+}
+
+func (db *DBStore) putFileContractExpiration(id types.FileContractID, windowEnd uint64) {
+	b := db.bucket(bFileContractElements)
+	key := db.encHeight(windowEnd)
+	b.putRaw(key, append(b.getRaw(key), id[:]...))
+}
+
+func (db *DBStore) deleteFileContractExpiration(id types.FileContractID, windowEnd uint64) {
+	b := db.bucket(bFileContractElements)
 	key := db.encHeight(windowEnd)
 	val := append([]byte(nil), b.getRaw(key)...)
 	for i := 0; i < len(val); i += 32 {
@@ -318,16 +352,6 @@ func (db *DBStore) deleteFileContract(id types.FileContractID, windowEnd uint64)
 	panic("missing file contract expiration")
 }
 
-func (db *DBStore) putSiafundElement(sfe types.SiafundElement) {
-	db.putElementProof(sfe.LeafIndex, sfe.MerkleProof)
-	sfe.MerkleProof = nil
-	db.bucket(bSiafundElements).put(sfe.ID[:], sfe)
-}
-
-func (db *DBStore) deleteSiafundElement(id types.SiafundOutputID) {
-	db.bucket(bSiafundElements).delete(id[:])
-}
-
 func (db *DBStore) applyState(next consensus.State) {
 	db.putBestIndex(next.Index)
 	db.putHeight(next.Index.Height)
@@ -338,121 +362,117 @@ func (db *DBStore) revertState(prev consensus.State) {
 	db.putHeight(prev.Index.Height)
 }
 
-func (db *DBStore) applyDiff(diff consensus.BlockDiff) {
-	for _, td := range diff.Transactions {
-		for _, sce := range td.CreatedSiacoinElements {
+func (db *DBStore) applyElements(cau consensus.ApplyUpdate) {
+	cau.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
+		if sce.LeafIndex == types.EphemeralLeafIndex {
+			return
+		} else if spent {
+			db.deleteSiacoinElement(types.SiacoinOutputID(sce.ID))
+		} else {
 			db.putSiacoinElement(sce)
 		}
-		for _, sfe := range td.CreatedSiafundElements {
+		db.putElementProof(sce.StateElement)
+	})
+	cau.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
+		if sfe.LeafIndex == types.EphemeralLeafIndex {
+			return
+		} else if spent {
+			db.deleteSiafundElement(types.SiafundOutputID(sfe.ID))
+		} else {
 			db.putSiafundElement(sfe)
 		}
-		for _, fce := range td.CreatedFileContracts {
-			db.putFileContract(fce)
+		db.putElementProof(sfe.StateElement)
+	})
+	cau.ForEachFileContractElement(func(fce types.FileContractElement, rev *types.FileContractElement, resolved bool) {
+		if resolved {
+			db.deleteFileContractElement(types.FileContractID(fce.ID))
+			db.deleteFileContractExpiration(types.FileContractID(fce.ID), fce.WindowEnd)
+		} else if rev != nil {
+			db.putFileContractElement(*rev)
+			if rev.WindowEnd != fce.WindowEnd {
+				db.deleteFileContractExpiration(types.FileContractID(fce.ID), fce.WindowEnd)
+				db.putFileContractExpiration(types.FileContractID(fce.ID), rev.WindowEnd)
+			}
+		} else {
+			db.putFileContractElement(fce)
+			db.putFileContractExpiration(types.FileContractID(fce.ID), fce.WindowEnd)
 		}
-		for _, sce := range td.SpentSiacoinElements {
-			db.deleteSiacoinElement(types.SiacoinOutputID(sce.ID))
-		}
-		for _, sfe := range td.SpentSiafundElements {
-			db.deleteSiafundElement(types.SiafundOutputID(sfe.ID))
-		}
-		for _, fcer := range td.RevisedFileContracts {
-			db.deleteFileContract(types.FileContractID(fcer.Parent.ID), fcer.Parent.WindowEnd)
-			db.putFileContract(fcer.RevisedElement())
-		}
-		for _, fce := range td.ValidFileContracts {
-			db.deleteFileContract(types.FileContractID(fce.ID), fce.WindowEnd)
-		}
-	}
-
-	for _, td := range diff.V2Transactions {
-		for _, sce := range td.CreatedSiacoinElements {
-			db.putSiacoinElement(sce)
-		}
-		for _, sfe := range td.CreatedSiafundElements {
-			db.putSiafundElement(sfe)
-		}
-		for _, sce := range td.SpentSiacoinElements {
-			db.deleteSiacoinElement(types.SiacoinOutputID(sce.ID))
-		}
-		for _, sfe := range td.SpentSiafundElements {
-			db.deleteSiafundElement(types.SiafundOutputID(sfe.ID))
-		}
-	}
-
-	for _, sce := range diff.CreatedSiacoinElements {
-		db.putSiacoinElement(sce)
-	}
-	for _, fce := range diff.MissedFileContracts {
-		db.deleteFileContract(types.FileContractID(fce.ID), fce.WindowEnd)
-	}
+		db.putElementProof(fce.StateElement)
+	})
 }
 
-func (db *DBStore) revertDiff(diff consensus.BlockDiff) {
-	for _, fce := range diff.MissedFileContracts {
-		db.putFileContract(fce)
-	}
-	for _, sce := range diff.CreatedSiacoinElements {
-		db.deleteSiacoinElement(types.SiacoinOutputID(sce.ID))
-	}
-	for i := len(diff.Transactions) - 1; i >= 0; i-- {
-		td := diff.Transactions[i]
-		for _, fce := range td.ValidFileContracts {
-			db.putFileContract(fce)
+func (db *DBStore) revertElements(cru consensus.RevertUpdate) {
+	cru.ForEachFileContractElement(func(fce types.FileContractElement, rev *types.FileContractElement, resolved bool) {
+		if resolved {
+			// contract no longer resolved; restore it
+			db.putFileContractElement(fce)
+			db.putFileContractExpiration(types.FileContractID(fce.ID), fce.WindowEnd)
+			db.putElementProof(fce.StateElement)
+		} else if rev != nil {
+			// contract no longer revised; restore prior revision
+			db.putFileContractElement(fce)
+			if rev.WindowEnd != fce.WindowEnd {
+				db.deleteFileContractExpiration(types.FileContractID(fce.ID), fce.WindowEnd)
+				db.putFileContractExpiration(types.FileContractID(fce.ID), rev.WindowEnd)
+			}
+			db.putElementProof(fce.StateElement)
+		} else {
+			// contract no longer exists; delete it
+			db.deleteFileContractElement(types.FileContractID(fce.ID))
+			db.deleteFileContractExpiration(types.FileContractID(fce.ID), fce.WindowEnd)
 		}
-		for _, fcer := range td.RevisedFileContracts {
-			db.deleteFileContract(types.FileContractID(fcer.Parent.ID), fcer.Revision.WindowEnd)
-			db.putFileContract(fcer.Parent)
-		}
-		for _, sfe := range td.SpentSiafundElements {
+	})
+	cru.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
+		if sfe.LeafIndex == types.EphemeralLeafIndex {
+			return
+		} else if spent {
+			// output no longer spent; restore it
 			db.putSiafundElement(sfe)
-		}
-		for _, sce := range td.SpentSiacoinElements {
-			db.putSiacoinElement(sce)
-		}
-		for _, fce := range td.CreatedFileContracts {
-			db.deleteFileContract(types.FileContractID(fce.ID), fce.WindowEnd)
-		}
-		for _, sfe := range td.CreatedSiafundElements {
+			db.putElementProof(sfe.StateElement)
+		} else {
+			// output no longer exists; delete it
 			db.deleteSiafundElement(types.SiafundOutputID(sfe.ID))
 		}
-		for _, sce := range td.CreatedSiacoinElements {
-			db.deleteSiacoinElement(types.SiacoinOutputID(sce.ID))
-		}
-	}
-
-	for i := len(diff.V2Transactions) - 1; i >= 0; i-- {
-		td := diff.V2Transactions[i]
-		for _, sfe := range td.SpentSiafundElements {
-			db.putSiafundElement(sfe)
-		}
-		for _, sce := range td.SpentSiacoinElements {
+	})
+	cru.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
+		if sce.LeafIndex == types.EphemeralLeafIndex {
+			return
+		} else if spent {
+			// output no longer spent; restore it
 			db.putSiacoinElement(sce)
-		}
-		for _, sfe := range td.CreatedSiafundElements {
-			db.deleteSiafundElement(types.SiafundOutputID(sfe.ID))
-		}
-		for _, sce := range td.CreatedSiacoinElements {
+			db.putElementProof(sce.StateElement)
+		} else {
+			// output no longer exists; delete it
 			db.deleteSiacoinElement(types.SiacoinOutputID(sce.ID))
 		}
-	}
+	})
 
-	// TODO: proofs!!!!
+	// NOTE: Although the element tree has shrunk, we do not need to explicitly
+	// delete any nodes; getElementProof always stops at the correct height for
+	// the given tree size, so the no-longer-valid nodes are simply never
+	// accessed. (They will continue to occupy storage, but this storage will
+	// inevitably be overwritten by future nodes, so there is little reason to
+	// reclaim it immediately.)
 }
 
-// BestIndex implements consensus.Store.
+// BestIndex implements Store.
 func (db *DBStore) BestIndex(height uint64) (index types.ChainIndex, ok bool) {
 	index.Height = height
 	ok = db.bucket(bMainChain).get(db.encHeight(height), &index.ID)
 	return
 }
 
-// AncestorTimestamp implements consensus.Store.
-func (db *DBStore) AncestorTimestamp(id types.BlockID, n uint64) time.Time {
+// AncestorTimestamp implements Store.
+func (db *DBStore) AncestorTimestamp(id types.BlockID, depth uint64) time.Time {
 	c, _ := db.Checkpoint(id)
-	for i := uint64(1); i < n; i++ {
+	for i := uint64(1); i < depth; i++ {
 		// if we're on the best path, we can jump to the n'th block directly
 		if index, _ := db.BestIndex(c.State.Index.Height); index.ID == id {
-			ancestorIndex, _ := db.BestIndex(c.State.Index.Height - (n - i))
+			height := c.State.Index.Height - (depth - i)
+			if c.State.Index.Height < (depth - i) {
+				height = 0
+			}
+			ancestorIndex, _ := db.BestIndex(height)
 			c, _ = db.Checkpoint(ancestorIndex.ID)
 			break
 		}
@@ -461,34 +481,61 @@ func (db *DBStore) AncestorTimestamp(id types.BlockID, n uint64) time.Time {
 	return c.Block.Timestamp
 }
 
-// SiacoinElement implements consensus.Store.
-func (db *DBStore) SiacoinElement(id types.SiacoinOutputID) (sce types.SiacoinElement, ok bool) {
-	ok = db.bucket(bSiacoinElements).get(id[:], &sce)
-	sce.MerkleProof = db.getElementProof(sce.LeafIndex)
-	return
-}
+// SupplementTipTransaction implements Store.
+func (db *DBStore) SupplementTipTransaction(txn types.Transaction) (ts consensus.V1TransactionSupplement) {
+	// get tip state, for proof-trimming
+	index, _ := db.BestIndex(db.getHeight())
+	c, _ := db.Checkpoint(index.ID)
+	numLeaves := c.State.Elements.NumLeaves
 
-// FileContractElement implements consensus.Store.
-func (db *DBStore) FileContractElement(id types.FileContractID) (fce types.FileContractElement, ok bool) {
-	ok = db.bucket(bFileContractElements).get(id[:], &fce)
-	fce.MerkleProof = db.getElementProof(fce.LeafIndex)
-	return
-}
-
-// MissedFileContracts implements consensus.Store.
-func (db *DBStore) MissedFileContracts(height uint64) (fcids []types.FileContractID) {
-	ids := db.bucket(bFileContractElements).getRaw(db.encHeight(height))
-	for i := 0; i < len(ids); i += 32 {
-		fcids = append(fcids, *(*types.FileContractID)(ids[i:]))
+	for _, sci := range txn.SiacoinInputs {
+		if sce, ok := db.getSiacoinElement(sci.ParentID, numLeaves); ok {
+			ts.SiacoinInputs = append(ts.SiacoinInputs, sce)
+		}
+	}
+	for _, sfi := range txn.SiafundInputs {
+		if sfe, ok := db.getSiafundElement(sfi.ParentID, numLeaves); ok {
+			ts.SiafundInputs = append(ts.SiafundInputs, sfe)
+		}
+	}
+	for _, fcr := range txn.FileContractRevisions {
+		if fce, ok := db.getFileContractElement(fcr.ParentID, numLeaves); ok {
+			ts.RevisedFileContracts = append(ts.RevisedFileContracts, fce)
+		}
+	}
+	for _, sp := range txn.StorageProofs {
+		if fce, ok := db.getFileContractElement(sp.ParentID, numLeaves); ok {
+			ts.ValidFileContracts = append(ts.ValidFileContracts, fce)
+			if windowIndex, ok := db.BestIndex(fce.WindowStart - 1); ok {
+				ts.StorageProofBlockIDs = append(ts.StorageProofBlockIDs, windowIndex.ID)
+			}
+		}
 	}
 	return
 }
 
-// SiafundOutput implements consensus.Store.
-func (db *DBStore) SiafundElement(id types.SiafundOutputID) (sfe types.SiafundElement, ok bool) {
-	ok = db.bucket(bSiafundElements).get(id[:], &sfe)
-	sfe.MerkleProof = db.getElementProof(sfe.LeafIndex)
-	return
+// SupplementTipBlock implements Store.
+func (db *DBStore) SupplementTipBlock(b types.Block) (bs consensus.V1BlockSupplement) {
+	// get tip state, for proof-trimming
+	index, _ := db.BestIndex(db.getHeight())
+	c, _ := db.Checkpoint(index.ID)
+	numLeaves := c.State.Elements.NumLeaves
+
+	bs = consensus.V1BlockSupplement{
+		Transactions: make([]consensus.V1TransactionSupplement, len(b.Transactions)),
+	}
+	for i, txn := range b.Transactions {
+		bs.Transactions[i] = db.SupplementTipTransaction(txn)
+	}
+	ids := db.bucket(bFileContractElements).getRaw(db.encHeight(db.getHeight() + 1))
+	for i := 0; i < len(ids); i += 32 {
+		fce, ok := db.getFileContractElement(*(*types.FileContractID)(ids[i:]), numLeaves)
+		if !ok {
+			panic("missing FileContractElement")
+		}
+		bs.ExpiringFileContracts = append(bs.ExpiringFileContracts, fce)
+	}
+	return bs
 }
 
 // AddCheckpoint implements Store.
@@ -519,10 +566,10 @@ func (db *DBStore) flush() {
 	db.lastFlush = time.Now()
 }
 
-// ApplyDiff implements Store.
-func (db *DBStore) ApplyDiff(s consensus.State, diff consensus.BlockDiff, mustCommit bool) (committed bool) {
+// ApplyBlock implements Store.
+func (db *DBStore) ApplyBlock(s consensus.State, cau consensus.ApplyUpdate, mustCommit bool) (committed bool) {
 	db.applyState(s)
-	db.applyDiff(diff)
+	db.applyElements(cau)
 	committed = mustCommit || db.shouldFlush()
 	if committed {
 		db.flush()
@@ -530,9 +577,9 @@ func (db *DBStore) ApplyDiff(s consensus.State, diff consensus.BlockDiff, mustCo
 	return
 }
 
-// RevertDiff implements Store.
-func (db *DBStore) RevertDiff(s consensus.State, diff consensus.BlockDiff) {
-	db.revertDiff(diff)
+// RevertBlock implements Store.
+func (db *DBStore) RevertBlock(s consensus.State, cru consensus.RevertUpdate) {
+	db.revertElements(cru)
 	db.revertState(s)
 	if db.shouldFlush() {
 		db.flush()
@@ -585,12 +632,10 @@ func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (_ *DBSto
 
 		// store genesis checkpoint and apply its effects
 		genesisState := n.GenesisState()
-		cs := consensus.ApplyState(genesisState, dbs, genesisBlock)
-		diff := consensus.ApplyDiff(genesisState, dbs, genesisBlock)
-		dbs.putCheckpoint(Checkpoint{genesisBlock, cs, &diff})
-		dbs.applyState(cs)
-		dbs.applyDiff(diff)
-		dbs.flush()
+		bs := consensus.V1BlockSupplement{Transactions: make([]consensus.V1TransactionSupplement, len(genesisBlock.Transactions))}
+		cs, cau := consensus.ApplyBlock(genesisState, genesisBlock, bs, time.Time{})
+		dbs.putCheckpoint(Checkpoint{genesisBlock, cs, &bs})
+		dbs.ApplyBlock(cs, cau, true)
 	} else if dbGenesis.ID != genesisBlock.ID() {
 		// try to detect network so we can provide a more helpful error message
 		_, mainnetGenesis := Mainnet()

@@ -47,6 +47,7 @@ var (
 	SpecifierStorageProof  = NewSpecifier("storage proof")
 	SpecifierFoundation    = NewSpecifier("foundation")
 	SpecifierEntropy       = NewSpecifier("entropy")
+	SpecifierElementID     = NewSpecifier("element id")
 )
 
 // A Hash256 is a generic 256-bit cryptographic hash.

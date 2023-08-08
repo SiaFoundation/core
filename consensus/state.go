@@ -19,21 +19,6 @@ import (
 // implementation whose constructor returns a concrete type.
 var hasherPool = &sync.Pool{New: func() interface{} { return types.NewHasher() }}
 
-// A Store stores blocks, siacoin outputs, siafund outputs, and file contracts.
-//
-// Store methods do not return errors. If a store encounters an error, it should
-// save the error and thereafter return empty values from all methods. It is the
-// caller's responsibility to check this error, and, if non-nil, discard any
-// results computed.
-type Store interface {
-	BestIndex(height uint64) (types.ChainIndex, bool)
-	AncestorTimestamp(id types.BlockID, n uint64) time.Time
-	SiacoinElement(id types.SiacoinOutputID) (types.SiacoinElement, bool)
-	SiafundElement(id types.SiafundOutputID) (types.SiafundElement, bool)
-	FileContractElement(id types.FileContractID) (types.FileContractElement, bool)
-	MissedFileContracts(height uint64) []types.FileContractID
-}
-
 // A Network specifies the fixed parameters of a Sia blockchain.
 type Network struct {
 	Name string `json:"name"`
@@ -199,6 +184,12 @@ func (s State) SiafundCount() uint64 {
 	return 10000
 }
 
+// AncestorDepth is the depth used to determine the target timestamp in the
+// pre-Oak difficulty adjustment algorithm.
+func (s State) AncestorDepth() uint64 {
+	return 1000
+}
+
 // FoundationSubsidy returns the Foundation subsidy output for the child block.
 // If no subsidy is due, the returned output has a value of zero.
 func (s State) FoundationSubsidy() (sco types.SiacoinOutput) {
@@ -279,7 +270,7 @@ func (s State) V2FileContractTax(fc types.V2FileContract) types.Currency {
 
 // StorageProofLeafIndex returns the leaf index used when computing or
 // validating a storage proof.
-func (s State) StorageProofLeafIndex(filesize uint64, windowStart types.ChainIndex, fcid types.FileContractID) uint64 {
+func (s State) StorageProofLeafIndex(filesize uint64, windowID types.BlockID, fcid types.FileContractID) uint64 {
 	const leafSize = uint64(len(types.StorageProof{}.Leaf))
 	numLeaves := filesize / leafSize
 	if filesize%leafSize != 0 {
@@ -288,7 +279,7 @@ func (s State) StorageProofLeafIndex(filesize uint64, windowStart types.ChainInd
 	if numLeaves <= 0 {
 		return 0
 	}
-	seed := types.HashBytes(append(windowStart.ID[:], fcid[:]...))
+	seed := types.HashBytes(append(windowID[:], fcid[:]...))
 	var r uint64
 	for i := 0; i < len(seed); i += 8 {
 		_, r = bits.Div64(r, binary.BigEndian.Uint64(seed[i:]), numLeaves)

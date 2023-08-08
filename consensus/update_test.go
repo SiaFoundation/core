@@ -57,13 +57,50 @@ func TestApplyBlock(t *testing.T) {
 			appendSig(types.Hash256(txn.FileContractRevisions[i].ParentID))
 		}
 	}
-	addBlock := func(b types.Block) (diff consensus.BlockDiff, err error) {
-		if err = consensus.ValidateBlock(cs, dbStore, b); err != nil {
+	addBlock := func(b types.Block) (au consensus.ApplyUpdate, err error) {
+		bs := dbStore.SupplementTipBlock(b)
+		if err = consensus.ValidateBlock(cs, b, bs); err != nil {
 			return
 		}
-		diff = consensus.ApplyDiff(cs, dbStore, b)
-		cs = consensus.ApplyState(cs, dbStore, b)
+		cs, au = consensus.ApplyBlock(cs, b, bs, dbStore.AncestorTimestamp(b.ParentID, cs.AncestorDepth()))
 		return
+	}
+	checkUpdateElements := func(au consensus.ApplyUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {
+		au.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
+			sces := &addedSCEs
+			if spent {
+				sces = &spentSCEs
+			}
+			if len(*sces) == 0 {
+				t.Fatal("unexpected spent siacoin element")
+			}
+			sce.StateElement = types.StateElement{}
+			if !reflect.DeepEqual(sce, (*sces)[0]) {
+				js1, _ := json.MarshalIndent(sce, "", "  ")
+				js2, _ := json.MarshalIndent((*sces)[0], "", "  ")
+				t.Fatalf("siacoin element doesn't match:\n%s\nvs\n%s\n", js1, js2)
+			}
+			*sces = (*sces)[1:]
+		})
+		au.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
+			sfes := &addedSFEs
+			if spent {
+				sfes = &spentSFEs
+			}
+			if len(*sfes) == 0 {
+				t.Fatal("unexpected spent siafund element")
+			}
+			sfe.StateElement = types.StateElement{}
+			if !reflect.DeepEqual(sfe, (*sfes)[0]) {
+				js1, _ := json.MarshalIndent(sfe, "", "  ")
+				js2, _ := json.MarshalIndent((*sfes)[0], "", "  ")
+				t.Fatalf("siafund element doesn't match:\n%s\nvs\n%s\n", js1, js2)
+			}
+			*sfes = (*sfes)[1:]
+		})
+		if len(addedSCEs)+len(spentSCEs)+len(addedSFEs)+len(spentSFEs) > 0 {
+			t.Fatal("extraneous elements")
+		}
 	}
 
 	// block with nothing except block reward
@@ -72,21 +109,16 @@ func TestApplyBlock(t *testing.T) {
 		Timestamp:    types.CurrentTimestamp(),
 		MinerPayouts: []types.SiacoinOutput{{Address: types.VoidAddress, Value: cs.BlockReward()}},
 	}
-	expect := consensus.BlockDiff{
-		CreatedSiacoinElements: []types.SiacoinElement{
-			{
-				StateElement:   types.StateElement{ID: types.Hash256(b1.ID().MinerOutputID(0))},
-				SiacoinOutput:  b1.MinerPayouts[0],
-				MaturityHeight: cs.MaturityHeight(),
-			},
-		},
+	addedSCEs := []types.SiacoinElement{
+		{SiacoinOutput: b1.MinerPayouts[0], MaturityHeight: cs.MaturityHeight()},
 	}
-	if diff, err := addBlock(b1); err != nil {
+	spentSCEs := []types.SiacoinElement{}
+	addedSFEs := []types.SiafundElement{}
+	spentSFEs := []types.SiafundElement{}
+	if au, err := addBlock(b1); err != nil {
 		t.Fatal(err)
-	} else if !reflect.DeepEqual(diff, expect) {
-		js1, _ := json.MarshalIndent(diff, "", "  ")
-		js2, _ := json.MarshalIndent(expect, "", "  ")
-		t.Fatalf("diff doesn't match:\n%s\nvs\n%s\n", js1, js2)
+	} else {
+		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 
 	// block that spends part of the gift transaction
@@ -116,40 +148,25 @@ func TestApplyBlock(t *testing.T) {
 		MinerPayouts: []types.SiacoinOutput{{Address: types.VoidAddress, Value: cs.BlockReward()}},
 		Transactions: []types.Transaction{txnB2},
 	}
-	expect = consensus.BlockDiff{
-		Transactions: []consensus.TransactionDiff{{
-			CreatedSiacoinElements: []types.SiacoinElement{
-				{StateElement: types.StateElement{ID: types.Hash256(txnB2.SiacoinOutputID(0))}, SiacoinOutput: txnB2.SiacoinOutputs[0]},
-				{StateElement: types.StateElement{ID: types.Hash256(txnB2.SiacoinOutputID(1))}, SiacoinOutput: txnB2.SiacoinOutputs[1]},
-				{
-					StateElement:   types.StateElement{ID: types.Hash256(giftTxn.SiafundOutputID(0).ClaimOutputID())},
-					SiacoinOutput:  types.SiacoinOutput{Value: types.NewCurrency64(0), Address: txnB2.SiafundInputs[0].ClaimAddress},
-					MaturityHeight: cs.MaturityHeight(),
-				},
-			},
-			SpentSiacoinElements: []types.SiacoinElement{
-				{StateElement: types.StateElement{ID: types.Hash256(giftTxn.SiacoinOutputID(0))}, SiacoinOutput: giftTxn.SiacoinOutputs[0]},
-			},
-			CreatedSiafundElements: []types.SiafundElement{
-				{StateElement: types.StateElement{ID: types.Hash256(txnB2.SiafundOutputID(0))}, SiafundOutput: txnB2.SiafundOutputs[0]},
-				{StateElement: types.StateElement{ID: types.Hash256(txnB2.SiafundOutputID(1))}, SiafundOutput: txnB2.SiafundOutputs[1]},
-			},
-			SpentSiafundElements: []types.SiafundElement{
-				{StateElement: types.StateElement{ID: types.Hash256(giftTxn.SiafundOutputID(0))}, SiafundOutput: giftTxn.SiafundOutputs[0]},
-			},
-		}},
-
-		CreatedSiacoinElements: []types.SiacoinElement{{
-			StateElement:   types.StateElement{ID: types.Hash256(b2.ID().MinerOutputID(0))},
-			SiacoinOutput:  b2.MinerPayouts[0],
-			MaturityHeight: cs.MaturityHeight(),
-		}},
+	addedSCEs = []types.SiacoinElement{
+		{SiacoinOutput: txnB2.SiacoinOutputs[0]},
+		{SiacoinOutput: txnB2.SiacoinOutputs[1]},
+		{SiacoinOutput: types.SiacoinOutput{Value: types.ZeroCurrency, Address: txnB2.SiafundInputs[0].ClaimAddress}, MaturityHeight: cs.MaturityHeight()},
+		{SiacoinOutput: b2.MinerPayouts[0], MaturityHeight: cs.MaturityHeight()},
 	}
-	if diff, err := addBlock(b2); err != nil {
+	spentSCEs = []types.SiacoinElement{
+		{SiacoinOutput: giftTxn.SiacoinOutputs[0]},
+	}
+	addedSFEs = []types.SiafundElement{
+		{SiafundOutput: txnB2.SiafundOutputs[0]},
+		{SiafundOutput: txnB2.SiafundOutputs[1]},
+	}
+	spentSFEs = []types.SiafundElement{
+		{SiafundOutput: giftTxn.SiafundOutputs[0]},
+	}
+	if au, err := addBlock(b2); err != nil {
 		t.Fatal(err)
-	} else if !reflect.DeepEqual(diff, expect) {
-		js1, _ := json.MarshalIndent(diff, "", "  ")
-		js2, _ := json.MarshalIndent(expect, "", "  ")
-		t.Fatalf("diff doesn't match:\n%s\nvs\n%s\n", js1, js2)
+	} else {
+		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 }

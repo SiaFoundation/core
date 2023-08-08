@@ -1293,10 +1293,6 @@ func (b *V1Block) DecodeFrom(d *Decoder) {
 	for i := range b.Transactions {
 		b.Transactions[i].DecodeFrom(d)
 	}
-	if d.ReadBool() {
-		b.V2 = new(V2BlockData)
-		b.V2.DecodeFrom(d)
-	}
 }
 
 // DecodeFrom implements types.DecoderFrom.

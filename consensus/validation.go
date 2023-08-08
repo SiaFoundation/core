@@ -70,7 +70,7 @@ func validateMinerPayouts(s State, b types.Block) error {
 // ValidateOrphan validates b in the context of s.
 func ValidateOrphan(s State, b types.Block) error {
 	// TODO: calculate size more efficiently
-	if uint64(types.EncodedLen(b)) > s.MaxBlockWeight() {
+	if uint64(types.EncodedLen(types.V1Block(b))) > s.MaxBlockWeight() {
 		return errors.New("block exceeds maximum weight")
 	} else if err := validateMinerPayouts(s, b); err != nil {
 		return err
@@ -81,7 +81,7 @@ func ValidateOrphan(s State, b types.Block) error {
 	if b.V2 != nil {
 		if b.V2.Height != s.Index.Height+1 {
 			return errors.New("block height does not increment parent height")
-		} else if s.Commitment(b.MinerPayouts[0].Address, b.Transactions, b.V2.Transactions) != b.V2.Commitment {
+		} else if b.V2.Commitment != s.Commitment(b.MinerPayouts[0].Address, b.Transactions, b.V2.Transactions) {
 			return errors.New("commitment hash does not match header")
 		}
 	}
@@ -90,13 +90,22 @@ func ValidateOrphan(s State, b types.Block) error {
 
 // A MidState represents the state of the blockchain within a block.
 type MidState struct {
-	base        State
-	sces        map[types.SiacoinOutputID]types.SiacoinElement
-	sfes        map[types.SiafundOutputID]types.SiafundElement
-	fces        map[types.FileContractID]types.FileContractElement
-	v2fces      map[types.FileContractID]types.V2FileContractElement
-	spends      map[types.Hash256]types.TransactionID
-	siafundPool types.Currency
+	base               State
+	ephemeral          map[types.Hash256]int // indices into element slices
+	spends             map[types.Hash256]types.TransactionID
+	revs               map[types.Hash256]*types.FileContractElement
+	siafundPool        types.Currency
+	foundationPrimary  types.Address
+	foundationFailsafe types.Address
+
+	// elements that have been updated or added by the block
+	sces   []types.SiacoinElement
+	sfes   []types.SiafundElement
+	fces   []types.FileContractElement
+	v2fces []types.V2FileContractElement
+	// these alias the above
+	updated []ElementLeaf
+	added   []ElementLeaf
 }
 
 // Index returns the index of the MidState's base state.
@@ -104,72 +113,53 @@ func (ms *MidState) Index() types.ChainIndex {
 	return ms.base.Index
 }
 
-func (ms *MidState) siacoinElement(store Store, id types.SiacoinOutputID) (types.SiacoinElement, bool) {
-	sce, ok := ms.sces[id]
-	if !ok {
-		sce, ok = store.SiacoinElement(id)
+func (ms *MidState) siacoinElement(ts V1TransactionSupplement, id types.SiacoinOutputID) (types.SiacoinElement, bool) {
+	if i, ok := ms.ephemeral[types.Hash256(id)]; ok {
+		return ms.sces[i], true
 	}
-	return sce, ok
+	return ts.siacoinElement(id)
 }
 
-func (ms *MidState) siafundElement(store Store, id types.SiafundOutputID) (types.SiafundElement, types.Currency, bool) {
-	sfe, ok := ms.sfes[id]
-	if !ok {
-		sfe, ok = store.SiafundElement(id)
+func (ms *MidState) siafundElement(ts V1TransactionSupplement, id types.SiafundOutputID) (types.SiafundElement, bool) {
+	if i, ok := ms.ephemeral[types.Hash256(id)]; ok {
+		return ms.sfes[i], true
 	}
-	claimPortion := ms.siafundPool.Sub(sfe.ClaimStart).Div64(ms.base.SiafundCount()).Mul64(sfe.Value)
-	return sfe, claimPortion, ok
+	return ts.siafundElement(id)
 }
 
-func (ms *MidState) fileContractElement(store Store, id types.FileContractID) (types.FileContractElement, bool) {
-	fce, ok := ms.fces[id]
-	if !ok {
-		fce, ok = store.FileContractElement(id)
+func (ms *MidState) fileContractElement(ts V1TransactionSupplement, id types.FileContractID) (types.FileContractElement, bool) {
+	if i, ok := ms.ephemeral[types.Hash256(id)]; ok {
+		return ms.fces[i], true
 	}
-	return fce, ok
+	return ts.fileContractElement(id)
 }
 
-func (ms *MidState) mustSiacoinElement(store Store, id types.SiacoinOutputID) types.SiacoinElement {
-	sce, ok := ms.siacoinElement(store, id)
+func (ms *MidState) mustSiacoinElement(ts V1TransactionSupplement, id types.SiacoinOutputID) types.SiacoinElement {
+	sce, ok := ms.siacoinElement(ts, id)
 	if !ok {
 		panic("missing SiacoinElement")
 	}
 	return sce
 }
 
-func (ms *MidState) mustSiafundElement(store Store, id types.SiafundOutputID) (types.SiafundElement, types.Currency) {
-	sfe, claimPortion, ok := ms.siafundElement(store, id)
+func (ms *MidState) mustSiafundElement(ts V1TransactionSupplement, id types.SiafundOutputID) types.SiafundElement {
+	sfe, ok := ms.siafundElement(ts, id)
 	if !ok {
 		panic("missing SiafundElement")
 	}
-	return sfe, claimPortion
+	return sfe
 }
 
-func (ms *MidState) mustFileContractElement(store Store, id types.FileContractID) types.FileContractElement {
-	fce, ok := ms.fileContractElement(store, id)
+func (ms *MidState) mustFileContractElement(ts V1TransactionSupplement, id types.FileContractID) types.FileContractElement {
+	fce, ok := ms.fileContractElement(ts, id)
 	if !ok {
 		panic("missing FileContractElement")
 	}
 	return fce
 }
 
-func contractRevisionID(id types.FileContractID, revisionNumber uint64) types.FileContractID {
-	h := hasherPool.Get().(*types.Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	id.EncodeTo(h.E)
-	h.E.WriteUint64(revisionNumber)
-	return types.FileContractID(h.Sum())
-}
-
-func (ms *MidState) mustFileContractParentRevision(store Store, id types.FileContractID, newRevisionNumber uint64) types.FileContractElement {
-	fce, ok := ms.fileContractElement(store, contractRevisionID(id, newRevisionNumber))
-	if !ok {
-		if fce, ok = ms.fileContractElement(store, id); !ok {
-			panic("missing FileContractElement")
-		}
-	}
-	return fce
+func (ms *MidState) revision(id types.Hash256) *types.FileContractElement {
+	return ms.revs[id]
 }
 
 func (ms *MidState) spent(id types.Hash256) (types.TransactionID, bool) {
@@ -177,21 +167,21 @@ func (ms *MidState) spent(id types.Hash256) (types.TransactionID, bool) {
 	return txid, ok
 }
 
-func (ms *MidState) v2Revision(id types.FileContractID) (types.V2FileContractElement, bool) {
-	fce, ok := ms.v2fces[id]
-	return fce, ok
+func (ms *MidState) isSpent(id types.Hash256) bool {
+	_, ok := ms.spends[id]
+	return ok
 }
 
 // NewMidState constructs a MidState initialized to the provided base state.
 func NewMidState(s State) *MidState {
 	return &MidState{
-		base:        s,
-		sces:        make(map[types.SiacoinOutputID]types.SiacoinElement),
-		sfes:        make(map[types.SiafundOutputID]types.SiafundElement),
-		fces:        make(map[types.FileContractID]types.FileContractElement),
-		v2fces:      make(map[types.FileContractID]types.V2FileContractElement),
-		spends:      make(map[types.Hash256]types.TransactionID),
-		siafundPool: s.SiafundPool,
+		base:               s,
+		ephemeral:          make(map[types.Hash256]int),
+		spends:             make(map[types.Hash256]types.TransactionID),
+		revs:               make(map[types.Hash256]*types.FileContractElement),
+		siafundPool:        s.SiafundPool,
+		foundationPrimary:  s.FoundationPrimaryAddress,
+		foundationFailsafe: s.FoundationFailsafeAddress,
 	}
 }
 
@@ -268,7 +258,7 @@ func validateMinimumValues(ms *MidState, txn types.Transaction) error {
 	return nil
 }
 
-func validateSiacoins(ms *MidState, store Store, txn types.Transaction) error {
+func validateSiacoins(ms *MidState, txn types.Transaction, ts V1TransactionSupplement) error {
 	var inputSum types.Currency
 	for i, sci := range txn.SiacoinInputs {
 		if sci.UnlockConditions.Timelock > ms.base.childHeight() {
@@ -276,7 +266,7 @@ func validateSiacoins(ms *MidState, store Store, txn types.Transaction) error {
 		} else if txid, ok := ms.spent(types.Hash256(sci.ParentID)); ok {
 			return fmt.Errorf("siacoin input %v double-spends parent output (previously spent in %v)", i, txid)
 		}
-		parent, ok := ms.siacoinElement(store, sci.ParentID)
+		parent, ok := ms.siacoinElement(ts, sci.ParentID)
 		if !ok {
 			return fmt.Errorf("siacoin input %v spends nonexistent siacoin output %v", i, sci.ParentID)
 		} else if sci.UnlockConditions.UnlockHash() != parent.Address {
@@ -302,7 +292,7 @@ func validateSiacoins(ms *MidState, store Store, txn types.Transaction) error {
 	return nil
 }
 
-func validateSiafunds(ms *MidState, store Store, txn types.Transaction) error {
+func validateSiafunds(ms *MidState, txn types.Transaction, ts V1TransactionSupplement) error {
 	var inputSum uint64
 	for i, sfi := range txn.SiafundInputs {
 		if sfi.UnlockConditions.Timelock > ms.base.childHeight() {
@@ -310,7 +300,7 @@ func validateSiafunds(ms *MidState, store Store, txn types.Transaction) error {
 		} else if txid, ok := ms.spent(types.Hash256(sfi.ParentID)); ok {
 			return fmt.Errorf("siafund input %v double-spends parent output (previously spent in %v)", i, txid)
 		}
-		parent, _, ok := ms.siafundElement(store, sfi.ParentID)
+		parent, ok := ms.siafundElement(ts, sfi.ParentID)
 		if !ok {
 			return fmt.Errorf("siafund input %v spends nonexistent siafund output %v", i, sfi.ParentID)
 		} else if sfi.UnlockConditions.UnlockHash() != parent.Address &&
@@ -332,7 +322,7 @@ func validateSiafunds(ms *MidState, store Store, txn types.Transaction) error {
 	return nil
 }
 
-func validateFileContracts(ms *MidState, store Store, txn types.Transaction) error {
+func validateFileContracts(ms *MidState, txn types.Transaction, ts V1TransactionSupplement) error {
 	for i, fc := range txn.FileContracts {
 		if fc.WindowStart < ms.base.childHeight() {
 			return fmt.Errorf("file contract %v has window that starts in the past", i)
@@ -363,7 +353,7 @@ func validateFileContracts(ms *MidState, store Store, txn types.Transaction) err
 		} else if txid, ok := ms.spent(types.Hash256(fcr.ParentID)); ok {
 			return fmt.Errorf("file contract revision %v conflicts with previous proof or revision (in %v)", i, txid)
 		}
-		parent, ok := ms.fileContractElement(store, fcr.ParentID)
+		parent, ok := ms.fileContractElement(ts, fcr.ParentID)
 		if !ok {
 			return fmt.Errorf("file contract revision %v revises nonexistent file contract %v", i, fcr.ParentID)
 		}
@@ -448,15 +438,12 @@ func validateFileContracts(ms *MidState, store Store, txn types.Transaction) err
 		if txid, ok := ms.spent(types.Hash256(sp.ParentID)); ok {
 			return fmt.Errorf("storage proof %v conflicts with previous proof (in %v)", i, txid)
 		}
-		fc, ok := ms.fileContractElement(store, sp.ParentID)
+		fc, ok := ms.fileContractElement(ts, sp.ParentID)
 		if !ok {
 			return fmt.Errorf("storage proof %v references nonexistent file contract", i)
 		}
-		windowStart, ok := store.BestIndex(fc.WindowStart - 1)
-		if !ok {
-			return fmt.Errorf("missing index for contract window start %v", fc.WindowStart)
-		}
-		leafIndex := ms.base.StorageProofLeafIndex(fc.Filesize, windowStart, sp.ParentID)
+		windowID := ts.StorageProofBlockIDs[i]
+		leafIndex := ms.base.StorageProofLeafIndex(fc.Filesize, windowID, sp.ParentID)
 		leaf := storageProofLeaf(leafIndex, fc.Filesize, sp.Leaf)
 		if leaf == nil {
 			continue
@@ -468,7 +455,7 @@ func validateFileContracts(ms *MidState, store Store, txn types.Transaction) err
 	return nil
 }
 
-func validateArbitraryData(ms *MidState, store Store, txn types.Transaction) error {
+func validateArbitraryData(ms *MidState, txn types.Transaction) error {
 	if ms.base.childHeight() < ms.base.Network.HardforkFoundation.Height {
 		return nil
 	}
@@ -575,18 +562,18 @@ func validateSignatures(ms *MidState, txn types.Transaction) error {
 }
 
 // ValidateTransaction validates txn within the context of ms and store.
-func ValidateTransaction(ms *MidState, store Store, txn types.Transaction) error {
+func ValidateTransaction(ms *MidState, txn types.Transaction, ts V1TransactionSupplement) error {
 	if err := validateCurrencyOverflow(ms, txn); err != nil {
 		return err
 	} else if err := validateMinimumValues(ms, txn); err != nil {
 		return err
-	} else if err := validateSiacoins(ms, store, txn); err != nil {
+	} else if err := validateSiacoins(ms, txn, ts); err != nil {
 		return err
-	} else if err := validateSiafunds(ms, store, txn); err != nil {
+	} else if err := validateSiafunds(ms, txn, ts); err != nil {
 		return err
-	} else if err := validateFileContracts(ms, store, txn); err != nil {
+	} else if err := validateFileContracts(ms, txn, ts); err != nil {
 		return err
-	} else if err := validateArbitraryData(ms, store, txn); err != nil {
+	} else if err := validateArbitraryData(ms, txn); err != nil {
 		return err
 	} else if err := validateSignatures(ms, txn); err != nil {
 		return err
@@ -716,7 +703,7 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 
 		// check accumulator
 		if sci.Parent.LeafIndex == types.EphemeralLeafIndex {
-			if _, ok := ms.sces[types.SiacoinOutputID(sci.Parent.ID)]; !ok {
+			if _, ok := ms.ephemeral[sci.Parent.ID]; !ok {
 				return fmt.Errorf("siacoin input %v spends nonexistent ephemeral output %v", i, sci.Parent.ID)
 			}
 		} else if !ms.base.Elements.ContainsUnspentSiacoinElement(sci.Parent) {
@@ -772,7 +759,7 @@ func validateV2Siafunds(ms *MidState, txn types.V2Transaction) error {
 
 		// check accumulator
 		if sci.Parent.LeafIndex == types.EphemeralLeafIndex {
-			if _, ok := ms.sfes[types.SiafundOutputID(sci.Parent.ID)]; !ok {
+			if _, ok := ms.ephemeral[sci.Parent.ID]; !ok {
 				return fmt.Errorf("siafund input %v spends nonexistent ephemeral output %v", i, sci.Parent.ID)
 			}
 		} else if !ms.base.Elements.ContainsUnspentSiafundElement(sci.Parent) {
@@ -882,9 +869,6 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 
 	for i, fcr := range txn.FileContractRevisions {
 		cur, rev := fcr.Parent.V2FileContract, fcr.Revision
-		if fce, ok := ms.v2Revision(types.FileContractID(fcr.Parent.ID)); ok {
-			cur = fce.V2FileContract
-		}
 		if err := validateParent(fcr.Parent); err != nil {
 			return fmt.Errorf("file contract revision %v parent (%v) %s", i, fcr.Parent.ID, err)
 		} else if cur.ProofHeight < ms.base.childHeight() {
@@ -948,7 +932,7 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 			} else if ms.base.History.Contains(sp.ProofStart, sp.HistoryProof) {
 				return fmt.Errorf("file contract storage proof %v has invalid history proof", i)
 			}
-			leafIndex := ms.base.StorageProofLeafIndex(fc.Filesize, sp.ProofStart, types.FileContractID(fcr.Parent.ID))
+			leafIndex := ms.base.StorageProofLeafIndex(fc.Filesize, sp.ProofStart.ID, types.FileContractID(fcr.Parent.ID))
 			if storageProofRoot(ms.base.StorageProofLeafHash(sp.Leaf[:]), leafIndex, fc.Filesize, sp.Proof) != fc.FileMerkleRoot {
 				return fmt.Errorf("file contract storage proof %v has root that does not match contract Merkle root", i)
 			}
@@ -1004,12 +988,12 @@ func ValidateV2Transaction(ms *MidState, txn types.V2Transaction) error {
 	return nil
 }
 
-// ValidateBlock validates b in the context of s and store.
+// ValidateBlock validates b in the context of s.
 //
 // This function does not check whether the header's timestamp is too far in the
 // future. That check should be performed at the time the block is received,
 // e.g. in p2p networking code; see MaxFutureTimestamp.
-func ValidateBlock(s State, store Store, b types.Block) error {
+func ValidateBlock(s State, b types.Block, bs V1BlockSupplement) error {
 	if err := ValidateOrphan(s, b); err != nil {
 		return err
 	}
@@ -1018,11 +1002,11 @@ func ValidateBlock(s State, store Store, b types.Block) error {
 		if s.childHeight() >= ms.base.Network.HardforkV2.RequireHeight {
 			return errors.New("v1 transactions are not allowed after v2 hardfork is complete")
 		}
-		for _, txn := range b.Transactions {
-			if err := ValidateTransaction(ms, store, txn); err != nil {
+		for i, txn := range b.Transactions {
+			if err := ValidateTransaction(ms, txn, bs.Transactions[i]); err != nil {
 				return err
 			}
-			ms.ApplyTransaction(store, txn)
+			ms.ApplyTransaction(txn, bs.Transactions[i])
 		}
 	}
 	if b.V2 != nil {

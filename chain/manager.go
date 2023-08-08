@@ -18,20 +18,20 @@ var (
 
 // A Checkpoint pairs a block with its resulting chain state.
 type Checkpoint struct {
-	Block types.Block
-	State consensus.State
-	Diff  *consensus.BlockDiff // nil if the block has not been validated
+	Block      types.Block
+	State      consensus.State
+	Supplement *consensus.V1BlockSupplement
 }
 
 // EncodeTo implements types.EncoderTo.
 func (c Checkpoint) EncodeTo(e *types.Encoder) {
-	e.WriteUint8(2) // block (and diff) version
+	e.WriteUint8(2) // block (and supplement) version
 	types.V2Block(c.Block).EncodeTo(e)
 	e.WriteUint8(1) // state version
 	c.State.EncodeTo(e)
-	e.WriteBool(c.Diff != nil)
-	if c.Diff != nil {
-		c.Diff.EncodeTo(e)
+	e.WriteBool(c.Supplement != nil)
+	if c.Supplement != nil {
+		c.Supplement.EncodeTo(e)
 	}
 }
 
@@ -47,25 +47,27 @@ func (c *Checkpoint) DecodeFrom(d *types.Decoder) {
 	}
 	c.State.DecodeFrom(d)
 	if d.ReadBool() {
-		c.Diff = new(consensus.BlockDiff)
-		c.Diff.DecodeFrom(d)
+		c.Supplement = new(consensus.V1BlockSupplement)
+		c.Supplement.DecodeFrom(d)
 	}
 }
 
 // An ApplyUpdate reflects the changes to the blockchain resulting from the
 // addition of a block.
 type ApplyUpdate struct {
+	consensus.ApplyUpdate
+
 	Block types.Block
 	State consensus.State // post-application
-	Diff  consensus.BlockDiff
 }
 
 // A RevertUpdate reflects the changes to the blockchain resulting from the
 // removal of a block.
 type RevertUpdate struct {
+	consensus.RevertUpdate
+
 	Block types.Block
 	State consensus.State // post-reversion, i.e. pre-application
-	Diff  consensus.BlockDiff
 }
 
 // A Subscriber processes updates to the blockchain. Implementations must not
@@ -79,14 +81,18 @@ type Subscriber interface {
 // A Store durably commits Manager-related data to storage. I/O errors must be
 // handled internally, e.g. by panicking or calling os.Exit.
 type Store interface {
-	consensus.Store
+	BestIndex(height uint64) (types.ChainIndex, bool)
+	AncestorTimestamp(id types.BlockID, n uint64) time.Time
+	SupplementTipTransaction(txn types.Transaction) consensus.V1TransactionSupplement
+	SupplementTipBlock(b types.Block) consensus.V1BlockSupplement
 
 	AddCheckpoint(c Checkpoint)
 	Checkpoint(id types.BlockID) (Checkpoint, bool)
-	// Except when mustCommit is set, ApplyDiff and RevertDiff are free to
+
+	// Except when mustCommit is set, ApplyBlock and RevertBlock are free to
 	// commit whenever they see fit.
-	ApplyDiff(s consensus.State, diff consensus.BlockDiff, mustCommit bool) (committed bool)
-	RevertDiff(s consensus.State, diff consensus.BlockDiff)
+	ApplyBlock(s consensus.State, cau consensus.ApplyUpdate, mustCommit bool) (committed bool)
+	RevertBlock(s consensus.State, cru consensus.RevertUpdate)
 }
 
 // A Manager tracks multiple blockchains and identifies the best valid
@@ -220,7 +226,7 @@ func (m *Manager) AddBlocks(blocks []types.Block) error {
 		} else if err := consensus.ValidateOrphan(cs, b); err != nil {
 			return fmt.Errorf("block %v is invalid: %w", types.ChainIndex{Height: cs.Index.Height + 1, ID: b.ID()}, err)
 		}
-		cs = consensus.ApplyState(cs, m.store, b)
+		cs = consensus.ApplyWork(cs, b, m.store.AncestorTimestamp(b.ParentID, cs.AncestorDepth()))
 		m.store.AddCheckpoint(Checkpoint{b, cs, nil})
 	}
 
@@ -245,9 +251,10 @@ func (m *Manager) revertTip() error {
 	if !ok {
 		return fmt.Errorf("missing checkpoint for block %v", c.Block.ParentID)
 	}
-	m.store.RevertDiff(pc.State, *c.Diff)
+	cru := consensus.RevertBlock(pc.State, c.Block, *c.Supplement)
+	m.store.RevertBlock(pc.State, cru)
 
-	update := RevertUpdate{c.Block, pc.State, *c.Diff}
+	update := RevertUpdate{cru, c.Block, pc.State}
 	for _, s := range m.subscribers {
 		if err := s.ProcessChainRevertUpdate(&update); err != nil {
 			return fmt.Errorf("subscriber %T: %w", s, err)
@@ -260,33 +267,38 @@ func (m *Manager) revertTip() error {
 
 // applyTip adds a block to the current tip.
 func (m *Manager) applyTip(index types.ChainIndex) error {
+	var cau consensus.ApplyUpdate
 	c, ok := m.store.Checkpoint(index.ID)
 	if !ok {
 		return fmt.Errorf("missing checkpoint for index %v", index)
 	} else if c.Block.ParentID != m.tipState.Index.ID {
 		panic("applyTip called with non-attaching block")
-	}
-	if c.Diff == nil {
-		if err := consensus.ValidateBlock(m.tipState, m.store, c.Block); err != nil {
+	} else if c.Supplement == nil {
+		bs := m.store.SupplementTipBlock(c.Block)
+		if err := consensus.ValidateBlock(m.tipState, c.Block, bs); err != nil {
 			return fmt.Errorf("block %v is invalid: %w", index, err)
 		}
-		diff := consensus.ApplyDiff(m.tipState, m.store, c.Block)
-		c.Diff = &diff
+		c.Supplement = &bs
+		targetTimestamp := m.store.AncestorTimestamp(c.Block.ParentID, m.tipState.AncestorDepth())
+		c.State, cau = consensus.ApplyBlock(m.tipState, c.Block, bs, targetTimestamp)
 		m.store.AddCheckpoint(c)
+	} else {
+		targetTimestamp := m.store.AncestorTimestamp(c.Block.ParentID, m.tipState.AncestorDepth())
+		_, cau = consensus.ApplyBlock(m.tipState, c.Block, *c.Supplement, targetTimestamp)
 	}
 
 	// force the store to commit if we're at the tip (or close to it), or at
 	// least every 2 seconds; this ensures that the amount of uncommitted data
 	// never grows too large
 	forceCommit := time.Since(c.Block.Timestamp) < c.State.BlockInterval()*2 || time.Since(m.lastCommit) > 2*time.Second
-	committed := m.store.ApplyDiff(c.State, *c.Diff, forceCommit)
+	committed := m.store.ApplyBlock(c.State, cau, forceCommit)
 	if committed {
 		m.lastCommit = time.Now()
 	}
 
-	update := ApplyUpdate{c.Block, c.State, *c.Diff}
+	update := &ApplyUpdate{cau, c.Block, c.State}
 	for _, s := range m.subscribers {
-		if err := s.ProcessChainApplyUpdate(&update, committed); err != nil {
+		if err := s.ProcessChainApplyUpdate(update, committed); err != nil {
 			return fmt.Errorf("subscriber %T: %w", s, err)
 		}
 	}
@@ -390,14 +402,15 @@ func (m *Manager) AddSubscriber(s Subscriber, tip types.ChainIndex) error {
 		c, ok := m.store.Checkpoint(index.ID)
 		if !ok {
 			return fmt.Errorf("missing revert checkpoint %v", index)
-		} else if c.Diff == nil {
-			panic("missing diff for reverted block")
+		} else if c.Supplement == nil {
+			panic("missing supplement for reverted block")
 		}
 		pc, ok := m.store.Checkpoint(c.Block.ParentID)
 		if !ok {
 			return fmt.Errorf("missing revert parent checkpoint %v", c.Block.ParentID)
 		}
-		if err := s.ProcessChainRevertUpdate(&RevertUpdate{c.Block, pc.State, *c.Diff}); err != nil {
+		cru := consensus.RevertBlock(pc.State, c.Block, *c.Supplement)
+		if err := s.ProcessChainRevertUpdate(&RevertUpdate{cru, c.Block, pc.State}); err != nil {
 			return fmt.Errorf("couldn't process revert update: %w", err)
 		}
 	}
@@ -405,12 +418,17 @@ func (m *Manager) AddSubscriber(s Subscriber, tip types.ChainIndex) error {
 		c, ok := m.store.Checkpoint(index.ID)
 		if !ok {
 			return fmt.Errorf("missing apply checkpoint %v", index)
-		} else if c.Diff == nil {
-			panic("missing diff for applied block")
+		} else if c.Supplement == nil {
+			panic("missing supplement for applied block")
 		}
+		pc, ok := m.store.Checkpoint(c.Block.ParentID)
+		if !ok {
+			return fmt.Errorf("missing apply parent checkpoint %v", c.Block.ParentID)
+		}
+		_, cau := consensus.ApplyBlock(pc.State, c.Block, *c.Supplement, m.store.AncestorTimestamp(c.Block.ParentID, pc.State.AncestorDepth()))
 		// TODO: commit every minute for large len(apply)?
 		shouldCommit := index == m.tipState.Index
-		if err := s.ProcessChainApplyUpdate(&ApplyUpdate{c.Block, c.State, *c.Diff}, shouldCommit); err != nil {
+		if err := s.ProcessChainApplyUpdate(&ApplyUpdate{cau, c.Block, c.State}, shouldCommit); err != nil {
 			return fmt.Errorf("couldn't process apply update: %w", err)
 		}
 	}
@@ -478,8 +496,9 @@ func (m *Manager) revalidatePool() {
 	m.txpool.txns = m.txpool.txns[:0]
 	m.txpool.ms = consensus.NewMidState(m.tipState)
 	for _, txn := range txns {
-		if consensus.ValidateTransaction(m.txpool.ms, m.store, txn) == nil {
-			m.txpool.ms.ApplyTransaction(m.store, txn)
+		ts := m.store.SupplementTipTransaction(txn)
+		if consensus.ValidateTransaction(m.txpool.ms, txn, ts) == nil {
+			m.txpool.ms.ApplyTransaction(txn, ts)
 			m.txpool.indices[txn.ID()] = len(m.txpool.txns)
 			m.txpool.txns = append(m.txpool.txns, txn)
 			m.txpool.weight += m.tipState.TransactionWeight(txn)
@@ -690,10 +709,11 @@ func (m *Manager) AddPoolTransactions(txns []types.Transaction) error {
 	// validate as a standalone set
 	ms := consensus.NewMidState(m.tipState)
 	for _, txn := range txns {
-		if err := consensus.ValidateTransaction(ms, m.store, txn); err != nil {
+		ts := m.store.SupplementTipTransaction(txn)
+		if err := consensus.ValidateTransaction(ms, txn, ts); err != nil {
 			return fmt.Errorf("transaction %v is invalid: %v", txn.ID(), err)
 		}
-		ms.ApplyTransaction(m.store, txn)
+		ms.ApplyTransaction(txn, ts)
 	}
 
 	for _, txn := range txns {
@@ -701,7 +721,8 @@ func (m *Manager) AddPoolTransactions(txns []types.Transaction) error {
 		if _, ok := m.txpool.indices[txid]; ok {
 			continue // skip transactions already in pool
 		}
-		m.txpool.ms.ApplyTransaction(m.store, txn)
+		ts := m.store.SupplementTipTransaction(txn)
+		m.txpool.ms.ApplyTransaction(txn, ts)
 		m.txpool.indices[txid] = len(m.txpool.txns)
 		m.txpool.txns = append(m.txpool.txns, txn)
 		m.txpool.weight += m.tipState.TransactionWeight(txn)

@@ -136,7 +136,7 @@ func TestValidateBlock(t *testing.T) {
 	validBlock := deepCopyBlock(b)
 	signTxn(&validBlock.Transactions[0])
 	findBlockNonce(cs, &validBlock)
-	if err := consensus.ValidateBlock(cs, dbStore, validBlock); err != nil {
+	if err := consensus.ValidateBlock(cs, validBlock, dbStore.SupplementTipBlock(validBlock)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -414,7 +414,7 @@ func TestValidateBlock(t *testing.T) {
 			signTxn(&corruptBlock.Transactions[0])
 			findBlockNonce(cs, &corruptBlock)
 
-			if err := consensus.ValidateBlock(cs, dbStore, corruptBlock); err == nil {
+			if err := consensus.ValidateBlock(cs, corruptBlock, dbStore.SupplementTipBlock(corruptBlock)); err == nil {
 				t.Fatalf("accepted block with %v", test.desc)
 			}
 		}

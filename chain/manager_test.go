@@ -60,7 +60,7 @@ func TestManager(t *testing.T) {
 				}},
 			}
 			findBlockNonce(cs, &b)
-			cs = consensus.ApplyState(cs, store, b)
+			cs, _ = consensus.ApplyBlock(cs, b, store.SupplementTipBlock(b), store.AncestorTimestamp(b.ParentID, cs.AncestorDepth()))
 			blocks = append(blocks, b)
 		}
 		return

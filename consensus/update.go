@@ -55,7 +55,7 @@ func updateOakTarget(s State) types.BlockID {
 	return addTarget(mulTargetFrac(s.OakTarget, 1000, 995), s.ChildTarget)
 }
 
-func adjustTarget(s State, blockTimestamp time.Time, store Store) types.BlockID {
+func adjustTarget(s State, blockTimestamp time.Time, targetTimestamp time.Time) types.BlockID {
 	blockInterval := int64(s.BlockInterval() / time.Second)
 
 	// pre-Oak algorithm
@@ -68,7 +68,6 @@ func adjustTarget(s State, blockTimestamp time.Time, store Store) types.BlockID 
 		if windowSize > s.childHeight() {
 			ancestorDepth = s.childHeight()
 		}
-		targetTimestamp := store.AncestorTimestamp(s.Index.ID, ancestorDepth)
 		elapsed := int64(blockTimestamp.Sub(targetTimestamp) / time.Second)
 		expected := blockInterval * int64(ancestorDepth)
 		// clamp
@@ -152,552 +151,404 @@ func adjustTarget(s State, blockTimestamp time.Time, store Store) types.BlockID 
 	return newTarget
 }
 
-// ApplyState applies b to s, returning the resulting state.
-func ApplyState(s State, store Store, b types.Block) State {
+// ApplyWork applies the work of b to s, returning the resulting state. Only the
+// PoW-related fields are updated.
+func ApplyWork(s State, b types.Block, targetTimestamp time.Time) State {
 	if s.Index.Height > 0 && s.Index.ID != b.ParentID {
 		panic("consensus: cannot apply non-child block")
 	}
 
-	siafundPool := s.SiafundPool
-	for _, txn := range b.Transactions {
-		for _, fc := range txn.FileContracts {
-			siafundPool = siafundPool.Add(s.FileContractTax(fc))
-		}
-	}
-	if b.V2 != nil {
-		for _, txn := range b.V2.Transactions {
-			for _, fc := range txn.FileContracts {
-				siafundPool = siafundPool.Add(s.V2FileContractTax(fc))
-			}
-		}
-	}
-
-	// update state
-	newFoundationPrimaryAddress := s.FoundationPrimaryAddress
-	newFoundationFailsafeAddress := s.FoundationFailsafeAddress
-	if s.Index.Height >= s.Network.HardforkFoundation.Height {
-	outer:
-		for _, txn := range b.Transactions {
-			for _, arb := range txn.ArbitraryData {
-				if bytes.HasPrefix(arb, types.SpecifierFoundation[:]) {
-					var update types.FoundationAddressUpdate
-					update.DecodeFrom(types.NewBufDecoder(arb[len(types.SpecifierFoundation):]))
-					newFoundationPrimaryAddress = update.NewPrimary
-					newFoundationFailsafeAddress = update.NewFailsafe
-					break outer // Foundation addresses can only be updated once per block
-				}
-			}
-		}
-	}
-	if b.V2 != nil {
-		for _, txn := range b.V2.Transactions {
-			if txn.NewFoundationAddress != nil {
-				newFoundationPrimaryAddress = *txn.NewFoundationAddress
-				newFoundationFailsafeAddress = *txn.NewFoundationAddress
-			}
-		}
-	}
-
 	if b.ParentID == (types.BlockID{}) {
 		// special handling for genesis block
-		return State{
-			Network: s.Network,
+		s.OakTime = updateOakTime(s, b.Timestamp, b.Timestamp)
+		s.OakTarget = updateOakTarget(s)
+		s.Index = types.ChainIndex{Height: 0, ID: b.ID()}
+	} else {
+		s.Depth = addTarget(s.Depth, s.ChildTarget)
+		s.ChildTarget = adjustTarget(s, b.Timestamp, targetTimestamp)
+		s.OakTime = updateOakTime(s, b.Timestamp, s.PrevTimestamps[0])
+		s.OakTarget = updateOakTarget(s)
+		s.Index = types.ChainIndex{Height: s.Index.Height + 1, ID: b.ID()}
+	}
+	copy(s.PrevTimestamps[1:], s.PrevTimestamps[:])
+	s.PrevTimestamps[0] = b.Timestamp
+	return s
 
-			Index:          types.ChainIndex{Height: 0, ID: b.ID()},
-			PrevTimestamps: [11]time.Time{0: b.Timestamp},
-			Depth:          s.Depth,
-			ChildTarget:    s.ChildTarget,
-			SiafundPool:    siafundPool,
+}
 
-			OakTime:                   updateOakTime(s, b.Timestamp, b.Timestamp),
-			OakTarget:                 updateOakTarget(s),
-			FoundationPrimaryAddress:  newFoundationPrimaryAddress,
-			FoundationFailsafeAddress: newFoundationFailsafeAddress,
-
-			History:  s.History,
-			Elements: s.Elements,
+func (ms *MidState) addedLeaf(id types.Hash256) *ElementLeaf {
+	for i := range ms.added {
+		if ms.added[i].ID == id {
+			return &ms.added[i]
 		}
 	}
+	return nil
+}
 
-	prevTimestamps := s.PrevTimestamps
-	copy(prevTimestamps[1:], s.PrevTimestamps[:])
-	prevTimestamps[0] = b.Timestamp
-	return State{
-		Network: s.Network,
+func (ms *MidState) addSiacoinElement(sce types.SiacoinElement) {
+	ms.sces = append(ms.sces, sce)
+	ms.added = append(ms.added, SiacoinLeaf(&ms.sces[len(ms.sces)-1], false))
+	ms.ephemeral[ms.sces[len(ms.sces)-1].ID] = len(ms.sces) - 1
+}
 
-		Index:          types.ChainIndex{Height: s.Index.Height + 1, ID: b.ID()},
-		PrevTimestamps: prevTimestamps,
-		Depth:          addTarget(s.Depth, s.ChildTarget),
-		ChildTarget:    adjustTarget(s, b.Timestamp, store),
-		SiafundPool:    siafundPool,
-
-		OakTime:                   updateOakTime(s, b.Timestamp, s.PrevTimestamps[0]),
-		OakTarget:                 updateOakTarget(s),
-		FoundationPrimaryAddress:  newFoundationPrimaryAddress,
-		FoundationFailsafeAddress: newFoundationFailsafeAddress,
-
-		History:  s.History,
-		Elements: s.Elements,
+func (ms *MidState) spendSiacoinElement(sce types.SiacoinElement, txid types.TransactionID) {
+	ms.spends[sce.ID] = txid
+	if _, ok := ms.ephemeral[sce.ID]; ok {
+		ms.addedLeaf(sce.ID).Spent = true
+	} else {
+		sce.MerkleProof = append([]types.Hash256(nil), sce.MerkleProof...)
+		ms.sces = append(ms.sces, sce)
+		ms.updated = append(ms.updated, SiacoinLeaf(&ms.sces[len(ms.sces)-1], true))
 	}
 }
 
-// v2SiacoinOutputID returns the ID of the i'th siacoin output created by the
-// transaction.
-func v2SiacoinOutputID(txid types.TransactionID, i int) types.SiacoinOutputID {
-	h := hasherPool.Get().(*types.Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	types.SpecifierSiacoinOutput.EncodeTo(h.E)
-	txid.EncodeTo(h.E)
-	h.E.WriteUint64(uint64(i))
-	return types.SiacoinOutputID(h.Sum())
+func (ms *MidState) addSiafundElement(sfe types.SiafundElement) {
+	ms.sfes = append(ms.sfes, sfe)
+	ms.added = append(ms.added, SiafundLeaf(&ms.sfes[len(ms.sfes)-1], false))
+	ms.ephemeral[ms.sfes[len(ms.sfes)-1].ID] = len(ms.sfes) - 1
 }
 
-// v2SiafundOutputID returns the ID of the i'th siafund output created by the
-// transaction.
-func v2SiafundOutputID(txid types.TransactionID, i int) types.SiafundOutputID {
-	h := hasherPool.Get().(*types.Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	types.SpecifierSiafundOutput.EncodeTo(h.E)
-	txid.EncodeTo(h.E)
-	h.E.WriteUint64(uint64(i))
-	return types.SiafundOutputID(h.Sum())
-}
-
-// v2FileContractID returns the ID of the i'th file contract created by the
-// transaction.
-func v2FileContractID(txid types.TransactionID, i int) types.FileContractID {
-	h := hasherPool.Get().(*types.Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	types.SpecifierFileContract.EncodeTo(h.E)
-	txid.EncodeTo(h.E)
-	h.E.WriteUint64(uint64(i))
-	return types.FileContractID(h.Sum())
-}
-
-// A TransactionDiff represents the changes to an ElementStore resulting from
-// the application of a transaction.
-type TransactionDiff struct {
-	CreatedSiacoinElements []types.SiacoinElement      `json:"createdSiacoinElements,omitempty"`
-	CreatedSiafundElements []types.SiafundElement      `json:"createdSiafundElements,omitempty"`
-	CreatedFileContracts   []types.FileContractElement `json:"createdFileContracts,omitempty"`
-
-	SpentSiacoinElements []types.SiacoinElement              `json:"spentSiacoinElements,omitempty"`
-	SpentSiafundElements []types.SiafundElement              `json:"spentSiafundElements,omitempty"`
-	RevisedFileContracts []types.FileContractElementRevision `json:"revisedFileContracts,omitempty"`
-	ValidFileContracts   []types.FileContractElement         `json:"validFileContracts,omitempty"`
-}
-
-// EncodeTo implements types.EncoderTo.
-func (td TransactionDiff) EncodeTo(e *types.Encoder) {
-	e.WritePrefix(len(td.CreatedSiacoinElements))
-	for i := range td.CreatedSiacoinElements {
-		td.CreatedSiacoinElements[i].EncodeTo(e)
-	}
-	e.WritePrefix(len(td.CreatedSiafundElements))
-	for i := range td.CreatedSiafundElements {
-		td.CreatedSiafundElements[i].EncodeTo(e)
-	}
-	e.WritePrefix(len(td.CreatedFileContracts))
-	for i := range td.CreatedFileContracts {
-		td.CreatedFileContracts[i].EncodeTo(e)
-	}
-	e.WritePrefix(len(td.SpentSiacoinElements))
-	for i := range td.SpentSiacoinElements {
-		td.SpentSiacoinElements[i].EncodeTo(e)
-	}
-	e.WritePrefix(len(td.SpentSiafundElements))
-	for i := range td.SpentSiafundElements {
-		td.SpentSiafundElements[i].EncodeTo(e)
-	}
-	e.WritePrefix(len(td.RevisedFileContracts))
-	for i := range td.RevisedFileContracts {
-		td.RevisedFileContracts[i].EncodeTo(e)
-	}
-	e.WritePrefix(len(td.ValidFileContracts))
-	for i := range td.ValidFileContracts {
-		td.ValidFileContracts[i].EncodeTo(e)
+func (ms *MidState) spendSiafundElement(sfe types.SiafundElement, txid types.TransactionID) {
+	ms.spends[sfe.ID] = txid
+	if _, ok := ms.ephemeral[sfe.ID]; ok {
+		ms.addedLeaf(sfe.ID).Spent = true
+	} else {
+		sfe.MerkleProof = append([]types.Hash256(nil), sfe.MerkleProof...)
+		ms.sfes = append(ms.sfes, sfe)
+		ms.updated = append(ms.updated, SiafundLeaf(&ms.sfes[len(ms.sfes)-1], true))
 	}
 }
 
-// DecodeFrom implements types.DecoderFrom.
-func (td *TransactionDiff) DecodeFrom(d *types.Decoder) {
-	td.CreatedSiacoinElements = make([]types.SiacoinElement, d.ReadPrefix())
-	for i := range td.CreatedSiacoinElements {
-		td.CreatedSiacoinElements[i].DecodeFrom(d)
-	}
-	td.CreatedSiafundElements = make([]types.SiafundElement, d.ReadPrefix())
-	for i := range td.CreatedSiafundElements {
-		td.CreatedSiafundElements[i].DecodeFrom(d)
-	}
-	td.CreatedFileContracts = make([]types.FileContractElement, d.ReadPrefix())
-	for i := range td.CreatedFileContracts {
-		td.CreatedFileContracts[i].DecodeFrom(d)
-	}
-	td.SpentSiacoinElements = make([]types.SiacoinElement, d.ReadPrefix())
-	for i := range td.SpentSiacoinElements {
-		td.SpentSiacoinElements[i].DecodeFrom(d)
-	}
-	td.SpentSiafundElements = make([]types.SiafundElement, d.ReadPrefix())
-	for i := range td.SpentSiafundElements {
-		td.SpentSiafundElements[i].DecodeFrom(d)
-	}
-	td.RevisedFileContracts = make([]types.FileContractElementRevision, d.ReadPrefix())
-	for i := range td.RevisedFileContracts {
-		td.RevisedFileContracts[i].DecodeFrom(d)
-	}
-	td.ValidFileContracts = make([]types.FileContractElement, d.ReadPrefix())
-	for i := range td.ValidFileContracts {
-		td.ValidFileContracts[i].DecodeFrom(d)
+func (ms *MidState) addFileContractElement(fce types.FileContractElement) {
+	ms.fces = append(ms.fces, fce)
+	ms.added = append(ms.added, FileContractLeaf(&ms.fces[len(ms.fces)-1], false))
+	ms.ephemeral[ms.fces[len(ms.fces)-1].ID] = len(ms.fces) - 1
+	ms.siafundPool = ms.siafundPool.Add(ms.base.FileContractTax(fce.FileContract))
+}
+
+func (ms *MidState) reviseFileContractElement(fce types.FileContractElement, rev types.FileContract) {
+	rev.Payout = fce.FileContract.Payout
+	if i, ok := ms.ephemeral[fce.ID]; ok {
+		ms.fces[i].FileContract = rev
+		*ms.addedLeaf(fce.ID) = FileContractLeaf(&ms.fces[i], false)
+	} else {
+		if r, ok := ms.revs[fce.ID]; ok {
+			r.FileContract = rev
+			for i := range ms.updated {
+				if ms.updated[i].ID == fce.ID {
+					ms.updated[i] = FileContractLeaf(r, false)
+					break
+				}
+			}
+		} else {
+			// store the original
+			fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
+			ms.fces = append(ms.fces, fce)
+			// store the revision
+			fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
+			fce.FileContract = rev
+			ms.revs[fce.ID] = &fce
+			ms.updated = append(ms.updated, FileContractLeaf(&fce, false))
+		}
 	}
 }
 
-// A V2TransactionDiff contains the elements added to the state accumulator by a
-// v2 transaction.
-type V2TransactionDiff struct {
-	CreatedSiacoinElements []types.SiacoinElement        `json:"createdSiacoinElements,omitempty"`
-	CreatedSiafundElements []types.SiafundElement        `json:"createdSiafundElements,omitempty"`
-	CreatedFileContracts   []types.V2FileContractElement `json:"createdFileContracts,omitempty"`
-
-	// NOTE: these fields are all easily derived from the block itself; we
-	// include them for convenience
-	SpentSiacoinElements  []types.SiacoinElement           `json:"spentSiacoinElements,omitempty"`
-	SpentSiafundElements  []types.SiafundElement           `json:"spentSiafundElements,omitempty"`
-	RevisedFileContracts  []types.V2FileContractRevision   `json:"revisedFileContracts,omitempty"`
-	ResolvedFileContracts []types.V2FileContractResolution `json:"resolvedFileContracts,omitempty"`
+func (ms *MidState) resolveFileContractElement(fce types.FileContractElement, txid types.TransactionID) {
+	ms.spends[fce.ID] = txid
+	fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
+	ms.fces = append(ms.fces, fce)
+	ms.updated = append(ms.updated, FileContractLeaf(&ms.fces[len(ms.fces)-1], true))
 }
 
-// EncodeTo implements types.EncoderTo.
-func (td V2TransactionDiff) EncodeTo(e *types.Encoder) {
-	e.WritePrefix(len(td.CreatedSiacoinElements))
-	for i := range td.CreatedSiacoinElements {
-		td.CreatedSiacoinElements[i].EncodeTo(e)
-	}
-	e.WritePrefix(len(td.CreatedSiafundElements))
-	for i := range td.CreatedSiafundElements {
-		td.CreatedSiafundElements[i].EncodeTo(e)
-	}
-	e.WritePrefix(len(td.CreatedFileContracts))
-	for i := range td.CreatedFileContracts {
-		td.CreatedFileContracts[i].EncodeTo(e)
-	}
+func (ms *MidState) addV2FileContractElement(fce types.V2FileContractElement) {
+	ms.v2fces = append(ms.v2fces, fce)
+	ms.added = append(ms.added, V2FileContractLeaf(&ms.v2fces[len(ms.v2fces)-1], false))
+	ms.ephemeral[ms.v2fces[len(ms.v2fces)-1].ID] = len(ms.v2fces) - 1
+	ms.siafundPool = ms.siafundPool.Add(ms.base.V2FileContractTax(fce.V2FileContract))
 }
 
-// DecodeFrom implements types.DecoderFrom.
-func (td *V2TransactionDiff) DecodeFrom(d *types.Decoder) {
-	td.CreatedSiacoinElements = make([]types.SiacoinElement, d.ReadPrefix())
-	for i := range td.CreatedSiacoinElements {
-		td.CreatedSiacoinElements[i].DecodeFrom(d)
-	}
-	td.CreatedSiafundElements = make([]types.SiafundElement, d.ReadPrefix())
-	for i := range td.CreatedSiafundElements {
-		td.CreatedSiafundElements[i].DecodeFrom(d)
-	}
-	td.CreatedFileContracts = make([]types.V2FileContractElement, d.ReadPrefix())
-	for i := range td.CreatedFileContracts {
-		td.CreatedFileContracts[i].DecodeFrom(d)
-	}
+func (ms *MidState) reviseV2FileContractElement(fce types.V2FileContractElement, rev types.V2FileContract) {
+	fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
+	ms.v2fces = append(ms.v2fces, fce)
+	ms.updated = append(ms.updated, FileContractLeaf(&ms.fces[len(ms.fces)-1], false))
 }
 
-// A BlockDiff represents the changes to blockchain state resulting from the
-// application of a block.
-type BlockDiff struct {
-	Transactions           []TransactionDiff           `json:"transactions,omitempty"`
-	V2Transactions         []V2TransactionDiff         `json:"v2Transactions,omitempty"`
-	CreatedSiacoinElements []types.SiacoinElement      `json:"createdSiacoinElements,omitempty"`
-	MissedFileContracts    []types.FileContractElement `json:"missedFileContracts,omitempty"`
-	ElementApplyUpdate     ElementApplyUpdate          `json:"-"`
-	HistoryApplyUpdate     HistoryApplyUpdate          `json:"-"`
-}
-
-// EncodeTo implements types.EncoderTo.
-func (bd BlockDiff) EncodeTo(e *types.Encoder) {
-	e.WritePrefix(len(bd.Transactions))
-	for i := range bd.Transactions {
-		bd.Transactions[i].EncodeTo(e)
-	}
-	e.WritePrefix(len(bd.V2Transactions))
-	for i := range bd.V2Transactions {
-		bd.V2Transactions[i].EncodeTo(e)
-	}
-	e.WritePrefix(len(bd.CreatedSiacoinElements))
-	for i := range bd.CreatedSiacoinElements {
-		bd.CreatedSiacoinElements[i].EncodeTo(e)
-	}
-	e.WritePrefix(len(bd.MissedFileContracts))
-	for i := range bd.MissedFileContracts {
-		bd.MissedFileContracts[i].EncodeTo(e)
-	}
-}
-
-// DecodeFrom implements types.DecoderFrom.
-func (bd *BlockDiff) DecodeFrom(d *types.Decoder) {
-	bd.Transactions = make([]TransactionDiff, d.ReadPrefix())
-	for i := range bd.Transactions {
-		bd.Transactions[i].DecodeFrom(d)
-	}
-	bd.V2Transactions = make([]V2TransactionDiff, d.ReadPrefix())
-	for i := range bd.V2Transactions {
-		bd.V2Transactions[i].DecodeFrom(d)
-	}
-	bd.CreatedSiacoinElements = make([]types.SiacoinElement, d.ReadPrefix())
-	for i := range bd.CreatedSiacoinElements {
-		bd.CreatedSiacoinElements[i].DecodeFrom(d)
-	}
-	bd.MissedFileContracts = make([]types.FileContractElement, d.ReadPrefix())
-	for i := range bd.MissedFileContracts {
-		bd.MissedFileContracts[i].DecodeFrom(d)
-	}
+func (ms *MidState) resolveV2FileContractElement(fce types.V2FileContractElement, txid types.TransactionID) {
+	ms.spends[fce.ID] = txid
+	fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
+	ms.v2fces = append(ms.v2fces, fce)
+	ms.updated = append(ms.updated, V2FileContractLeaf(&ms.v2fces[len(ms.v2fces)-1], true))
 }
 
 // ApplyTransaction applies a transaction to the MidState.
-func (ms *MidState) ApplyTransaction(store Store, txn types.Transaction) {
+func (ms *MidState) ApplyTransaction(txn types.Transaction, ts V1TransactionSupplement) {
 	txid := txn.ID()
 	for _, sci := range txn.SiacoinInputs {
-		ms.spends[types.Hash256(sci.ParentID)] = txid
+		ms.spendSiacoinElement(ms.mustSiacoinElement(ts, sci.ParentID), txid)
 	}
 	for i, sco := range txn.SiacoinOutputs {
-		scoid := txn.SiacoinOutputID(i)
-		ms.sces[scoid] = types.SiacoinElement{
-			StateElement:   types.StateElement{ID: types.Hash256(scoid)},
-			SiacoinOutput:  sco,
-			MaturityHeight: 0,
-		}
+		ms.addSiacoinElement(types.SiacoinElement{
+			StateElement:  types.StateElement{ID: types.Hash256(txn.SiacoinOutputID(i))},
+			SiacoinOutput: sco,
+		})
 	}
 	for _, sfi := range txn.SiafundInputs {
-		ms.spends[types.Hash256(sfi.ParentID)] = txid
+		sfe := ms.mustSiafundElement(ts, sfi.ParentID)
+		claimPortion := ms.siafundPool.Sub(sfe.ClaimStart).Div64(ms.base.SiafundCount()).Mul64(sfe.Value)
+		ms.spendSiafundElement(sfe, txid)
+		ms.addSiacoinElement(types.SiacoinElement{
+			StateElement:   types.StateElement{ID: types.Hash256(sfi.ParentID.ClaimOutputID())},
+			SiacoinOutput:  types.SiacoinOutput{Value: claimPortion, Address: sfi.ClaimAddress},
+			MaturityHeight: ms.base.MaturityHeight(),
+		})
 	}
 	for i, sfo := range txn.SiafundOutputs {
-		sfoid := txn.SiafundOutputID(i)
-		ms.sfes[sfoid] = types.SiafundElement{
-			StateElement:  types.StateElement{ID: types.Hash256(sfoid)},
+		ms.addSiafundElement(types.SiafundElement{
+			StateElement:  types.StateElement{ID: types.Hash256(txn.SiafundOutputID(i))},
 			SiafundOutput: sfo,
 			ClaimStart:    ms.siafundPool,
-		}
+		})
 	}
 	for i, fc := range txn.FileContracts {
-		fcid := txn.FileContractID(i)
-		ms.fces[fcid] = types.FileContractElement{
-			StateElement: types.StateElement{ID: types.Hash256(fcid)},
+		ms.addFileContractElement(types.FileContractElement{
+			StateElement: types.StateElement{ID: types.Hash256(txn.FileContractID(i))},
 			FileContract: fc,
-		}
-		ms.siafundPool = ms.siafundPool.Add(ms.base.FileContractTax(fc))
+		})
 	}
 	for _, fcr := range txn.FileContractRevisions {
-		fce := ms.mustFileContractElement(store, fcr.ParentID)
-		ms.fces[contractRevisionID(fcr.ParentID, fcr.RevisionNumber)] = fce // store previous revision for Diff later
-		fcr.FileContract.Payout = fce.Payout
-		fce.FileContract = fcr.FileContract
-		ms.fces[fcr.ParentID] = fce
+		ms.reviseFileContractElement(ms.mustFileContractElement(ts, fcr.ParentID), fcr.FileContract)
 	}
 	for _, sp := range txn.StorageProofs {
-		ms.spends[types.Hash256(sp.ParentID)] = txid
+		fce := ms.mustFileContractElement(ts, sp.ParentID)
+		ms.resolveFileContractElement(fce, txid)
+		for i, sco := range fce.ValidProofOutputs {
+			ms.addSiacoinElement(types.SiacoinElement{
+				StateElement:   types.StateElement{ID: types.Hash256(sp.ParentID.ValidOutputID(i))},
+				SiacoinOutput:  sco,
+				MaturityHeight: ms.base.MaturityHeight(),
+			})
+		}
+	}
+	if ms.base.Index.Height >= ms.base.Network.HardforkFoundation.Height {
+		for _, arb := range txn.ArbitraryData {
+			if bytes.HasPrefix(arb, types.SpecifierFoundation[:]) {
+				var update types.FoundationAddressUpdate
+				update.DecodeFrom(types.NewBufDecoder(arb[len(types.SpecifierFoundation):]))
+				ms.foundationPrimary = update.NewPrimary
+				ms.foundationFailsafe = update.NewFailsafe
+			}
+		}
 	}
 }
 
 // ApplyV2Transaction applies a v2 transaction to the MidState.
 func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 	txid := txn.ID()
-	for _, sci := range txn.SiacoinInputs {
-		ms.spends[sci.Parent.ID] = txid
+	var elems uint64
+	h := hasherPool.Get().(*types.Hasher)
+	defer hasherPool.Put(h)
+	nextElement := func() types.StateElement {
+		h.Reset()
+		types.SpecifierElementID.EncodeTo(h.E)
+		txid.EncodeTo(h.E)
+		h.E.WriteUint64(elems)
+		elems++
+		return types.StateElement{ID: h.Sum()}
 	}
-	for i, sco := range txn.SiacoinOutputs {
-		scoid := v2SiacoinOutputID(txid, i)
-		ms.sces[scoid] = types.SiacoinElement{
-			StateElement:   types.StateElement{ID: types.Hash256(scoid)},
-			SiacoinOutput:  sco,
-			MaturityHeight: 0,
-		}
+
+	for _, sci := range txn.SiacoinInputs {
+		ms.spendSiacoinElement(sci.Parent, txid)
+	}
+	for _, sco := range txn.SiacoinOutputs {
+		ms.addSiacoinElement(types.SiacoinElement{
+			StateElement:  nextElement(),
+			SiacoinOutput: sco,
+		})
 	}
 	for _, sfi := range txn.SiafundInputs {
-		ms.spends[sfi.Parent.ID] = txid
+		ms.spendSiafundElement(sfi.Parent, txid)
+		claimPortion := ms.siafundPool.Sub(sfi.Parent.ClaimStart).Div64(ms.base.SiafundCount()).Mul64(sfi.Parent.Value)
+		ms.addSiacoinElement(types.SiacoinElement{
+			StateElement:   nextElement(),
+			SiacoinOutput:  types.SiacoinOutput{Value: claimPortion, Address: sfi.ClaimAddress},
+			MaturityHeight: ms.base.MaturityHeight(),
+		})
 	}
-	for i, sfo := range txn.SiafundOutputs {
-		sfoid := v2SiafundOutputID(txid, i)
-		ms.sfes[sfoid] = types.SiafundElement{
-			StateElement:  types.StateElement{ID: types.Hash256(sfoid)},
+	for _, sfo := range txn.SiafundOutputs {
+		ms.addSiafundElement(types.SiafundElement{
+			StateElement:  nextElement(),
 			SiafundOutput: sfo,
 			ClaimStart:    ms.siafundPool,
-		}
+		})
 	}
-	for i, fc := range txn.FileContracts {
-		fcid := v2FileContractID(txid, i)
-		ms.v2fces[fcid] = types.V2FileContractElement{
-			StateElement:   types.StateElement{ID: types.Hash256(fcid)},
+	for _, fc := range txn.FileContracts {
+		ms.addV2FileContractElement(types.V2FileContractElement{
+			StateElement:   nextElement(),
 			V2FileContract: fc,
-		}
-		ms.siafundPool = ms.siafundPool.Add(ms.base.V2FileContractTax(fc))
+		})
 	}
 	for _, fcr := range txn.FileContractRevisions {
-		fce := fcr.Parent
-		fce.V2FileContract = fcr.Revision
-		ms.v2fces[types.FileContractID(fcr.Parent.ID)] = fce
+		ms.reviseV2FileContractElement(fcr.Parent, fcr.Revision)
 	}
-	for _, res := range txn.FileContractResolutions {
-		ms.spends[res.Parent.ID] = txid
+	for _, fcr := range txn.FileContractResolutions {
+		ms.resolveV2FileContractElement(fcr.Parent, txid)
+
+		fce := fcr.Parent
+		var renter, host types.SiacoinOutput
+		switch r := fcr.Resolution.(type) {
+		case types.V2FileContractRenewal:
+			renter, host = r.FinalRevision.RenterOutput, r.FinalRevision.HostOutput
+			renter.Value = renter.Value.Sub(r.RenterRollover)
+			host.Value = host.Value.Sub(r.HostRollover)
+			ms.addV2FileContractElement(types.V2FileContractElement{
+				StateElement:   nextElement(),
+				V2FileContract: r.InitialRevision,
+			})
+		case types.V2StorageProof:
+			renter, host = fce.RenterOutput, fce.HostOutput
+		case types.V2FileContract: // finalization
+			renter, host = r.RenterOutput, r.HostOutput
+		case types.V2FileContractExpiration:
+			renter, host = fce.RenterOutput, fce.MissedHostOutput()
+		}
+		ms.addSiacoinElement(types.SiacoinElement{
+			StateElement:   nextElement(),
+			SiacoinOutput:  renter,
+			MaturityHeight: ms.base.MaturityHeight(),
+		})
+		ms.addSiacoinElement(types.SiacoinElement{
+			StateElement:   nextElement(),
+			SiacoinOutput:  host,
+			MaturityHeight: ms.base.MaturityHeight(),
+		})
+	}
+	if txn.NewFoundationAddress != nil {
+		ms.foundationPrimary = *txn.NewFoundationAddress
+		ms.foundationFailsafe = *txn.NewFoundationAddress
 	}
 }
 
-// ApplyDiff applies b to s, returning the resulting effects.
-func ApplyDiff(s State, store Store, b types.Block) BlockDiff {
+func (ms *MidState) ApplyBlock(b types.Block, bs V1BlockSupplement) {
+	for i, txn := range b.Transactions {
+		ms.ApplyTransaction(txn, bs.Transactions[i])
+	}
+	if b.V2 != nil {
+		for _, txn := range b.V2.Transactions {
+			ms.ApplyV2Transaction(txn)
+		}
+	}
+	bid := b.ID()
+	for i, sco := range b.MinerPayouts {
+		ms.addSiacoinElement(types.SiacoinElement{
+			StateElement:   types.StateElement{ID: types.Hash256(bid.MinerOutputID(i))},
+			SiacoinOutput:  sco,
+			MaturityHeight: ms.base.MaturityHeight(),
+		})
+	}
+	if subsidy := ms.base.FoundationSubsidy(); !subsidy.Value.IsZero() {
+		ms.addSiacoinElement(types.SiacoinElement{
+			StateElement:   types.StateElement{ID: types.Hash256(bid.FoundationOutputID())},
+			SiacoinOutput:  subsidy,
+			MaturityHeight: ms.base.MaturityHeight(),
+		})
+	}
+	for _, fce := range bs.ExpiringFileContracts {
+		if ms.isSpent(fce.ID) {
+			continue
+		}
+		ms.resolveFileContractElement(fce, types.TransactionID(bid))
+		for i, sco := range fce.MissedProofOutputs {
+			ms.addSiacoinElement(types.SiacoinElement{
+				StateElement:   types.StateElement{ID: types.Hash256(types.FileContractID(fce.ID).MissedOutputID(i))},
+				SiacoinOutput:  sco,
+				MaturityHeight: ms.base.MaturityHeight(),
+			})
+		}
+	}
+}
+
+type ApplyUpdate struct {
+	ElementApplyUpdate
+	HistoryApplyUpdate
+	ms *MidState
+}
+
+func (au ApplyUpdate) ForEachSiacoinElement(fn func(sce types.SiacoinElement, spent bool)) {
+	for _, sce := range au.ms.sces {
+		fn(sce, au.ms.isSpent(sce.ID))
+	}
+}
+
+func (au ApplyUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, spent bool)) {
+	for _, sfe := range au.ms.sfes {
+		fn(sfe, au.ms.isSpent(sfe.ID))
+	}
+}
+
+func (au ApplyUpdate) ForEachFileContractElement(fn func(fce types.FileContractElement, rev *types.FileContractElement, resolved bool)) {
+	for _, fce := range au.ms.fces {
+		fn(fce, au.ms.revision(fce.ID), au.ms.isSpent(fce.ID))
+	}
+}
+
+func ApplyBlock(s State, b types.Block, bs V1BlockSupplement, targetTimestamp time.Time) (State, ApplyUpdate) {
 	if s.Index.Height > 0 && s.Index.ID != b.ParentID {
 		panic("consensus: cannot apply non-child block")
 	}
 
 	ms := NewMidState(s)
+	ms.ApplyBlock(b, bs)
+	s.SiafundPool = ms.siafundPool
+	s.FoundationPrimaryAddress = ms.foundationPrimary
+	s.FoundationFailsafeAddress = ms.foundationFailsafe
+	eau := s.Elements.ApplyBlock(ms.updated, ms.added)
+	hau := s.History.ApplyBlock(s.Index)
+	s = ApplyWork(s, b, targetTimestamp)
+	return s, ApplyUpdate{eau, hau, ms}
+}
 
-	var diff BlockDiff
-	for _, txn := range b.Transactions {
-		var tdiff TransactionDiff
-		for _, sci := range txn.SiacoinInputs {
-			tdiff.SpentSiacoinElements = append(tdiff.SpentSiacoinElements, ms.mustSiacoinElement(store, sci.ParentID))
-		}
-		for i, sco := range txn.SiacoinOutputs {
-			scoid := txn.SiacoinOutputID(i)
-			tdiff.CreatedSiacoinElements = append(tdiff.CreatedSiacoinElements, types.SiacoinElement{
-				StateElement:  types.StateElement{ID: types.Hash256(scoid)},
-				SiacoinOutput: sco,
-			})
-		}
-		for i, fc := range txn.FileContracts {
-			fcid := txn.FileContractID(i)
-			tdiff.CreatedFileContracts = append(tdiff.CreatedFileContracts, types.FileContractElement{
-				StateElement: types.StateElement{ID: types.Hash256(fcid)},
-				FileContract: fc,
-			})
-		}
-		for _, sfi := range txn.SiafundInputs {
-			sfe, claimPortion := ms.mustSiafundElement(store, sfi.ParentID)
-			tdiff.SpentSiafundElements = append(tdiff.SpentSiafundElements, sfe)
-			tdiff.CreatedSiacoinElements = append(tdiff.CreatedSiacoinElements, types.SiacoinElement{
-				StateElement:   types.StateElement{ID: types.Hash256(sfi.ParentID.ClaimOutputID())},
-				SiacoinOutput:  types.SiacoinOutput{Value: claimPortion, Address: sfi.ClaimAddress},
-				MaturityHeight: s.MaturityHeight(),
-			})
-		}
-		for i, sfo := range txn.SiafundOutputs {
-			sfoid := txn.SiafundOutputID(i)
-			tdiff.CreatedSiafundElements = append(tdiff.CreatedSiafundElements, types.SiafundElement{
-				StateElement:  types.StateElement{ID: types.Hash256(sfoid)},
-				SiafundOutput: sfo,
-				ClaimStart:    ms.siafundPool,
-			})
-		}
-		for _, fcr := range txn.FileContractRevisions {
-			fce := ms.mustFileContractParentRevision(store, fcr.ParentID, fcr.RevisionNumber)
-			tdiff.RevisedFileContracts = append(tdiff.RevisedFileContracts, types.FileContractElementRevision{
-				Parent:   fce,
-				Revision: fcr.FileContract,
-			})
-		}
-		for _, sp := range txn.StorageProofs {
-			fce := ms.mustFileContractElement(store, sp.ParentID)
-			tdiff.ValidFileContracts = append(tdiff.ValidFileContracts, fce)
-			for i, sco := range fce.ValidProofOutputs {
-				scoid := sp.ParentID.ValidOutputID(i)
-				tdiff.CreatedSiacoinElements = append(tdiff.CreatedSiacoinElements, types.SiacoinElement{
-					StateElement:   types.StateElement{ID: types.Hash256(scoid)},
-					SiacoinOutput:  sco,
-					MaturityHeight: s.MaturityHeight(),
-				})
-			}
-		}
+type RevertUpdate struct {
+	ElementRevertUpdate
+	HistoryRevertUpdate
+	ms *MidState
+}
 
-		diff.Transactions = append(diff.Transactions, tdiff)
-		ms.ApplyTransaction(store, txn)
+func (ru RevertUpdate) ForEachSiacoinElement(fn func(sce types.SiacoinElement, spent bool)) {
+	for i := range ru.ms.sces {
+		sce := ru.ms.sces[len(ru.ms.sces)-i-1]
+		fn(sce, ru.ms.isSpent(sce.ID))
+	}
+}
+
+func (ru RevertUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, spent bool)) {
+	for i := range ru.ms.sfes {
+		sfe := ru.ms.sfes[len(ru.ms.sfes)-i-1]
+		fn(sfe, ru.ms.isSpent(sfe.ID))
+	}
+}
+
+func (ru RevertUpdate) ForEachFileContractElement(fn func(fce types.FileContractElement, rev *types.FileContractElement, resolved bool)) {
+	for i := range ru.ms.fces {
+		fce := ru.ms.fces[len(ru.ms.fces)-i-1]
+		fn(fce, ru.ms.revision(fce.ID), ru.ms.isSpent(fce.ID))
+	}
+}
+
+func RevertBlock(s State, b types.Block, bs V1BlockSupplement) RevertUpdate {
+	if s.Index.ID != b.ParentID {
+		panic("consensus: cannot revert non-child block")
+	}
+	ms := NewMidState(s)
+	ms.ApplyBlock(b, bs)
+	// invert spends
+	//
+	// TODO: this might be horribly inadequate
+	for i := range ms.updated {
+		_, spent := ms.spends[ms.updated[i].ID]
+		ms.updated[i].Spent = !spent
 	}
 
-	if b.V2 != nil {
-		for _, txn := range b.V2.Transactions {
-			var tdiff V2TransactionDiff
-			txid := txn.ID()
-
-			for _, sci := range txn.SiacoinInputs {
-				tdiff.SpentSiacoinElements = append(tdiff.SpentSiacoinElements, sci.Parent)
-			}
-			for _, sco := range txn.SiacoinOutputs {
-				scoid := v2SiacoinOutputID(txid, len(tdiff.CreatedSiacoinElements))
-				tdiff.CreatedSiacoinElements = append(tdiff.CreatedSiacoinElements, types.SiacoinElement{
-					StateElement:  types.StateElement{ID: types.Hash256(scoid)},
-					SiacoinOutput: sco,
-				})
-			}
-			for _, fc := range txn.FileContracts {
-				tdiff.CreatedFileContracts = append(tdiff.CreatedFileContracts, types.V2FileContractElement{
-					StateElement:   types.StateElement{ID: types.Hash256(v2FileContractID(txid, len(tdiff.CreatedFileContracts)))},
-					V2FileContract: fc,
-				})
-			}
-			for _, sfi := range txn.SiafundInputs {
-				tdiff.SpentSiafundElements = append(tdiff.SpentSiafundElements, sfi.Parent)
-				scoid := v2SiacoinOutputID(txid, len(tdiff.CreatedSiacoinElements))
-				claimPortion := ms.siafundPool.Sub(sfi.Parent.ClaimStart).Div64(ms.base.SiafundCount()).Mul64(sfi.Parent.Value)
-				tdiff.CreatedSiacoinElements = append(tdiff.CreatedSiacoinElements, types.SiacoinElement{
-					StateElement:   types.StateElement{ID: types.Hash256(scoid)},
-					SiacoinOutput:  types.SiacoinOutput{Value: claimPortion, Address: sfi.ClaimAddress},
-					MaturityHeight: s.MaturityHeight(),
-				})
-			}
-			for _, sfo := range txn.SiafundOutputs {
-				sfoid := v2SiafundOutputID(txid, len(tdiff.CreatedSiafundElements))
-				tdiff.CreatedSiafundElements = append(tdiff.CreatedSiafundElements, types.SiafundElement{
-					StateElement:  types.StateElement{ID: types.Hash256(sfoid)},
-					SiafundOutput: sfo,
-					ClaimStart:    ms.siafundPool,
-				})
-			}
-			tdiff.RevisedFileContracts = append(tdiff.RevisedFileContracts, txn.FileContractRevisions...)
-			tdiff.ResolvedFileContracts = append(tdiff.ResolvedFileContracts, txn.FileContractResolutions...)
-			for _, res := range txn.FileContractResolutions {
-				if r, ok := res.Resolution.(types.V2FileContractRenewal); ok {
-					fcid := v2FileContractID(txid, len(tdiff.CreatedFileContracts))
-					tdiff.CreatedFileContracts = append(tdiff.CreatedFileContracts, types.V2FileContractElement{
-						StateElement:   types.StateElement{ID: types.Hash256(fcid)},
-						V2FileContract: r.InitialRevision,
-					})
-				}
-			}
-			diff.V2Transactions = append(diff.V2Transactions, tdiff)
-			ms.ApplyV2Transaction(txn)
-		}
-	}
-
-	bid := b.ID()
-	for i, sco := range b.MinerPayouts {
-		scoid := bid.MinerOutputID(i)
-		diff.CreatedSiacoinElements = append(diff.CreatedSiacoinElements, types.SiacoinElement{
-			StateElement:   types.StateElement{ID: types.Hash256(scoid)},
-			SiacoinOutput:  sco,
-			MaturityHeight: s.MaturityHeight(),
-		})
-	}
-	for _, fcid := range store.MissedFileContracts(s.childHeight()) {
-		if _, ok := ms.spent(types.Hash256(fcid)); ok {
-			continue
-		}
-		fce := ms.mustFileContractElement(store, fcid)
-		diff.MissedFileContracts = append(diff.MissedFileContracts, fce)
-		for i, sco := range fce.MissedProofOutputs {
-			scoid := fcid.MissedOutputID(i)
-			diff.CreatedSiacoinElements = append(diff.CreatedSiacoinElements, types.SiacoinElement{
-				StateElement:   types.StateElement{ID: types.Hash256(scoid)},
-				SiacoinOutput:  sco,
-				MaturityHeight: s.MaturityHeight(),
-			})
-		}
-	}
-	if subsidy := s.FoundationSubsidy(); !subsidy.Value.IsZero() {
-		scoid := bid.FoundationOutputID()
-		diff.CreatedSiacoinElements = append(diff.CreatedSiacoinElements, types.SiacoinElement{
-			StateElement:   types.StateElement{ID: types.Hash256(scoid)},
-			SiacoinOutput:  subsidy,
-			MaturityHeight: s.MaturityHeight(),
-		})
-	}
-
-	diff.ElementApplyUpdate = s.Elements.ApplyBlock(&diff) // fills in leaf index + proofs for all elements
-	diff.HistoryApplyUpdate = s.History.ApplyBlock(types.ChainIndex{Height: s.Index.Height + 1, ID: bid})
-	return diff
+	eru := s.Elements.RevertBlock(ms.updated)
+	hru := s.History.RevertBlock(s.Index)
+	return RevertUpdate{eru, hru, ms}
 }
