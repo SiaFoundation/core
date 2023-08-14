@@ -302,6 +302,8 @@ func (s State) StorageProofLeafHash(leaf []byte) types.Hash256 {
 // after each hardfork to prevent replay attacks.
 func (s State) replayPrefix() []byte {
 	switch {
+	case s.Index.Height >= s.Network.HardforkV2.AllowHeight:
+		return []byte{2}
 	case s.Index.Height >= s.Network.HardforkFoundation.Height:
 		return []byte{1}
 	case s.Index.Height >= s.Network.HardforkASIC.Height:
@@ -309,6 +311,13 @@ func (s State) replayPrefix() []byte {
 	default:
 		return nil
 	}
+}
+
+// v2ReplayPrefix returns the replay protection prefix at the current height.
+// These prefixes are included in various hashes; a new prefix is used after
+// each hardfork to prevent replay attacks.
+func (s State) v2ReplayPrefix() uint8 {
+	return 2
 }
 
 // WholeSigHash computes the hash of transaction data covered by the
@@ -438,6 +447,7 @@ func (s State) Commitment(minerAddr types.Address, txns []types.Transaction, v2t
 	// concatenate the hashes and the miner address
 	h.Reset()
 	h.E.WriteString("sia/commitment|")
+	h.E.WriteUint8(s.v2ReplayPrefix())
 	stateHash.EncodeTo(h.E)
 	minerAddr.EncodeTo(h.E)
 	txnsHash.EncodeTo(h.E)
@@ -452,6 +462,7 @@ func (s State) InputSigHash(txn types.V2Transaction) types.Hash256 {
 	defer hasherPool.Put(h)
 	h.Reset()
 	h.E.WriteString("sia/id/transaction|")
+	h.E.WriteUint8(s.v2ReplayPrefix())
 	h.E.WritePrefix(len(txn.SiacoinInputs))
 	for _, in := range txn.SiacoinInputs {
 		in.Parent.ID.EncodeTo(h.E)
@@ -500,6 +511,7 @@ func (s State) ContractSigHash(fc types.V2FileContract) types.Hash256 {
 	defer hasherPool.Put(h)
 	h.Reset()
 	h.E.WriteString("sia/sig/filecontract|")
+	h.E.WriteUint8(s.v2ReplayPrefix())
 	h.E.WriteUint64(fc.Filesize)
 	fc.FileMerkleRoot.EncodeTo(h.E)
 	h.E.WriteUint64(fc.ProofHeight)
@@ -519,6 +531,7 @@ func (s State) RenewalSigHash(fcr types.V2FileContractRenewal) types.Hash256 {
 	defer hasherPool.Put(h)
 	h.Reset()
 	h.E.WriteString("sia/sig/filecontractrenewal|")
+	h.E.WriteUint8(s.v2ReplayPrefix())
 	fcr.FinalRevision.EncodeTo(h.E)
 	fcr.InitialRevision.EncodeTo(h.E)
 	fcr.RenterRollover.EncodeTo(h.E)
@@ -532,6 +545,7 @@ func (s State) AttestationSigHash(a types.Attestation) types.Hash256 {
 	defer hasherPool.Put(h)
 	h.Reset()
 	h.E.WriteString("sia/sig/attestation|")
+	h.E.WriteUint8(s.v2ReplayPrefix())
 	a.PublicKey.EncodeTo(h.E)
 	h.E.WriteString(a.Key)
 	h.E.WriteBytes(a.Value)
