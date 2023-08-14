@@ -491,6 +491,11 @@ func (s State) InputSigHash(txn types.V2Transaction) types.Hash256 {
 	h.E.WritePrefix(len(txn.FileContractResolutions))
 	for _, fcr := range txn.FileContractResolutions {
 		fcr.Parent.ID.EncodeTo(h.E)
+		// normalize history proof
+		if sp, ok := fcr.Resolution.(types.V2StorageProof); ok {
+			sp.HistoryProof = nil
+			fcr.Resolution = sp
+		}
 		fcr.Resolution.(types.EncoderTo).EncodeTo(h.E)
 	}
 	for _, a := range txn.Attestations {
