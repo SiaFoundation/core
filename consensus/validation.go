@@ -442,7 +442,7 @@ func validateFileContracts(ms *MidState, txn types.Transaction, ts V1Transaction
 		if !ok {
 			return fmt.Errorf("storage proof %v references nonexistent file contract", i)
 		}
-		windowID := ts.StorageProofBlockIDs[i]
+		windowID := ts.storageProofWindowID(sp.ParentID)
 		leafIndex := ms.base.StorageProofLeafIndex(fc.Filesize, windowID, sp.ParentID)
 		leaf := storageProofLeaf(leafIndex, fc.Filesize, sp.Leaf)
 		if leaf == nil {

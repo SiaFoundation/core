@@ -227,11 +227,19 @@ func (s State) TransactionWeight(txn types.Transaction) uint64 {
 	return uint64(types.EncodedLen(txn))
 }
 
+// V2TransactionWeight computes the weight of a txn.
+func (s State) V2TransactionWeight(txn types.V2Transaction) uint64 {
+	return uint64(types.EncodedLen(txn)) // TODO
+}
+
 // BlockWeight computes the combined weight of a block's txns.
-func (s State) BlockWeight(txns []types.Transaction) uint64 {
+func (s State) BlockWeight(txns []types.Transaction, v2txns []types.V2Transaction) uint64 {
 	var weight uint64
 	for _, txn := range txns {
 		weight += s.TransactionWeight(txn)
+	}
+	for _, txn := range v2txns {
+		weight += s.V2TransactionWeight(txn)
 	}
 	return weight
 }
@@ -276,7 +284,7 @@ func (s State) StorageProofLeafIndex(filesize uint64, windowID types.BlockID, fc
 	if filesize%leafSize != 0 {
 		numLeaves++
 	}
-	if numLeaves <= 0 {
+	if numLeaves == 0 {
 		return 0
 	}
 	seed := types.HashBytes(append(windowID[:], fcid[:]...))
@@ -555,4 +563,133 @@ func (s State) AttestationSigHash(a types.Attestation) types.Hash256 {
 	h.E.WriteString(a.Key)
 	h.E.WriteBytes(a.Value)
 	return h.Sum()
+}
+
+// A V1TransactionSupplement contains elements that are associated with a v1
+// transaction, but not included in the transaction. For example, v1
+// transactions reference the ID of each SiacoinOutput they spend, but do not
+// contain the output itself. Consequently, in order to validate the
+// transaction, those outputs must be loaded from a Store. Collecting these
+// elements into an explicit struct allows us to preserve them even after the
+// Store has been mutated.
+type V1TransactionSupplement struct {
+	SiacoinInputs        []types.SiacoinElement
+	SiafundInputs        []types.SiafundElement
+	RevisedFileContracts []types.FileContractElement
+	ValidFileContracts   []types.FileContractElement
+	StorageProofBlockIDs []types.BlockID // must match ValidFileContracts
+}
+
+// EncodeTo implements types.EncoderTo.
+func (ts V1TransactionSupplement) EncodeTo(e *types.Encoder) {
+	e.WritePrefix(len(ts.SiacoinInputs))
+	for i := range ts.SiacoinInputs {
+		ts.SiacoinInputs[i].EncodeTo(e)
+	}
+	e.WritePrefix(len(ts.SiafundInputs))
+	for i := range ts.SiafundInputs {
+		ts.SiafundInputs[i].EncodeTo(e)
+	}
+	e.WritePrefix(len(ts.RevisedFileContracts))
+	for i := range ts.RevisedFileContracts {
+		ts.RevisedFileContracts[i].EncodeTo(e)
+	}
+	e.WritePrefix(len(ts.ValidFileContracts))
+	for i := range ts.ValidFileContracts {
+		ts.ValidFileContracts[i].EncodeTo(e)
+	}
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (ts *V1TransactionSupplement) DecodeFrom(d *types.Decoder) {
+	ts.SiacoinInputs = make([]types.SiacoinElement, d.ReadPrefix())
+	for i := range ts.SiacoinInputs {
+		ts.SiacoinInputs[i].DecodeFrom(d)
+	}
+	ts.SiafundInputs = make([]types.SiafundElement, d.ReadPrefix())
+	for i := range ts.SiafundInputs {
+		ts.SiafundInputs[i].DecodeFrom(d)
+	}
+	ts.RevisedFileContracts = make([]types.FileContractElement, d.ReadPrefix())
+	for i := range ts.RevisedFileContracts {
+		ts.RevisedFileContracts[i].DecodeFrom(d)
+	}
+	ts.ValidFileContracts = make([]types.FileContractElement, d.ReadPrefix())
+	for i := range ts.ValidFileContracts {
+		ts.ValidFileContracts[i].DecodeFrom(d)
+	}
+}
+
+func (ts V1TransactionSupplement) siacoinElement(id types.SiacoinOutputID) (sce types.SiacoinElement, ok bool) {
+	for _, sce := range ts.SiacoinInputs {
+		if types.SiacoinOutputID(sce.ID) == id {
+			return sce, true
+		}
+	}
+	return
+}
+
+func (ts V1TransactionSupplement) siafundElement(id types.SiafundOutputID) (sce types.SiafundElement, ok bool) {
+	for _, sfe := range ts.SiafundInputs {
+		if types.SiafundOutputID(sfe.ID) == id {
+			return sfe, true
+		}
+	}
+	return
+}
+
+func (ts V1TransactionSupplement) fileContractElement(id types.FileContractID) (sce types.FileContractElement, ok bool) {
+	for _, fce := range ts.RevisedFileContracts {
+		if types.FileContractID(fce.ID) == id {
+			return fce, true
+		}
+	}
+	for _, fce := range ts.ValidFileContracts {
+		if types.FileContractID(fce.ID) == id {
+			return fce, true
+		}
+	}
+	return
+}
+
+func (ts V1TransactionSupplement) storageProofWindowID(id types.FileContractID) types.BlockID {
+	for i, fce := range ts.ValidFileContracts {
+		if types.FileContractID(fce.ID) == id {
+			return ts.StorageProofBlockIDs[i]
+		}
+	}
+	panic("missing contract for storage proof window ID") // developer error
+}
+
+// A V1BlockSupplement contains elements that are associated with a v1 block,
+// but not included in the block. This includes supplements for each v1
+// transaction, as well as any file contracts that expired at the block's
+// height.
+type V1BlockSupplement struct {
+	Transactions          []V1TransactionSupplement
+	ExpiringFileContracts []types.FileContractElement
+}
+
+// EncodeTo implements types.EncoderTo.
+func (bs V1BlockSupplement) EncodeTo(e *types.Encoder) {
+	e.WritePrefix(len(bs.Transactions))
+	for i := range bs.Transactions {
+		bs.Transactions[i].EncodeTo(e)
+	}
+	e.WritePrefix(len(bs.ExpiringFileContracts))
+	for i := range bs.ExpiringFileContracts {
+		bs.ExpiringFileContracts[i].EncodeTo(e)
+	}
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (bs *V1BlockSupplement) DecodeFrom(d *types.Decoder) {
+	bs.Transactions = make([]V1TransactionSupplement, d.ReadPrefix())
+	for i := range bs.Transactions {
+		bs.Transactions[i].DecodeFrom(d)
+	}
+	bs.ExpiringFileContracts = make([]types.FileContractElement, d.ReadPrefix())
+	for i := range bs.ExpiringFileContracts {
+		bs.ExpiringFileContracts[i].DecodeFrom(d)
+	}
 }

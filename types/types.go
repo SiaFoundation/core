@@ -440,6 +440,15 @@ func (txn *Transaction) FileContractID(i int) FileContractID {
 	return FileContractID(h.Sum())
 }
 
+// TotalFees returns the sum of the transaction's miner fees.
+func (txn *Transaction) TotalFees() Currency {
+	var sum Currency
+	for _, fee := range txn.MinerFees {
+		sum = sum.Add(fee)
+	}
+	return sum
+}
+
 // A V2FileContract is a storage agreement between a renter and a host. It
 // consists of a bidirectional payment channel that resolves as either "valid"
 // or "missed" depending on whether a valid StorageProof is submitted for the

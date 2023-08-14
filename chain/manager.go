@@ -104,13 +104,15 @@ type Manager struct {
 	lastCommit  time.Time
 
 	txpool struct {
-		txns         []types.Transaction
-		indices      map[types.TransactionID]int
-		ms           *consensus.MidState
-		weight       uint64
-		medianFee    *types.Currency
-		parentMap    map[types.Hash256]int
-		lastReverted []types.Transaction
+		txns           []types.Transaction
+		v2txns         []types.V2Transaction
+		indices        map[types.TransactionID]int
+		ms             *consensus.MidState
+		weight         uint64
+		medianFee      *types.Currency
+		parentMap      map[types.Hash256]int
+		lastReverted   []types.Transaction
+		lastRevertedV2 []types.V2Transaction
 	}
 
 	mu sync.Mutex
@@ -261,6 +263,7 @@ func (m *Manager) revertTip() error {
 		}
 	}
 
+	m.revertPoolUpdate(cru)
 	m.tipState = pc.State
 	return nil
 }
@@ -303,6 +306,7 @@ func (m *Manager) applyTip(index types.ChainIndex) error {
 		}
 	}
 
+	m.applyPoolUpdate(cau)
 	m.tipState = c.State
 	return nil
 }
@@ -381,6 +385,9 @@ func (m *Manager) reorgTo(index types.ChainIndex) error {
 	if len(revert) > 0 {
 		c, _ := m.store.Checkpoint(revert[0].ID)
 		m.txpool.lastReverted = c.Block.Transactions
+		if c.Block.V2 != nil {
+			m.txpool.lastRevertedV2 = c.Block.V2.Transactions
+		}
 	}
 
 	return nil
@@ -461,21 +468,32 @@ func (m *Manager) revalidatePool() {
 	if m.txpool.weight >= txpoolMaxWeight {
 		// sort txns fee without modifying the actual pool slice
 		type feeTxn struct {
-			index int
-			fees  types.Currency
+			index  int
+			fees   types.Currency
+			weight uint64
+			v2     bool
 		}
-		txnFees := make([]feeTxn, len(m.txpool.txns))
+		txnFees := make([]feeTxn, 0, len(m.txpool.txns)+len(m.txpool.v2txns))
 		for i, txn := range m.txpool.txns {
-			txnFees[i].index = i
-			for _, fee := range txn.MinerFees {
-				txnFees[i].fees = txnFees[i].fees.Add(fee)
-			}
+			txnFees = append(txnFees, feeTxn{
+				index:  i,
+				fees:   txn.TotalFees(),
+				weight: m.tipState.TransactionWeight(txn),
+			})
+		}
+		for i, txn := range m.txpool.v2txns {
+			txnFees = append(txnFees, feeTxn{
+				index:  i,
+				fees:   txn.MinerFee,
+				weight: m.tipState.V2TransactionWeight(txn),
+				v2:     true,
+			})
 		}
 		sort.Slice(txnFees, func(i, j int) bool {
-			return txnFees[i].fees.Cmp(txnFees[j].fees) < 0
+			return txnFees[i].fees.Div64(txnFees[i].weight).Cmp(txnFees[j].fees.Div64(txnFees[j].weight)) < 0
 		})
 		for m.txpool.weight >= (txpoolMaxWeight*3)/4 {
-			m.txpool.weight -= m.tipState.TransactionWeight(m.txpool.txns[txnFees[0].index])
+			m.txpool.weight -= txnFees[0].weight
 			txnFees = txnFees[1:]
 		}
 		sort.Slice(txnFees, func(i, j int) bool {
@@ -492,9 +510,9 @@ func (m *Manager) revalidatePool() {
 	for txid := range m.txpool.indices {
 		delete(m.txpool.indices, txid)
 	}
+	m.txpool.ms = consensus.NewMidState(m.tipState)
 	txns := append(m.txpool.txns, m.txpool.lastReverted...)
 	m.txpool.txns = m.txpool.txns[:0]
-	m.txpool.ms = consensus.NewMidState(m.tipState)
 	for _, txn := range txns {
 		ts := m.store.SupplementTipTransaction(txn)
 		if consensus.ValidateTransaction(m.txpool.ms, txn, ts) == nil {
@@ -502,6 +520,16 @@ func (m *Manager) revalidatePool() {
 			m.txpool.indices[txn.ID()] = len(m.txpool.txns)
 			m.txpool.txns = append(m.txpool.txns, txn)
 			m.txpool.weight += m.tipState.TransactionWeight(txn)
+		}
+	}
+	v2txns := append(m.txpool.v2txns, m.txpool.lastRevertedV2...)
+	m.txpool.v2txns = m.txpool.v2txns[:0]
+	for _, txn := range v2txns {
+		if consensus.ValidateV2Transaction(m.txpool.ms, txn) == nil {
+			m.txpool.ms.ApplyV2Transaction(txn)
+			m.txpool.indices[txn.ID()] = len(m.txpool.v2txns)
+			m.txpool.v2txns = append(m.txpool.v2txns, txn)
+			m.txpool.weight += m.tipState.V2TransactionWeight(txn)
 		}
 	}
 }
@@ -518,11 +546,12 @@ func (m *Manager) computeMedianFee() types.Currency {
 		}
 		var fees []weightedFee
 		for _, txn := range b.Transactions {
-			var fee types.Currency
-			for _, mf := range txn.MinerFees {
-				fee = fee.Add(mf)
+			fees = append(fees, weightedFee{cs.TransactionWeight(txn), txn.TotalFees()})
+		}
+		if b.V2 != nil {
+			for _, txn := range b.V2.Transactions {
+				fees = append(fees, weightedFee{cs.V2TransactionWeight(txn), txn.MinerFee})
 			}
-			fees = append(fees, weightedFee{cs.TransactionWeight(txn), fee})
 		}
 		// account for the remaining space in the block, for which no fees were paid
 		remaining := cs.MaxBlockWeight()
@@ -583,6 +612,132 @@ func (m *Manager) computeParentMap() map[types.Hash256]int {
 		}
 	}
 	return m.txpool.parentMap
+}
+
+func (m *Manager) applyPoolUpdate(cau consensus.ApplyUpdate) {
+	// replace ephemeral elements, if necessary
+	var newElements map[types.Hash256]types.StateElement
+	replaceEphemeral := func(e *types.StateElement) {
+		if e.LeafIndex != types.EphemeralLeafIndex {
+			return
+		} else if newElements == nil {
+			newElements := make(map[types.Hash256]types.StateElement)
+			cau.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
+				if !spent {
+					newElements[sce.ID] = sce.StateElement
+				}
+			})
+			cau.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
+				if !spent {
+					newElements[sfe.ID] = sfe.StateElement
+				}
+			})
+			cau.ForEachFileContractElement(func(fce types.FileContractElement, rev *types.FileContractElement, spent bool) {
+				if !spent {
+					newElements[fce.ID] = fce.StateElement
+				}
+			})
+		}
+		*e = newElements[e.ID]
+	}
+	for _, txn := range m.txpool.v2txns {
+		for i := range txn.SiacoinInputs {
+			replaceEphemeral(&txn.SiacoinInputs[i].Parent.StateElement)
+		}
+		for i := range txn.SiafundInputs {
+			replaceEphemeral(&txn.SiafundInputs[i].Parent.StateElement)
+		}
+		for i := range txn.FileContractRevisions {
+			replaceEphemeral(&txn.FileContractRevisions[i].Parent.StateElement)
+		}
+		for i := range txn.FileContractResolutions {
+			replaceEphemeral(&txn.FileContractResolutions[i].Parent.StateElement)
+		}
+	}
+
+	// update proofs
+	for _, txn := range m.txpool.v2txns {
+		for i := range txn.SiacoinInputs {
+			cau.UpdateElementProof(&txn.SiacoinInputs[i].Parent.StateElement)
+		}
+		for i := range txn.SiafundInputs {
+			cau.UpdateElementProof(&txn.SiafundInputs[i].Parent.StateElement)
+		}
+		for i := range txn.FileContractRevisions {
+			cau.UpdateElementProof(&txn.FileContractRevisions[i].Parent.StateElement)
+		}
+		for i := range txn.FileContractResolutions {
+			cau.UpdateElementProof(&txn.FileContractResolutions[i].Parent.StateElement)
+			if sp, ok := txn.FileContractResolutions[i].Resolution.(types.V2StorageProof); ok {
+				cau.UpdateHistoryProof(&sp)
+				txn.FileContractResolutions[i].Resolution = sp
+			}
+		}
+	}
+}
+
+func (m *Manager) revertPoolUpdate(cru consensus.RevertUpdate) {
+	// restore ephemeral elements, if necessary
+	var uncreated map[types.Hash256]bool
+	replaceEphemeral := func(e *types.StateElement) {
+		if e.LeafIndex != types.EphemeralLeafIndex {
+			return
+		} else if uncreated == nil {
+			uncreated := make(map[types.Hash256]types.StateElement)
+			cru.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
+				if !spent {
+					uncreated[sce.ID] = sce.StateElement
+				}
+			})
+			cru.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
+				if !spent {
+					uncreated[sfe.ID] = sfe.StateElement
+				}
+			})
+			cru.ForEachFileContractElement(func(fce types.FileContractElement, rev *types.FileContractElement, spent bool) {
+				if !spent {
+					uncreated[fce.ID] = fce.StateElement
+				}
+			})
+		}
+		if uncreated[e.ID] {
+			*e = types.StateElement{ID: e.ID, LeafIndex: types.EphemeralLeafIndex}
+		}
+	}
+	for _, txn := range m.txpool.v2txns {
+		for i := range txn.SiacoinInputs {
+			replaceEphemeral(&txn.SiacoinInputs[i].Parent.StateElement)
+		}
+		for i := range txn.SiafundInputs {
+			replaceEphemeral(&txn.SiafundInputs[i].Parent.StateElement)
+		}
+		for i := range txn.FileContractRevisions {
+			replaceEphemeral(&txn.FileContractRevisions[i].Parent.StateElement)
+		}
+		for i := range txn.FileContractResolutions {
+			replaceEphemeral(&txn.FileContractResolutions[i].Parent.StateElement)
+		}
+	}
+
+	// update proofs
+	for _, txn := range m.txpool.v2txns {
+		for i := range txn.SiacoinInputs {
+			cru.UpdateElementProof(&txn.SiacoinInputs[i].Parent.StateElement)
+		}
+		for i := range txn.SiafundInputs {
+			cru.UpdateElementProof(&txn.SiafundInputs[i].Parent.StateElement)
+		}
+		for i := range txn.FileContractRevisions {
+			cru.UpdateElementProof(&txn.FileContractRevisions[i].Parent.StateElement)
+		}
+		for i := range txn.FileContractResolutions {
+			cru.UpdateElementProof(&txn.FileContractResolutions[i].Parent.StateElement)
+			if sp, ok := txn.FileContractResolutions[i].Resolution.(types.V2StorageProof); ok {
+				cru.UpdateHistoryProof(&sp)
+				txn.FileContractResolutions[i].Resolution = sp
+			}
+		}
+	}
 }
 
 // PoolTransaction returns the transaction with the specified ID, if it is
@@ -721,11 +876,44 @@ func (m *Manager) AddPoolTransactions(txns []types.Transaction) error {
 		if _, ok := m.txpool.indices[txid]; ok {
 			continue // skip transactions already in pool
 		}
-		ts := m.store.SupplementTipTransaction(txn)
-		m.txpool.ms.ApplyTransaction(txn, ts)
+		m.txpool.ms.ApplyTransaction(txn, m.store.SupplementTipTransaction(txn))
 		m.txpool.indices[txid] = len(m.txpool.txns)
 		m.txpool.txns = append(m.txpool.txns, txn)
 		m.txpool.weight += m.tipState.TransactionWeight(txn)
+	}
+	return nil
+}
+
+// AddV2PoolTransactions validates a transaction set and adds it to the txpool.
+// If any transaction references an element (SiacoinOutput, SiafundOutput, or
+// FileContract) not present in the blockchain, that element must be created by
+// a previous transaction in the set.
+//
+// If any transaction in the set is invalid, the entire set is rejected and none
+// of the transactions are added to the pool.
+func (m *Manager) AddV2PoolTransactions(txns []types.V2Transaction) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.revalidatePool()
+
+	// validate as a standalone set
+	ms := consensus.NewMidState(m.tipState)
+	for _, txn := range txns {
+		if err := consensus.ValidateV2Transaction(ms, txn); err != nil {
+			return fmt.Errorf("transaction %v is invalid: %v", txn.ID(), err)
+		}
+		ms.ApplyV2Transaction(txn)
+	}
+
+	for _, txn := range txns {
+		txid := txn.ID()
+		if _, ok := m.txpool.indices[txid]; ok {
+			continue // skip transactions already in pool
+		}
+		m.txpool.ms.ApplyV2Transaction(txn)
+		m.txpool.indices[txid] = len(m.txpool.v2txns)
+		m.txpool.v2txns = append(m.txpool.v2txns, txn)
+		m.txpool.weight += m.tipState.V2TransactionWeight(txn)
 	}
 	return nil
 }

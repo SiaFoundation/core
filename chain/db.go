@@ -505,8 +505,8 @@ func (db *DBStore) SupplementTipTransaction(txn types.Transaction) (ts consensus
 	}
 	for _, sp := range txn.StorageProofs {
 		if fce, ok := db.getFileContractElement(sp.ParentID, numLeaves); ok {
-			ts.ValidFileContracts = append(ts.ValidFileContracts, fce)
 			if windowIndex, ok := db.BestIndex(fce.WindowStart - 1); ok {
+				ts.ValidFileContracts = append(ts.ValidFileContracts, fce)
 				ts.StorageProofBlockIDs = append(ts.StorageProofBlockIDs, windowIndex.ID)
 			}
 		}
