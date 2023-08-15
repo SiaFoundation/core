@@ -11,8 +11,7 @@ import (
 	"go.sia.tech/core/types"
 )
 
-// ValidateHeader validates a header in the context of s.
-func ValidateHeader(s State, parentID types.BlockID, timestamp time.Time, nonce uint64, id types.BlockID) error {
+func validateHeader(s State, parentID types.BlockID, timestamp time.Time, nonce uint64, id types.BlockID) error {
 	if parentID != s.Index.ID {
 		return errors.New("wrong parent ID")
 	} else if timestamp.Before(s.medianTimestamp()) {
@@ -74,7 +73,7 @@ func ValidateOrphan(s State, b types.Block) error {
 		return errors.New("block exceeds maximum weight")
 	} else if err := validateMinerPayouts(s, b); err != nil {
 		return err
-	} else if err := ValidateHeader(s, b.ParentID, b.Timestamp, b.Nonce, b.ID()); err != nil {
+	} else if err := validateHeader(s, b.ParentID, b.Timestamp, b.Nonce, b.ID()); err != nil {
 		return err
 	}
 
@@ -105,8 +104,8 @@ type MidState struct {
 	v2fces []types.V2FileContractElement
 	cie    types.ChainIndexElement
 	// these alias the above
-	updated []ElementLeaf
-	added   []ElementLeaf
+	updated []elementLeaf
+	added   []elementLeaf
 }
 
 // Index returns the index of the MidState's base state.

@@ -49,15 +49,15 @@ func storageProofRoot(leafHash types.Hash256, leafIndex uint64, filesize uint64,
 	return root
 }
 
-// An ElementLeaf represents a leaf in the ElementAccumulator Merkle tree.
-type ElementLeaf struct {
+// An elementLeaf represents a leaf in the ElementAccumulator Merkle tree.
+type elementLeaf struct {
 	*types.StateElement
 	ElementHash types.Hash256
 	Spent       bool
 }
 
-// Hash returns the leaf's hash, for direct use in the Merkle tree.
-func (l ElementLeaf) Hash() types.Hash256 {
+// hash returns the leaf's hash, for direct use in the Merkle tree.
+func (l elementLeaf) hash() types.Hash256 {
 	buf := make([]byte, 1+32+8+1)
 	buf[0] = leafHashPrefix
 	copy(buf[1:], l.ElementHash[:])
@@ -68,13 +68,13 @@ func (l ElementLeaf) Hash() types.Hash256 {
 	return types.HashBytes(buf)
 }
 
-// ProofRoot returns the root obtained from the leaf and its proof..
-func (l ElementLeaf) ProofRoot() types.Hash256 {
-	return proofRoot(l.Hash(), l.LeafIndex, l.MerkleProof)
+// proofRoot returns the root obtained from the leaf and its proof..
+func (l elementLeaf) proofRoot() types.Hash256 {
+	return proofRoot(l.hash(), l.LeafIndex, l.MerkleProof)
 }
 
-// SiacoinLeaf returns the ElementLeaf for a SiacoinElement.
-func SiacoinLeaf(e *types.SiacoinElement, spent bool) ElementLeaf {
+// siacoinLeaf returns the elementLeaf for a SiacoinElement.
+func siacoinLeaf(e *types.SiacoinElement, spent bool) elementLeaf {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
@@ -82,15 +82,15 @@ func SiacoinLeaf(e *types.SiacoinElement, spent bool) ElementLeaf {
 	e.ID.EncodeTo(h.E)
 	e.SiacoinOutput.EncodeTo(h.E)
 	h.E.WriteUint64(e.MaturityHeight)
-	return ElementLeaf{
+	return elementLeaf{
 		StateElement: &e.StateElement,
 		ElementHash:  h.Sum(),
 		Spent:        spent,
 	}
 }
 
-// SiafundLeaf returns the ElementLeaf for a SiafundElement.
-func SiafundLeaf(e *types.SiafundElement, spent bool) ElementLeaf {
+// siafundLeaf returns the elementLeaf for a SiafundElement.
+func siafundLeaf(e *types.SiafundElement, spent bool) elementLeaf {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
@@ -98,52 +98,52 @@ func SiafundLeaf(e *types.SiafundElement, spent bool) ElementLeaf {
 	e.ID.EncodeTo(h.E)
 	e.SiafundOutput.EncodeTo(h.E)
 	e.ClaimStart.EncodeTo(h.E)
-	return ElementLeaf{
+	return elementLeaf{
 		StateElement: &e.StateElement,
 		ElementHash:  h.Sum(),
 		Spent:        spent,
 	}
 }
 
-// FileContractLeaf returns the ElementLeaf for a FileContractElement.
-func FileContractLeaf(e *types.FileContractElement, spent bool) ElementLeaf {
+// fileContractLeaf returns the elementLeaf for a FileContractElement.
+func fileContractLeaf(e *types.FileContractElement, spent bool) elementLeaf {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
 	h.E.WriteString("sia/leaf/filecontract|")
 	e.ID.EncodeTo(h.E)
 	e.FileContract.EncodeTo(h.E)
-	return ElementLeaf{
+	return elementLeaf{
 		StateElement: &e.StateElement,
 		ElementHash:  h.Sum(),
 		Spent:        spent,
 	}
 }
 
-// V2FileContractLeaf returns the ElementLeaf for a V2FileContractElement.
-func V2FileContractLeaf(e *types.V2FileContractElement, spent bool) ElementLeaf {
+// v2FileContractLeaf returns the elementLeaf for a V2FileContractElement.
+func v2FileContractLeaf(e *types.V2FileContractElement, spent bool) elementLeaf {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
 	h.E.WriteString("sia/leaf/v2filecontract|")
 	e.ID.EncodeTo(h.E)
 	e.V2FileContract.EncodeTo(h.E)
-	return ElementLeaf{
+	return elementLeaf{
 		StateElement: &e.StateElement,
 		ElementHash:  h.Sum(),
 		Spent:        spent,
 	}
 }
 
-// ChainIndexLeaf returns the ElementLeaf for a ChainIndexElement.
-func ChainIndexLeaf(e *types.ChainIndexElement) ElementLeaf {
+// chainIndexLeaf returns the elementLeaf for a ChainIndexElement.
+func chainIndexLeaf(e *types.ChainIndexElement) elementLeaf {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
 	h.E.WriteString("sia/leaf/chainindex|")
 	e.StateElement.ID.EncodeTo(h.E)
 	e.ChainIndex.EncodeTo(h.E)
-	return ElementLeaf{
+	return elementLeaf{
 		StateElement: &e.StateElement,
 		ElementHash:  h.Sum(),
 		Spent:        false,
@@ -216,55 +216,55 @@ func (acc *ElementAccumulator) hasTreeAtHeight(height int) bool {
 	return acc.NumLeaves&(1<<height) != 0
 }
 
-func (acc *ElementAccumulator) containsLeaf(l ElementLeaf) bool {
-	return acc.hasTreeAtHeight(len(l.MerkleProof)) && acc.Trees[len(l.MerkleProof)] == l.ProofRoot()
+func (acc *ElementAccumulator) containsLeaf(l elementLeaf) bool {
+	return acc.hasTreeAtHeight(len(l.MerkleProof)) && acc.Trees[len(l.MerkleProof)] == l.proofRoot()
 }
 
 // ContainsBlock returns true if the accumulator contains cie.
 func (acc *ElementAccumulator) ContainsBlock(cie types.ChainIndexElement) bool {
-	return acc.containsLeaf(ChainIndexLeaf(&cie))
+	return acc.containsLeaf(chainIndexLeaf(&cie))
 }
 
 // ContainsUnspentSiacoinElement returns true if the accumulator contains sce as an
 // unspent output.
 func (acc *ElementAccumulator) ContainsUnspentSiacoinElement(sce types.SiacoinElement) bool {
-	return acc.containsLeaf(SiacoinLeaf(&sce, false))
+	return acc.containsLeaf(siacoinLeaf(&sce, false))
 }
 
 // ContainsSpentSiacoinElement returns true if the accumulator contains sce as a
 // spent output.
 func (acc *ElementAccumulator) ContainsSpentSiacoinElement(sce types.SiacoinElement) bool {
-	return acc.containsLeaf(SiacoinLeaf(&sce, true))
+	return acc.containsLeaf(siacoinLeaf(&sce, true))
 }
 
 // ContainsUnspentSiafundElement returns true if the accumulator contains e as an
 // unspent output.
 func (acc *ElementAccumulator) ContainsUnspentSiafundElement(sfe types.SiafundElement) bool {
-	return acc.containsLeaf(SiafundLeaf(&sfe, false))
+	return acc.containsLeaf(siafundLeaf(&sfe, false))
 }
 
 // ContainsSpentSiafundElement returns true if the accumulator contains o as a
 // spent output.
 func (acc *ElementAccumulator) ContainsSpentSiafundElement(sfe types.SiafundElement) bool {
-	return acc.containsLeaf(SiafundLeaf(&sfe, true))
+	return acc.containsLeaf(siafundLeaf(&sfe, true))
 }
 
 // ContainsUnresolvedV2FileContractElement returns true if the accumulator
 // contains fce as an unresolved file contract.
 func (acc *ElementAccumulator) ContainsUnresolvedV2FileContractElement(fce types.V2FileContractElement) bool {
-	return acc.containsLeaf(V2FileContractLeaf(&fce, false))
+	return acc.containsLeaf(v2FileContractLeaf(&fce, false))
 }
 
 // ContainsResolvedV2FileContractElement returns true if the accumulator contains
 // fce as a resolved file contract.
 func (acc *ElementAccumulator) ContainsResolvedV2FileContractElement(fce types.V2FileContractElement) bool {
-	return acc.containsLeaf(V2FileContractLeaf(&fce, true))
+	return acc.containsLeaf(v2FileContractLeaf(&fce, true))
 }
 
 // addLeaves adds the supplied leaves to the accumulator, filling in their
 // Merkle proofs and returning the new node hashes that extend each existing
 // tree.
-func (acc *ElementAccumulator) addLeaves(leaves []ElementLeaf) [64][]types.Hash256 {
+func (acc *ElementAccumulator) addLeaves(leaves []elementLeaf) [64][]types.Hash256 {
 	initialLeaves := acc.NumLeaves
 	var treeGrowth [64][]types.Hash256
 	for i, el := range leaves {
@@ -273,7 +273,7 @@ func (acc *ElementAccumulator) addLeaves(leaves []ElementLeaf) [64][]types.Hash2
 		// Walk "up" the Forest, merging trees of the same height, but before
 		// merging two trees, append each of their roots to the proofs under the
 		// opposite tree.
-		h := el.Hash()
+		h := el.hash()
 		for height := range &acc.Trees {
 			if !acc.hasTreeAtHeight(height) {
 				// no tree at this height; insert the new tree
@@ -323,17 +323,17 @@ func (acc *ElementAccumulator) addLeaves(leaves []ElementLeaf) [64][]types.Hash2
 
 // updateLeaves updates the Merkle proofs of each leaf to reflect the changes in
 // all other leaves, and returns the leaves (grouped by tree) for later use.
-func updateLeaves(leaves []ElementLeaf) [64][]ElementLeaf {
-	splitLeaves := func(ls []ElementLeaf, mid uint64) (left, right []ElementLeaf) {
+func updateLeaves(leaves []elementLeaf) [64][]elementLeaf {
+	splitLeaves := func(ls []elementLeaf, mid uint64) (left, right []elementLeaf) {
 		split := sort.Search(len(ls), func(i int) bool { return ls[i].LeafIndex >= mid })
 		return ls[:split], ls[split:]
 	}
 
-	var recompute func(i, j uint64, leaves []ElementLeaf) types.Hash256
-	recompute = func(i, j uint64, leaves []ElementLeaf) types.Hash256 {
+	var recompute func(i, j uint64, leaves []elementLeaf) types.Hash256
+	recompute = func(i, j uint64, leaves []elementLeaf) types.Hash256 {
 		height := bits.TrailingZeros64(j - i) // equivalent to log2(j-i), as j-i is always a power of two
 		if len(leaves) == 1 && height == 0 {
-			return leaves[0].Hash()
+			return leaves[0].hash()
 		}
 		mid := (i + j) / 2
 		left, right := splitLeaves(leaves, mid)
@@ -358,7 +358,7 @@ func updateLeaves(leaves []ElementLeaf) [64][]ElementLeaf {
 	}
 
 	// Group leaves by tree, and sort them by leaf index.
-	var trees [64][]ElementLeaf
+	var trees [64][]elementLeaf
 	sort.Slice(leaves, func(i, j int) bool {
 		if len(leaves[i].MerkleProof) != len(leaves[j].MerkleProof) {
 			return len(leaves[i].MerkleProof) < len(leaves[j].MerkleProof)
@@ -392,11 +392,11 @@ func updateLeaves(leaves []ElementLeaf) [64][]ElementLeaf {
 
 // ApplyBlock applies the supplied leaves to the accumulator, modifying it and
 // producing an update.
-func (acc *ElementAccumulator) ApplyBlock(updated, added []ElementLeaf) (eau ElementApplyUpdate) {
+func (acc *ElementAccumulator) ApplyBlock(updated, added []elementLeaf) (eau ElementApplyUpdate) {
 	eau.updated = updateLeaves(updated)
 	for height, es := range eau.updated {
 		if len(es) > 0 {
-			acc.Trees[height] = es[0].ProofRoot()
+			acc.Trees[height] = es[0].proofRoot()
 		}
 	}
 	eau.treeGrowth = acc.addLeaves(added)
@@ -409,13 +409,13 @@ func (acc *ElementAccumulator) ApplyBlock(updated, added []ElementLeaf) (eau Ele
 // RevertBlock modifies the proofs of supplied elements such that they validate
 // under acc, which must be the accumulator prior to the application of those
 // elements. The accumulator itself is not modified.
-func (acc *ElementAccumulator) RevertBlock(updated []ElementLeaf) (eru ElementRevertUpdate) {
+func (acc *ElementAccumulator) RevertBlock(updated []elementLeaf) (eru ElementRevertUpdate) {
 	eru.updated = updateLeaves(updated)
 	eru.numLeaves = acc.NumLeaves
 	return
 }
 
-func updateProof(e *types.StateElement, updated *[64][]ElementLeaf) {
+func updateProof(e *types.StateElement, updated *[64][]elementLeaf) {
 	// find the "closest" updated object (the one with the lowest mergeHeight)
 	updatedInTree := updated[len(e.MerkleProof)]
 	if len(updatedInTree) == 0 {
@@ -436,14 +436,14 @@ func updateProof(e *types.StateElement, updated *[64][]ElementLeaf) {
 		mh := mergeHeight(e.LeafIndex, best.LeafIndex)
 		copy(e.MerkleProof[mh:], best.MerkleProof[mh:])
 		// at the merge point itself, compute the updated sibling hash
-		e.MerkleProof[mh-1] = proofRoot(best.Hash(), best.LeafIndex, best.MerkleProof[:mh-1])
+		e.MerkleProof[mh-1] = proofRoot(best.hash(), best.LeafIndex, best.MerkleProof[:mh-1])
 	}
 }
 
 // An ElementApplyUpdate reflects the changes to an ElementAccumulator resulting
 // from the application of a block.
 type ElementApplyUpdate struct {
-	updated    [64][]ElementLeaf
+	updated    [64][]elementLeaf
 	treeGrowth [64][]types.Hash256
 }
 
@@ -461,7 +461,7 @@ func (eau *ElementApplyUpdate) UpdateElementProof(e *types.StateElement) {
 // An ElementRevertUpdate reflects the changes to an ElementAccumulator
 // resulting from the removal of a block.
 type ElementRevertUpdate struct {
-	updated   [64][]ElementLeaf
+	updated   [64][]elementLeaf
 	numLeaves uint64
 }
 

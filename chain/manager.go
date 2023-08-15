@@ -228,7 +228,7 @@ func (m *Manager) AddBlocks(blocks []types.Block) error {
 		} else if err := consensus.ValidateOrphan(cs, b); err != nil {
 			return fmt.Errorf("block %v is invalid: %w", types.ChainIndex{Height: cs.Index.Height + 1, ID: b.ID()}, err)
 		}
-		cs = consensus.ApplyWork(cs, b, m.store.AncestorTimestamp(b.ParentID, cs.AncestorDepth()))
+		cs = consensus.ApplyOrphan(cs, b, m.store.AncestorTimestamp(b.ParentID, cs.AncestorDepth()))
 		m.store.AddCheckpoint(Checkpoint{b, cs, nil})
 	}
 
