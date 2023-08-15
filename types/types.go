@@ -562,13 +562,13 @@ type V2FileContractRenewal struct {
 // Merkle tree of a V2FileContract's data.
 type V2StorageProof struct {
 	// Selecting the leaf requires a source of unpredictable entropy; we use the
-	// ID of the block at the contract's ProofHeight. The StorageProof includes
-	// this ID, and asserts its presence in the chain via a history proof.
+	// ID of the block at the contract's ProofHeight. The storage proof thus
+	// includes a proof that this ID is the correct ancestor.
 	//
-	// For convenience, ProofStart is a ChainIndex rather than a BlockID.
-	// Consequently, ProofStart.Height MUST match the ProofStart field of the
-	// contract's final revision; otherwise, the prover could use any
-	// ProofStart, giving them control over the leaf index.
+	// During validation, it is imperative to check that ProofStart.Height
+	// matches the ProofStart field of the contract's final revision; otherwise,
+	// the prover could use any ProofStart, giving them control over the leaf
+	// index.
 	ProofStart ChainIndexElement
 
 	// The leaf is always 64 bytes, extended with zeros if necessary.

@@ -532,7 +532,7 @@ func ApplyBlock(s State, b types.Block, bs V1BlockSupplement, targetTimestamp ti
 	s.Attestations += uint64(len(ms.aes))
 	s.FoundationPrimaryAddress = ms.foundationPrimary
 	s.FoundationFailsafeAddress = ms.foundationFailsafe
-	eau := s.Elements.ApplyBlock(ms.updated, ms.added)
+	eau := s.Elements.applyBlock(ms.updated, ms.added)
 	s = ApplyOrphan(s, b, targetTimestamp)
 	return s, ApplyUpdate{eau, ms}
 }
@@ -575,14 +575,6 @@ func RevertBlock(s State, b types.Block, bs V1BlockSupplement) RevertUpdate {
 	}
 	ms := NewMidState(s)
 	ms.ApplyBlock(b, bs)
-	// invert spends
-	//
-	// TODO: this might be horribly inadequate
-	for i := range ms.updated {
-		_, spent := ms.spends[ms.updated[i].ID]
-		ms.updated[i].Spent = !spent
-	}
-
-	eru := s.Elements.RevertBlock(ms.updated)
+	eru := s.Elements.revertBlock(ms.updated)
 	return RevertUpdate{eru, ms}
 }

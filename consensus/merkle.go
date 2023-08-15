@@ -235,44 +235,31 @@ func (acc *ElementAccumulator) containsLeaf(l elementLeaf) bool {
 	return acc.hasTreeAtHeight(len(l.MerkleProof)) && acc.Trees[len(l.MerkleProof)] == l.proofRoot()
 }
 
-// ContainsBlock returns true if the accumulator contains cie.
-func (acc *ElementAccumulator) ContainsBlock(cie types.ChainIndexElement) bool {
+func (acc *ElementAccumulator) containsChainIndex(cie types.ChainIndexElement) bool {
 	return acc.containsLeaf(chainIndexLeaf(&cie))
 }
 
-// ContainsUnspentSiacoinElement returns true if the accumulator contains sce as an
-// unspent output.
-func (acc *ElementAccumulator) ContainsUnspentSiacoinElement(sce types.SiacoinElement) bool {
+func (acc *ElementAccumulator) containsUnspentSiacoinElement(sce types.SiacoinElement) bool {
 	return acc.containsLeaf(siacoinLeaf(&sce, false))
 }
 
-// ContainsSpentSiacoinElement returns true if the accumulator contains sce as a
-// spent output.
-func (acc *ElementAccumulator) ContainsSpentSiacoinElement(sce types.SiacoinElement) bool {
+func (acc *ElementAccumulator) containsSpentSiacoinElement(sce types.SiacoinElement) bool {
 	return acc.containsLeaf(siacoinLeaf(&sce, true))
 }
 
-// ContainsUnspentSiafundElement returns true if the accumulator contains e as an
-// unspent output.
-func (acc *ElementAccumulator) ContainsUnspentSiafundElement(sfe types.SiafundElement) bool {
+func (acc *ElementAccumulator) containsUnspentSiafundElement(sfe types.SiafundElement) bool {
 	return acc.containsLeaf(siafundLeaf(&sfe, false))
 }
 
-// ContainsSpentSiafundElement returns true if the accumulator contains o as a
-// spent output.
-func (acc *ElementAccumulator) ContainsSpentSiafundElement(sfe types.SiafundElement) bool {
+func (acc *ElementAccumulator) containsSpentSiafundElement(sfe types.SiafundElement) bool {
 	return acc.containsLeaf(siafundLeaf(&sfe, true))
 }
 
-// ContainsUnresolvedV2FileContractElement returns true if the accumulator
-// contains fce as an unresolved file contract.
-func (acc *ElementAccumulator) ContainsUnresolvedV2FileContractElement(fce types.V2FileContractElement) bool {
+func (acc *ElementAccumulator) containsUnresolvedV2FileContractElement(fce types.V2FileContractElement) bool {
 	return acc.containsLeaf(v2FileContractLeaf(&fce, false))
 }
 
-// ContainsResolvedV2FileContractElement returns true if the accumulator contains
-// fce as a resolved file contract.
-func (acc *ElementAccumulator) ContainsResolvedV2FileContractElement(fce types.V2FileContractElement) bool {
+func (acc *ElementAccumulator) containsResolvedV2FileContractElement(fce types.V2FileContractElement) bool {
 	return acc.containsLeaf(v2FileContractLeaf(&fce, true))
 }
 
@@ -405,9 +392,9 @@ func updateLeaves(leaves []elementLeaf) [64][]elementLeaf {
 	return trees
 }
 
-// ApplyBlock applies the supplied leaves to the accumulator, modifying it and
+// applyBlock applies the supplied leaves to the accumulator, modifying it and
 // producing an update.
-func (acc *ElementAccumulator) ApplyBlock(updated, added []elementLeaf) (eau ElementApplyUpdate) {
+func (acc *ElementAccumulator) applyBlock(updated, added []elementLeaf) (eau ElementApplyUpdate) {
 	eau.updated = updateLeaves(updated)
 	for height, es := range eau.updated {
 		if len(es) > 0 {
@@ -421,10 +408,15 @@ func (acc *ElementAccumulator) ApplyBlock(updated, added []elementLeaf) (eau Ele
 	return eau
 }
 
-// RevertBlock modifies the proofs of supplied elements such that they validate
+// revertBlock modifies the proofs of supplied elements such that they validate
 // under acc, which must be the accumulator prior to the application of those
-// elements. The accumulator itself is not modified.
-func (acc *ElementAccumulator) RevertBlock(updated []elementLeaf) (eru ElementRevertUpdate) {
+// elements. All of the elements will be marked unspent. The accumulator itself
+// is not modified.
+func (acc *ElementAccumulator) revertBlock(updated []elementLeaf) (eru ElementRevertUpdate) {
+	for i := range updated {
+		// reverting a block can never cause an element to become spent
+		updated[i].Spent = false
+	}
 	eru.updated = updateLeaves(updated)
 	eru.numLeaves = acc.NumLeaves
 	return

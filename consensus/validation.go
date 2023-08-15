@@ -707,8 +707,8 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 			if _, ok := ms.ephemeral[sci.Parent.ID]; !ok {
 				return fmt.Errorf("siacoin input %v spends nonexistent ephemeral output %v", i, sci.Parent.ID)
 			}
-		} else if !ms.base.Elements.ContainsUnspentSiacoinElement(sci.Parent) {
-			if ms.base.Elements.ContainsSpentSiacoinElement(sci.Parent) {
+		} else if !ms.base.Elements.containsUnspentSiacoinElement(sci.Parent) {
+			if ms.base.Elements.containsSpentSiacoinElement(sci.Parent) {
 				return fmt.Errorf("siacoin input %v double-spends output %v", i, sci.Parent.ID)
 			}
 			return fmt.Errorf("siacoin input %v spends output (%v) not present in the accumulator", i, sci.Parent.ID)
@@ -763,8 +763,8 @@ func validateV2Siafunds(ms *MidState, txn types.V2Transaction) error {
 			if _, ok := ms.ephemeral[sci.Parent.ID]; !ok {
 				return fmt.Errorf("siafund input %v spends nonexistent ephemeral output %v", i, sci.Parent.ID)
 			}
-		} else if !ms.base.Elements.ContainsUnspentSiafundElement(sci.Parent) {
-			if ms.base.Elements.ContainsSpentSiafundElement(sci.Parent) {
+		} else if !ms.base.Elements.containsUnspentSiafundElement(sci.Parent) {
+			if ms.base.Elements.containsSpentSiafundElement(sci.Parent) {
 				return fmt.Errorf("siafund input %v double-spends output %v", i, sci.Parent.ID)
 			}
 			return fmt.Errorf("siafund input %v spends output (%v) not present in the accumulator", i, sci.Parent.ID)
@@ -805,8 +805,8 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 	validateParent := func(fce types.V2FileContractElement) error {
 		if txid, ok := ms.spent(fce.ID); ok {
 			return fmt.Errorf("has already been resolved in transaction %v", txid)
-		} else if !ms.base.Elements.ContainsUnresolvedV2FileContractElement(fce) {
-			if ms.base.Elements.ContainsResolvedV2FileContractElement(fce) {
+		} else if !ms.base.Elements.containsUnresolvedV2FileContractElement(fce) {
+			if ms.base.Elements.containsResolvedV2FileContractElement(fce) {
 				return errors.New("has already been resolved in a previous block")
 			}
 			return errors.New("is not present in the accumulator")
@@ -930,7 +930,7 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 			} else if sp.ProofStart.Height != fc.ProofHeight {
 				// see note on this field in types.StorageProof
 				return fmt.Errorf("file contract storage proof %v has ProofStart (%v) that does not match contract ProofStart (%v)", i, sp.ProofStart.Height, fc.ProofHeight)
-			} else if ms.base.Elements.ContainsBlock(sp.ProofStart) {
+			} else if ms.base.Elements.containsChainIndex(sp.ProofStart) {
 				return fmt.Errorf("file contract storage proof %v has invalid history proof", i)
 			}
 			leafIndex := ms.base.StorageProofLeafIndex(fc.Filesize, sp.ProofStart.ChainIndex.ID, types.FileContractID(fcr.Parent.ID))
