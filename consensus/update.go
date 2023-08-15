@@ -428,6 +428,7 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 	}
 }
 
+// ApplyBlock applies a block to the MidState.
 func (ms *MidState) ApplyBlock(b types.Block, bs V1BlockSupplement) {
 	for i, txn := range b.Transactions {
 		ms.ApplyTransaction(txn, bs.Transactions[i])
@@ -467,30 +468,36 @@ func (ms *MidState) ApplyBlock(b types.Block, bs V1BlockSupplement) {
 	}
 }
 
+// An ApplyUpdate represents the effects of applying a block to a state.
 type ApplyUpdate struct {
 	ElementApplyUpdate
 	HistoryApplyUpdate
 	ms *MidState
 }
 
+// ForEachSiacoinElement calls fn on each siacoin element related to au.
 func (au ApplyUpdate) ForEachSiacoinElement(fn func(sce types.SiacoinElement, spent bool)) {
 	for _, sce := range au.ms.sces {
 		fn(sce, au.ms.isSpent(sce.ID))
 	}
 }
 
+// ForEachSiafundElement calls fn on each siafund element related to au.
 func (au ApplyUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, spent bool)) {
 	for _, sfe := range au.ms.sfes {
 		fn(sfe, au.ms.isSpent(sfe.ID))
 	}
 }
 
+// ForEachFileContractElement calls fn on each file contract element related to
+// au. If the contract was revised, rev is non-nil.
 func (au ApplyUpdate) ForEachFileContractElement(fn func(fce types.FileContractElement, rev *types.FileContractElement, resolved bool)) {
 	for _, fce := range au.ms.fces {
 		fn(fce, au.ms.revision(fce.ID), au.ms.isSpent(fce.ID))
 	}
 }
 
+// ApplyBlock applies b to s, producing a new state and a set of effects.
 func ApplyBlock(s State, b types.Block, bs V1BlockSupplement, targetTimestamp time.Time) (State, ApplyUpdate) {
 	if s.Index.Height > 0 && s.Index.ID != b.ParentID {
 		panic("consensus: cannot apply non-child block")
@@ -507,12 +514,14 @@ func ApplyBlock(s State, b types.Block, bs V1BlockSupplement, targetTimestamp ti
 	return s, ApplyUpdate{eau, hau, ms}
 }
 
+// A RevertUpdate represents the effects of reverting to a prior state.
 type RevertUpdate struct {
 	ElementRevertUpdate
 	HistoryRevertUpdate
 	ms *MidState
 }
 
+// ForEachSiacoinElement calls fn on each siacoin element related to ru.
 func (ru RevertUpdate) ForEachSiacoinElement(fn func(sce types.SiacoinElement, spent bool)) {
 	for i := range ru.ms.sces {
 		sce := ru.ms.sces[len(ru.ms.sces)-i-1]
@@ -520,6 +529,7 @@ func (ru RevertUpdate) ForEachSiacoinElement(fn func(sce types.SiacoinElement, s
 	}
 }
 
+// ForEachSiafundElement calls fn on each siafund element related to ru.
 func (ru RevertUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, spent bool)) {
 	for i := range ru.ms.sfes {
 		sfe := ru.ms.sfes[len(ru.ms.sfes)-i-1]
@@ -527,6 +537,8 @@ func (ru RevertUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, s
 	}
 }
 
+// ForEachFileContractElement calls fn on each file contract element related to
+// ru. If the contract was revised, rev is non-nil.
 func (ru RevertUpdate) ForEachFileContractElement(fn func(fce types.FileContractElement, rev *types.FileContractElement, resolved bool)) {
 	for i := range ru.ms.fces {
 		fce := ru.ms.fces[len(ru.ms.fces)-i-1]
@@ -534,6 +546,7 @@ func (ru RevertUpdate) ForEachFileContractElement(fn func(fce types.FileContract
 	}
 }
 
+// RevertBlock reverts b, producing the effects undone by the block.
 func RevertBlock(s State, b types.Block, bs V1BlockSupplement) RevertUpdate {
 	if s.Index.ID != b.ParentID {
 		panic("consensus: cannot revert non-child block")

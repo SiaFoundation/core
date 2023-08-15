@@ -720,7 +720,8 @@ func (txn *V2Transaction) ID() TransactionID {
 	return TransactionID(h.Sum())
 }
 
-// V2SiacoinOutputID returns the ID of the siacoin output at index i.
+// EphemeralSiacoinOutput returns a SiacoinElement for the siacoin output at
+// index i.
 func (txn *V2Transaction) EphemeralSiacoinOutput(i int) SiacoinElement {
 	h := hasherPool.Get().(*Hasher)
 	defer hasherPool.Put(h)
@@ -737,7 +738,8 @@ func (txn *V2Transaction) EphemeralSiacoinOutput(i int) SiacoinElement {
 	}
 }
 
-// V2SiafundOutputID returns the ID of the siafund output at index i.
+// EphemeralSiafundOutput returns a SiafundElement for the siafund output at
+// index i.
 func (txn *V2Transaction) EphemeralSiafundOutput(i int) SiafundElement {
 	h := hasherPool.Get().(*Hasher)
 	defer hasherPool.Put(h)
