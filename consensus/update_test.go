@@ -4,11 +4,29 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+	"time"
 
 	"go.sia.tech/core/chain"
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
 )
+
+func ancestorTimestamp(s chain.Store, id types.BlockID, n uint64) time.Time {
+	c, _ := s.Checkpoint(id)
+	for i := uint64(1); i < n; i++ {
+		if index, _ := s.BestIndex(c.State.Index.Height); index.ID == id {
+			height := c.State.Index.Height - (n - i)
+			if c.State.Index.Height < (n - i) {
+				height = 0
+			}
+			ancestorIndex, _ := s.BestIndex(height)
+			c, _ = s.Checkpoint(ancestorIndex.ID)
+			break
+		}
+		c, _ = s.Checkpoint(c.Block.ParentID)
+	}
+	return c.Block.Timestamp
+}
 
 func TestApplyBlock(t *testing.T) {
 	n, genesisBlock := chain.TestnetZen()
@@ -62,7 +80,7 @@ func TestApplyBlock(t *testing.T) {
 		if err = consensus.ValidateBlock(cs, b, bs); err != nil {
 			return
 		}
-		cs, au = consensus.ApplyBlock(cs, b, bs, dbStore.AncestorTimestamp(b.ParentID, cs.AncestorDepth()))
+		cs, au = consensus.ApplyBlock(cs, b, bs, ancestorTimestamp(dbStore, b.ParentID, cs.AncestorDepth()))
 		return
 	}
 	checkUpdateElements := func(au consensus.ApplyUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {

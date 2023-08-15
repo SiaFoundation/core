@@ -82,7 +82,6 @@ type Subscriber interface {
 // handled internally, e.g. by panicking or calling os.Exit.
 type Store interface {
 	BestIndex(height uint64) (types.ChainIndex, bool)
-	AncestorTimestamp(id types.BlockID, n uint64) time.Time
 	SupplementTipTransaction(txn types.Transaction) consensus.V1TransactionSupplement
 	SupplementTipBlock(b types.Block) consensus.V1BlockSupplement
 
@@ -93,6 +92,25 @@ type Store interface {
 	// commit whenever they see fit.
 	ApplyBlock(s consensus.State, cau consensus.ApplyUpdate, mustCommit bool) (committed bool)
 	RevertBlock(s consensus.State, cru consensus.RevertUpdate)
+}
+
+// ancestorTimestamp returns the timestamp of the n'th ancestor of id.
+func ancestorTimestamp(s Store, id types.BlockID, n uint64) time.Time {
+	c, _ := s.Checkpoint(id)
+	for i := uint64(1); i < n; i++ {
+		// if we're on the best path, we can jump to the n'th block directly
+		if index, _ := s.BestIndex(c.State.Index.Height); index.ID == id {
+			height := c.State.Index.Height - (n - i)
+			if c.State.Index.Height < (n - i) {
+				height = 0
+			}
+			ancestorIndex, _ := s.BestIndex(height)
+			c, _ = s.Checkpoint(ancestorIndex.ID)
+			break
+		}
+		c, _ = s.Checkpoint(c.Block.ParentID)
+	}
+	return c.Block.Timestamp
 }
 
 // A Manager tracks multiple blockchains and identifies the best valid
@@ -228,7 +246,7 @@ func (m *Manager) AddBlocks(blocks []types.Block) error {
 		} else if err := consensus.ValidateOrphan(cs, b); err != nil {
 			return fmt.Errorf("block %v is invalid: %w", types.ChainIndex{Height: cs.Index.Height + 1, ID: b.ID()}, err)
 		}
-		cs = consensus.ApplyOrphan(cs, b, m.store.AncestorTimestamp(b.ParentID, cs.AncestorDepth()))
+		cs = consensus.ApplyOrphan(cs, b, ancestorTimestamp(m.store, b.ParentID, cs.AncestorDepth()))
 		m.store.AddCheckpoint(Checkpoint{b, cs, nil})
 	}
 
@@ -282,11 +300,11 @@ func (m *Manager) applyTip(index types.ChainIndex) error {
 			return fmt.Errorf("block %v is invalid: %w", index, err)
 		}
 		c.Supplement = &bs
-		targetTimestamp := m.store.AncestorTimestamp(c.Block.ParentID, m.tipState.AncestorDepth())
+		targetTimestamp := ancestorTimestamp(m.store, c.Block.ParentID, m.tipState.AncestorDepth())
 		c.State, cau = consensus.ApplyBlock(m.tipState, c.Block, bs, targetTimestamp)
 		m.store.AddCheckpoint(c)
 	} else {
-		targetTimestamp := m.store.AncestorTimestamp(c.Block.ParentID, m.tipState.AncestorDepth())
+		targetTimestamp := ancestorTimestamp(m.store, c.Block.ParentID, m.tipState.AncestorDepth())
 		_, cau = consensus.ApplyBlock(m.tipState, c.Block, *c.Supplement, targetTimestamp)
 	}
 
@@ -432,7 +450,7 @@ func (m *Manager) AddSubscriber(s Subscriber, tip types.ChainIndex) error {
 		if !ok {
 			return fmt.Errorf("missing apply parent checkpoint %v", c.Block.ParentID)
 		}
-		_, cau := consensus.ApplyBlock(pc.State, c.Block, *c.Supplement, m.store.AncestorTimestamp(c.Block.ParentID, pc.State.AncestorDepth()))
+		_, cau := consensus.ApplyBlock(pc.State, c.Block, *c.Supplement, ancestorTimestamp(m.store, c.Block.ParentID, pc.State.AncestorDepth()))
 		// TODO: commit every minute for large len(apply)?
 		shouldCommit := index == m.tipState.Index
 		if err := s.ProcessChainApplyUpdate(&ApplyUpdate{cau, c.Block, c.State}, shouldCommit); err != nil {

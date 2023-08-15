@@ -462,25 +462,6 @@ func (db *DBStore) BestIndex(height uint64) (index types.ChainIndex, ok bool) {
 	return
 }
 
-// AncestorTimestamp implements Store.
-func (db *DBStore) AncestorTimestamp(id types.BlockID, depth uint64) time.Time {
-	c, _ := db.Checkpoint(id)
-	for i := uint64(1); i < depth; i++ {
-		// if we're on the best path, we can jump to the n'th block directly
-		if index, _ := db.BestIndex(c.State.Index.Height); index.ID == id {
-			height := c.State.Index.Height - (depth - i)
-			if c.State.Index.Height < (depth - i) {
-				height = 0
-			}
-			ancestorIndex, _ := db.BestIndex(height)
-			c, _ = db.Checkpoint(ancestorIndex.ID)
-			break
-		}
-		c, _ = db.Checkpoint(c.Block.ParentID)
-	}
-	return c.Block.Timestamp
-}
-
 // SupplementTipTransaction implements Store.
 func (db *DBStore) SupplementTipTransaction(txn types.Transaction) (ts consensus.V1TransactionSupplement) {
 	// get tip state, for proof-trimming
