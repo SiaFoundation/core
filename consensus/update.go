@@ -280,6 +280,11 @@ func (ms *MidState) resolveV2FileContractElement(fce types.V2FileContractElement
 	ms.updated = append(ms.updated, v2FileContractLeaf(&ms.v2fces[len(ms.v2fces)-1], true))
 }
 
+func (ms *MidState) addAttestationElement(ae types.AttestationElement) {
+	ms.aes = append(ms.aes, ae)
+	ms.added = append(ms.added, attestationLeaf(&ms.aes[len(ms.aes)-1]))
+}
+
 // ApplyTransaction applies a transaction to the MidState.
 func (ms *MidState) ApplyTransaction(txn types.Transaction, ts V1TransactionSupplement) {
 	txid := txn.ID()
@@ -422,6 +427,12 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 			MaturityHeight: ms.base.MaturityHeight(),
 		})
 	}
+	for _, a := range txn.Attestations {
+		ms.addAttestationElement(types.AttestationElement{
+			StateElement: nextElement(),
+			Attestation:  a,
+		})
+	}
 	if txn.NewFoundationAddress != nil {
 		ms.foundationPrimary = *txn.NewFoundationAddress
 		ms.foundationFailsafe = *txn.NewFoundationAddress
@@ -518,6 +529,7 @@ func ApplyBlock(s State, b types.Block, bs V1BlockSupplement, targetTimestamp ti
 	ms := NewMidState(s)
 	ms.ApplyBlock(b, bs)
 	s.SiafundPool = ms.siafundPool
+	s.Attestations += uint64(len(ms.aes))
 	s.FoundationPrimaryAddress = ms.foundationPrimary
 	s.FoundationFailsafeAddress = ms.foundationFailsafe
 	eau := s.Elements.ApplyBlock(ms.updated, ms.added)

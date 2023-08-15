@@ -73,6 +73,21 @@ func (l elementLeaf) proofRoot() types.Hash256 {
 	return proofRoot(l.hash(), l.LeafIndex, l.MerkleProof)
 }
 
+// chainIndexLeaf returns the elementLeaf for a ChainIndexElement.
+func chainIndexLeaf(e *types.ChainIndexElement) elementLeaf {
+	h := hasherPool.Get().(*types.Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	h.E.WriteString("sia/leaf/chainindex|")
+	e.StateElement.ID.EncodeTo(h.E)
+	e.ChainIndex.EncodeTo(h.E)
+	return elementLeaf{
+		StateElement: &e.StateElement,
+		ElementHash:  h.Sum(),
+		Spent:        false,
+	}
+}
+
 // siacoinLeaf returns the elementLeaf for a SiacoinElement.
 func siacoinLeaf(e *types.SiacoinElement, spent bool) elementLeaf {
 	h := hasherPool.Get().(*types.Hasher)
@@ -135,14 +150,14 @@ func v2FileContractLeaf(e *types.V2FileContractElement, spent bool) elementLeaf 
 	}
 }
 
-// chainIndexLeaf returns the elementLeaf for a ChainIndexElement.
-func chainIndexLeaf(e *types.ChainIndexElement) elementLeaf {
+// attestationLeaf returns the elementLeaf for an AttestationElement.
+func attestationLeaf(e *types.AttestationElement) elementLeaf {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	h.E.WriteString("sia/leaf/chainindex|")
+	h.E.WriteString("sia/leaf/attestation|")
 	e.StateElement.ID.EncodeTo(h.E)
-	e.ChainIndex.EncodeTo(h.E)
+	e.Attestation.EncodeTo(h.E)
 	return elementLeaf{
 		StateElement: &e.StateElement,
 		ElementHash:  h.Sum(),

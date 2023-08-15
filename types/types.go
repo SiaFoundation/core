@@ -581,61 +581,6 @@ type V2StorageProof struct {
 // storing any data, it will resolve as valid; otherwise, it resolves as missed.
 type V2FileContractExpiration struct{}
 
-// A StateElement is a generic element within the state accumulator.
-type StateElement struct {
-	ID          Hash256   `json:"id"` // SiacoinOutputID, FileContractID, etc.
-	LeafIndex   uint64    `json:"leafIndex"`
-	MerkleProof []Hash256 `json:"merkleProof"`
-}
-
-// A ChainIndexElement is a record of a block in the chain.
-type ChainIndexElement struct {
-	StateElement
-	ChainIndex
-}
-
-// A SiacoinElement is a volume of siacoins that is created and spent as an
-// atomic unit.
-type SiacoinElement struct {
-	StateElement
-	SiacoinOutput
-	MaturityHeight uint64 `json:"maturityHeight"`
-}
-
-// A SiafundElement is a volume of siafunds that is created and spent as an
-// atomic unit.
-type SiafundElement struct {
-	StateElement
-	SiafundOutput
-	ClaimStart Currency `json:"claimStart"` // value of SiafundPool when element was created
-}
-
-// A FileContractElement is a storage agreement between a renter and a host.
-type FileContractElement struct {
-	StateElement
-	FileContract
-}
-
-// A FileContractElementRevision updates the state of an existing file contract.
-type FileContractElementRevision struct {
-	Parent   FileContractElement `json:"parent"`
-	Revision FileContract        `json:"revision"`
-}
-
-// RevisedElement returns the post-revision FileContractElement.
-func (fcer FileContractElementRevision) RevisedElement() FileContractElement {
-	fce := fcer.Parent
-	fce.FileContract = fcer.Revision
-	fce.Payout = fcer.Parent.Payout // see FileContractRevision docstring
-	return fce
-}
-
-// A V2FileContractElement is a storage agreement between a renter and a host.
-type V2FileContractElement struct {
-	StateElement
-	V2FileContract
-}
-
 // An Attestation associates a key-value pair with an identity. For example,
 // hosts attest to their network address by setting Key to "HostAnnouncement"
 // and Value to their address, thereby allowing renters to discover them.
@@ -647,6 +592,54 @@ type Attestation struct {
 	Key       string    `json:"key"`
 	Value     []byte    `json:"value"`
 	Signature Signature `json:"signature"`
+}
+
+// A StateElement is a generic element within the state accumulator.
+type StateElement struct {
+	ID          Hash256   `json:"id"` // SiacoinOutputID, FileContractID, etc.
+	LeafIndex   uint64    `json:"leafIndex"`
+	MerkleProof []Hash256 `json:"merkleProof"`
+}
+
+// A ChainIndexElement is a record of a SiacoinOutput within the state accumulator.
+type ChainIndexElement struct {
+	StateElement
+	ChainIndex
+}
+
+// A SiacoinElement is a record of a SiacoinOutput within the state accumulator.
+type SiacoinElement struct {
+	StateElement
+	SiacoinOutput
+	MaturityHeight uint64 `json:"maturityHeight"`
+}
+
+// A SiafundElement is a record of a SiafundOutput within the state accumulator.
+type SiafundElement struct {
+	StateElement
+	SiafundOutput
+	ClaimStart Currency `json:"claimStart"` // value of SiafundPool when element was created
+}
+
+// A FileContractElement is a record of a FileContract within the state
+// accumulator.
+type FileContractElement struct {
+	StateElement
+	FileContract
+}
+
+// A V2FileContractElement is a record of a V2FileContract within the state
+// accumulator.
+type V2FileContractElement struct {
+	StateElement
+	V2FileContract
+}
+
+// An AttestationElement is a record of an Attestation within the state
+// accumulator.
+type AttestationElement struct {
+	StateElement
+	Attestation
 }
 
 // A V2Transaction effects a change of blockchain state.

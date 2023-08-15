@@ -102,6 +102,7 @@ type MidState struct {
 	sfes   []types.SiafundElement
 	fces   []types.FileContractElement
 	v2fces []types.V2FileContractElement
+	aes    []types.AttestationElement
 	cie    types.ChainIndexElement
 	// these alias the above
 	updated []elementLeaf

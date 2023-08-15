@@ -94,7 +94,8 @@ type State struct {
 	FoundationPrimaryAddress  types.Address `json:"foundationPrimaryAddress"`
 	FoundationFailsafeAddress types.Address `json:"foundationFailsafeAddress"`
 
-	Elements ElementAccumulator `json:"elements"`
+	Elements     ElementAccumulator `json:"elements"`
+	Attestations uint64             `json:"attestations"`
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -112,6 +113,7 @@ func (s State) EncodeTo(e *types.Encoder) {
 	s.FoundationPrimaryAddress.EncodeTo(e)
 	s.FoundationFailsafeAddress.EncodeTo(e)
 	s.Elements.EncodeTo(e)
+	e.WriteUint64(s.Attestations)
 }
 
 // DecodeFrom implements types.DecoderFrom.
@@ -129,6 +131,7 @@ func (s *State) DecodeFrom(d *types.Decoder) {
 	s.FoundationPrimaryAddress.DecodeFrom(d)
 	s.FoundationFailsafeAddress.DecodeFrom(d)
 	s.Elements.DecodeFrom(d)
+	s.Attestations = d.ReadUint64()
 }
 
 func (s State) childHeight() uint64 { return s.Index.Height + 1 }
