@@ -135,17 +135,30 @@ func V2FileContractLeaf(e *types.V2FileContractElement, spent bool) ElementLeaf 
 	}
 }
 
-type accumulator struct {
+// ChainIndexLeaf returns the ElementLeaf for a ChainIndexElement.
+func ChainIndexLeaf(e *types.ChainIndexElement) ElementLeaf {
+	h := hasherPool.Get().(*types.Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	h.E.WriteString("sia/leaf/chainindex|")
+	e.StateElement.ID.EncodeTo(h.E)
+	e.ChainIndex.EncodeTo(h.E)
+	return ElementLeaf{
+		StateElement: &e.StateElement,
+		ElementHash:  h.Sum(),
+		Spent:        false,
+	}
+}
+
+// An ElementAccumulator tracks the state of an unbounded number of elements
+// without storing the elements themselves.
+type ElementAccumulator struct {
 	Trees     [64]types.Hash256
 	NumLeaves uint64
 }
 
-func (acc *accumulator) hasTreeAtHeight(height int) bool {
-	return acc.NumLeaves&(1<<height) != 0
-}
-
 // EncodeTo implements types.EncoderTo.
-func (acc accumulator) EncodeTo(e *types.Encoder) {
+func (acc ElementAccumulator) EncodeTo(e *types.Encoder) {
 	e.WriteUint64(acc.NumLeaves)
 	for i, root := range acc.Trees {
 		if acc.hasTreeAtHeight(i) {
@@ -155,7 +168,7 @@ func (acc accumulator) EncodeTo(e *types.Encoder) {
 }
 
 // DecodeFrom implements types.DecoderFrom.
-func (acc *accumulator) DecodeFrom(d *types.Decoder) {
+func (acc *ElementAccumulator) DecodeFrom(d *types.Decoder) {
 	acc.NumLeaves = d.ReadUint64()
 	for i := range acc.Trees {
 		if acc.hasTreeAtHeight(i) {
@@ -165,7 +178,7 @@ func (acc *accumulator) DecodeFrom(d *types.Decoder) {
 }
 
 // MarshalJSON implements json.Marshaler.
-func (acc accumulator) MarshalJSON() ([]byte, error) {
+func (acc ElementAccumulator) MarshalJSON() ([]byte, error) {
 	v := struct {
 		NumLeaves uint64          `json:"numLeaves"`
 		Trees     []types.Hash256 `json:"trees"`
@@ -179,7 +192,7 @@ func (acc accumulator) MarshalJSON() ([]byte, error) {
 }
 
 // UnmarshalJSON implements json.Unmarshaler.
-func (acc *accumulator) UnmarshalJSON(b []byte) error {
+func (acc *ElementAccumulator) UnmarshalJSON(b []byte) error {
 	var v struct {
 		NumLeaves uint64
 		Trees     []types.Hash256
@@ -199,14 +212,17 @@ func (acc *accumulator) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// An ElementAccumulator tracks the state of an unbounded number of elements
-// without storing the elements themselves.
-type ElementAccumulator struct {
-	accumulator
+func (acc *ElementAccumulator) hasTreeAtHeight(height int) bool {
+	return acc.NumLeaves&(1<<height) != 0
 }
 
 func (acc *ElementAccumulator) containsLeaf(l ElementLeaf) bool {
 	return acc.hasTreeAtHeight(len(l.MerkleProof)) && acc.Trees[len(l.MerkleProof)] == l.ProofRoot()
+}
+
+// ContainsBlock returns true if the accumulator contains cie.
+func (acc *ElementAccumulator) ContainsBlock(cie types.ChainIndexElement) bool {
+	return acc.containsLeaf(ChainIndexLeaf(&cie))
 }
 
 // ContainsUnspentSiacoinElement returns true if the accumulator contains sce as an
@@ -462,99 +478,4 @@ func (eru *ElementRevertUpdate) UpdateElementProof(e *types.StateElement) {
 		e.MerkleProof = e.MerkleProof[:mh-1]
 	}
 	updateProof(e, &eru.updated)
-}
-
-func historyLeafHash(index types.ChainIndex) types.Hash256 {
-	buf := make([]byte, 1+8+32)
-	buf[0] = leafHashPrefix
-	binary.LittleEndian.PutUint64(buf[1:], index.Height)
-	copy(buf[9:], index.ID[:])
-	return types.HashBytes(buf)
-}
-
-func historyProofRoot(index types.ChainIndex, proof []types.Hash256) types.Hash256 {
-	return proofRoot(historyLeafHash(index), index.Height, proof)
-}
-
-// A HistoryAccumulator tracks the state of all ChainIndexs in a chain without
-// storing the full sequence of indexes itself.
-type HistoryAccumulator struct {
-	accumulator
-}
-
-// Contains returns true if the accumulator contains the given index.
-func (acc *HistoryAccumulator) Contains(index types.ChainIndex, proof []types.Hash256) bool {
-	return acc.hasTreeAtHeight(len(proof)) && acc.Trees[len(proof)] == historyProofRoot(index, proof)
-}
-
-// ApplyBlock integrates a ChainIndex into the accumulator, producing a
-// HistoryApplyUpdate.
-func (acc *HistoryAccumulator) ApplyBlock(index types.ChainIndex) (hau HistoryApplyUpdate) {
-	h := historyLeafHash(index)
-	i := 0
-	for ; acc.hasTreeAtHeight(i); i++ {
-		hau.proof = append(hau.proof, acc.Trees[i])
-		hau.growth = append(hau.growth, h)
-		h = blake2b.SumPair(acc.Trees[i], h)
-	}
-	acc.Trees[i] = h
-	acc.NumLeaves++
-	return
-}
-
-// RevertBlock produces a HistoryRevertUpdate from a ChainIndex.
-func (acc *HistoryAccumulator) RevertBlock(index types.ChainIndex) HistoryRevertUpdate {
-	return HistoryRevertUpdate{index}
-}
-
-// A HistoryApplyUpdate reflects the changes to a HistoryAccumulator resulting
-// from the application of a block.
-type HistoryApplyUpdate struct {
-	proof  []types.Hash256
-	growth []types.Hash256
-}
-
-// HistoryProof returns a history proof for the applied block. To prevent
-// aliasing, it always returns new memory.
-func (hau *HistoryApplyUpdate) HistoryProof() []types.Hash256 {
-	return append([]types.Hash256(nil), hau.proof...)
-}
-
-// UpdateProof updates the supplied history proof to incorporate changes made to
-// the chain history. The proof must be up-to-date; if it is not, UpdateProof
-// may panic.
-func (hau *HistoryApplyUpdate) UpdateProof(proof *[]types.Hash256) {
-	if len(hau.growth) > len(*proof) {
-		*proof = append(*proof, hau.growth[len(*proof)])
-		*proof = append(*proof, hau.proof[len(*proof):]...)
-	}
-}
-
-// UpdateHistoryProof updates the supplied storage proof to incorporate changes
-// made to the chain history. The proof must be up-to-date; if it is not,
-// UpdateHistoryProof may panic.
-func (hau *HistoryApplyUpdate) UpdateHistoryProof(sp *types.V2StorageProof) {
-	hau.UpdateProof(&sp.HistoryProof)
-}
-
-// A HistoryRevertUpdate reflects the changes to a HistoryAccumulator resulting
-// from the removal of a block.
-type HistoryRevertUpdate struct {
-	index types.ChainIndex
-}
-
-// UpdateProof updates the supplied history proof to incorporate the changes
-// made to the chain history. The proof must be up-to-date; if it is not,
-// UpdateHistoryProof may panic.
-func (hru *HistoryRevertUpdate) UpdateProof(height uint64, proof *[]types.Hash256) {
-	if mh := mergeHeight(hru.index.Height, height); mh <= len(*proof) {
-		*proof = (*proof)[:mh-1]
-	}
-}
-
-// UpdateHistoryProof updates the supplied storage proof to incorporate the
-// changes made to the chain history. The proof must be up-to-date; if it is
-// not, UpdateHistoryProof may panic.
-func (hru *HistoryRevertUpdate) UpdateHistoryProof(sp *types.V2StorageProof) {
-	hru.UpdateProof(sp.ProofStart.Height, &sp.HistoryProof)
 }

@@ -524,6 +524,12 @@ func (in V2SiacoinInput) EncodeTo(e *Encoder) {
 }
 
 // EncodeTo implements types.EncoderTo.
+func (cie ChainIndexElement) EncodeTo(e *Encoder) {
+	cie.StateElement.EncodeTo(e)
+	cie.ChainIndex.EncodeTo(e)
+}
+
+// EncodeTo implements types.EncoderTo.
 func (sce SiacoinElement) EncodeTo(e *Encoder) {
 	sce.StateElement.EncodeTo(e)
 	sce.SiacoinOutput.EncodeTo(e)
@@ -602,10 +608,6 @@ func (ren V2FileContractRenewal) EncodeTo(e *Encoder) {
 // EncodeTo implements types.EncoderTo.
 func (sp V2StorageProof) EncodeTo(e *Encoder) {
 	sp.ProofStart.EncodeTo(e)
-	e.WritePrefix(len(sp.HistoryProof))
-	for _, p := range sp.HistoryProof {
-		p.EncodeTo(e)
-	}
 	e.Write(sp.Leaf[:])
 	e.WritePrefix(len(sp.Proof))
 	for _, p := range sp.Proof {
@@ -1076,6 +1078,12 @@ func (in *V2SiacoinInput) DecodeFrom(d *Decoder) {
 }
 
 // DecodeFrom implements types.DecoderFrom.
+func (cie *ChainIndexElement) DecodeFrom(d *Decoder) {
+	cie.StateElement.DecodeFrom(d)
+	cie.ChainIndex.DecodeFrom(d)
+}
+
+// DecodeFrom implements types.DecoderFrom.
 func (sce *SiacoinElement) DecodeFrom(d *Decoder) {
 	sce.StateElement.DecodeFrom(d)
 	sce.SiacoinOutput.DecodeFrom(d)
@@ -1154,10 +1162,6 @@ func (ren *V2FileContractRenewal) DecodeFrom(d *Decoder) {
 // DecodeFrom implements types.DecoderFrom.
 func (sp *V2StorageProof) DecodeFrom(d *Decoder) {
 	sp.ProofStart.DecodeFrom(d)
-	sp.HistoryProof = make([]Hash256, d.ReadPrefix())
-	for i := range sp.HistoryProof {
-		sp.HistoryProof[i].DecodeFrom(d)
-	}
 	d.Read(sp.Leaf[:])
 	sp.Proof = make([]Hash256, d.ReadPrefix())
 	for i := range sp.Proof {

@@ -103,6 +103,7 @@ type MidState struct {
 	sfes   []types.SiafundElement
 	fces   []types.FileContractElement
 	v2fces []types.V2FileContractElement
+	cie    types.ChainIndexElement
 	// these alias the above
 	updated []ElementLeaf
 	added   []ElementLeaf
@@ -929,10 +930,10 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 			} else if sp.ProofStart.Height != fc.ProofHeight {
 				// see note on this field in types.StorageProof
 				return fmt.Errorf("file contract storage proof %v has ProofStart (%v) that does not match contract ProofStart (%v)", i, sp.ProofStart.Height, fc.ProofHeight)
-			} else if ms.base.History.Contains(sp.ProofStart, sp.HistoryProof) {
+			} else if ms.base.Elements.ContainsBlock(sp.ProofStart) {
 				return fmt.Errorf("file contract storage proof %v has invalid history proof", i)
 			}
-			leafIndex := ms.base.StorageProofLeafIndex(fc.Filesize, sp.ProofStart.ID, types.FileContractID(fcr.Parent.ID))
+			leafIndex := ms.base.StorageProofLeafIndex(fc.Filesize, sp.ProofStart.ChainIndex.ID, types.FileContractID(fcr.Parent.ID))
 			if storageProofRoot(ms.base.StorageProofLeafHash(sp.Leaf[:]), leafIndex, fc.Filesize, sp.Proof) != fc.FileMerkleRoot {
 				return fmt.Errorf("file contract storage proof %v has root that does not match contract Merkle root", i)
 			}

@@ -95,7 +95,6 @@ type State struct {
 	FoundationFailsafeAddress types.Address `json:"foundationFailsafeAddress"`
 
 	Elements ElementAccumulator `json:"elements"`
-	History  HistoryAccumulator `json:"history"`
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -113,7 +112,6 @@ func (s State) EncodeTo(e *types.Encoder) {
 	s.FoundationPrimaryAddress.EncodeTo(e)
 	s.FoundationFailsafeAddress.EncodeTo(e)
 	s.Elements.EncodeTo(e)
-	s.History.EncodeTo(e)
 }
 
 // DecodeFrom implements types.DecoderFrom.
@@ -131,7 +129,6 @@ func (s *State) DecodeFrom(d *types.Decoder) {
 	s.FoundationPrimaryAddress.DecodeFrom(d)
 	s.FoundationFailsafeAddress.DecodeFrom(d)
 	s.Elements.DecodeFrom(d)
-	s.History.DecodeFrom(d)
 }
 
 func (s State) childHeight() uint64 { return s.Index.Height + 1 }
@@ -499,9 +496,9 @@ func (s State) InputSigHash(txn types.V2Transaction) types.Hash256 {
 	h.E.WritePrefix(len(txn.FileContractResolutions))
 	for _, fcr := range txn.FileContractResolutions {
 		fcr.Parent.ID.EncodeTo(h.E)
-		// normalize history proof
+		// normalize proof
 		if sp, ok := fcr.Resolution.(types.V2StorageProof); ok {
-			sp.HistoryProof = nil
+			sp.ProofStart.MerkleProof = nil
 			fcr.Resolution = sp
 		}
 		fcr.Resolution.(types.EncoderTo).EncodeTo(h.E)

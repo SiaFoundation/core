@@ -569,8 +569,7 @@ type V2StorageProof struct {
 	// Consequently, ProofStart.Height MUST match the ProofStart field of the
 	// contract's final revision; otherwise, the prover could use any
 	// ProofStart, giving them control over the leaf index.
-	ProofStart   ChainIndex
-	HistoryProof []Hash256
+	ProofStart ChainIndexElement
 
 	// The leaf is always 64 bytes, extended with zeros if necessary.
 	Leaf  [64]byte
@@ -587,6 +586,12 @@ type StateElement struct {
 	ID          Hash256   `json:"id"` // SiacoinOutputID, FileContractID, etc.
 	LeafIndex   uint64    `json:"leafIndex"`
 	MerkleProof []Hash256 `json:"merkleProof"`
+}
+
+// A ChainIndexElement is a record of a block in the chain.
+type ChainIndexElement struct {
+	StateElement
+	ChainIndex
 }
 
 // A SiacoinElement is a volume of siacoins that is created and spent as an
@@ -780,11 +785,12 @@ func (txn *V2Transaction) DeepCopy() V2Transaction {
 	for i := range c.FileContractResolutions {
 		c.FileContractResolutions[i].Parent.MerkleProof = append([]Hash256(nil), c.FileContractResolutions[i].Parent.MerkleProof...)
 		if sp, ok := c.FileContractResolutions[i].Resolution.(V2StorageProof); ok {
-			sp.HistoryProof = append([]Hash256(nil), sp.HistoryProof...)
+			sp.ProofStart.MerkleProof = append([]Hash256(nil), sp.ProofStart.MerkleProof...)
 			sp.Proof = append([]Hash256(nil), sp.Proof...)
 			c.FileContractResolutions[i].Resolution = sp
 		}
 	}
+	c.Attestations = append([]Attestation(nil), c.Attestations...)
 	for i := range c.Attestations {
 		c.Attestations[i].Value = append([]byte(nil), c.Attestations[i].Value...)
 	}

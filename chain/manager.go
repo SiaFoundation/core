@@ -669,7 +669,7 @@ func (m *Manager) applyPoolUpdate(cau consensus.ApplyUpdate) {
 		for i := range txn.FileContractResolutions {
 			cau.UpdateElementProof(&txn.FileContractResolutions[i].Parent.StateElement)
 			if sp, ok := txn.FileContractResolutions[i].Resolution.(types.V2StorageProof); ok {
-				cau.UpdateHistoryProof(&sp)
+				cau.UpdateElementProof(&sp.ProofStart.StateElement)
 				txn.FileContractResolutions[i].Resolution = sp
 			}
 		}
@@ -733,7 +733,7 @@ func (m *Manager) revertPoolUpdate(cru consensus.RevertUpdate) {
 		for i := range txn.FileContractResolutions {
 			cru.UpdateElementProof(&txn.FileContractResolutions[i].Parent.StateElement)
 			if sp, ok := txn.FileContractResolutions[i].Resolution.(types.V2StorageProof); ok {
-				cru.UpdateHistoryProof(&sp)
+				cru.UpdateElementProof(&sp.ProofStart.StateElement)
 				txn.FileContractResolutions[i].Resolution = sp
 			}
 		}

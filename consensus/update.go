@@ -466,12 +466,17 @@ func (ms *MidState) ApplyBlock(b types.Block, bs V1BlockSupplement) {
 			})
 		}
 	}
+
+	ms.cie = types.ChainIndexElement{
+		StateElement: types.StateElement{ID: types.Hash256(bid)},
+		ChainIndex:   types.ChainIndex{Height: ms.base.childHeight(), ID: bid},
+	}
+	ms.added = append(ms.added, ChainIndexLeaf(&ms.cie))
 }
 
 // An ApplyUpdate represents the effects of applying a block to a state.
 type ApplyUpdate struct {
 	ElementApplyUpdate
-	HistoryApplyUpdate
 	ms *MidState
 }
 
@@ -497,6 +502,13 @@ func (au ApplyUpdate) ForEachFileContractElement(fn func(fce types.FileContractE
 	}
 }
 
+// ChainIndexElement returns the chain index element for the applied block.
+func (au ApplyUpdate) ChainIndexElement() types.ChainIndexElement {
+	cie := au.ms.cie
+	cie.MerkleProof = append([]types.Hash256(nil), cie.MerkleProof...)
+	return cie
+}
+
 // ApplyBlock applies b to s, producing a new state and a set of effects.
 func ApplyBlock(s State, b types.Block, bs V1BlockSupplement, targetTimestamp time.Time) (State, ApplyUpdate) {
 	if s.Index.Height > 0 && s.Index.ID != b.ParentID {
@@ -509,15 +521,13 @@ func ApplyBlock(s State, b types.Block, bs V1BlockSupplement, targetTimestamp ti
 	s.FoundationPrimaryAddress = ms.foundationPrimary
 	s.FoundationFailsafeAddress = ms.foundationFailsafe
 	eau := s.Elements.ApplyBlock(ms.updated, ms.added)
-	hau := s.History.ApplyBlock(s.Index)
 	s = ApplyWork(s, b, targetTimestamp)
-	return s, ApplyUpdate{eau, hau, ms}
+	return s, ApplyUpdate{eau, ms}
 }
 
 // A RevertUpdate represents the effects of reverting to a prior state.
 type RevertUpdate struct {
 	ElementRevertUpdate
-	HistoryRevertUpdate
 	ms *MidState
 }
 
@@ -562,6 +572,5 @@ func RevertBlock(s State, b types.Block, bs V1BlockSupplement) RevertUpdate {
 	}
 
 	eru := s.Elements.RevertBlock(ms.updated)
-	hru := s.History.RevertBlock(s.Index)
-	return RevertUpdate{eru, hru, ms}
+	return RevertUpdate{eru, ms}
 }
