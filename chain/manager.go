@@ -116,10 +116,11 @@ func ancestorTimestamp(s Store, id types.BlockID, n uint64) time.Time {
 // A Manager tracks multiple blockchains and identifies the best valid
 // chain.
 type Manager struct {
-	store       Store
-	tipState    consensus.State
-	subscribers []Subscriber
-	lastCommit  time.Time
+	store         Store
+	tipState      consensus.State
+	subscribers   []Subscriber
+	lastCommit    time.Time
+	invalidBlocks map[types.BlockID]error
 
 	txpool struct {
 		txns           []types.Transaction
@@ -230,21 +231,25 @@ func (m *Manager) AddBlocks(blocks []types.Block) error {
 
 	cs := m.tipState
 	for _, b := range blocks {
-		if c, ok := m.store.Checkpoint(b.ID()); ok {
+		bid := b.ID()
+		if err := m.invalidBlocks[bid]; err != nil {
+			return fmt.Errorf("block %v is invalid: %w", types.ChainIndex{Height: cs.Index.Height + 1, ID: bid}, err)
+		} else if c, ok := m.store.Checkpoint(bid); ok {
 			// already have this block
 			cs = c.State
 			continue
 		} else if b.ParentID != c.State.Index.ID {
 			c, ok := m.store.Checkpoint(b.ParentID)
 			if !ok {
-				return fmt.Errorf("missing parent checkpoint for block %v", b.ID())
+				return fmt.Errorf("missing parent checkpoint for block %v", bid)
 			}
 			cs = c.State
 		}
 		if b.Timestamp.After(cs.MaxFutureTimestamp(time.Now())) {
 			return ErrFutureBlock
 		} else if err := consensus.ValidateOrphan(cs, b); err != nil {
-			return fmt.Errorf("block %v is invalid: %w", types.ChainIndex{Height: cs.Index.Height + 1, ID: b.ID()}, err)
+			m.markBadBlock(bid, err)
+			return fmt.Errorf("block %v is invalid: %w", types.ChainIndex{Height: cs.Index.Height + 1, ID: bid}, err)
 		}
 		cs = consensus.ApplyOrphan(cs, b, ancestorTimestamp(m.store, b.ParentID, cs.AncestorDepth()))
 		m.store.AddCheckpoint(Checkpoint{b, cs, nil})
@@ -259,6 +264,20 @@ func (m *Manager) AddBlocks(blocks []types.Block) error {
 		}
 	}
 	return nil
+}
+
+// markBadBlock marks a block as bad, so that we don't waste resources
+// re-validating it if we see it again.
+func (m *Manager) markBadBlock(bid types.BlockID, err error) {
+	const maxInvalidBlocks = 1000
+	m.invalidBlocks[bid] = err
+	if len(m.invalidBlocks) > maxInvalidBlocks {
+		// forget a random entry
+		for bid := range m.invalidBlocks {
+			delete(m.invalidBlocks, bid)
+			break
+		}
+	}
 }
 
 // revertTip reverts the current tip.
@@ -297,6 +316,7 @@ func (m *Manager) applyTip(index types.ChainIndex) error {
 	} else if c.Supplement == nil {
 		bs := m.store.SupplementTipBlock(c.Block)
 		if err := consensus.ValidateBlock(m.tipState, c.Block, bs); err != nil {
+			m.markBadBlock(index.ID, err)
 			return fmt.Errorf("block %v is invalid: %w", index, err)
 		}
 		c.Supplement = &bs
@@ -939,9 +959,10 @@ func (m *Manager) AddV2PoolTransactions(txns []types.V2Transaction) error {
 // NewManager returns a Manager initialized with the provided Store and State.
 func NewManager(store Store, cs consensus.State) *Manager {
 	m := &Manager{
-		store:      store,
-		tipState:   cs,
-		lastCommit: time.Now(),
+		store:         store,
+		tipState:      cs,
+		lastCommit:    time.Now(),
+		invalidBlocks: make(map[types.BlockID]error),
 	}
 	m.txpool.indices = make(map[types.TransactionID]int)
 	return m
