@@ -222,26 +222,80 @@ func (s State) MaxBlockWeight() uint64 {
 	return 2_000_000
 }
 
+type writeCounter struct{ n int }
+
+func (wc *writeCounter) Write(p []byte) (int, error) {
+	wc.n += len(p)
+	return len(p), nil
+}
+
 // TransactionWeight computes the weight of a txn.
 func (s State) TransactionWeight(txn types.Transaction) uint64 {
-	return uint64(types.EncodedLen(txn))
+	var wc writeCounter
+	e := types.NewEncoder(&wc)
+	txn.EncodeTo(e)
+	e.Flush()
+	return uint64(wc.n)
 }
 
 // V2TransactionWeight computes the weight of a txn.
 func (s State) V2TransactionWeight(txn types.V2Transaction) uint64 {
-	return uint64(types.EncodedLen(txn)) // TODO
-}
+	var wc writeCounter
+	e := types.NewEncoder(&wc)
+	for _, sci := range txn.SiacoinInputs {
+		sci.Parent.MerkleProof = nil
+		sci.EncodeTo(e)
+	}
+	for _, sco := range txn.SiacoinOutputs {
+		sco.EncodeTo(e)
+	}
+	for _, sfi := range txn.SiafundInputs {
+		sfi.Parent.MerkleProof = nil
+		sfi.EncodeTo(e)
+	}
+	for _, sfo := range txn.SiafundOutputs {
+		sfo.EncodeTo(e)
+	}
+	for _, fc := range txn.FileContracts {
+		fc.EncodeTo(e)
+	}
+	for _, fcr := range txn.FileContractRevisions {
+		fcr.Parent.MerkleProof = nil
+		fcr.EncodeTo(e)
+	}
+	for _, fcr := range txn.FileContractResolutions {
+		fcr.Parent.MerkleProof = nil
+		if sp, ok := fcr.Resolution.(types.V2StorageProof); ok {
+			sp.ProofStart.MerkleProof = nil
+			fcr.Resolution = sp
+		}
+		fcr.EncodeTo(e)
+	}
+	for _, a := range txn.Attestations {
+		a.EncodeTo(e)
+	}
+	e.WriteBytes(txn.ArbitraryData)
+	storage := uint64(wc.n)
 
-// BlockWeight computes the combined weight of a block's txns.
-func (s State) BlockWeight(txns []types.Transaction, v2txns []types.V2Transaction) uint64 {
-	var weight uint64
-	for _, txn := range txns {
-		weight += s.TransactionWeight(txn)
+	var signatures int
+	for _, sci := range txn.SiacoinInputs {
+		signatures += len(sci.Signatures)
 	}
-	for _, txn := range v2txns {
-		weight += s.V2TransactionWeight(txn)
+	for _, sfi := range txn.SiafundInputs {
+		signatures += len(sfi.Signatures)
 	}
-	return weight
+	signatures += 2 * len(txn.FileContracts)
+	signatures += 2 * len(txn.FileContractRevisions)
+	for _, fcr := range txn.FileContractResolutions {
+		switch fcr.Resolution.(type) {
+		case types.V2FileContractRenewal, types.V2FileContract:
+			signatures += 2
+		}
+	}
+	signatures += len(txn.Attestations)
+
+	// TODO: choose coefficients empirically
+	return storage + 100*uint64(signatures)
 }
 
 // FileContractTax computes the tax levied on a given contract.

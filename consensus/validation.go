@@ -68,9 +68,17 @@ func validateMinerPayouts(s State, b types.Block) error {
 
 // ValidateOrphan validates b in the context of s.
 func ValidateOrphan(s State, b types.Block) error {
-	// TODO: calculate size more efficiently
-	if uint64(types.EncodedLen(types.V1Block(b))) > s.MaxBlockWeight() {
-		return errors.New("block exceeds maximum weight")
+	var weight uint64
+	for _, txn := range b.Transactions {
+		weight += s.TransactionWeight(txn)
+	}
+	if b.V2 != nil {
+		for _, txn := range b.V2.Transactions {
+			weight += s.V2TransactionWeight(txn)
+		}
+	}
+	if weight > s.MaxBlockWeight() {
+		return fmt.Errorf("block exceeds maximum weight (%v > %v)", weight, s.MaxBlockWeight())
 	} else if err := validateMinerPayouts(s, b); err != nil {
 		return err
 	} else if err := validateHeader(s, b.ParentID, b.Timestamp, b.Nonce, b.ID()); err != nil {

@@ -100,31 +100,6 @@ type EncoderTo interface {
 	EncodeTo(e *Encoder)
 }
 
-// EncodedLen returns the length of v when encoded.
-func EncodedLen(v interface{}) int {
-	var buf bytes.Buffer
-	e := NewEncoder(&buf)
-	if et, ok := v.(EncoderTo); ok {
-		et.EncodeTo(e)
-	} else {
-		switch v := v.(type) {
-		case bool:
-			e.WriteBool(v)
-		case uint64:
-			e.WriteUint64(v)
-		case time.Time:
-			e.WriteTime(v)
-		case []byte:
-			e.WritePrefix(len(v))
-			e.Write(v)
-		default:
-			panic(fmt.Sprintf("cannot encode type %T", v))
-		}
-	}
-	_ = e.Flush() // no error possible
-	return buf.Len()
-}
-
 // A Decoder reads values from an underlying stream. Callers MUST check
 // (*Decoder).Err before using any decoded values.
 type Decoder struct {
