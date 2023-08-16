@@ -2,13 +2,88 @@ package consensus
 
 import (
 	"bytes"
+	"encoding/binary"
 	"math/big"
+	"math/bits"
 	"time"
 
 	"go.sia.tech/core/types"
 )
 
+// Work represents a quantity of work.
+type Work struct {
+	// expected number of tries required to produce a given hash (big-endian)
+	n [32]byte
+}
+
+// Cmp compares two work values.
+func (w Work) Cmp(v Work) int {
+	return bytes.Compare(w.n[:], v.n[:])
+}
+
+// EncodeTo implements types.EncoderTo.
+func (w Work) EncodeTo(e *types.Encoder) { e.Write(w.n[:]) }
+
+// DecodeFrom implements types.DecoderFrom.
+func (w *Work) DecodeFrom(d *types.Decoder) { d.Read(w.n[:]) }
+
+func (w Work) add(v Work) Work {
+	var r Work
+	var sum, c uint64
+	for i := 24; i >= 0; i -= 8 {
+		wi := binary.BigEndian.Uint64(w.n[i:])
+		vi := binary.BigEndian.Uint64(v.n[i:])
+		sum, c = bits.Add64(wi, vi, c)
+		binary.BigEndian.PutUint64(r.n[i:], sum)
+	}
+	return r
+}
+
+func (w Work) sub(v Work) Work {
+	var r Work
+	var sum, c uint64
+	for i := 24; i >= 0; i -= 8 {
+		wi := binary.BigEndian.Uint64(w.n[i:])
+		vi := binary.BigEndian.Uint64(v.n[i:])
+		sum, c = bits.Sub64(wi, vi, c)
+		binary.BigEndian.PutUint64(r.n[i:], sum)
+	}
+	return r
+}
+
+func (w Work) mul64(v uint64) Work {
+	var r Work
+	var c uint64
+	for i := 24; i >= 0; i -= 8 {
+		wi := binary.BigEndian.Uint64(w.n[i:])
+		hi, prod := bits.Mul64(wi, v)
+		prod, cc := bits.Add64(prod, c, 0)
+		c = hi + cc
+		binary.BigEndian.PutUint64(r.n[i:], prod)
+	}
+	return r
+}
+
+func (w Work) div64(v uint64) Work {
+	var r Work
+	var quo, rem uint64
+	for i := 0; i < len(w.n); i += 8 {
+		wi := binary.BigEndian.Uint64(w.n[i:])
+		quo, rem = bits.Div64(rem, wi, v)
+		binary.BigEndian.PutUint64(r.n[i:], quo)
+	}
+	return r
+}
+
+// prior to v2, work is represented in terms of "target" hashes, i.e. the inverse of Work
+
 var maxTarget = new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+
+func invTarget(n [32]byte) (inv [32]byte) {
+	i := new(big.Int).SetBytes(n[:])
+	i.Div(maxTarget, i).FillBytes(inv[:])
+	return
+}
 
 func intToTarget(i *big.Int) (t types.BlockID) {
 	if i.BitLen() >= 256 {
@@ -36,6 +111,17 @@ func mulTargetFrac(x types.BlockID, n, d int64) (m types.BlockID) {
 	return intToTarget(i)
 }
 
+func updateTotalWork(s State) (Work, types.BlockID) {
+	// prior to the hardfork, we compute the work from the depth; after the
+	// hardfork, we do the opposite
+	if s.childHeight() < s.Network.HardforkV2.AllowHeight {
+		depth := addTarget(s.Depth, s.ChildTarget)
+		return Work{invTarget(depth)}, depth
+	}
+	totalWork := s.TotalWork.add(s.Difficulty)
+	return totalWork, invTarget(totalWork.n)
+}
+
 func updateOakTime(s State, blockTimestamp, parentTimestamp time.Time) time.Duration {
 	if s.childHeight() == s.Network.HardforkASIC.Height-1 {
 		return s.Network.HardforkASIC.OakTime
@@ -53,6 +139,17 @@ func updateOakTarget(s State) types.BlockID {
 		return s.Network.HardforkASIC.OakTarget
 	}
 	return addTarget(mulTargetFrac(s.OakTarget, 1000, 995), s.ChildTarget)
+}
+
+func updateOakWork(s State) (Work, types.BlockID) {
+	// prior to the hardfork, we compute the work from the target; after the
+	// hardfork, we do the opposite
+	if s.childHeight() < s.Network.HardforkV2.AllowHeight {
+		target := invTarget(updateOakTarget(s))
+		return Work{target}, target
+	}
+	work := s.OakWork.sub(s.OakWork.div64(200)).add(s.Difficulty)
+	return work, invTarget(work.n)
 }
 
 func adjustTarget(s State, blockTimestamp time.Time, targetTimestamp time.Time) types.BlockID {
@@ -80,8 +177,8 @@ func adjustTarget(s State, blockTimestamp time.Time, targetTimestamp time.Time) 
 		return mulTargetFrac(s.ChildTarget, elapsed, expected)
 	}
 
+	// same as adjustDifficulty, just a bit hairier
 	oakTotalTime := int64(s.OakTime / time.Second)
-
 	var delta int64
 	if s.Index.Height < s.Network.HardforkOak.FixHeight {
 		delta = (blockInterval * int64(s.Index.Height)) - oakTotalTime
@@ -89,37 +186,18 @@ func adjustTarget(s State, blockTimestamp time.Time, targetTimestamp time.Time) 
 		parentTimestamp := s.PrevTimestamps[0]
 		delta = (blockInterval * int64(s.Index.Height)) - (parentTimestamp.Unix() - s.Network.HardforkOak.GenesisTimestamp.Unix())
 	}
-
-	// square the delta and preserve its sign
 	shift := delta * delta
 	if delta < 0 {
 		shift = -shift
 	}
-	// scale such that a delta of 10,000 produces a shift of 10 seconds
 	shift *= 10
 	shift /= 10000 * 10000
-
-	// calculate the new target block time, clamped to a factor of 3
 	targetBlockTime := blockInterval + shift
 	if min := blockInterval / 3; targetBlockTime < min {
 		targetBlockTime = min
 	} else if max := blockInterval * 3; targetBlockTime > max {
 		targetBlockTime = max
 	}
-
-	// calculate the new target
-	//
-	// NOTE: this *should* be as simple as:
-	//
-	//   newTarget := mulTargetFrac(s.OakTarget, oakTotalTime, targetBlockTime)
-	//
-	// However, the siad consensus code includes maxTarget divisions, resulting
-	// in slightly different rounding, which we must preserve here. First, we
-	// calculate the estimated hashrate from the (decayed) total work and the
-	// (decayed, clamped) total time. We then multiply by the target block time
-	// to get the expected number of hashes required to produce the next block,
-	// i.e. the new difficulty. Finally, we divide maxTarget by the difficulty
-	// to get the new target.
 	if oakTotalTime <= 0 {
 		oakTotalTime = 1
 	}
@@ -129,15 +207,10 @@ func adjustTarget(s State, blockTimestamp time.Time, targetTimestamp time.Time) 
 	estimatedHashrate := new(big.Int).Div(maxTarget, new(big.Int).SetBytes(s.OakTarget[:]))
 	estimatedHashrate.Div(estimatedHashrate, big.NewInt(oakTotalTime))
 	estimatedHashrate.Mul(estimatedHashrate, big.NewInt(targetBlockTime))
-	if estimatedHashrate.BitLen() == 0 {
-		estimatedHashrate = big.NewInt(1)
+	if estimatedHashrate.Sign() == 0 {
+		estimatedHashrate.SetInt64(1)
 	}
 	newTarget := intToTarget(new(big.Int).Div(maxTarget, estimatedHashrate))
-
-	// clamp the adjustment to 0.4%, except for ASIC hardfork block
-	//
-	// NOTE: the multiplications are flipped re: siad because we are comparing
-	// work, not targets
 	if s.childHeight() == s.Network.HardforkASIC.Height {
 		return newTarget
 	}
@@ -151,6 +224,56 @@ func adjustTarget(s State, blockTimestamp time.Time, targetTimestamp time.Time) 
 	return newTarget
 }
 
+func adjustDifficulty(s State, blockTimestamp time.Time, targetTimestamp time.Time) (Work, types.BlockID) {
+	// prior to the hardfork, we compute the work from the target; after the
+	// hardfork, we do the opposite
+	if s.childHeight() < s.Network.HardforkV2.AllowHeight {
+		target := adjustTarget(s, blockTimestamp, targetTimestamp)
+		return Work{invTarget(target)}, target
+	}
+
+	expectedTime := s.BlockInterval() * time.Duration(s.childHeight())
+	actualTime := blockTimestamp.Sub(s.Network.HardforkOak.GenesisTimestamp)
+	delta := expectedTime - actualTime
+	// square the delta, scaling such that a delta of 10,000 produces a shift of
+	// 10 seconds,
+	shift := 10 * (delta / 10000) * (delta / 10000)
+	// preserve sign
+	if delta < 0 {
+		shift = -shift
+	}
+
+	// calculate the new target block time, clamped to a factor of 3
+	targetBlockTime := s.BlockInterval() + shift
+	if min := s.BlockInterval() / 3; targetBlockTime < min {
+		targetBlockTime = min
+	} else if max := s.BlockInterval() * 3; targetBlockTime > max {
+		targetBlockTime = max
+	}
+
+	// estimate current hashrate
+	//
+	// NOTE: to prevent overflow/truncation, we operate in terms of seconds
+	if s.OakTime <= time.Second {
+		s.OakTime = time.Second
+	}
+	estimatedHashrate := s.OakWork.div64(uint64(s.OakTime / time.Second))
+
+	// multiply the hashrate by the target block time; this is the expected
+	// number of hashes required to produce the next block, i.e. the new
+	// difficulty
+	newDifficulty := estimatedHashrate.mul64(uint64(targetBlockTime / time.Second))
+
+	// clamp the adjustment to 0.4%
+	maxAdjust := s.Difficulty.div64(250)
+	if min := s.Difficulty.sub(maxAdjust); newDifficulty.Cmp(min) < 0 {
+		newDifficulty = min
+	} else if max := s.Difficulty.add(maxAdjust); newDifficulty.Cmp(max) > 0 {
+		newDifficulty = max
+	}
+	return newDifficulty, invTarget(newDifficulty.n)
+}
+
 // ApplyOrphan applies the work of b to s, returning the resulting state. Only
 // the PoW-related fields are updated.
 func ApplyOrphan(s State, b types.Block, targetTimestamp time.Time) State {
@@ -161,19 +284,18 @@ func ApplyOrphan(s State, b types.Block, targetTimestamp time.Time) State {
 	if b.ParentID == (types.BlockID{}) {
 		// special handling for genesis block
 		s.OakTime = updateOakTime(s, b.Timestamp, b.Timestamp)
-		s.OakTarget = updateOakTarget(s)
+		s.OakWork, s.OakTarget = updateOakWork(s)
 		s.Index = types.ChainIndex{Height: 0, ID: b.ID()}
 	} else {
-		s.Depth = addTarget(s.Depth, s.ChildTarget)
-		s.ChildTarget = adjustTarget(s, b.Timestamp, targetTimestamp)
+		s.TotalWork, s.Depth = updateTotalWork(s)
+		s.Difficulty, s.ChildTarget = adjustDifficulty(s, b.Timestamp, targetTimestamp)
 		s.OakTime = updateOakTime(s, b.Timestamp, s.PrevTimestamps[0])
-		s.OakTarget = updateOakTarget(s)
+		s.OakWork, s.OakTarget = updateOakWork(s)
 		s.Index = types.ChainIndex{Height: s.Index.Height + 1, ID: b.ID()}
 	}
 	copy(s.PrevTimestamps[1:], s.PrevTimestamps[:])
 	s.PrevTimestamps[0] = b.Timestamp
 	return s
-
 }
 
 func (ms *MidState) addedLeaf(id types.Hash256) *elementLeaf {

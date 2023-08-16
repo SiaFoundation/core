@@ -70,11 +70,13 @@ func (n *Network) GenesisState() State {
 		ChildTarget:    n.InitialTarget,
 		SiafundPool:    types.ZeroCurrency,
 
-		OakTime:   0,
-		OakTarget: intToTarget(maxTarget),
-
+		OakTime:                   0,
+		OakTarget:                 intToTarget(maxTarget),
 		FoundationPrimaryAddress:  n.HardforkFoundation.PrimaryAddress,
 		FoundationFailsafeAddress: n.HardforkFoundation.FailsafeAddress,
+		TotalWork:                 Work{invTarget(intToTarget(maxTarget))},
+		Difficulty:                Work{invTarget(n.InitialTarget)},
+		OakWork:                   Work{invTarget(intToTarget(maxTarget))},
 	}
 }
 
@@ -83,17 +85,21 @@ type State struct {
 	Network *Network `json:"-"` // network parameters are not encoded
 
 	Index          types.ChainIndex `json:"index"`
-	PrevTimestamps [11]time.Time    `json:"prevTimestamps"`
+	PrevTimestamps [11]time.Time    `json:"prevTimestamps"` // newest -> oldest
 	Depth          types.BlockID    `json:"depth"`
 	ChildTarget    types.BlockID    `json:"childTarget"`
 	SiafundPool    types.Currency   `json:"siafundPool"`
 
-	// hardfork-related state
-	OakTime                   time.Duration `json:"oakTime"`
-	OakTarget                 types.BlockID `json:"oakTarget"`
+	// Oak hardfork state
+	OakTime   time.Duration `json:"oakTime"`
+	OakTarget types.BlockID `json:"oakTarget"`
+	// Foundation hardfork state
 	FoundationPrimaryAddress  types.Address `json:"foundationPrimaryAddress"`
 	FoundationFailsafeAddress types.Address `json:"foundationFailsafeAddress"`
-
+	// v2 hardfork state
+	TotalWork    Work               `json:"totalWork"`
+	Difficulty   Work               `json:"difficulty"`
+	OakWork      Work               `json:"oakWork"`
 	Elements     ElementAccumulator `json:"elements"`
 	Attestations uint64             `json:"attestations"`
 }
@@ -112,6 +118,9 @@ func (s State) EncodeTo(e *types.Encoder) {
 	s.OakTarget.EncodeTo(e)
 	s.FoundationPrimaryAddress.EncodeTo(e)
 	s.FoundationFailsafeAddress.EncodeTo(e)
+	s.TotalWork.EncodeTo(e)
+	s.Difficulty.EncodeTo(e)
+	s.OakWork.EncodeTo(e)
 	s.Elements.EncodeTo(e)
 	e.WriteUint64(s.Attestations)
 }
@@ -130,6 +139,9 @@ func (s *State) DecodeFrom(d *types.Decoder) {
 	s.OakTarget.DecodeFrom(d)
 	s.FoundationPrimaryAddress.DecodeFrom(d)
 	s.FoundationFailsafeAddress.DecodeFrom(d)
+	s.TotalWork.DecodeFrom(d)
+	s.Difficulty.DecodeFrom(d)
+	s.OakWork.DecodeFrom(d)
 	s.Elements.DecodeFrom(d)
 	s.Attestations = d.ReadUint64()
 }
