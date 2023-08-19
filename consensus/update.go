@@ -298,52 +298,34 @@ func ApplyOrphan(s State, b types.Block, targetTimestamp time.Time) State {
 	return s
 }
 
-func (ms *MidState) addedLeaf(id types.Hash256) *elementLeaf {
-	for i := range ms.added {
-		if ms.added[i].ID == id {
-			return &ms.added[i]
-		}
-	}
-	return nil
-}
-
 func (ms *MidState) addSiacoinElement(sce types.SiacoinElement) {
 	ms.sces = append(ms.sces, sce)
-	ms.added = append(ms.added, siacoinLeaf(&ms.sces[len(ms.sces)-1], false))
 	ms.ephemeral[ms.sces[len(ms.sces)-1].ID] = len(ms.sces) - 1
 }
 
 func (ms *MidState) spendSiacoinElement(sce types.SiacoinElement, txid types.TransactionID) {
 	ms.spends[sce.ID] = txid
-	if _, ok := ms.ephemeral[sce.ID]; ok {
-		ms.addedLeaf(sce.ID).Spent = true
-	} else {
+	if _, ok := ms.ephemeral[sce.ID]; !ok {
 		sce.MerkleProof = append([]types.Hash256(nil), sce.MerkleProof...)
 		ms.sces = append(ms.sces, sce)
-		ms.updated = append(ms.updated, siacoinLeaf(&ms.sces[len(ms.sces)-1], true))
 	}
 }
 
 func (ms *MidState) addSiafundElement(sfe types.SiafundElement) {
 	ms.sfes = append(ms.sfes, sfe)
-	ms.added = append(ms.added, siafundLeaf(&ms.sfes[len(ms.sfes)-1], false))
 	ms.ephemeral[ms.sfes[len(ms.sfes)-1].ID] = len(ms.sfes) - 1
 }
 
 func (ms *MidState) spendSiafundElement(sfe types.SiafundElement, txid types.TransactionID) {
 	ms.spends[sfe.ID] = txid
-	if _, ok := ms.ephemeral[sfe.ID]; ok {
-		ms.addedLeaf(sfe.ID).Spent = true
-	} else {
+	if _, ok := ms.ephemeral[sfe.ID]; !ok {
 		sfe.MerkleProof = append([]types.Hash256(nil), sfe.MerkleProof...)
 		ms.sfes = append(ms.sfes, sfe)
-		ms.updated = append(ms.updated, siafundLeaf(&ms.sfes[len(ms.sfes)-1], true))
 	}
 }
 
 func (ms *MidState) addFileContractElement(fce types.FileContractElement) {
 	ms.fces = append(ms.fces, fce)
-	ms.added = append(ms.added, fileContractLeaf(&ms.fces[len(ms.fces)-1], false))
 	ms.ephemeral[ms.fces[len(ms.fces)-1].ID] = len(ms.fces) - 1
 	ms.siafundPool = ms.siafundPool.Add(ms.base.FileContractTax(fce.FileContract))
 }
@@ -352,16 +334,9 @@ func (ms *MidState) reviseFileContractElement(fce types.FileContractElement, rev
 	rev.Payout = fce.FileContract.Payout
 	if i, ok := ms.ephemeral[fce.ID]; ok {
 		ms.fces[i].FileContract = rev
-		*ms.addedLeaf(fce.ID) = fileContractLeaf(&ms.fces[i], false)
 	} else {
 		if r, ok := ms.revs[fce.ID]; ok {
 			r.FileContract = rev
-			for i := range ms.updated {
-				if ms.updated[i].ID == fce.ID {
-					ms.updated[i] = fileContractLeaf(r, false)
-					break
-				}
-			}
 		} else {
 			// store the original
 			fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
@@ -370,7 +345,6 @@ func (ms *MidState) reviseFileContractElement(fce types.FileContractElement, rev
 			fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
 			fce.FileContract = rev
 			ms.revs[fce.ID] = &fce
-			ms.updated = append(ms.updated, fileContractLeaf(&fce, false))
 		}
 	}
 }
@@ -379,12 +353,10 @@ func (ms *MidState) resolveFileContractElement(fce types.FileContractElement, tx
 	ms.spends[fce.ID] = txid
 	fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
 	ms.fces = append(ms.fces, fce)
-	ms.updated = append(ms.updated, fileContractLeaf(&ms.fces[len(ms.fces)-1], true))
 }
 
 func (ms *MidState) addV2FileContractElement(fce types.V2FileContractElement) {
 	ms.v2fces = append(ms.v2fces, fce)
-	ms.added = append(ms.added, v2FileContractLeaf(&ms.v2fces[len(ms.v2fces)-1], false))
 	ms.ephemeral[ms.v2fces[len(ms.v2fces)-1].ID] = len(ms.v2fces) - 1
 	ms.siafundPool = ms.siafundPool.Add(ms.base.V2FileContractTax(fce.V2FileContract))
 }
@@ -392,19 +364,16 @@ func (ms *MidState) addV2FileContractElement(fce types.V2FileContractElement) {
 func (ms *MidState) reviseV2FileContractElement(fce types.V2FileContractElement, rev types.V2FileContract) {
 	fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
 	ms.v2fces = append(ms.v2fces, fce)
-	ms.updated = append(ms.updated, fileContractLeaf(&ms.fces[len(ms.fces)-1], false))
 }
 
 func (ms *MidState) resolveV2FileContractElement(fce types.V2FileContractElement, txid types.TransactionID) {
 	ms.spends[fce.ID] = txid
 	fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
 	ms.v2fces = append(ms.v2fces, fce)
-	ms.updated = append(ms.updated, v2FileContractLeaf(&ms.v2fces[len(ms.v2fces)-1], true))
 }
 
 func (ms *MidState) addAttestationElement(ae types.AttestationElement) {
 	ms.aes = append(ms.aes, ae)
-	ms.added = append(ms.added, attestationLeaf(&ms.aes[len(ms.aes)-1]))
 }
 
 // ApplyTransaction applies a transaction to the MidState.
@@ -604,7 +573,29 @@ func (ms *MidState) ApplyBlock(b types.Block, bs V1BlockSupplement) {
 		StateElement: types.StateElement{ID: types.Hash256(bid)},
 		ChainIndex:   types.ChainIndex{Height: ms.base.childHeight(), ID: bid},
 	}
-	ms.added = append(ms.added, chainIndexLeaf(&ms.cie))
+}
+
+func (ms *MidState) forEachElementLeaf(fn func(elementLeaf)) {
+	for i := range ms.sces {
+		fn(siacoinLeaf(&ms.sces[i], ms.isSpent(ms.sces[i].ID)))
+	}
+	for i := range ms.sfes {
+		fn(siafundLeaf(&ms.sfes[i], ms.isSpent(ms.sfes[i].ID)))
+	}
+	for i := range ms.fces {
+		if r, ok := ms.revs[ms.fces[i].ID]; ok {
+			fn(fileContractLeaf(r, ms.isSpent(ms.fces[i].ID)))
+		} else {
+			fn(fileContractLeaf(&ms.fces[i], ms.isSpent(ms.fces[i].ID)))
+		}
+	}
+	for i := range ms.v2fces {
+		fn(v2FileContractLeaf(&ms.v2fces[i], ms.isSpent(ms.v2fces[i].ID)))
+	}
+	for i := range ms.aes {
+		fn(attestationLeaf(&ms.aes[i]))
+	}
+	fn(chainIndexLeaf(&ms.cie))
 }
 
 // An ApplyUpdate represents the effects of applying a block to a state.
@@ -654,7 +645,17 @@ func ApplyBlock(s State, b types.Block, bs V1BlockSupplement, targetTimestamp ti
 	s.Attestations += uint64(len(ms.aes))
 	s.FoundationPrimaryAddress = ms.foundationPrimary
 	s.FoundationFailsafeAddress = ms.foundationFailsafe
-	eau := s.Elements.applyBlock(ms.updated, ms.added)
+
+	// compute updated and added elements
+	var updated, added []elementLeaf
+	ms.forEachElementLeaf(func(el elementLeaf) {
+		if el.MerkleProof == nil {
+			added = append(added, el)
+		} else {
+			updated = append(updated, el)
+		}
+	})
+	eau := s.Elements.applyBlock(updated, added)
 	s = ApplyOrphan(s, b, targetTimestamp)
 	return s, ApplyUpdate{eau, ms}
 }
@@ -697,6 +698,15 @@ func RevertBlock(s State, b types.Block, bs V1BlockSupplement) RevertUpdate {
 	}
 	ms := NewMidState(s)
 	ms.ApplyBlock(b, bs)
-	eru := s.Elements.revertBlock(ms.updated)
+
+	// compute updated elements
+	var updated []elementLeaf
+	ms.forEachElementLeaf(func(el elementLeaf) {
+		if el.MerkleProof != nil {
+			el.Spent = false // reverting a block can never cause an element to become spent
+			updated = append(updated, el)
+		}
+	})
+	eru := s.Elements.revertBlock(updated)
 	return RevertUpdate{eru, ms}
 }

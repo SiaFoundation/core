@@ -112,9 +112,6 @@ type MidState struct {
 	v2fces []types.V2FileContractElement
 	aes    []types.AttestationElement
 	cie    types.ChainIndexElement
-	// these alias the above
-	updated []elementLeaf
-	added   []elementLeaf
 }
 
 // Index returns the index of the MidState's base state.
