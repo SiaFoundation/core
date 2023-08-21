@@ -56,7 +56,7 @@ func validateMinerPayouts(s State, b types.Block) error {
 			}
 		}
 		if len(b.MinerPayouts) != 1 {
-			return errors.New("block has multiple miner payouts")
+			return errors.New("block must have exactly one miner payout")
 		}
 	}
 
@@ -109,6 +109,7 @@ type MidState struct {
 	ephemeral          map[types.Hash256]int // indices into element slices
 	spends             map[types.Hash256]types.TransactionID
 	revs               map[types.Hash256]*types.FileContractElement
+	v2revs             map[types.Hash256]*types.V2FileContractElement
 	siafundPool        types.Currency
 	foundationPrimary  types.Address
 	foundationFailsafe types.Address
@@ -172,10 +173,6 @@ func (ms *MidState) mustFileContractElement(ts V1TransactionSupplement, id types
 	return fce
 }
 
-func (ms *MidState) revision(id types.Hash256) *types.FileContractElement {
-	return ms.revs[id]
-}
-
 func (ms *MidState) spent(id types.Hash256) (types.TransactionID, bool) {
 	txid, ok := ms.spends[id]
 	return txid, ok
@@ -193,6 +190,7 @@ func NewMidState(s State) *MidState {
 		ephemeral:          make(map[types.Hash256]int),
 		spends:             make(map[types.Hash256]types.TransactionID),
 		revs:               make(map[types.Hash256]*types.FileContractElement),
+		v2revs:             make(map[types.Hash256]*types.V2FileContractElement),
 		siafundPool:        s.SiafundPool,
 		foundationPrimary:  s.FoundationPrimaryAddress,
 		foundationFailsafe: s.FoundationFailsafeAddress,
@@ -971,7 +969,7 @@ func ValidateBlock(s State, b types.Block, bs V1BlockSupplement) error {
 		}
 		for i, txn := range b.Transactions {
 			if err := ValidateTransaction(ms, txn, bs.Transactions[i]); err != nil {
-				return err
+				return fmt.Errorf("transaction %v is invalid: %w", i, err)
 			}
 			ms.ApplyTransaction(txn, bs.Transactions[i])
 		}
@@ -980,9 +978,9 @@ func ValidateBlock(s State, b types.Block, bs V1BlockSupplement) error {
 		if s.childHeight() < ms.base.Network.HardforkV2.AllowHeight {
 			return errors.New("v2 transactions are not allowed until v2 hardfork begins")
 		}
-		for _, txn := range b.V2.Transactions {
+		for i, txn := range b.V2.Transactions {
 			if err := ValidateV2Transaction(ms, txn); err != nil {
-				return err
+				return fmt.Errorf("v2 transaction %v is invalid: %w", i, err)
 			}
 			ms.ApplyV2Transaction(txn)
 		}

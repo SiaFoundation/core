@@ -362,8 +362,21 @@ func (ms *MidState) addV2FileContractElement(fce types.V2FileContractElement) {
 }
 
 func (ms *MidState) reviseV2FileContractElement(fce types.V2FileContractElement, rev types.V2FileContract) {
-	fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
-	ms.v2fces = append(ms.v2fces, fce)
+	if i, ok := ms.ephemeral[fce.ID]; ok {
+		ms.v2fces[i].V2FileContract = rev
+	} else {
+		if r, ok := ms.v2revs[fce.ID]; ok {
+			r.V2FileContract = rev
+		} else {
+			// store the original
+			fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
+			ms.v2fces = append(ms.v2fces, fce)
+			// store the revision
+			fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
+			fce.V2FileContract = rev
+			ms.v2revs[fce.ID] = &fce
+		}
+	}
 }
 
 func (ms *MidState) resolveV2FileContractElement(fce types.V2FileContractElement, txid types.TransactionID) {
@@ -589,7 +602,11 @@ func (ms *MidState) forEachElementLeaf(fn func(elementLeaf)) {
 		}
 	}
 	for i := range ms.v2fces {
-		fn(v2FileContractLeaf(&ms.v2fces[i], ms.isSpent(ms.v2fces[i].ID)))
+		if r, ok := ms.v2revs[ms.v2fces[i].ID]; ok {
+			fn(v2FileContractLeaf(r, ms.isSpent(ms.v2fces[i].ID)))
+		} else {
+			fn(v2FileContractLeaf(&ms.v2fces[i], ms.isSpent(ms.v2fces[i].ID)))
+		}
 	}
 	for i := range ms.aes {
 		fn(attestationLeaf(&ms.aes[i]))
@@ -621,7 +638,15 @@ func (au ApplyUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, sp
 // au. If the contract was revised, rev is non-nil.
 func (au ApplyUpdate) ForEachFileContractElement(fn func(fce types.FileContractElement, rev *types.FileContractElement, resolved bool)) {
 	for _, fce := range au.ms.fces {
-		fn(fce, au.ms.revision(fce.ID), au.ms.isSpent(fce.ID))
+		fn(fce, au.ms.revs[fce.ID], au.ms.isSpent(fce.ID))
+	}
+}
+
+// ForEachV2FileContractElement calls fn on each V2 file contract element
+// related to au. If the contract was revised, rev is non-nil.
+func (au ApplyUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileContractElement, rev *types.V2FileContractElement, resolved bool)) {
+	for _, fce := range au.ms.v2fces {
+		fn(fce, au.ms.v2revs[fce.ID], au.ms.isSpent(fce.ID))
 	}
 }
 
@@ -686,7 +711,7 @@ func (ru RevertUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, s
 func (ru RevertUpdate) ForEachFileContractElement(fn func(fce types.FileContractElement, rev *types.FileContractElement, resolved bool)) {
 	for i := range ru.ms.fces {
 		fce := ru.ms.fces[len(ru.ms.fces)-i-1]
-		fn(fce, ru.ms.revision(fce.ID), ru.ms.isSpent(fce.ID))
+		fn(fce, ru.ms.revs[fce.ID], ru.ms.isSpent(fce.ID))
 	}
 }
 

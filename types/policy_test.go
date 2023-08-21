@@ -32,10 +32,16 @@ func TestPolicyVerify(t *testing.T) {
 			PolicyAbove(0),
 			0,
 			nil,
+			true,
+		},
+		{
+			PolicyAbove(1),
+			0,
+			nil,
 			false,
 		},
 		{
-			PolicyAbove(0),
+			PolicyAbove(1),
 			1,
 			nil,
 			true,

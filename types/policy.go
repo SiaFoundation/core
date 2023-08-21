@@ -109,7 +109,7 @@ func (p SpendPolicy) Verify(height uint64, sigHash Hash256, sigs []Signature) er
 	verify = func(p SpendPolicy) error {
 		switch p := p.Type.(type) {
 		case PolicyTypeAbove:
-			if height > uint64(p) {
+			if height >= uint64(p) {
 				return nil
 			}
 			return fmt.Errorf("height not above %v", uint64(p))
