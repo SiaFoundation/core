@@ -9,6 +9,14 @@ import (
 	"strings"
 )
 
+const (
+	opInvalid = iota
+	opAbove
+	opPublicKey
+	opThreshold
+	opUnlockConditions
+)
+
 // A SpendPolicy describes the conditions under which an input may be spent.
 type SpendPolicy struct {
 	Type interface{ isPolicy() }

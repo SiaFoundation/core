@@ -442,12 +442,6 @@ func (txn *Transaction) encodeNoSignatures(e *Encoder) {
 func (p SpendPolicy) EncodeTo(e *Encoder) {
 	const (
 		version = 1
-
-		opInvalid = iota
-		opAbove
-		opPublicKey
-		opThreshold
-		opUnlockConditions
 	)
 
 	var writePolicy func(SpendPolicy)
@@ -976,12 +970,6 @@ func (p *SpendPolicy) DecodeFrom(d *Decoder) {
 	const (
 		version     = 1
 		maxPolicies = 1024
-
-		opInvalid = iota
-		opAbove
-		opPublicKey
-		opThreshold
-		opUnlockConditions
 	)
 
 	var totalPolicies int

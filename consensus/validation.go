@@ -657,7 +657,7 @@ func validateSpendPolicy(s State, p types.SpendPolicy, sigHash types.Hash256, si
 	verify = func(p types.SpendPolicy) error {
 		switch p := p.Type.(type) {
 		case types.PolicyTypeAbove:
-			if s.Index.Height > uint64(p) {
+			if s.Index.Height >= uint64(p) {
 				return nil
 			}
 			return fmt.Errorf("height not above %v", uint64(p))
