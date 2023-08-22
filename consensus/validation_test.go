@@ -2,7 +2,6 @@ package consensus_test
 
 import (
 	"bytes"
-	"fmt"
 	"testing"
 	"time"
 
@@ -462,9 +461,6 @@ func TestValidateV2Block(t *testing.T) {
 	cau.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
 		sfes = append(sfes, sfe)
 	})
-	fmt.Println("giftPublicKey:", giftPublicKey)
-	fmt.Println("giftAddress:", giftAddress)
-	fmt.Println("sces[0]:", sces[0])
 
 	dbStore, checkpoint, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
 	if err != nil {
@@ -483,6 +479,7 @@ func TestValidateV2Block(t *testing.T) {
 		}
 	}
 
+	minerFee := types.Siacoins(1)
 	b := types.Block{
 		ParentID:  genesisBlock.ID(),
 		Timestamp: types.CurrentTimestamp(),
@@ -499,17 +496,18 @@ func TestValidateV2Block(t *testing.T) {
 					SpendPolicy:  giftPolicy,
 				}},
 				SiacoinOutputs: []types.SiacoinOutput{
-					{Value: giftAmountSC, Address: giftAddress},
+					{Value: giftAmountSC.Sub(minerFee), Address: giftAddress},
 				},
 				SiafundOutputs: []types.SiafundOutput{
 					{Value: giftAmountSF / 2, Address: giftAddress},
 					{Value: giftAmountSF / 2, Address: types.VoidAddress},
 				},
+				MinerFee: minerFee,
 			}},
 		},
 		MinerPayouts: []types.SiacoinOutput{{
 			Address: types.VoidAddress,
-			Value:   cs.BlockReward(),
+			Value:   cs.BlockReward().Add(minerFee),
 		}},
 	}
 	signTxn(&b.V2.Transactions[0])
@@ -570,15 +568,6 @@ func TestValidateV2Block(t *testing.T) {
 						Address: types.VoidAddress,
 						Value:   cs.BlockReward().Div64(2),
 					}}
-				},
-			},
-			{
-				"overflowing miner payout",
-				func(b *types.Block) {
-					b.MinerPayouts = []types.SiacoinOutput{
-						{Address: types.VoidAddress, Value: types.MaxCurrency},
-						{Address: types.VoidAddress, Value: types.MaxCurrency},
-					}
 				},
 			},
 			{
@@ -663,9 +652,10 @@ func TestValidateV2Block(t *testing.T) {
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 
-					pk := giftPublicKey
-					pk[0] ^= 255
-					txn.SiacoinInputs[0].SpendPolicy = types.PolicyPublicKey(pk)
+					if uc, ok := txn.SiacoinInputs[0].SpendPolicy.Type.(types.PolicyTypeUnlockConditions); ok {
+						uc.PublicKeys[0].Key[0] ^= 255
+						txn.SiacoinInputs[0].SpendPolicy = types.SpendPolicy{types.PolicyTypeUnlockConditions(uc)}
+					}
 				},
 			},
 			{
@@ -673,50 +663,29 @@ func TestValidateV2Block(t *testing.T) {
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 
-					pk := giftPublicKey
-					pk[0] ^= 255
-					txn.SiafundInputs[0].SpendPolicy = types.PolicyPublicKey(pk)
+					if uc, ok := txn.SiafundInputs[0].SpendPolicy.Type.(types.PolicyTypeUnlockConditions); ok {
+						uc.PublicKeys[0].Key[0] ^= 255
+						txn.SiafundInputs[0].SpendPolicy = types.SpendPolicy{types.PolicyTypeUnlockConditions(uc)}
+					}
 				},
 			},
 			{
-				"improperly-encoded FoundationAddressUpdate",
+				"invalid FoundationAddressUpdate",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
-					txn.ArbitraryData = append(types.SpecifierFoundation[:], []byte{255, 255, 255, 255, 255}...)
-				},
-			},
-			{
-				"uninitialized FoundationAddressUpdate",
-				func(b *types.Block) {
-					txn := &b.V2.Transactions[0]
-					var buf bytes.Buffer
-					e := types.NewEncoder(&buf)
-					types.FoundationAddressUpdate{}.EncodeTo(e)
-					e.Flush()
-					txn.ArbitraryData = append(types.SpecifierFoundation[:], buf.Bytes()...)
-				},
-			},
-			{
-				"unsigned FoundationAddressUpdate",
-				func(b *types.Block) {
-					txn := &b.V2.Transactions[0]
-					var buf bytes.Buffer
-					e := types.NewEncoder(&buf)
-					types.FoundationAddressUpdate{
-						NewPrimary:  giftAddress,
-						NewFailsafe: giftAddress,
-					}.EncodeTo(e)
-					e.Flush()
-					txn.ArbitraryData = append(types.SpecifierFoundation[:], buf.Bytes()...)
+					addr := types.VoidAddress
+					txn.NewFoundationAddress = &addr
 				},
 			},
 		}
 		for _, test := range tests {
-			corruptBlock := deepCopyBlock(b)
+			corruptBlock := deepCopyBlock(validBlock)
 			test.corrupt(&corruptBlock)
 			signTxn(&corruptBlock.V2.Transactions[0])
+			if len(corruptBlock.MinerPayouts) > 0 {
+				corruptBlock.V2.Commitment = cs.Commitment(corruptBlock.MinerPayouts[0].Address, corruptBlock.Transactions, corruptBlock.V2.Transactions)
+			}
 			findBlockNonce(cs, &corruptBlock)
-			b.V2.Commitment = cs.Commitment(b.MinerPayouts[0].Address, b.Transactions, b.V2.Transactions)
 
 			if err := consensus.ValidateBlock(cs, corruptBlock, dbStore.SupplementTipBlock(corruptBlock)); err == nil {
 				t.Fatalf("accepted block with %v", test.desc)

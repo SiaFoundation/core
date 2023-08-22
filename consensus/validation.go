@@ -40,13 +40,16 @@ func validateMinerPayouts(s State, b types.Block) error {
 	}
 	if b.V2 != nil {
 		for _, txn := range b.V2.Transactions {
+			if txn.MinerFee.IsZero() {
+				return errors.New("transaction fee has zero value")
+			}
 			expectedSum, overflow = expectedSum.AddWithOverflow(txn.MinerFee)
 			if overflow {
 				return errors.New("transaction fees overflow")
 			}
 		}
 		if len(b.MinerPayouts) != 1 {
-			return errors.New("block has multiple miner payouts")
+			return errors.New("block has zero or multiple miner payouts")
 		}
 	}
 
