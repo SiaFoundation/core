@@ -438,44 +438,48 @@ func (txn *Transaction) encodeNoSignatures(e *Encoder) {
 	}
 }
 
-// EncodeTo implements types.EncoderTo.
-func (p SpendPolicy) EncodeTo(e *Encoder) {
+func (p SpendPolicy) encodePolicy(e *Encoder) {
 	const (
-		version = 1
-
 		opInvalid = iota
 		opAbove
 		opPublicKey
 		opThreshold
+		opOpaque
 		opUnlockConditions
 	)
-
-	var writePolicy func(SpendPolicy)
-	writePolicy = func(p SpendPolicy) {
-		switch p := p.Type.(type) {
-		case PolicyTypeAbove:
-			e.WriteUint8(opAbove)
-			e.WriteUint64(uint64(p))
-		case PolicyTypePublicKey:
-			e.WriteUint8(opPublicKey)
-			PublicKey(p).EncodeTo(e)
-		case PolicyTypeThreshold:
-			e.WriteUint8(opThreshold)
-			e.WriteUint8(p.N)
-			e.WriteUint8(uint8(len(p.Of)))
-			for i := range p.Of {
-				writePolicy(p.Of[i])
+	switch p := p.Type.(type) {
+	case PolicyTypeAbove:
+		e.WriteUint8(opAbove)
+		e.WriteUint64(uint64(p))
+	case PolicyTypePublicKey:
+		e.WriteUint8(opPublicKey)
+		PublicKey(p).EncodeTo(e)
+	case PolicyTypeThreshold:
+		e.WriteUint8(opThreshold)
+		e.WriteUint8(p.N)
+		e.WriteUint8(uint8(len(p.Of)))
+		for i := range p.Of {
+			if _, ok := p.Of[i].Type.(PolicyTypeUnlockConditions); ok {
+				panic("unlock condition policies cannot be composed")
 			}
-		case PolicyTypeUnlockConditions:
-			e.WriteUint8(opUnlockConditions)
-			UnlockConditions(p).EncodeTo(e)
-		default:
-			panic(fmt.Sprintf("unhandled policy type %T", p))
+			p.Of[i].encodePolicy(e)
 		}
+	case PolicyTypeOpaque:
+		e.WriteUint8(opOpaque)
+		Hash256(p).EncodeTo(e)
+	case PolicyTypeUnlockConditions:
+		e.WriteUint8(opUnlockConditions)
+		UnlockConditions(p).EncodeTo(e)
+	default:
+		panic(fmt.Sprintf("unhandled policy type %T", p))
 	}
+}
 
+// EncodeTo implements types.EncoderTo.
+func (p SpendPolicy) EncodeTo(e *Encoder) {
+	const version = 1
 	e.WriteUint8(version)
-	writePolicy(p)
+	p.encodePolicy(e)
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -976,11 +980,13 @@ func (p *SpendPolicy) DecodeFrom(d *Decoder) {
 	const (
 		version     = 1
 		maxPolicies = 1024
-
+	)
+	const (
 		opInvalid = iota
 		opAbove
 		opPublicKey
 		opThreshold
+		opOpaque
 		opUnlockConditions
 	)
 
@@ -1005,9 +1011,15 @@ func (p *SpendPolicy) DecodeFrom(d *Decoder) {
 				of[i], err = readPolicy()
 				if err != nil {
 					return SpendPolicy{}, err
+				} else if _, ok := of[i].Type.(PolicyTypeUnlockConditions); ok {
+					return SpendPolicy{}, errors.New("unlock condition policies cannot be composed")
 				}
 			}
 			return PolicyThreshold(n, of), nil
+		case opOpaque:
+			var p PolicyTypeOpaque
+			(*Address)(&p).DecodeFrom(d)
+			return SpendPolicy{p}, nil
 		case opUnlockConditions:
 			var uc UnlockConditions
 			uc.DecodeFrom(d)

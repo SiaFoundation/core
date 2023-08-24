@@ -29,6 +29,16 @@ func validateMinerPayouts(s State, b types.Block) error {
 	var overflow bool
 	for _, txn := range b.Transactions {
 		for _, fee := range txn.MinerFees {
+			// NOTE: it's unclear why this check was implemented in siad; the
+			// length of txn.MinerFees isn't checked, so it's still possible for
+			// a transaction to have zero total fees. There's never a *reason*
+			// to specify a zero-valued miner fee -- it's a developer error --
+			// but it's also not invalid or dangerous with regard to consensus.
+			// Most likely, this check stems from a general policy against
+			// creating zero-valued outputs, even though the miner payout output
+			// is an aggregate of *all* fees (plus the block reward) and thus
+			// will never be zero-valued anyway. In any case, this check is moot
+			// in v2, where transactions have a single MinerFee, not a slice.
 			if fee.IsZero() {
 				return errors.New("transaction fee has zero value")
 			}
@@ -653,6 +663,12 @@ func validateV2CurrencyValues(ms *MidState, txn types.V2Transaction) error {
 }
 
 func validateSpendPolicy(s State, p types.SpendPolicy, sigHash types.Hash256, sigs []types.Signature) error {
+	nextSig := func() (sig types.Signature, ok bool) {
+		if ok = len(sigs) > 0; ok {
+			sig, sigs = sigs[0], sigs[1:]
+		}
+		return
+	}
 	var verify func(types.SpendPolicy) error
 	verify = func(p types.SpendPolicy) error {
 		switch p := p.Type.(type) {
@@ -662,13 +678,11 @@ func validateSpendPolicy(s State, p types.SpendPolicy, sigHash types.Hash256, si
 			}
 			return fmt.Errorf("height not above %v", uint64(p))
 		case types.PolicyTypePublicKey:
-			for i := range sigs {
-				if types.PublicKey(p).VerifyHash(sigHash, sigs[i]) {
-					sigs = sigs[i+1:]
-					return nil
-				}
+			sig, ok := nextSig()
+			if ok && types.PublicKey(p).VerifyHash(sigHash, sig) {
+				return nil
 			}
-			return errors.New("no signatures matching pubkey")
+			return errors.New("signature does not match pubkey")
 		case types.PolicyTypeThreshold:
 			for i := 0; i < len(p.Of) && p.N > 0 && len(p.Of[i:]) >= int(p.N); i++ {
 				if verify(p.Of[i]) == nil {
@@ -679,6 +693,8 @@ func validateSpendPolicy(s State, p types.SpendPolicy, sigHash types.Hash256, si
 				return nil
 			}
 			return errors.New("threshold not reached")
+		case types.PolicyTypeOpaque:
+			return errors.New("opaque policy")
 		case types.PolicyTypeUnlockConditions:
 			if err := verify(types.PolicyAbove(p.Timelock)); err != nil {
 				return err

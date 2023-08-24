@@ -39,9 +39,22 @@ type PolicyTypeThreshold struct {
 }
 
 // PolicyThreshold returns a policy that requires at least N sub-policies to be
-// satisfied.
+// satisfied. When satisfying a threshold policy, all unsatisfied sub-policies
+// must be replaced with PolicyOpaque.
 func PolicyThreshold(n uint8, of []SpendPolicy) SpendPolicy {
 	return SpendPolicy{PolicyTypeThreshold{n, of}}
+}
+
+// PolicyTypeOpaque is the opaque hash of a policy. It is not satisfiable.
+type PolicyTypeOpaque Address
+
+// PolicyOpaque returns a policy with the same address as p, but without its
+// semantics.
+func PolicyOpaque(p SpendPolicy) SpendPolicy {
+	if _, ok := p.Type.(PolicyTypeOpaque); ok {
+		return p
+	}
+	return SpendPolicy{PolicyTypeOpaque(p.Address())}
 }
 
 // AnyoneCanSpend returns a policy that has no requirements.
@@ -57,6 +70,7 @@ type PolicyTypeUnlockConditions UnlockConditions
 func (PolicyTypeAbove) isPolicy()            {}
 func (PolicyTypePublicKey) isPolicy()        {}
 func (PolicyTypeThreshold) isPolicy()        {}
+func (PolicyTypeOpaque) isPolicy()           {}
 func (PolicyTypeUnlockConditions) isPolicy() {}
 
 // Address computes the opaque address for a given policy.
@@ -70,6 +84,13 @@ func (p SpendPolicy) Address() Address {
 	defer hasherPool.Put(h)
 	h.Reset()
 	h.E.WriteString("sia/address|")
+	if pt, ok := p.Type.(PolicyTypeThreshold); ok {
+		pt.Of = append([]SpendPolicy(nil), pt.Of...)
+		for i := range pt.Of {
+			pt.Of[i] = PolicyOpaque(pt.Of[i])
+		}
+		p = SpendPolicy{pt}
+	}
 	p.EncodeTo(h.E)
 	return Address(h.Sum())
 }
@@ -77,6 +98,10 @@ func (p SpendPolicy) Address() Address {
 // String implements fmt.Stringer.
 func (p SpendPolicy) String() string {
 	var sb strings.Builder
+	writeHex := func(p []byte) {
+		sb.WriteString("0x")
+		sb.WriteString(hex.EncodeToString(p))
+	}
 	switch p := p.Type.(type) {
 	case PolicyTypeAbove:
 		sb.WriteString("above(")
@@ -85,7 +110,7 @@ func (p SpendPolicy) String() string {
 
 	case PolicyTypePublicKey:
 		sb.WriteString("pk(")
-		sb.WriteString(hex.EncodeToString(p[:]))
+		writeHex(p[:])
 		sb.WriteByte(')')
 
 	case PolicyTypeThreshold:
@@ -100,6 +125,11 @@ func (p SpendPolicy) String() string {
 		}
 		sb.WriteString("])")
 
+	case PolicyTypeOpaque:
+		sb.WriteString("opaque(")
+		writeHex(p[:])
+		sb.WriteByte(')')
+
 	case PolicyTypeUnlockConditions:
 		sb.WriteString("uc(")
 		sb.WriteString(strconv.FormatUint(p.Timelock, 10))
@@ -108,7 +138,7 @@ func (p SpendPolicy) String() string {
 			if i > 0 {
 				sb.WriteByte(',')
 			}
-			sb.WriteString(hex.EncodeToString(pk.Key[:]))
+			writeHex(pk.Key[:])
 		}
 		sb.WriteString("],")
 		sb.WriteString(strconv.FormatUint(uint64(p.SignaturesRequired), 10))
@@ -161,11 +191,14 @@ func ParseSpendPolicy(s string) (SpendPolicy, error) {
 		t := nextToken()
 		if err != nil {
 			return
-		} else if len(t) != 64 {
+		} else if len(t) != 66 {
 			err = fmt.Errorf("invalid pubkey length (%d)", len(t))
 			return
+		} else if t[:2] != "0x" {
+			err = fmt.Errorf("invalid pubkey prefix %q", t[:2])
+			return
 		}
-		_, err = hex.Decode(pk[:], []byte(t))
+		_, err = hex.Decode(pk[:], []byte(t[2:]))
 		return
 	}
 	var parseSpendPolicy func() SpendPolicy
@@ -191,6 +224,8 @@ func ParseSpendPolicy(s string) (SpendPolicy, error) {
 			}
 			consume(']')
 			return PolicyThreshold(uint8(n), of)
+		case "opaque":
+			return SpendPolicy{PolicyTypeOpaque(parsePubkey())}
 		case "uc":
 			timelock := parseInt(64)
 			consume(',')
