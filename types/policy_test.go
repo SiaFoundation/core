@@ -24,6 +24,9 @@ func TestPolicyGolden(t *testing.T) {
 	if p.Address().String() != "addr:9ca6476864f75dff7908dadf137fb0e8044213f49935428adcf1070c71f512c62462150f0186" {
 		t.Fatal("wrong address:", p, p.Address())
 	}
+	if StandardAddress(PublicKey{1, 2, 3}) != PolicyPublicKey(PublicKey{1, 2, 3}).Address() {
+		t.Fatal("StandardAddress differs from Policy.Address")
+	}
 
 	p = PolicyThreshold(2, []SpendPolicy{
 		PolicyAbove(100),
@@ -33,7 +36,7 @@ func TestPolicyGolden(t *testing.T) {
 			PolicyPublicKey(PublicKey{4, 5, 6}),
 		}),
 	})
-	if p.Address().String() != "addr:6079542a7cdabf033c500a3f49955e1b54788f48d7da08a84617236124540f958833ddf29445" {
+	if p.Address().String() != "addr:2fb1e5d351aea601e5b507f1f5e021a6aff363951850983f0d930361d17f8ba507f19a409e21" {
 		t.Fatal("wrong address:", p, p.Address())
 	}
 }

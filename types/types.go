@@ -675,7 +675,7 @@ func (txn *V2Transaction) ID() TransactionID {
 	h := hasherPool.Get().(*Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	h.E.WriteString("sia/id/transaction|")
+	h.WriteDistinguisher("id/transaction")
 	h.E.WritePrefix(len(txn.SiacoinInputs))
 	for _, in := range txn.SiacoinInputs {
 		in.Parent.ID.EncodeTo(h.E)

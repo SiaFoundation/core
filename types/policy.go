@@ -84,7 +84,7 @@ func (p SpendPolicy) Address() Address {
 	h := hasherPool.Get().(*Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	h.E.WriteString("sia/address|")
+	h.WriteDistinguisher("address")
 	if pt, ok := p.Type.(PolicyTypeThreshold); ok {
 		pt.Of = append([]SpendPolicy(nil), pt.Of...)
 		for i := range pt.Of {

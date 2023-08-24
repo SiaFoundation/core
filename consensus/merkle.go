@@ -78,7 +78,7 @@ func chainIndexLeaf(e *types.ChainIndexElement) elementLeaf {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	h.E.WriteString("sia/leaf/chainindex|")
+	h.WriteDistinguisher("leaf/chainindex")
 	e.StateElement.ID.EncodeTo(h.E)
 	e.ChainIndex.EncodeTo(h.E)
 	return elementLeaf{
@@ -93,7 +93,7 @@ func siacoinLeaf(e *types.SiacoinElement, spent bool) elementLeaf {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	h.E.WriteString("sia/leaf/siacoin|")
+	h.WriteDistinguisher("leaf/siacoin")
 	e.ID.EncodeTo(h.E)
 	e.SiacoinOutput.EncodeTo(h.E)
 	h.E.WriteUint64(e.MaturityHeight)
@@ -109,7 +109,7 @@ func siafundLeaf(e *types.SiafundElement, spent bool) elementLeaf {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	h.E.WriteString("sia/leaf/siafund|")
+	h.WriteDistinguisher("leaf/siafund")
 	e.ID.EncodeTo(h.E)
 	e.SiafundOutput.EncodeTo(h.E)
 	e.ClaimStart.EncodeTo(h.E)
@@ -125,7 +125,7 @@ func fileContractLeaf(e *types.FileContractElement, spent bool) elementLeaf {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	h.E.WriteString("sia/leaf/filecontract|")
+	h.WriteDistinguisher("leaf/filecontract")
 	e.ID.EncodeTo(h.E)
 	e.FileContract.EncodeTo(h.E)
 	return elementLeaf{
@@ -140,7 +140,7 @@ func v2FileContractLeaf(e *types.V2FileContractElement, spent bool) elementLeaf 
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	h.E.WriteString("sia/leaf/v2filecontract|")
+	h.WriteDistinguisher("leaf/v2filecontract")
 	e.ID.EncodeTo(h.E)
 	e.V2FileContract.EncodeTo(h.E)
 	return elementLeaf{
@@ -155,7 +155,7 @@ func attestationLeaf(e *types.AttestationElement) elementLeaf {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	h.E.WriteString("sia/leaf/attestation|")
+	h.WriteDistinguisher("leaf/attestation")
 	e.StateElement.ID.EncodeTo(h.E)
 	e.Attestation.EncodeTo(h.E)
 	return elementLeaf{

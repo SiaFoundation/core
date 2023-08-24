@@ -25,6 +25,11 @@ func (h *Hasher) Reset() {
 	h.h.Reset()
 }
 
+// WriteDistinguisher writes a distinguisher prefix to the encoder.
+func (h *Hasher) WriteDistinguisher(p string) {
+	h.E.Write([]byte("sia/" + p + "|"))
+}
+
 // Sum returns the digest of the objects written to the Hasher.
 func (h *Hasher) Sum() (sum Hash256) {
 	_ = h.E.Flush() // no error possible
