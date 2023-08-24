@@ -535,10 +535,8 @@ func (ms *MidState) ApplyBlock(b types.Block, bs V1BlockSupplement) {
 	for i, txn := range b.Transactions {
 		ms.ApplyTransaction(txn, bs.Transactions[i])
 	}
-	if b.V2 != nil {
-		for _, txn := range b.V2.Transactions {
-			ms.ApplyV2Transaction(txn)
-		}
+	for _, txn := range b.V2Transactions() {
+		ms.ApplyV2Transaction(txn)
 	}
 	bid := b.ID()
 	for i, sco := range b.MinerPayouts {

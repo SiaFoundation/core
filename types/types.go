@@ -816,11 +816,15 @@ type Block struct {
 // MerkleRoot returns the Merkle root of the block's miner payouts and
 // transactions.
 func (b *Block) MerkleRoot() Hash256 {
-	var v2txns []V2Transaction
+	return blockMerkleRoot(b.MinerPayouts, b.Transactions)
+}
+
+// V2Transactions returns the block's v2 transactions, if present.
+func (b *Block) V2Transactions() []V2Transaction {
 	if b.V2 != nil {
-		v2txns = b.V2.Transactions
+		return b.V2.Transactions
 	}
-	return blockMerkleRoot(b.MinerPayouts, b.Transactions, v2txns)
+	return nil
 }
 
 // ID returns a hash that uniquely identifies a block.
@@ -828,13 +832,13 @@ func (b *Block) ID() BlockID {
 	buf := make([]byte, 32+8+8+32)
 	binary.LittleEndian.PutUint64(buf[32:], b.Nonce)
 	binary.LittleEndian.PutUint64(buf[40:], uint64(b.Timestamp.Unix()))
-	if b.V2 == nil {
+	if b.V2 != nil {
+		copy(buf[:32], "sia/id/block|")
+		copy(buf[48:], b.V2.Commitment[:])
+	} else {
 		root := b.MerkleRoot() // NOTE: expensive!
 		copy(buf[:32], b.ParentID[:])
 		copy(buf[48:], root[:])
-	} else {
-		copy(buf[:32], "sia/id/block|")
-		copy(buf[48:], b.V2.Commitment[:])
 	}
 	return BlockID(HashBytes(buf))
 }

@@ -82,10 +82,8 @@ func ValidateOrphan(s State, b types.Block) error {
 	for _, txn := range b.Transactions {
 		weight += s.TransactionWeight(txn)
 	}
-	if b.V2 != nil {
-		for _, txn := range b.V2.Transactions {
-			weight += s.V2TransactionWeight(txn)
-		}
+	for _, txn := range b.V2Transactions() {
+		weight += s.V2TransactionWeight(txn)
 	}
 	if weight > s.MaxBlockWeight() {
 		return fmt.Errorf("block exceeds maximum weight (%v > %v)", weight, s.MaxBlockWeight())

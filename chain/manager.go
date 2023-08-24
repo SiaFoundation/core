@@ -586,10 +586,8 @@ func (m *Manager) computeMedianFee() types.Currency {
 		for _, txn := range b.Transactions {
 			fees = append(fees, weightedFee{cs.TransactionWeight(txn), txn.TotalFees()})
 		}
-		if b.V2 != nil {
-			for _, txn := range b.V2.Transactions {
-				fees = append(fees, weightedFee{cs.V2TransactionWeight(txn), txn.MinerFee})
-			}
+		for _, txn := range b.V2Transactions() {
+			fees = append(fees, weightedFee{cs.V2TransactionWeight(txn), txn.MinerFee})
 		}
 		// account for the remaining space in the block, for which no fees were paid
 		remaining := cs.MaxBlockWeight()
