@@ -63,7 +63,8 @@ func StandardAddress(pk PublicKey) Address {
 	return Address(blake2b.Sum256(buf))
 }
 
-// StandardUnlockHash returns the standard UnlockHash derived from pk.
+// StandardUnlockHash returns the standard UnlockHash derived from pk. It is equivalent to
+// SpendPolicy{PolicyUnlockConditions(StandardUnlockConditions(pk))}.Address().
 func StandardUnlockHash(pk PublicKey) Address {
 	// An UnlockHash is the Merkle root of UnlockConditions. Since the standard
 	// UnlockConditions use a single public key, the Merkle tree is:

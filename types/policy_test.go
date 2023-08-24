@@ -17,20 +17,203 @@ func roundtrip(from EncoderTo, to DecoderFrom) {
 	}
 }
 
-func TestPolicyGolden(t *testing.T) {
-	p := SpendPolicy{PolicyTypeUnlockConditions{
-		PublicKeys: []UnlockKey{PublicKey{1, 2, 3}.UnlockKey()},
-	}}
-	if p.Address().String() != "addr:9ca6476864f75dff7908dadf137fb0e8044213f49935428adcf1070c71f512c62462150f0186" {
-		t.Fatal("wrong address:", p, p.Address())
+func TestPolicyVerify(t *testing.T) {
+	key := GeneratePrivateKey()
+	pk := key.PublicKey()
+	sigHash := Hash256{1, 2, 3}
+
+	for _, test := range []struct {
+		p      SpendPolicy
+		height uint64
+		sigs   []Signature
+		valid  bool
+	}{
+		{
+			PolicyAbove(0),
+			0,
+			nil,
+			false,
+		},
+		{
+			PolicyAbove(0),
+			1,
+			nil,
+			true,
+		},
+		{
+			PolicyPublicKey(pk),
+			1,
+			nil,
+			false,
+		},
+		{
+			PolicyPublicKey(pk),
+			1,
+			[]Signature{key.SignHash(Hash256{})},
+			false,
+		},
+		{
+			PolicyPublicKey(pk),
+			1,
+			[]Signature{key.SignHash(sigHash)},
+			true,
+		},
+		{
+			PolicyThreshold(2, []SpendPolicy{
+				PolicyAbove(10),
+				PolicyPublicKey(pk),
+			}),
+			1,
+			[]Signature{key.SignHash(sigHash)},
+			false,
+		},
+		{
+			PolicyThreshold(2, []SpendPolicy{
+				PolicyAbove(10),
+				PolicyPublicKey(pk),
+			}),
+			11,
+			nil,
+			false,
+		},
+		{
+			PolicyThreshold(2, []SpendPolicy{
+				PolicyAbove(10),
+				PolicyPublicKey(pk),
+			}),
+			11,
+			[]Signature{key.SignHash(sigHash)},
+			true,
+		},
+		{
+			PolicyThreshold(1, []SpendPolicy{
+				PolicyAbove(10),
+				PolicyPublicKey(pk),
+			}),
+			11,
+			[]Signature{key.SignHash(sigHash)},
+			true,
+		},
+		{
+			PolicyThreshold(1, []SpendPolicy{
+				PolicyAbove(10),
+				PolicyOpaque(PolicyPublicKey(pk)),
+			}),
+			11,
+			[]Signature{key.SignHash(sigHash)},
+			true,
+		},
+		{
+			PolicyThreshold(1, []SpendPolicy{
+				PolicyOpaque(PolicyAbove(10)),
+				PolicyPublicKey(pk),
+			}),
+			11,
+			[]Signature{key.SignHash(sigHash)},
+			true,
+		},
+		{
+			PolicyThreshold(1, []SpendPolicy{
+				PolicyOpaque(PolicyAbove(10)),
+				PolicyOpaque(PolicyPublicKey(pk)),
+			}),
+			11,
+			[]Signature{key.SignHash(sigHash)},
+			false,
+		},
+		{
+			PolicyThreshold(1, []SpendPolicy{
+				{PolicyTypeUnlockConditions{
+					PublicKeys:         []UnlockKey{pk.UnlockKey()},
+					SignaturesRequired: 1,
+				}},
+			}),
+			1,
+			[]Signature{key.SignHash(sigHash)},
+			false,
+		},
+		{
+			SpendPolicy{PolicyTypeUnlockConditions{
+				Timelock: 10,
+			}},
+			1,
+			nil,
+			false,
+		},
+		{
+			SpendPolicy{PolicyTypeUnlockConditions{
+				SignaturesRequired: 1000,
+			}},
+			1,
+			nil,
+			false,
+		},
+		{
+			SpendPolicy{PolicyTypeUnlockConditions{
+				PublicKeys: []UnlockKey{{
+					Algorithm: SpecifierEntropy,
+					Key:       nil,
+				}},
+				SignaturesRequired: 1,
+			}},
+			1,
+			[]Signature{key.SignHash(sigHash)},
+			false,
+		},
+		{
+			SpendPolicy{PolicyTypeUnlockConditions{
+				PublicKeys: []UnlockKey{{
+					Algorithm: SpecifierEd25519,
+					Key:       nil,
+				}},
+				SignaturesRequired: 1,
+			}},
+			1,
+			[]Signature{key.SignHash(sigHash)},
+			false,
+		},
+		{
+			SpendPolicy{PolicyTypeUnlockConditions{
+				PublicKeys:         []UnlockKey{pk.UnlockKey()},
+				SignaturesRequired: 2,
+			}},
+			1,
+			[]Signature{key.SignHash(sigHash)},
+			false,
+		},
+		{
+			SpendPolicy{PolicyTypeUnlockConditions{
+				PublicKeys:         []UnlockKey{pk.UnlockKey()},
+				SignaturesRequired: 1,
+			}},
+			1,
+			[]Signature{key.SignHash(sigHash)},
+			true,
+		},
+	} {
+		if err := test.p.Verify(test.height, sigHash, test.sigs); err != nil && test.valid {
+			t.Fatal(err)
+		} else if err == nil && !test.valid {
+			t.Fatal("expected error")
+		}
 	}
-	if StandardAddress(PublicKey{1, 2, 3}) != PolicyPublicKey(PublicKey{1, 2, 3}).Address() {
+}
+
+func TestPolicyGolden(t *testing.T) {
+	pk := PublicKey{1, 2, 3}
+	p := SpendPolicy{PolicyTypeUnlockConditions(StandardUnlockConditions(pk))}
+	if p.Address().String() != "addr:72b0762b382d4c251af5ae25b6777d908726d75962e5224f98d7f619bb39515dd64b9a56043a" {
+		t.Fatal("wrong address:", p, p.Address())
+	} else if StandardUnlockHash(pk) != p.Address() {
+		t.Fatal("StandardUnlockHash differs from Policy.Address")
+	}
+	if StandardAddress(pk) != PolicyPublicKey(pk).Address() {
 		t.Fatal("StandardAddress differs from Policy.Address")
 	}
 
 	p = PolicyThreshold(2, []SpendPolicy{
 		PolicyAbove(100),
-		PolicyPublicKey(PublicKey{1, 2, 3}),
+		PolicyPublicKey(pk),
 		PolicyThreshold(2, []SpendPolicy{
 			PolicyAbove(200),
 			PolicyPublicKey(PublicKey{4, 5, 6}),
@@ -79,7 +262,7 @@ func TestPolicyRoundtrip(t *testing.T) {
 
 		PolicyOpaque(PolicyPublicKey(PublicKey{1, 2, 3})),
 
-		{PolicyTypeUnlockConditions{PublicKeys: []UnlockKey{PublicKey{1, 2, 3}.UnlockKey()}}},
+		{PolicyTypeUnlockConditions{PublicKeys: []UnlockKey{PublicKey{1, 2, 3}.UnlockKey(), PublicKey{4, 5, 6}.UnlockKey()}}},
 	} {
 		var p2 SpendPolicy
 		roundtrip(p, &p2)
