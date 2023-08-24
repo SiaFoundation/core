@@ -101,6 +101,7 @@ type MidState struct {
 	ephemeral          map[types.Hash256]int // indices into element slices
 	spends             map[types.Hash256]types.TransactionID
 	revs               map[types.Hash256]*types.FileContractElement
+	v2revs             map[types.Hash256]*types.V2FileContractElement
 	siafundPool        types.Currency
 	foundationPrimary  types.Address
 	foundationFailsafe types.Address
@@ -168,6 +169,10 @@ func (ms *MidState) revision(id types.Hash256) *types.FileContractElement {
 	return ms.revs[id]
 }
 
+func (ms *MidState) v2revision(id types.Hash256) *types.V2FileContractElement {
+	return ms.v2revs[id]
+}
+
 func (ms *MidState) spent(id types.Hash256) (types.TransactionID, bool) {
 	txid, ok := ms.spends[id]
 	return txid, ok
@@ -185,6 +190,7 @@ func NewMidState(s State) *MidState {
 		ephemeral:          make(map[types.Hash256]int),
 		spends:             make(map[types.Hash256]types.TransactionID),
 		revs:               make(map[types.Hash256]*types.FileContractElement),
+		v2revs:             make(map[types.Hash256]*types.V2FileContractElement),
 		siafundPool:        s.SiafundPool,
 		foundationPrimary:  s.FoundationPrimaryAddress,
 		foundationFailsafe: s.FoundationFailsafeAddress,

@@ -349,6 +349,25 @@ func (ms *MidState) reviseFileContractElement(fce types.FileContractElement, rev
 	}
 }
 
+func (ms *MidState) reviseV2FileContractElement(fce types.V2FileContractElement, rev types.V2FileContract) {
+	rev.TotalCollateral = fce.V2FileContract.TotalCollateral
+	if i, ok := ms.ephemeral[fce.ID]; ok {
+		ms.v2fces[i].V2FileContract = rev
+	} else {
+		if r, ok := ms.v2revs[fce.ID]; ok {
+			r.V2FileContract = rev
+		} else {
+			// store the original
+			fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
+			ms.v2fces = append(ms.v2fces, fce)
+			// store the revision
+			fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
+			fce.V2FileContract = rev
+			ms.v2revs[fce.ID] = &fce
+		}
+	}
+}
+
 func (ms *MidState) resolveFileContractElement(fce types.FileContractElement, txid types.TransactionID) {
 	ms.spends[fce.ID] = txid
 	fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
@@ -361,10 +380,10 @@ func (ms *MidState) addV2FileContractElement(fce types.V2FileContractElement) {
 	ms.siafundPool = ms.siafundPool.Add(ms.base.V2FileContractTax(fce.V2FileContract))
 }
 
-func (ms *MidState) reviseV2FileContractElement(fce types.V2FileContractElement, rev types.V2FileContract) {
-	fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
-	ms.v2fces = append(ms.v2fces, fce)
-}
+// func (ms *MidState) reviseV2FileContractElement(fce types.V2FileContractElement, rev types.V2FileContract) {
+// 	fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
+// 	ms.v2fces = append(ms.v2fces, fce)
+// }
 
 func (ms *MidState) resolveV2FileContractElement(fce types.V2FileContractElement, txid types.TransactionID) {
 	ms.spends[fce.ID] = txid
@@ -590,7 +609,11 @@ func (ms *MidState) forEachElementLeaf(fn func(elementLeaf)) {
 		}
 	}
 	for i := range ms.v2fces {
-		fn(v2FileContractLeaf(&ms.v2fces[i], ms.isSpent(ms.v2fces[i].ID)))
+		if r, ok := ms.v2revs[ms.v2fces[i].ID]; ok {
+			fn(v2FileContractLeaf(r, ms.isSpent(ms.v2fces[i].ID)))
+		} else {
+			fn(v2FileContractLeaf(&ms.v2fces[i], ms.isSpent(ms.v2fces[i].ID)))
+		}
 	}
 	for i := range ms.aes {
 		fn(attestationLeaf(&ms.aes[i]))
@@ -623,6 +646,14 @@ func (au ApplyUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, sp
 func (au ApplyUpdate) ForEachFileContractElement(fn func(fce types.FileContractElement, rev *types.FileContractElement, resolved bool)) {
 	for _, fce := range au.ms.fces {
 		fn(fce, au.ms.revision(fce.ID), au.ms.isSpent(fce.ID))
+	}
+}
+
+// ForEachV2FileContractElement calls fn on each V2 file contract element
+// related to au. If the contract was revised, rev is non-nil.
+func (au ApplyUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileContractElement, rev *types.V2FileContractElement, resolved bool)) {
+	for _, fce := range au.ms.v2fces {
+		fn(fce, au.ms.v2revision(fce.ID), au.ms.isSpent(fce.ID))
 	}
 }
 

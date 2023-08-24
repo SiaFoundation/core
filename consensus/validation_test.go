@@ -433,10 +433,50 @@ func TestValidateV2Block(t *testing.T) {
 
 	giftPrivateKey := types.GeneratePrivateKey()
 	giftPublicKey := giftPrivateKey.PublicKey()
+
+	renterPrivateKey := types.GeneratePrivateKey()
+	renterPublicKey := renterPrivateKey.PublicKey()
+	hostPrivateKey := types.GeneratePrivateKey()
+	hostPublicKey := hostPrivateKey.PublicKey()
+
+	signTxn := func(cs consensus.State, txn *types.V2Transaction) {
+		// file contract signing must be first because state.InputSigHash
+		// is different without renter/host signatures
+		for i := range txn.FileContracts {
+			txn.FileContracts[i].RenterSignature = renterPrivateKey.SignHash(cs.ContractSigHash(txn.FileContracts[i]))
+			txn.FileContracts[i].HostSignature = hostPrivateKey.SignHash(cs.ContractSigHash(txn.FileContracts[i]))
+		}
+		for i := range txn.FileContractRevisions {
+			txn.FileContractRevisions[i].Revision.RenterSignature = renterPrivateKey.SignHash(cs.ContractSigHash(txn.FileContractRevisions[i].Revision))
+			txn.FileContractRevisions[i].Revision.HostSignature = hostPrivateKey.SignHash(cs.ContractSigHash(txn.FileContractRevisions[i].Revision))
+		}
+		for i := range txn.SiacoinInputs {
+			txn.SiacoinInputs[i].Signatures = append(txn.SiacoinInputs[i].Signatures, giftPrivateKey.SignHash(cs.InputSigHash(*txn)))
+		}
+		for i := range txn.SiafundInputs {
+			txn.SiafundInputs[i].Signatures = append(txn.SiafundInputs[i].Signatures, giftPrivateKey.SignHash(cs.InputSigHash(*txn)))
+		}
+	}
+
 	giftAddress := types.StandardUnlockHash(giftPublicKey)
+	giftPolicy := types.SpendPolicy{types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(giftPublicKey))}
+
 	giftAmountSC := types.Siacoins(100)
 	giftAmountSF := uint64(100)
-	giftPolicy := types.SpendPolicy{types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(giftPublicKey))}
+	v1GiftFC := rhpv2.PrepareContractFormation(renterPublicKey, hostPublicKey, types.Siacoins(1), types.Siacoins(1), 100, rhpv2.HostSettings{}, types.VoidAddress)
+	v2GiftFC := types.V2FileContract{
+		Filesize:         v1GiftFC.Filesize,
+		ProofHeight:      5,
+		ExpirationHeight: 10,
+		// ExpirationHeight:
+		RenterOutput:    v1GiftFC.ValidProofOutputs[0],
+		HostOutput:      v1GiftFC.ValidProofOutputs[1],
+		MissedHostValue: v1GiftFC.MissedProofOutputs[1].Value,
+		TotalCollateral: v1GiftFC.Payout,
+		RenterPublicKey: renterPublicKey,
+		HostPublicKey:   hostPublicKey,
+	}
+
 	giftTxn := types.V2Transaction{
 		SiacoinOutputs: []types.SiacoinOutput{
 			{Address: giftAddress, Value: giftAmountSC},
@@ -444,7 +484,10 @@ func TestValidateV2Block(t *testing.T) {
 		SiafundOutputs: []types.SiafundOutput{
 			{Address: giftAddress, Value: giftAmountSF},
 		},
+		FileContracts: []types.V2FileContract{v2GiftFC},
 	}
+	signTxn(n.GenesisState(), &giftTxn)
+
 	genesisBlock.Transactions = nil
 	genesisBlock.V2 = &types.V2BlockData{
 		Transactions: []types.V2Transaction{giftTxn},
@@ -461,6 +504,10 @@ func TestValidateV2Block(t *testing.T) {
 	cau.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
 		sfes = append(sfes, sfe)
 	})
+	var fces []types.V2FileContractElement
+	cau.ForEachV2FileContractElement(func(fce types.V2FileContractElement, rev *types.V2FileContractElement, resolved bool) {
+		fces = append(fces, fce)
+	})
 
 	dbStore, checkpoint, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
 	if err != nil {
@@ -468,17 +515,10 @@ func TestValidateV2Block(t *testing.T) {
 	}
 	cs := checkpoint.State
 
-	signTxn := func(txn *types.V2Transaction) {
-		for i := range txn.SiacoinInputs {
-			// txn.SiacoinInputs[i].Signatures = append(txn.SiacoinInputs[i].Signatures, giftPrivateKey.SignHash(types.Hash256(txn.SiacoinInputs[i].ParentID)))
-			txn.SiacoinInputs[i].Signatures = append(txn.SiacoinInputs[i].Signatures, giftPrivateKey.SignHash(cs.InputSigHash(*txn)))
-		}
-		for i := range txn.SiafundInputs {
-			// txn.SiafundInputs[i].Signatures = append(txn.SiafundInputs[i].Signatures, giftPrivateKey.SignHash(types.Hash256(txn.SiafundInputs[i].ParentID)))
-			txn.SiafundInputs[i].Signatures = append(txn.SiafundInputs[i].Signatures, giftPrivateKey.SignHash(cs.InputSigHash(*txn)))
-		}
-	}
-
+	rev1 := v2GiftFC
+	rev1.RevisionNumber++
+	rev2 := rev1
+	rev2.RevisionNumber++
 	minerFee := types.Siacoins(1)
 	b := types.Block{
 		ParentID:  genesisBlock.ID(),
@@ -502,6 +542,16 @@ func TestValidateV2Block(t *testing.T) {
 					{Value: giftAmountSF / 2, Address: giftAddress},
 					{Value: giftAmountSF / 2, Address: types.VoidAddress},
 				},
+				FileContractRevisions: []types.V2FileContractRevision{
+					{
+						Parent:   fces[0],
+						Revision: rev1,
+					},
+					{
+						Parent:   fces[0],
+						Revision: rev2,
+					},
+				},
 				MinerFee: minerFee,
 			}},
 		},
@@ -510,10 +560,10 @@ func TestValidateV2Block(t *testing.T) {
 			Value:   cs.BlockReward().Add(minerFee),
 		}},
 	}
-	signTxn(&b.V2.Transactions[0])
+	signTxn(cs, &b.V2.Transactions[0])
 	b.V2.Commitment = cs.Commitment(b.MinerPayouts[0].Address, b.Transactions, b.V2.Transactions)
 
-	// block should be valid
+	// initial block should be valid
 	validBlock := deepCopyBlock(b)
 	findBlockNonce(cs, &validBlock)
 	if err := consensus.ValidateBlock(cs, validBlock, dbStore.SupplementTipBlock(validBlock)); err != nil {
@@ -677,11 +727,49 @@ func TestValidateV2Block(t *testing.T) {
 					txn.NewFoundationAddress = &addr
 				},
 			},
+			{
+				"revision with window that starts in past",
+				func(b *types.Block) {
+					txn := &b.V2.Transactions[0]
+					txn.FileContractRevisions[0].Revision.ProofHeight = cs.Index.Height
+				},
+			},
+			{
+				"revision with window that ends before it begins",
+				func(b *types.Block) {
+					txn := &b.V2.Transactions[0]
+					txn.FileContractRevisions[0].Revision.ExpirationHeight = txn.FileContractRevisions[0].Revision.ProofHeight
+				},
+			},
+			{
+				"revision with lower revision number than its parent",
+				func(b *types.Block) {
+					txn := &b.V2.Transactions[0]
+					txn.FileContractRevisions[0].Revision.RevisionNumber = 0
+				},
+			},
+			{
+				"revision having different valid payout sum",
+				func(b *types.Block) {
+					txn := &b.V2.Transactions[0]
+					txn.FileContractRevisions[0].Revision.HostOutput.Value = txn.FileContractRevisions[0].Revision.HostOutput.Value.Add(types.Siacoins(1))
+				},
+			},
+			// currently FAILS
+			{
+				"conflicting revisions in same transaction",
+				func(b *types.Block) {
+					txn := &b.V2.Transactions[0]
+					newRevision := txn.FileContractRevisions[0]
+					newRevision.Revision.RevisionNumber++
+					txn.FileContractRevisions = append(txn.FileContractRevisions, newRevision)
+				},
+			},
 		}
 		for _, test := range tests {
 			corruptBlock := deepCopyBlock(validBlock)
 			test.corrupt(&corruptBlock)
-			signTxn(&corruptBlock.V2.Transactions[0])
+			signTxn(cs, &corruptBlock.V2.Transactions[0])
 			if len(corruptBlock.MinerPayouts) > 0 {
 				corruptBlock.V2.Commitment = cs.Commitment(corruptBlock.MinerPayouts[0].Address, corruptBlock.Transactions, corruptBlock.V2.Transactions)
 			}
