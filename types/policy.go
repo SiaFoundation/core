@@ -3,6 +3,7 @@ package types
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -93,6 +94,69 @@ func (p SpendPolicy) Address() Address {
 	}
 	p.EncodeTo(h.E)
 	return Address(h.Sum())
+}
+
+// Verify verifies that p is satisfied by the supplied inputs.
+func (p SpendPolicy) Verify(height uint64, sigHash Hash256, sigs []Signature) error {
+	nextSig := func() (sig Signature, ok bool) {
+		if ok = len(sigs) > 0; ok {
+			sig, sigs = sigs[0], sigs[1:]
+		}
+		return
+	}
+	errInvalidSignature := errors.New("invalid signature")
+	var verify func(SpendPolicy) error
+	verify = func(p SpendPolicy) error {
+		switch p := p.Type.(type) {
+		case PolicyTypeAbove:
+			if height > uint64(p) {
+				return nil
+			}
+			return fmt.Errorf("height not above %v", uint64(p))
+		case PolicyTypePublicKey:
+			sig, ok := nextSig()
+			if ok && PublicKey(p).VerifyHash(sigHash, sig) {
+				return nil
+			}
+			return errInvalidSignature
+		case PolicyTypeThreshold:
+			for i := 0; i < len(p.Of) && p.N > 0 && len(p.Of[i:]) >= int(p.N); i++ {
+				if _, ok := p.Of[i].Type.(PolicyTypeUnlockConditions); ok {
+					return errors.New("unlock conditions cannot be sub-policies")
+				} else if err := verify(p.Of[i]); err == errInvalidSignature {
+					return err // fatal; should have been opaque
+				} else if err == nil {
+					p.N--
+				}
+			}
+			if p.N == 0 {
+				return nil
+			}
+			return errors.New("threshold not reached")
+		case PolicyTypeOpaque:
+			return errors.New("opaque policy")
+		case PolicyTypeUnlockConditions:
+			if err := verify(PolicyAbove(p.Timelock)); err != nil {
+				return err
+			} else if p.SignaturesRequired > 255 {
+				return fmt.Errorf("too many signatures required (%v > 255)", p.SignaturesRequired)
+			}
+			n := uint8(p.SignaturesRequired)
+			of := make([]SpendPolicy, len(p.PublicKeys))
+			for i, pk := range p.PublicKeys {
+				if pk.Algorithm != SpecifierEd25519 {
+					return fmt.Errorf("unsupported algorithm %v", pk.Algorithm)
+				} else if len(pk.Key) != len(PublicKey{}) {
+					return fmt.Errorf("invalid Ed25519 key length %v", len(pk.Key))
+				}
+				of[i] = PolicyPublicKey(*(*PublicKey)(pk.Key))
+			}
+			return verify(PolicyThreshold(n, of))
+		default:
+			panic("invalid policy type") // developer error
+		}
+	}
+	return verify(p)
 }
 
 // String implements fmt.Stringer.

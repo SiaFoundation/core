@@ -459,9 +459,6 @@ func (p SpendPolicy) encodePolicy(e *Encoder) {
 		e.WriteUint8(p.N)
 		e.WriteUint8(uint8(len(p.Of)))
 		for i := range p.Of {
-			if _, ok := p.Of[i].Type.(PolicyTypeUnlockConditions); ok {
-				panic("unlock condition policies cannot be composed")
-			}
 			p.Of[i].encodePolicy(e)
 		}
 	case PolicyTypeOpaque:
@@ -1008,11 +1005,8 @@ func (p *SpendPolicy) DecodeFrom(d *Decoder) {
 			}
 			var err error
 			for i := range of {
-				of[i], err = readPolicy()
-				if err != nil {
+				if of[i], err = readPolicy(); err != nil {
 					return SpendPolicy{}, err
-				} else if _, ok := of[i].Type.(PolicyTypeUnlockConditions); ok {
-					return SpendPolicy{}, errors.New("unlock condition policies cannot be composed")
 				}
 			}
 			return PolicyThreshold(n, of), nil

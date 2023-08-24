@@ -662,64 +662,6 @@ func validateV2CurrencyValues(ms *MidState, txn types.V2Transaction) error {
 	return nil
 }
 
-func validateSpendPolicy(s State, p types.SpendPolicy, sigHash types.Hash256, sigs []types.Signature) error {
-	nextSig := func() (sig types.Signature, ok bool) {
-		if ok = len(sigs) > 0; ok {
-			sig, sigs = sigs[0], sigs[1:]
-		}
-		return
-	}
-	var verify func(types.SpendPolicy) error
-	verify = func(p types.SpendPolicy) error {
-		switch p := p.Type.(type) {
-		case types.PolicyTypeAbove:
-			if s.Index.Height > uint64(p) {
-				return nil
-			}
-			return fmt.Errorf("height not above %v", uint64(p))
-		case types.PolicyTypePublicKey:
-			sig, ok := nextSig()
-			if ok && types.PublicKey(p).VerifyHash(sigHash, sig) {
-				return nil
-			}
-			return errors.New("signature does not match pubkey")
-		case types.PolicyTypeThreshold:
-			for i := 0; i < len(p.Of) && p.N > 0 && len(p.Of[i:]) >= int(p.N); i++ {
-				if verify(p.Of[i]) == nil {
-					p.N--
-				}
-			}
-			if p.N == 0 {
-				return nil
-			}
-			return errors.New("threshold not reached")
-		case types.PolicyTypeOpaque:
-			return errors.New("opaque policy")
-		case types.PolicyTypeUnlockConditions:
-			if err := verify(types.PolicyAbove(p.Timelock)); err != nil {
-				return err
-			}
-			if p.SignaturesRequired > 255 {
-				return fmt.Errorf("too many signatures required (%v > 255)", p.SignaturesRequired)
-			}
-			n := uint8(p.SignaturesRequired)
-			of := make([]types.SpendPolicy, len(p.PublicKeys))
-			for i, pk := range p.PublicKeys {
-				if pk.Algorithm != types.SpecifierEd25519 {
-					return fmt.Errorf("unsupported algorithm %v", pk.Algorithm)
-				} else if len(pk.Key) != len(types.PublicKey{}) {
-					return fmt.Errorf("invalid Ed25519 key length %v", len(pk.Key))
-				}
-				of[i] = types.PolicyPublicKey(*(*types.PublicKey)(pk.Key))
-			}
-			return verify(types.PolicyThreshold(n, of))
-		default:
-			panic("invalid policy type") // developer error
-		}
-	}
-	return verify(p)
-}
-
 func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 	sigHash := ms.base.InputSigHash(txn)
 	for i, sci := range txn.SiacoinInputs {
@@ -742,7 +684,7 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 		// check spend policy
 		if sci.SpendPolicy.Address() != sci.Parent.Address {
 			return fmt.Errorf("siacoin input %v claims incorrect policy for parent address", i)
-		} else if err := validateSpendPolicy(ms.base, sci.SpendPolicy, sigHash, sci.Signatures); err != nil {
+		} else if err := sci.SpendPolicy.Verify(ms.base.Index.Height, sigHash, sci.Signatures); err != nil {
 			return fmt.Errorf("siacoin input %v failed to satisfy spend policy: %w", i, err)
 		}
 	}
@@ -798,7 +740,7 @@ func validateV2Siafunds(ms *MidState, txn types.V2Transaction) error {
 		// check spend policy
 		if sci.SpendPolicy.Address() != sci.Parent.Address {
 			return fmt.Errorf("siafund input %v claims incorrect policy for parent address", i)
-		} else if err := validateSpendPolicy(ms.base, sci.SpendPolicy, sigHash, sci.Signatures); err != nil {
+		} else if err := sci.SpendPolicy.Verify(ms.base.Index.Height, sigHash, sci.Signatures); err != nil {
 			return fmt.Errorf("siafund input %v failed to satisfy spend policy: %w", i, err)
 		}
 	}
