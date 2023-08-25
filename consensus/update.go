@@ -350,7 +350,6 @@ func (ms *MidState) reviseFileContractElement(fce types.FileContractElement, rev
 }
 
 func (ms *MidState) reviseV2FileContractElement(fce types.V2FileContractElement, rev types.V2FileContract) {
-	rev.TotalCollateral = fce.V2FileContract.TotalCollateral
 	if i, ok := ms.ephemeral[fce.ID]; ok {
 		ms.v2fces[i].V2FileContract = rev
 	} else {
@@ -645,7 +644,7 @@ func (au ApplyUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, sp
 // au. If the contract was revised, rev is non-nil.
 func (au ApplyUpdate) ForEachFileContractElement(fn func(fce types.FileContractElement, rev *types.FileContractElement, resolved bool)) {
 	for _, fce := range au.ms.fces {
-		fn(fce, au.ms.revision(fce.ID), au.ms.isSpent(fce.ID))
+		fn(fce, au.ms.revs[fce.ID], au.ms.isSpent(fce.ID))
 	}
 }
 
@@ -653,7 +652,7 @@ func (au ApplyUpdate) ForEachFileContractElement(fn func(fce types.FileContractE
 // related to au. If the contract was revised, rev is non-nil.
 func (au ApplyUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileContractElement, rev *types.V2FileContractElement, resolved bool)) {
 	for _, fce := range au.ms.v2fces {
-		fn(fce, au.ms.v2revision(fce.ID), au.ms.isSpent(fce.ID))
+		fn(fce, au.ms.v2revs[fce.ID], au.ms.isSpent(fce.ID))
 	}
 }
 
@@ -718,7 +717,7 @@ func (ru RevertUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, s
 func (ru RevertUpdate) ForEachFileContractElement(fn func(fce types.FileContractElement, rev *types.FileContractElement, resolved bool)) {
 	for i := range ru.ms.fces {
 		fce := ru.ms.fces[len(ru.ms.fces)-i-1]
-		fn(fce, ru.ms.revision(fce.ID), ru.ms.isSpent(fce.ID))
+		fn(fce, ru.ms.revs[fce.ID], ru.ms.isSpent(fce.ID))
 	}
 }
 

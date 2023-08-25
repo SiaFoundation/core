@@ -486,7 +486,6 @@ func TestValidateV2Block(t *testing.T) {
 		},
 		FileContracts: []types.V2FileContract{v2GiftFC},
 	}
-	signTxn(n.GenesisState(), &giftTxn)
 
 	genesisBlock.Transactions = nil
 	genesisBlock.V2 = &types.V2BlockData{

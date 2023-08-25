@@ -165,14 +165,6 @@ func (ms *MidState) mustFileContractElement(ts V1TransactionSupplement, id types
 	return fce
 }
 
-func (ms *MidState) revision(id types.Hash256) *types.FileContractElement {
-	return ms.revs[id]
-}
-
-func (ms *MidState) v2revision(id types.Hash256) *types.V2FileContractElement {
-	return ms.v2revs[id]
-}
-
 func (ms *MidState) spent(id types.Hash256) (types.TransactionID, bool) {
 	txid, ok := ms.spends[id]
 	return txid, ok
