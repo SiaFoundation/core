@@ -514,6 +514,10 @@ func TestValidateV2Block(t *testing.T) {
 	}
 	cs := checkpoint.State
 
+	fc := v2GiftFC
+	fc.TotalCollateral = fc.HostOutput.Value
+	difference, _ := types.ParseCurrency("2080000000000000000000000")
+
 	rev1 := v2GiftFC
 	rev1.RevisionNumber++
 	rev2 := rev1
@@ -535,12 +539,13 @@ func TestValidateV2Block(t *testing.T) {
 					SpendPolicy:  giftPolicy,
 				}},
 				SiacoinOutputs: []types.SiacoinOutput{
-					{Value: giftAmountSC.Sub(minerFee), Address: giftAddress},
+					{Value: giftAmountSC.Sub(minerFee).Sub(difference), Address: giftAddress},
 				},
 				SiafundOutputs: []types.SiafundOutput{
 					{Value: giftAmountSF / 2, Address: giftAddress},
 					{Value: giftAmountSF / 2, Address: types.VoidAddress},
 				},
+				FileContracts: []types.V2FileContract{fc},
 				FileContractRevisions: []types.V2FileContractRevision{
 					{
 						Parent:   fces[0],
@@ -755,13 +760,42 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			// currently FAILS
+			// {
+			// 	"conflicting revisions in same transaction",
+			// 	func(b *types.Block) {
+			// 		txn := &b.V2.Transactions[0]
+			// 		newRevision := txn.FileContractRevisions[0]
+			// 		newRevision.Revision.RevisionNumber++
+			// 		txn.FileContractRevisions = append(txn.FileContractRevisions, newRevision)
+			// 	},
+			// },
 			{
-				"conflicting revisions in same transaction",
+				"window that starts in the past",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
-					newRevision := txn.FileContractRevisions[0]
-					newRevision.Revision.RevisionNumber++
-					txn.FileContractRevisions = append(txn.FileContractRevisions, newRevision)
+					txn.FileContracts[0].ProofHeight = 0
+				},
+			},
+			{
+				"window that ends before it begins",
+				func(b *types.Block) {
+					txn := &b.V2.Transactions[0]
+					txn.FileContracts[0].ProofHeight = txn.FileContracts[0].ExpirationHeight
+				},
+			},
+			{
+				"valid payout that does not equal missed payout",
+				func(b *types.Block) {
+					txn := &b.V2.Transactions[0]
+					txn.FileContracts[0].HostOutput.Value = txn.FileContracts[0].HostOutput.Value.Add(types.Siacoins(1))
+				},
+			},
+			{
+				"incorrect payout tax",
+				func(b *types.Block) {
+					txn := &b.V2.Transactions[0]
+					txn.SiacoinOutputs[0].Value = txn.SiacoinOutputs[0].Value.Add(types.Siacoins(1))
+					txn.FileContracts[0].TotalCollateral = txn.FileContracts[0].TotalCollateral.Sub(types.Siacoins(1))
 				},
 			},
 		}
