@@ -565,11 +565,11 @@ type V2StorageProof struct {
 	// ID of the block at the contract's ProofHeight. The storage proof thus
 	// includes a proof that this ID is the correct ancestor.
 	//
-	// During validation, it is imperative to check that ProofStart.Height
-	// matches the ProofStart field of the contract's final revision; otherwise,
-	// the prover could use any ProofStart, giving them control over the leaf
-	// index.
-	ProofStart ChainIndexElement
+	// During validation, it is imperative to check that ProofIndex.Height
+	// matches the ProofHeight field of the contract's final revision;
+	// otherwise, the prover could use any ProofIndex, giving them control over
+	// the leaf index.
+	ProofIndex ChainIndexElement
 
 	// The leaf is always 64 bytes, extended with zeros if necessary.
 	Leaf  [64]byte
@@ -601,45 +601,45 @@ type StateElement struct {
 	MerkleProof []Hash256 `json:"merkleProof"`
 }
 
-// A ChainIndexElement is a record of a SiacoinOutput within the state accumulator.
+// A ChainIndexElement is a record of a ChainIndex within the state accumulator.
 type ChainIndexElement struct {
 	StateElement
-	ChainIndex
+	ChainIndex ChainIndex `json:"chainIndex"`
 }
 
 // A SiacoinElement is a record of a SiacoinOutput within the state accumulator.
 type SiacoinElement struct {
 	StateElement
-	SiacoinOutput
-	MaturityHeight uint64 `json:"maturityHeight"`
+	SiacoinOutput  SiacoinOutput `json:"siacoinOutput"`
+	MaturityHeight uint64        `json:"maturityHeight"`
 }
 
 // A SiafundElement is a record of a SiafundOutput within the state accumulator.
 type SiafundElement struct {
 	StateElement
-	SiafundOutput
-	ClaimStart Currency `json:"claimStart"` // value of SiafundPool when element was created
+	SiafundOutput SiafundOutput `json:"siafundOutput"`
+	ClaimStart    Currency      `json:"claimStart"` // value of SiafundPool when element was created
 }
 
 // A FileContractElement is a record of a FileContract within the state
 // accumulator.
 type FileContractElement struct {
 	StateElement
-	FileContract
+	FileContract FileContract `json:"fileContract"`
 }
 
 // A V2FileContractElement is a record of a V2FileContract within the state
 // accumulator.
 type V2FileContractElement struct {
 	StateElement
-	V2FileContract
+	V2FileContract V2FileContract `json:"v2FileContract"`
 }
 
 // An AttestationElement is a record of an Attestation within the state
 // accumulator.
 type AttestationElement struct {
 	StateElement
-	Attestation
+	Attestation Attestation `json:"attestation"`
 }
 
 // A V2Transaction effects a change of blockchain state.
@@ -778,7 +778,7 @@ func (txn *V2Transaction) DeepCopy() V2Transaction {
 	for i := range c.FileContractResolutions {
 		c.FileContractResolutions[i].Parent.MerkleProof = append([]Hash256(nil), c.FileContractResolutions[i].Parent.MerkleProof...)
 		if sp, ok := c.FileContractResolutions[i].Resolution.(V2StorageProof); ok {
-			sp.ProofStart.MerkleProof = append([]Hash256(nil), sp.ProofStart.MerkleProof...)
+			sp.ProofIndex.MerkleProof = append([]Hash256(nil), sp.ProofIndex.MerkleProof...)
 			sp.Proof = append([]Hash256(nil), sp.Proof...)
 			c.FileContractResolutions[i].Resolution = sp
 		}

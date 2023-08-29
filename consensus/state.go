@@ -278,7 +278,7 @@ func (s State) V2TransactionWeight(txn types.V2Transaction) uint64 {
 	for _, fcr := range txn.FileContractResolutions {
 		fcr.Parent.MerkleProof = nil
 		if sp, ok := fcr.Resolution.(types.V2StorageProof); ok {
-			sp.ProofStart.MerkleProof = nil
+			sp.ProofIndex.MerkleProof = nil
 			fcr.Resolution = sp
 		}
 		fcr.EncodeTo(e)
@@ -567,7 +567,7 @@ func (s State) InputSigHash(txn types.V2Transaction) types.Hash256 {
 		fcr.Parent.ID.EncodeTo(h.E)
 		// normalize proof
 		if sp, ok := fcr.Resolution.(types.V2StorageProof); ok {
-			sp.ProofStart.MerkleProof = nil
+			sp.ProofIndex.MerkleProof = nil
 			fcr.Resolution = sp
 		}
 		fcr.Resolution.(types.EncoderTo).EncodeTo(h.E)

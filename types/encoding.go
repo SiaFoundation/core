@@ -577,7 +577,7 @@ func (ren V2FileContractRenewal) EncodeTo(e *Encoder) {
 
 // EncodeTo implements types.EncoderTo.
 func (sp V2StorageProof) EncodeTo(e *Encoder) {
-	sp.ProofStart.EncodeTo(e)
+	sp.ProofIndex.EncodeTo(e)
 	e.Write(sp.Leaf[:])
 	e.WritePrefix(len(sp.Proof))
 	for _, p := range sp.Proof {
@@ -1130,7 +1130,7 @@ func (ren *V2FileContractRenewal) DecodeFrom(d *Decoder) {
 
 // DecodeFrom implements types.DecoderFrom.
 func (sp *V2StorageProof) DecodeFrom(d *Decoder) {
-	sp.ProofStart.DecodeFrom(d)
+	sp.ProofIndex.DecodeFrom(d)
 	d.Read(sp.Leaf[:])
 	sp.Proof = make([]Hash256, d.ReadPrefix())
 	for i := range sp.Proof {

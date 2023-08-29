@@ -390,7 +390,7 @@ func (ms *MidState) ApplyTransaction(txn types.Transaction, ts V1TransactionSupp
 	}
 	for _, sfi := range txn.SiafundInputs {
 		sfe := ms.mustSiafundElement(ts, sfi.ParentID)
-		claimPortion := ms.siafundPool.Sub(sfe.ClaimStart).Div64(ms.base.SiafundCount()).Mul64(sfe.Value)
+		claimPortion := ms.siafundPool.Sub(sfe.ClaimStart).Div64(ms.base.SiafundCount()).Mul64(sfe.SiafundOutput.Value)
 		ms.spendSiafundElement(sfe, txid)
 		ms.addSiacoinElement(types.SiacoinElement{
 			StateElement:   types.StateElement{ID: types.Hash256(sfi.ParentID.ClaimOutputID())},
@@ -417,7 +417,7 @@ func (ms *MidState) ApplyTransaction(txn types.Transaction, ts V1TransactionSupp
 	for _, sp := range txn.StorageProofs {
 		fce := ms.mustFileContractElement(ts, sp.ParentID)
 		ms.resolveFileContractElement(fce, txid)
-		for i, sco := range fce.ValidProofOutputs {
+		for i, sco := range fce.FileContract.ValidProofOutputs {
 			ms.addSiacoinElement(types.SiacoinElement{
 				StateElement:   types.StateElement{ID: types.Hash256(sp.ParentID.ValidOutputID(i))},
 				SiacoinOutput:  sco,
@@ -463,7 +463,7 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 	}
 	for _, sfi := range txn.SiafundInputs {
 		ms.spendSiafundElement(sfi.Parent, txid)
-		claimPortion := ms.siafundPool.Sub(sfi.Parent.ClaimStart).Div64(ms.base.SiafundCount()).Mul64(sfi.Parent.Value)
+		claimPortion := ms.siafundPool.Sub(sfi.Parent.ClaimStart).Div64(ms.base.SiafundCount()).Mul64(sfi.Parent.SiafundOutput.Value)
 		ms.addSiacoinElement(types.SiacoinElement{
 			StateElement:   nextElement(),
 			SiacoinOutput:  types.SiacoinOutput{Value: claimPortion, Address: sfi.ClaimAddress},
@@ -490,6 +490,7 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 		ms.resolveV2FileContractElement(fcr.Parent, txid)
 
 		fce := fcr.Parent
+		fc := fce.V2FileContract
 		var renter, host types.SiacoinOutput
 		switch r := fcr.Resolution.(type) {
 		case types.V2FileContractRenewal:
@@ -501,11 +502,11 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 				V2FileContract: r.InitialRevision,
 			})
 		case types.V2StorageProof:
-			renter, host = fce.RenterOutput, fce.HostOutput
+			renter, host = fc.RenterOutput, fc.HostOutput
 		case types.V2FileContract: // finalization
 			renter, host = r.RenterOutput, r.HostOutput
 		case types.V2FileContractExpiration:
-			renter, host = fce.RenterOutput, fce.MissedHostOutput()
+			renter, host = fc.RenterOutput, fc.MissedHostOutput()
 		}
 		ms.addSiacoinElement(types.SiacoinElement{
 			StateElement:   nextElement(),
@@ -558,7 +559,7 @@ func (ms *MidState) ApplyBlock(b types.Block, bs V1BlockSupplement) {
 			continue
 		}
 		ms.resolveFileContractElement(fce, types.TransactionID(bid))
-		for i, sco := range fce.MissedProofOutputs {
+		for i, sco := range fce.FileContract.MissedProofOutputs {
 			ms.addSiacoinElement(types.SiacoinElement{
 				StateElement:   types.StateElement{ID: types.Hash256(types.FileContractID(fce.ID).MissedOutputID(i))},
 				SiacoinOutput:  sco,

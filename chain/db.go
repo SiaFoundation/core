@@ -386,16 +386,16 @@ func (db *DBStore) applyElements(cau consensus.ApplyUpdate) {
 	cau.ForEachFileContractElement(func(fce types.FileContractElement, rev *types.FileContractElement, resolved bool) {
 		if resolved {
 			db.deleteFileContractElement(types.FileContractID(fce.ID))
-			db.deleteFileContractExpiration(types.FileContractID(fce.ID), fce.WindowEnd)
+			db.deleteFileContractExpiration(types.FileContractID(fce.ID), fce.FileContract.WindowEnd)
 		} else if rev != nil {
 			db.putFileContractElement(*rev)
-			if rev.WindowEnd != fce.WindowEnd {
-				db.deleteFileContractExpiration(types.FileContractID(fce.ID), fce.WindowEnd)
-				db.putFileContractExpiration(types.FileContractID(fce.ID), rev.WindowEnd)
+			if rev.FileContract.WindowEnd != fce.FileContract.WindowEnd {
+				db.deleteFileContractExpiration(types.FileContractID(fce.ID), fce.FileContract.WindowEnd)
+				db.putFileContractExpiration(types.FileContractID(fce.ID), rev.FileContract.WindowEnd)
 			}
 		} else {
 			db.putFileContractElement(fce)
-			db.putFileContractExpiration(types.FileContractID(fce.ID), fce.WindowEnd)
+			db.putFileContractExpiration(types.FileContractID(fce.ID), fce.FileContract.WindowEnd)
 		}
 		db.putElementProof(fce.StateElement)
 	})
@@ -406,20 +406,20 @@ func (db *DBStore) revertElements(cru consensus.RevertUpdate) {
 		if resolved {
 			// contract no longer resolved; restore it
 			db.putFileContractElement(fce)
-			db.putFileContractExpiration(types.FileContractID(fce.ID), fce.WindowEnd)
+			db.putFileContractExpiration(types.FileContractID(fce.ID), fce.FileContract.WindowEnd)
 			db.putElementProof(fce.StateElement)
 		} else if rev != nil {
 			// contract no longer revised; restore prior revision
 			db.putFileContractElement(fce)
-			if rev.WindowEnd != fce.WindowEnd {
-				db.deleteFileContractExpiration(types.FileContractID(fce.ID), fce.WindowEnd)
-				db.putFileContractExpiration(types.FileContractID(fce.ID), rev.WindowEnd)
+			if rev.FileContract.WindowEnd != fce.FileContract.WindowEnd {
+				db.deleteFileContractExpiration(types.FileContractID(fce.ID), fce.FileContract.WindowEnd)
+				db.putFileContractExpiration(types.FileContractID(fce.ID), rev.FileContract.WindowEnd)
 			}
 			db.putElementProof(fce.StateElement)
 		} else {
 			// contract no longer exists; delete it
 			db.deleteFileContractElement(types.FileContractID(fce.ID))
-			db.deleteFileContractExpiration(types.FileContractID(fce.ID), fce.WindowEnd)
+			db.deleteFileContractExpiration(types.FileContractID(fce.ID), fce.FileContract.WindowEnd)
 		}
 	})
 	cru.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
@@ -486,7 +486,7 @@ func (db *DBStore) SupplementTipTransaction(txn types.Transaction) (ts consensus
 	}
 	for _, sp := range txn.StorageProofs {
 		if fce, ok := db.getFileContractElement(sp.ParentID, numLeaves); ok {
-			if windowIndex, ok := db.BestIndex(fce.WindowStart - 1); ok {
+			if windowIndex, ok := db.BestIndex(fce.FileContract.WindowStart - 1); ok {
 				ts.ValidFileContracts = append(ts.ValidFileContracts, fce)
 				ts.StorageProofBlockIDs = append(ts.StorageProofBlockIDs, windowIndex.ID)
 			}

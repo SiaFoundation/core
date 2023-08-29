@@ -283,12 +283,12 @@ func validateSiacoins(ms *MidState, txn types.Transaction, ts V1TransactionSuppl
 		parent, ok := ms.siacoinElement(ts, sci.ParentID)
 		if !ok {
 			return fmt.Errorf("siacoin input %v spends nonexistent siacoin output %v", i, sci.ParentID)
-		} else if sci.UnlockConditions.UnlockHash() != parent.Address {
+		} else if sci.UnlockConditions.UnlockHash() != parent.SiacoinOutput.Address {
 			return fmt.Errorf("siacoin input %v claims incorrect unlock conditions for siacoin output %v", i, sci.ParentID)
 		} else if parent.MaturityHeight > ms.base.childHeight() {
 			return fmt.Errorf("siacoin input %v has immature parent", i)
 		}
-		inputSum = inputSum.Add(parent.Value)
+		inputSum = inputSum.Add(parent.SiacoinOutput.Value)
 	}
 	var outputSum types.Currency
 	for _, out := range txn.SiacoinOutputs {
@@ -317,14 +317,14 @@ func validateSiafunds(ms *MidState, txn types.Transaction, ts V1TransactionSuppl
 		parent, ok := ms.siafundElement(ts, sfi.ParentID)
 		if !ok {
 			return fmt.Errorf("siafund input %v spends nonexistent siafund output %v", i, sfi.ParentID)
-		} else if sfi.UnlockConditions.UnlockHash() != parent.Address &&
+		} else if sfi.UnlockConditions.UnlockHash() != parent.SiafundOutput.Address &&
 			// override old developer siafund address
 			!(ms.base.childHeight() >= ms.base.Network.HardforkDevAddr.Height &&
-				parent.Address == ms.base.Network.HardforkDevAddr.OldAddress &&
+				parent.SiafundOutput.Address == ms.base.Network.HardforkDevAddr.OldAddress &&
 				sfi.UnlockConditions.UnlockHash() == ms.base.Network.HardforkDevAddr.NewAddress) {
 			return fmt.Errorf("siafund input %v claims incorrect unlock conditions for siafund output %v", i, sfi.ParentID)
 		}
-		inputSum += parent.Value
+		inputSum += parent.SiafundOutput.Value
 	}
 	var outputSum uint64
 	for _, out := range txn.SiafundOutputs {
@@ -375,9 +375,9 @@ func validateFileContracts(ms *MidState, txn types.Transaction, ts V1Transaction
 		if !ok {
 			return fmt.Errorf("file contract revision %v revises nonexistent file contract %v", i, fcr.ParentID)
 		}
-		if fcr.FileContract.RevisionNumber <= parent.RevisionNumber {
+		if fcr.FileContract.RevisionNumber <= parent.FileContract.RevisionNumber {
 			return fmt.Errorf("file contract revision %v does not have a higher revision number than its parent", i)
-		} else if types.Hash256(fcr.UnlockConditions.UnlockHash()) != parent.UnlockHash {
+		} else if types.Hash256(fcr.UnlockConditions.UnlockHash()) != parent.FileContract.UnlockHash {
 			return fmt.Errorf("file contract revision %v claims incorrect unlock conditions", i)
 		}
 		outputSum := func(outputs []types.SiacoinOutput) (sum types.Currency) {
@@ -386,9 +386,9 @@ func validateFileContracts(ms *MidState, txn types.Transaction, ts V1Transaction
 			}
 			return sum
 		}
-		if outputSum(fcr.FileContract.ValidProofOutputs) != outputSum(parent.ValidProofOutputs) {
+		if outputSum(fcr.FileContract.ValidProofOutputs) != outputSum(parent.FileContract.ValidProofOutputs) {
 			return fmt.Errorf("file contract revision %v changes valid payout sum", i)
-		} else if outputSum(fcr.FileContract.MissedProofOutputs) != outputSum(parent.MissedProofOutputs) {
+		} else if outputSum(fcr.FileContract.MissedProofOutputs) != outputSum(parent.FileContract.MissedProofOutputs) {
 			return fmt.Errorf("file contract revision %v changes missed payout sum", i)
 		}
 	}
@@ -456,10 +456,11 @@ func validateFileContracts(ms *MidState, txn types.Transaction, ts V1Transaction
 		if txid, ok := ms.spent(types.Hash256(sp.ParentID)); ok {
 			return fmt.Errorf("storage proof %v conflicts with previous proof (in %v)", i, txid)
 		}
-		fc, ok := ms.fileContractElement(ts, sp.ParentID)
+		fce, ok := ms.fileContractElement(ts, sp.ParentID)
 		if !ok {
 			return fmt.Errorf("storage proof %v references nonexistent file contract", i)
 		}
+		fc := fce.FileContract
 		windowID := ts.storageProofWindowID(sp.ParentID)
 		leafIndex := ms.base.StorageProofLeafIndex(fc.Filesize, windowID, sp.ParentID)
 		leaf := storageProofLeaf(leafIndex, fc.Filesize, sp.Leaf)
@@ -680,7 +681,7 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 		}
 
 		// check spend policy
-		if sci.SpendPolicy.Address() != sci.Parent.Address {
+		if sci.SpendPolicy.Address() != sci.Parent.SiacoinOutput.Address {
 			return fmt.Errorf("siacoin input %v claims incorrect policy for parent address", i)
 		} else if err := sci.SpendPolicy.Verify(ms.base.Index.Height, sigHash, sci.Signatures); err != nil {
 			return fmt.Errorf("siacoin input %v failed to satisfy spend policy: %w", i, err)
@@ -689,7 +690,7 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 
 	var inputSum, outputSum types.Currency
 	for _, sci := range txn.SiacoinInputs {
-		inputSum = inputSum.Add(sci.Parent.Value)
+		inputSum = inputSum.Add(sci.Parent.SiacoinOutput.Value)
 	}
 	for _, out := range txn.SiacoinOutputs {
 		outputSum = outputSum.Add(out.Value)
@@ -718,34 +719,34 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 
 func validateV2Siafunds(ms *MidState, txn types.V2Transaction) error {
 	sigHash := ms.base.InputSigHash(txn)
-	for i, sci := range txn.SiafundInputs {
-		if txid, ok := ms.spent(sci.Parent.ID); ok {
+	for i, sfi := range txn.SiafundInputs {
+		if txid, ok := ms.spent(sfi.Parent.ID); ok {
 			return fmt.Errorf("siafund input %v double-spends parent output (previously spent in %v)", i, txid)
 		}
 
 		// check accumulator
-		if sci.Parent.LeafIndex == types.EphemeralLeafIndex {
-			if _, ok := ms.ephemeral[sci.Parent.ID]; !ok {
-				return fmt.Errorf("siafund input %v spends nonexistent ephemeral output %v", i, sci.Parent.ID)
+		if sfi.Parent.LeafIndex == types.EphemeralLeafIndex {
+			if _, ok := ms.ephemeral[sfi.Parent.ID]; !ok {
+				return fmt.Errorf("siafund input %v spends nonexistent ephemeral output %v", i, sfi.Parent.ID)
 			}
-		} else if !ms.base.Elements.containsUnspentSiafundElement(sci.Parent) {
-			if ms.base.Elements.containsSpentSiafundElement(sci.Parent) {
-				return fmt.Errorf("siafund input %v double-spends output %v", i, sci.Parent.ID)
+		} else if !ms.base.Elements.containsUnspentSiafundElement(sfi.Parent) {
+			if ms.base.Elements.containsSpentSiafundElement(sfi.Parent) {
+				return fmt.Errorf("siafund input %v double-spends output %v", i, sfi.Parent.ID)
 			}
-			return fmt.Errorf("siafund input %v spends output (%v) not present in the accumulator", i, sci.Parent.ID)
+			return fmt.Errorf("siafund input %v spends output (%v) not present in the accumulator", i, sfi.Parent.ID)
 		}
 
 		// check spend policy
-		if sci.SpendPolicy.Address() != sci.Parent.Address {
+		if sfi.SpendPolicy.Address() != sfi.Parent.SiafundOutput.Address {
 			return fmt.Errorf("siafund input %v claims incorrect policy for parent address", i)
-		} else if err := sci.SpendPolicy.Verify(ms.base.Index.Height, sigHash, sci.Signatures); err != nil {
+		} else if err := sfi.SpendPolicy.Verify(ms.base.Index.Height, sigHash, sfi.Signatures); err != nil {
 			return fmt.Errorf("siafund input %v failed to satisfy spend policy: %w", i, err)
 		}
 	}
 
 	var inputSum, outputSum uint64
 	for _, in := range txn.SiafundInputs {
-		inputSum += in.Parent.Value
+		inputSum += in.Parent.SiafundOutput.Value
 	}
 	for _, out := range txn.SiafundOutputs {
 		outputSum += out.Value
@@ -892,13 +893,13 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 			sp := r
 			if ms.base.childHeight() < fc.ProofHeight {
 				return fmt.Errorf("file contract storage proof %v cannot be submitted until after proof height (%v)", i, fc.ProofHeight)
-			} else if sp.ProofStart.Height != fc.ProofHeight {
+			} else if sp.ProofIndex.ChainIndex.Height != fc.ProofHeight {
 				// see note on this field in types.StorageProof
-				return fmt.Errorf("file contract storage proof %v has ProofStart (%v) that does not match contract ProofStart (%v)", i, sp.ProofStart.Height, fc.ProofHeight)
-			} else if ms.base.Elements.containsChainIndex(sp.ProofStart) {
+				return fmt.Errorf("file contract storage proof %v has ProofIndex height (%v) that does not match contract ProofHeight (%v)", i, sp.ProofIndex.ChainIndex.Height, fc.ProofHeight)
+			} else if ms.base.Elements.containsChainIndex(sp.ProofIndex) {
 				return fmt.Errorf("file contract storage proof %v has invalid history proof", i)
 			}
-			leafIndex := ms.base.StorageProofLeafIndex(fc.Filesize, sp.ProofStart.ChainIndex.ID, types.FileContractID(fcr.Parent.ID))
+			leafIndex := ms.base.StorageProofLeafIndex(fc.Filesize, sp.ProofIndex.ChainIndex.ID, types.FileContractID(fcr.Parent.ID))
 			if storageProofRoot(ms.base.StorageProofLeafHash(sp.Leaf[:]), leafIndex, fc.Filesize, sp.Proof) != fc.FileMerkleRoot {
 				return fmt.Errorf("file contract storage proof %v has root that does not match contract Merkle root", i)
 			}
@@ -929,7 +930,7 @@ func validateFoundationUpdate(ms *MidState, txn types.V2Transaction) error {
 		return nil
 	}
 	for _, in := range txn.SiacoinInputs {
-		if in.Parent.Address == ms.base.FoundationPrimaryAddress {
+		if in.Parent.SiacoinOutput.Address == ms.base.FoundationPrimaryAddress {
 			return nil
 		}
 	}
