@@ -596,7 +596,7 @@ func (res V2FileContractResolution) EncodeTo(e *Encoder) {
 		e.WriteUint8(0)
 	case *V2StorageProof:
 		e.WriteUint8(1)
-	case *V2FileContract:
+	case *V2FileContractFinalization:
 		e.WriteUint8(2)
 	case *V2FileContractExpiration:
 		e.WriteUint8(3)
@@ -1147,7 +1147,7 @@ func (res *V2FileContractResolution) DecodeFrom(d *Decoder) {
 	case 1:
 		res.Resolution = new(V2StorageProof)
 	case 2:
-		res.Resolution = new(V2FileContract)
+		res.Resolution = new(V2FileContractFinalization)
 	case 3:
 		res.Resolution = new(V2FileContractExpiration)
 	default:

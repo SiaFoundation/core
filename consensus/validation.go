@@ -650,8 +650,8 @@ func validateV2CurrencyValues(ms *MidState, txn types.V2Transaction) error {
 			addContract(r.InitialRevision)
 			add(r.RenterRollover)
 			add(r.HostRollover)
-		case *types.V2FileContract:
-			addContract(*r)
+		case *types.V2FileContractFinalization:
+			addContract(types.V2FileContract(*r))
 		}
 	}
 	add(txn.MinerFee)
@@ -882,8 +882,8 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 			} else if !fc.HostPublicKey.VerifyHash(renewalHash, renewal.HostSignature) {
 				return fmt.Errorf("file contract renewal %v has invalid host signature", i)
 			}
-		case *types.V2FileContract:
-			finalRevision := *r
+		case *types.V2FileContractFinalization:
+			finalRevision := types.V2FileContract(*r)
 			if finalRevision.RevisionNumber != types.MaxRevisionNumber {
 				return fmt.Errorf("file contract finalization %v does not set maximum revision number", i)
 			} else if err := validateRevision(fc, finalRevision); err != nil {

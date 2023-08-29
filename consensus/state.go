@@ -301,7 +301,7 @@ func (s State) V2TransactionWeight(txn types.V2Transaction) uint64 {
 	signatures += 2 * len(txn.FileContractRevisions)
 	for _, fcr := range txn.FileContractResolutions {
 		switch fcr.Resolution.(type) {
-		case *types.V2FileContractRenewal, *types.V2FileContract:
+		case *types.V2FileContractRenewal, *types.V2FileContractFinalization:
 			signatures += 2
 		}
 	}

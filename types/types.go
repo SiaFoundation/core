@@ -508,29 +508,34 @@ type V2FileContractRevision struct {
 // A V2FileContractResolution closes a v2 file contract's payment channel. There
 // are four ways a contract can be resolved:
 //
-// 1) The host can submit a storage proof. This is considered a "valid"
-// resolution: the RenterOutput and HostOutput fields of the (finalized)
-// contract are created.
+// 1) The renter and host can sign a final contract revision (a "finalization"),
+// after which the contract cannot be revised further.
 //
-// 2) The renter and host can sign a final contract revision (a "finalization"),
-// setting the contract's revision number to its maximum legal value. This is
-// considered a "valid" resolution.
-//
-// 3) The renter and host can jointly renew the contract. The old contract is
+// 2) The renter and host can jointly renew the contract. The old contract is
 // finalized, and a portion of its funds are "rolled over" into a new contract.
-// This is considered a "valid" resolution.
 //
-// 4) Lastly, anyone can submit a contract expiration. Typically, this results
-// in a "missed" resolution: the RenterOutput is created as usual, but the
-// HostOutput will have value equal to MissedHostValue. However, if the contract
-// is empty (i.e. its Filesize is 0), it instead resolves as valid.
+// 3) The host can submit a storage proof, asserting that it has faithfully
+// stored the contract data for the agreed-upon duration. Typically, a storage
+// proof is only required if the renter is unable or unwilling to sign a
+// finalization or renewal. A storage proof can only be submitted after the
+// contract's ProofHeight; this allows the renter (or host) to broadcast the
+// latest contract revision prior to the proof.
 //
-// There are two restrictions on when a particular type of resolution may be
-// submitted: a storage proof may only be submitted after the contract's
-// ProofHeight, and an expiration may only be submitted after the contract's
-// ExpirationHeight. Since anyone can submit an expiration, it is generally in
-// the renter and/or host's interest to submit a different type of resolution
-// prior to the ExpirationHeight.
+// 4) Lastly, anyone can submit a contract expiration. Typically, an expiration
+// is only required if the host is unable or unwilling to sign a finalization or
+// renewal. An expiration can only be submitted after the contract's
+// ExpirationHeight; this gives the host a reasonable window of time after the
+// ProofHeight in which to submit a storage proof.
+//
+// Once a contract has been resolved, it cannot be altered or resolved again.
+// When a contract is resolved, its RenterOutput and HostOutput are created
+// immediately (though they will not be spendable until their timelock expires).
+// However, if the contract is resolved via an expiration, the HostOutput will
+// have value equal to MissedHostValue; in other words, the host forfeits its
+// collateral. This is considered a "missed" resolution; all other resolution
+// types are "valid." As a special case, the expiration of an empty contract is
+// considered valid, reflecting the fact that the host has not failed to perform
+// any duty.
 type V2FileContractResolution struct {
 	Parent     V2FileContractElement        `json:"parent"`
 	Resolution V2FileContractResolutionType `json:"resolution"`
@@ -541,10 +546,14 @@ type V2FileContractResolutionType interface {
 	isV2FileContractResolution()
 }
 
-func (*V2FileContractRenewal) isV2FileContractResolution()    {}
-func (*V2StorageProof) isV2FileContractResolution()           {}
-func (*V2FileContract) isV2FileContractResolution()           {} // finalization
-func (*V2FileContractExpiration) isV2FileContractResolution() {}
+func (*V2FileContractFinalization) isV2FileContractResolution() {}
+func (*V2FileContractRenewal) isV2FileContractResolution()      {}
+func (*V2StorageProof) isV2FileContractResolution()             {}
+func (*V2FileContractExpiration) isV2FileContractResolution()   {}
+
+// A V2FileContractFinalization finalizes a contract, preventing further
+// revisions and immediately creating its valid outputs.
+type V2FileContractFinalization V2FileContract
 
 // A V2FileContractRenewal renews a file contract.
 type V2FileContractRenewal struct {
@@ -1113,7 +1122,7 @@ func (res V2FileContractResolution) MarshalJSON() ([]byte, error) {
 		typ = "renewal"
 	case *V2StorageProof:
 		typ = "storage proof"
-	case *V2FileContract:
+	case *V2FileContractFinalization:
 		typ = "finalization"
 	case *V2FileContractExpiration:
 		typ = "expiration"
@@ -1143,7 +1152,7 @@ func (res *V2FileContractResolution) UnmarshalJSON(b []byte) error {
 	case "storage proof":
 		res.Resolution = new(V2StorageProof)
 	case "finalization":
-		res.Resolution = new(V2FileContract)
+		res.Resolution = new(V2FileContractFinalization)
 	case "expiration":
 		res.Resolution = new(V2FileContractExpiration)
 	default:
