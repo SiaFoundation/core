@@ -592,21 +592,18 @@ func (V2FileContractExpiration) EncodeTo(e *Encoder) {}
 func (res V2FileContractResolution) EncodeTo(e *Encoder) {
 	res.Parent.EncodeTo(e)
 	switch r := res.Resolution.(type) {
-	case V2FileContractRenewal:
+	case *V2FileContractRenewal:
 		e.WriteUint8(0)
-		r.EncodeTo(e)
-	case V2StorageProof:
+	case *V2StorageProof:
 		e.WriteUint8(1)
-		r.EncodeTo(e)
-	case V2FileContract:
+	case *V2FileContract:
 		e.WriteUint8(2)
-		r.EncodeTo(e)
-	case V2FileContractExpiration:
+	case *V2FileContractExpiration:
 		e.WriteUint8(3)
-		r.EncodeTo(e)
 	default:
 		panic(fmt.Sprintf("unhandled resolution type %T", r))
 	}
+	res.Resolution.(EncoderTo).EncodeTo(e)
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -1146,24 +1143,17 @@ func (res *V2FileContractResolution) DecodeFrom(d *Decoder) {
 	res.Parent.DecodeFrom(d)
 	switch t := d.ReadUint8(); t {
 	case 0:
-		var r V2FileContractRenewal
-		r.DecodeFrom(d)
-		res.Resolution = r
+		res.Resolution = new(V2FileContractRenewal)
 	case 1:
-		var r V2StorageProof
-		r.DecodeFrom(d)
-		res.Resolution = r
+		res.Resolution = new(V2StorageProof)
 	case 2:
-		var r V2FileContract
-		r.DecodeFrom(d)
-		res.Resolution = r
+		res.Resolution = new(V2FileContract)
 	case 3:
-		var r V2FileContractExpiration
-		r.DecodeFrom(d)
-		res.Resolution = r
+		res.Resolution = new(V2FileContractExpiration)
 	default:
 		d.SetErr(fmt.Errorf("unknown resolution type %d", t))
 	}
+	res.Resolution.(DecoderFrom).DecodeFrom(d)
 }
 
 // DecodeFrom implements types.DecoderFrom.

@@ -493,7 +493,7 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 		fc := fce.V2FileContract
 		var renter, host types.SiacoinOutput
 		switch r := fcr.Resolution.(type) {
-		case types.V2FileContractRenewal:
+		case *types.V2FileContractRenewal:
 			renter, host = r.FinalRevision.RenterOutput, r.FinalRevision.HostOutput
 			renter.Value = renter.Value.Sub(r.RenterRollover)
 			host.Value = host.Value.Sub(r.HostRollover)
@@ -501,11 +501,11 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 				StateElement:   nextElement(),
 				V2FileContract: r.InitialRevision,
 			})
-		case types.V2StorageProof:
+		case *types.V2StorageProof:
 			renter, host = fc.RenterOutput, fc.HostOutput
-		case types.V2FileContract: // finalization
+		case *types.V2FileContract: // finalization
 			renter, host = r.RenterOutput, r.HostOutput
-		case types.V2FileContractExpiration:
+		case *types.V2FileContractExpiration:
 			renter, host = fc.RenterOutput, fc.MissedHostOutput()
 		}
 		ms.addSiacoinElement(types.SiacoinElement{

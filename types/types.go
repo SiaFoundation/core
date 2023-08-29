@@ -541,10 +541,10 @@ type V2FileContractResolutionType interface {
 	isV2FileContractResolution()
 }
 
-func (V2FileContractRenewal) isV2FileContractResolution()    {}
-func (V2StorageProof) isV2FileContractResolution()           {}
-func (V2FileContract) isV2FileContractResolution()           {} // finalization
-func (V2FileContractExpiration) isV2FileContractResolution() {}
+func (*V2FileContractRenewal) isV2FileContractResolution()    {}
+func (*V2StorageProof) isV2FileContractResolution()           {}
+func (*V2FileContract) isV2FileContractResolution()           {} // finalization
+func (*V2FileContractExpiration) isV2FileContractResolution() {}
 
 // A V2FileContractRenewal renews a file contract.
 type V2FileContractRenewal struct {
@@ -777,10 +777,9 @@ func (txn *V2Transaction) DeepCopy() V2Transaction {
 	c.FileContractResolutions = append([]V2FileContractResolution(nil), c.FileContractResolutions...)
 	for i := range c.FileContractResolutions {
 		c.FileContractResolutions[i].Parent.MerkleProof = append([]Hash256(nil), c.FileContractResolutions[i].Parent.MerkleProof...)
-		if sp, ok := c.FileContractResolutions[i].Resolution.(V2StorageProof); ok {
+		if sp, ok := c.FileContractResolutions[i].Resolution.(*V2StorageProof); ok {
 			sp.ProofIndex.MerkleProof = append([]Hash256(nil), sp.ProofIndex.MerkleProof...)
 			sp.Proof = append([]Hash256(nil), sp.Proof...)
-			c.FileContractResolutions[i].Resolution = sp
 		}
 	}
 	c.Attestations = append([]Attestation(nil), c.Attestations...)
@@ -1080,22 +1079,51 @@ func (sp *StorageProof) UnmarshalJSON(b []byte) error {
 }
 
 // MarshalJSON implements json.Marshaler.
+func (sp V2StorageProof) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		ProofIndex ChainIndexElement `json:"proofIndex"`
+		Leaf       string            `json:"leaf"`
+		Proof      []Hash256         `json:"proof"`
+	}{sp.ProofIndex, hex.EncodeToString(sp.Leaf[:]), sp.Proof})
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (sp *V2StorageProof) UnmarshalJSON(b []byte) error {
+	var leaf string
+	err := json.Unmarshal(b, &struct {
+		ProofIndex *ChainIndexElement
+		Leaf       *string
+		Proof      *[]Hash256
+	}{&sp.ProofIndex, &leaf, &sp.Proof})
+	if err != nil {
+		return err
+	} else if len(leaf) != len(sp.Leaf)*2 {
+		return errors.New("invalid storage proof leaf length")
+	} else if _, err = hex.Decode(sp.Leaf[:], []byte(leaf)); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarshalJSON implements json.Marshaler.
 func (res V2FileContractResolution) MarshalJSON() ([]byte, error) {
 	var typ string
 	switch res.Resolution.(type) {
-	case V2FileContractRenewal:
+	case *V2FileContractRenewal:
 		typ = "renewal"
-	case V2StorageProof:
+	case *V2StorageProof:
 		typ = "storage proof"
-	case V2FileContract:
+	case *V2FileContract:
 		typ = "finalization"
-	case V2FileContractExpiration:
+	case *V2FileContractExpiration:
 		typ = "expiration"
+	default:
+		panic(fmt.Sprintf("unhandled file contract resolution type %T", res.Resolution))
 	}
 	return json.Marshal(struct {
 		Parent     V2FileContractElement        `json:"parent"`
 		Type       string                       `json:"type"`
-		Resolution V2FileContractResolutionType `json:"resolution,omitempty"`
+		Resolution V2FileContractResolutionType `json:"resolution"`
 	}{res.Parent, typ, res.Resolution})
 }
 
@@ -1111,31 +1139,18 @@ func (res *V2FileContractResolution) UnmarshalJSON(b []byte) error {
 	}
 	switch p.Type {
 	case "renewal":
-		var r V2FileContractRenewal
-		if err := json.Unmarshal(p.Resolution, &r); err != nil {
-			return err
-		}
-		res.Resolution = r
+		res.Resolution = new(V2FileContractRenewal)
 	case "storage proof":
-		var r V2StorageProof
-		if err := json.Unmarshal(p.Resolution, &r); err != nil {
-			return err
-		}
-		res.Resolution = r
+		res.Resolution = new(V2StorageProof)
 	case "finalization":
-		var r V2FileContract
-		if err := json.Unmarshal(p.Resolution, &r); err != nil {
-			return err
-		}
-		res.Resolution = r
+		res.Resolution = new(V2FileContract)
 	case "expiration":
-		var r V2FileContractExpiration
-		if err := json.Unmarshal(p.Resolution, &r); err != nil {
-			return err
-		}
-		res.Resolution = r
+		res.Resolution = new(V2FileContractExpiration)
 	default:
 		return fmt.Errorf("unknown file contract resolution type %q", p.Type)
+	}
+	if err := json.Unmarshal(p.Resolution, res.Resolution); err != nil {
+		return err
 	}
 	res.Parent = p.Parent
 	return nil

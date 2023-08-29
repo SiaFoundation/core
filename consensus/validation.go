@@ -643,15 +643,15 @@ func validateV2CurrencyValues(ms *MidState, txn types.V2Transaction) error {
 	}
 	for i, res := range txn.FileContractResolutions {
 		switch r := res.Resolution.(type) {
-		case types.V2FileContractRenewal:
+		case *types.V2FileContractRenewal:
 			if r.InitialRevision.RenterOutput.Value.IsZero() && r.InitialRevision.HostOutput.Value.IsZero() {
 				return fmt.Errorf("file contract renewal %v creates contract with zero value", i)
 			}
 			addContract(r.InitialRevision)
 			add(r.RenterRollover)
 			add(r.HostRollover)
-		case types.V2FileContract:
-			addContract(r)
+		case *types.V2FileContract:
+			addContract(*r)
 		}
 	}
 	add(txn.MinerFee)
@@ -699,7 +699,7 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 		outputSum = outputSum.Add(fc.RenterOutput.Value).Add(fc.HostOutput.Value).Add(ms.base.V2FileContractTax(fc))
 	}
 	for _, res := range txn.FileContractResolutions {
-		if r, ok := res.Resolution.(types.V2FileContractRenewal); ok {
+		if r, ok := res.Resolution.(*types.V2FileContractRenewal); ok {
 			// a renewal creates a new contract, optionally "rolling over" funds
 			// from the old contract
 			inputSum = inputSum.Add(r.RenterRollover)
@@ -855,8 +855,8 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 		}
 		fc := fcr.Parent.V2FileContract
 		switch r := fcr.Resolution.(type) {
-		case types.V2FileContractRenewal:
-			renewal := r
+		case *types.V2FileContractRenewal:
+			renewal := *r
 			old, renewed := renewal.FinalRevision, renewal.InitialRevision
 			if old.RevisionNumber != types.MaxRevisionNumber {
 				return fmt.Errorf("file contract renewal %v does not finalize old contract", i)
@@ -882,15 +882,15 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 			} else if !fc.HostPublicKey.VerifyHash(renewalHash, renewal.HostSignature) {
 				return fmt.Errorf("file contract renewal %v has invalid host signature", i)
 			}
-		case types.V2FileContract:
-			finalRevision := r
+		case *types.V2FileContract:
+			finalRevision := *r
 			if finalRevision.RevisionNumber != types.MaxRevisionNumber {
 				return fmt.Errorf("file contract finalization %v does not set maximum revision number", i)
 			} else if err := validateRevision(fc, finalRevision); err != nil {
 				return fmt.Errorf("file contract finalization %v %s", i, err)
 			}
-		case types.V2StorageProof:
-			sp := r
+		case *types.V2StorageProof:
+			sp := *r
 			if ms.base.childHeight() < fc.ProofHeight {
 				return fmt.Errorf("file contract storage proof %v cannot be submitted until after proof height (%v)", i, fc.ProofHeight)
 			} else if sp.ProofIndex.ChainIndex.Height != fc.ProofHeight {
@@ -903,7 +903,7 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 			if storageProofRoot(ms.base.StorageProofLeafHash(sp.Leaf[:]), leafIndex, fc.Filesize, sp.Proof) != fc.FileMerkleRoot {
 				return fmt.Errorf("file contract storage proof %v has root that does not match contract Merkle root", i)
 			}
-		case types.V2FileContractExpiration:
+		case *types.V2FileContractExpiration:
 			if ms.base.childHeight() <= fc.ExpirationHeight {
 				return fmt.Errorf("file contract expiration %v cannot be submitted until after expiration height (%v) ", i, fc.ExpirationHeight)
 			}
