@@ -679,9 +679,10 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 		}
 
 		// check spend policy
-		if sci.SpendPolicy.Address() != sci.Parent.SiacoinOutput.Address {
+		sp := sci.SatisfiedPolicy
+		if sp.Policy.Address() != sci.Parent.SiacoinOutput.Address {
 			return fmt.Errorf("siacoin input %v claims incorrect policy for parent address", i)
-		} else if err := sci.SpendPolicy.Verify(ms.base.Index.Height, sigHash, sci.Signatures); err != nil {
+		} else if err := sp.Policy.Verify(ms.base.Index.Height, ms.base.medianTimestamp(), sigHash, sp.Signatures, sp.Preimages); err != nil {
 			return fmt.Errorf("siacoin input %v failed to satisfy spend policy: %w", i, err)
 		}
 	}
@@ -735,9 +736,10 @@ func validateV2Siafunds(ms *MidState, txn types.V2Transaction) error {
 		}
 
 		// check spend policy
-		if sfi.SpendPolicy.Address() != sfi.Parent.SiafundOutput.Address {
+		sp := sfi.SatisfiedPolicy
+		if sp.Policy.Address() != sfi.Parent.SiafundOutput.Address {
 			return fmt.Errorf("siafund input %v claims incorrect policy for parent address", i)
-		} else if err := sfi.SpendPolicy.Verify(ms.base.Index.Height, sigHash, sfi.Signatures); err != nil {
+		} else if err := sp.Policy.Verify(ms.base.Index.Height, ms.base.medianTimestamp(), sigHash, sp.Signatures, sp.Preimages); err != nil {
 			return fmt.Errorf("siafund input %v failed to satisfy spend policy: %w", i, err)
 		}
 	}

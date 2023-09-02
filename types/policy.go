@@ -2,12 +2,15 @@ package types
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // A SpendPolicy describes the conditions under which an input may be spent.
@@ -24,6 +27,15 @@ func PolicyAbove(height uint64) SpendPolicy {
 	return SpendPolicy{PolicyTypeAbove(height)}
 }
 
+// PolicyTypeAfter requires the input to be spent after a given timestamp.
+type PolicyTypeAfter time.Time
+
+// PolicyAfter returns a policy that requires the input to be spent after a
+// given timestamp.
+func PolicyAfter(t time.Time) SpendPolicy {
+	return SpendPolicy{PolicyTypeAfter(t)}
+}
+
 // PolicyTypePublicKey requires the input to be signed by a given key.
 type PolicyTypePublicKey PublicKey
 
@@ -31,6 +43,15 @@ type PolicyTypePublicKey PublicKey
 // given key.
 func PolicyPublicKey(pk PublicKey) SpendPolicy {
 	return SpendPolicy{PolicyTypePublicKey(pk)}
+}
+
+// PolicyTypeHash requires the input to reveal a SHA256 hash preimage.
+type PolicyTypeHash Hash256
+
+// PolicyHash returns a policy that requires the input to reveal a SHA256 hash
+// preimage.
+func PolicyHash(h Hash256) SpendPolicy {
+	return SpendPolicy{PolicyTypeHash(h)}
 }
 
 // PolicyTypeThreshold requires at least N sub-policies to be satisfied.
@@ -69,7 +90,9 @@ func AnyoneCanSpend() SpendPolicy {
 type PolicyTypeUnlockConditions UnlockConditions
 
 func (PolicyTypeAbove) isPolicy()            {}
+func (PolicyTypeAfter) isPolicy()            {}
 func (PolicyTypePublicKey) isPolicy()        {}
+func (PolicyTypeHash) isPolicy()             {}
 func (PolicyTypeThreshold) isPolicy()        {}
 func (PolicyTypeOpaque) isPolicy()           {}
 func (PolicyTypeUnlockConditions) isPolicy() {}
@@ -97,14 +120,21 @@ func (p SpendPolicy) Address() Address {
 }
 
 // Verify verifies that p is satisfied by the supplied inputs.
-func (p SpendPolicy) Verify(height uint64, sigHash Hash256, sigs []Signature) error {
+func (p SpendPolicy) Verify(height uint64, medianTimestamp time.Time, sigHash Hash256, sigs []Signature, preimages [][]byte) error {
 	nextSig := func() (sig Signature, ok bool) {
 		if ok = len(sigs) > 0; ok {
 			sig, sigs = sigs[0], sigs[1:]
 		}
 		return
 	}
+	nextPreimage := func() (preimage []byte, ok bool) {
+		if ok = len(preimages) > 0; ok {
+			preimage, preimages = preimages[0], preimages[1:]
+		}
+		return
+	}
 	errInvalidSignature := errors.New("invalid signature")
+	errInvalidPreimage := errors.New("invalid preimage")
 	var verify func(SpendPolicy) error
 	verify = func(p SpendPolicy) error {
 		switch p := p.Type.(type) {
@@ -113,17 +143,26 @@ func (p SpendPolicy) Verify(height uint64, sigHash Hash256, sigs []Signature) er
 				return nil
 			}
 			return fmt.Errorf("height not above %v", uint64(p))
+		case PolicyTypeAfter:
+			if medianTimestamp.After(time.Time(p)) {
+				return nil
+			}
+			return fmt.Errorf("median timestamp not after %v", time.Time(p))
 		case PolicyTypePublicKey:
-			sig, ok := nextSig()
-			if ok && PublicKey(p).VerifyHash(sigHash, sig) {
+			if sig, ok := nextSig(); ok && PublicKey(p).VerifyHash(sigHash, sig) {
 				return nil
 			}
 			return errInvalidSignature
+		case PolicyTypeHash:
+			if preimage, ok := nextPreimage(); ok && p == sha256.Sum256(preimage) {
+				return nil
+			}
+			return errInvalidPreimage
 		case PolicyTypeThreshold:
 			for i := 0; i < len(p.Of) && p.N > 0 && len(p.Of[i:]) >= int(p.N); i++ {
 				if _, ok := p.Of[i].Type.(PolicyTypeUnlockConditions); ok {
 					return errors.New("unlock conditions cannot be sub-policies")
-				} else if err := verify(p.Of[i]); err == errInvalidSignature {
+				} else if err := verify(p.Of[i]); err == errInvalidSignature || err == errInvalidPreimage {
 					return err // fatal; should have been opaque
 				} else if err == nil {
 					p.N--
@@ -156,7 +195,14 @@ func (p SpendPolicy) Verify(height uint64, sigHash Hash256, sigs []Signature) er
 			panic("invalid policy type") // developer error
 		}
 	}
-	return verify(p)
+	if err := verify(p); err != nil {
+		return err
+	} else if len(sigs) > 0 {
+		return errors.New("superfluous signature(s)")
+	} else if len(preimages) > 0 {
+		return errors.New("superfluous preimage(s)")
+	}
+	return nil
 }
 
 // String implements fmt.Stringer.
@@ -172,8 +218,18 @@ func (p SpendPolicy) String() string {
 		sb.WriteString(strconv.FormatUint(uint64(p), 10))
 		sb.WriteByte(')')
 
+	case PolicyTypeAfter:
+		sb.WriteString("after(")
+		sb.WriteString(strconv.FormatInt(time.Time(p).Unix(), 10))
+		sb.WriteByte(')')
+
 	case PolicyTypePublicKey:
 		sb.WriteString("pk(")
+		writeHex(p[:])
+		sb.WriteByte(')')
+
+	case PolicyTypeHash:
+		sb.WriteString("h(")
 		writeHex(p[:])
 		sb.WriteByte(')')
 
@@ -251,15 +307,24 @@ func ParseSpendPolicy(s string) (SpendPolicy, error) {
 		u, err = strconv.ParseUint(t, 10, bitSize)
 		return
 	}
+	parseTime := func() time.Time {
+		t := nextToken()
+		if err != nil {
+			return time.Time{}
+		}
+		var unix int64
+		unix, err = strconv.ParseInt(t, 10, 64)
+		return time.Unix(unix, 0)
+	}
 	parsePubkey := func() (pk PublicKey) {
 		t := nextToken()
 		if err != nil {
 			return
 		} else if len(t) != 66 {
-			err = fmt.Errorf("invalid pubkey length (%d)", len(t))
+			err = fmt.Errorf("invalid hex string length (%d)", len(t))
 			return
 		} else if t[:2] != "0x" {
-			err = fmt.Errorf("invalid pubkey prefix %q", t[:2])
+			err = fmt.Errorf("invalid hex string prefix %q", t[:2])
 			return
 		}
 		_, err = hex.Decode(pk[:], []byte(t[2:]))
@@ -273,8 +338,12 @@ func ParseSpendPolicy(s string) (SpendPolicy, error) {
 		switch typ {
 		case "above":
 			return PolicyAbove(parseInt(64))
+		case "after":
+			return PolicyAfter(parseTime())
 		case "pk":
 			return PolicyPublicKey(parsePubkey())
+		case "h":
+			return PolicyHash(Hash256(parsePubkey()))
 		case "thresh":
 			n := parseInt(8)
 			consume(',')
@@ -345,4 +414,45 @@ func (p SpendPolicy) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler.
 func (p *SpendPolicy) UnmarshalJSON(b []byte) (err error) {
 	return p.UnmarshalText(bytes.Trim(b, `"`))
+}
+
+// A SatisfiedPolicy pairs a policy with the signatures and preimages that
+// satisfy it.
+type SatisfiedPolicy struct {
+	Policy     SpendPolicy
+	Signatures []Signature
+	Preimages  [][]byte
+}
+
+// MarshalJSON implements json.Marshaler.
+func (sp SatisfiedPolicy) MarshalJSON() ([]byte, error) {
+	pre := make([]string, len(sp.Preimages))
+	for i := range pre {
+		pre[i] = hex.EncodeToString(sp.Preimages[i])
+	}
+	return json.Marshal(struct {
+		Policy     SpendPolicy `json:"policy"`
+		Signatures []Signature `json:"signatures,omitempty"`
+		Preimages  []string    `json:"preimages,omitempty"`
+	}{sp.Policy, sp.Signatures, pre})
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (sp *SatisfiedPolicy) UnmarshalJSON(b []byte) error {
+	var pre []string
+	err := json.Unmarshal(b, &struct {
+		Policy     *SpendPolicy
+		Signatures *[]Signature
+		Preimages  *[]string
+	}{&sp.Policy, &sp.Signatures, &pre})
+	if err != nil {
+		return err
+	}
+	sp.Preimages = make([][]byte, len(pre))
+	for i := range sp.Preimages {
+		if sp.Preimages[i], err = hex.DecodeString(pre[i]); err != nil {
+			return err
+		}
+	}
+	return nil
 }

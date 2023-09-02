@@ -483,9 +483,8 @@ func (fc V2FileContract) MissedHostOutput() SiacoinOutput {
 // A V2SiacoinInput spends an unspent SiacoinElement in the state accumulator by
 // revealing its public key and signing the transaction.
 type V2SiacoinInput struct {
-	Parent      SiacoinElement `json:"parent"`
-	SpendPolicy SpendPolicy    `json:"spendPolicy"`
-	Signatures  []Signature    `json:"signatures"`
+	Parent          SiacoinElement  `json:"parent"`
+	SatisfiedPolicy SatisfiedPolicy `json:"satisfiedPolicy"`
 }
 
 // A V2SiafundInput spends an unspent SiafundElement in the state accumulator by
@@ -493,10 +492,9 @@ type V2SiacoinInput struct {
 // ClaimAddress, specifying the recipient of the siacoins that were earned by
 // the SiafundElement.
 type V2SiafundInput struct {
-	Parent       SiafundElement `json:"parent"`
-	ClaimAddress Address        `json:"claimAddress"`
-	SpendPolicy  SpendPolicy    `json:"spendPolicy"`
-	Signatures   []Signature    `json:"signatures"`
+	Parent          SiafundElement  `json:"parent"`
+	ClaimAddress    Address         `json:"claimAddress"`
+	SatisfiedPolicy SatisfiedPolicy `json:"satisfiedPolicy"`
 }
 
 // A V2FileContractRevision updates the state of an existing file contract.
@@ -769,13 +767,21 @@ func (txn *V2Transaction) DeepCopy() V2Transaction {
 	c.SiacoinInputs = append([]V2SiacoinInput(nil), c.SiacoinInputs...)
 	for i := range c.SiacoinInputs {
 		c.SiacoinInputs[i].Parent.MerkleProof = append([]Hash256(nil), c.SiacoinInputs[i].Parent.MerkleProof...)
-		c.SiacoinInputs[i].Signatures = append([]Signature(nil), c.SiacoinInputs[i].Signatures...)
+		c.SiacoinInputs[i].SatisfiedPolicy.Signatures = append([]Signature(nil), c.SiacoinInputs[i].SatisfiedPolicy.Signatures...)
+		c.SiacoinInputs[i].SatisfiedPolicy.Preimages = append([][]byte(nil), c.SiacoinInputs[i].SatisfiedPolicy.Preimages...)
+		for j := range c.SiacoinInputs[i].SatisfiedPolicy.Preimages {
+			c.SiacoinInputs[i].SatisfiedPolicy.Preimages[j] = append([]byte(nil), c.SiacoinInputs[i].SatisfiedPolicy.Preimages[j]...)
+		}
 	}
 	c.SiacoinOutputs = append([]SiacoinOutput(nil), c.SiacoinOutputs...)
 	c.SiafundInputs = append([]V2SiafundInput(nil), c.SiafundInputs...)
 	for i := range c.SiafundInputs {
 		c.SiafundInputs[i].Parent.MerkleProof = append([]Hash256(nil), c.SiafundInputs[i].Parent.MerkleProof...)
-		c.SiafundInputs[i].Signatures = append([]Signature(nil), c.SiafundInputs[i].Signatures...)
+		c.SiafundInputs[i].SatisfiedPolicy.Signatures = append([]Signature(nil), c.SiafundInputs[i].SatisfiedPolicy.Signatures...)
+		c.SiafundInputs[i].SatisfiedPolicy.Preimages = append([][]byte(nil), c.SiafundInputs[i].SatisfiedPolicy.Preimages...)
+		for j := range c.SiafundInputs[i].SatisfiedPolicy.Preimages {
+			c.SiafundInputs[i].SatisfiedPolicy.Preimages[j] = append([]byte(nil), c.SiafundInputs[i].SatisfiedPolicy.Preimages[j]...)
+		}
 	}
 	c.SiafundOutputs = append([]SiafundOutput(nil), c.SiafundOutputs...)
 	c.FileContracts = append([]V2FileContract(nil), c.FileContracts...)
@@ -954,11 +960,11 @@ func (uk UnlockKey) MarshalText() ([]byte, error) {
 func (uk *UnlockKey) UnmarshalText(b []byte) error {
 	parts := bytes.Split(b, []byte(":"))
 	if len(parts) != 2 {
-		return fmt.Errorf("decoding <algorithm>::<key> failed: wrong number of separators")
+		return fmt.Errorf("decoding <algorithm>:<key> failed: wrong number of separators")
 	} else if err := uk.Algorithm.UnmarshalText(parts[0]); err != nil {
-		return fmt.Errorf("decoding <algorithm>::<key> failed: %w", err)
+		return fmt.Errorf("decoding <algorithm>:<key> failed: %w", err)
 	} else if uk.Key, err = hex.DecodeString(string(parts[1])); err != nil {
-		return fmt.Errorf("decoding <algorithm>::<key> failed: %w", err)
+		return fmt.Errorf("decoding <algorithm>:<key> failed: %w", err)
 	}
 	return nil
 }

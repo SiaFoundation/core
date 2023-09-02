@@ -480,6 +480,30 @@ func (p SpendPolicy) EncodeTo(e *Encoder) {
 }
 
 // EncodeTo implements types.EncoderTo.
+func (sp SatisfiedPolicy) EncodeTo(e *Encoder) {
+	sp.Policy.EncodeTo(e)
+	var sigi, prei int
+	var rec func(SpendPolicy)
+	rec = func(p SpendPolicy) {
+		switch p := p.Type.(type) {
+		case PolicyTypePublicKey:
+			sp.Signatures[sigi].EncodeTo(e)
+			sigi++
+		case PolicyTypeHash:
+			e.WriteBytes(sp.Preimages[prei])
+			prei++
+		case PolicyTypeThreshold:
+			for i := range p.Of {
+				rec(p.Of[i])
+			}
+		default:
+			// nothing to do
+		}
+	}
+	rec(sp.Policy)
+}
+
+// EncodeTo implements types.EncoderTo.
 func (se StateElement) EncodeTo(e *Encoder) {
 	se.ID.EncodeTo(e)
 	e.WriteUint64(se.LeafIndex)
@@ -492,11 +516,7 @@ func (se StateElement) EncodeTo(e *Encoder) {
 // EncodeTo implements types.EncoderTo.
 func (in V2SiacoinInput) EncodeTo(e *Encoder) {
 	in.Parent.EncodeTo(e)
-	in.SpendPolicy.EncodeTo(e)
-	e.WritePrefix(len(in.Signatures))
-	for _, sig := range in.Signatures {
-		sig.EncodeTo(e)
-	}
+	in.SatisfiedPolicy.EncodeTo(e)
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -516,11 +536,7 @@ func (sce SiacoinElement) EncodeTo(e *Encoder) {
 func (in V2SiafundInput) EncodeTo(e *Encoder) {
 	in.Parent.EncodeTo(e)
 	in.ClaimAddress.EncodeTo(e)
-	in.SpendPolicy.EncodeTo(e)
-	e.WritePrefix(len(in.Signatures))
-	for _, sig := range in.Signatures {
-		sig.EncodeTo(e)
-	}
+	in.SatisfiedPolicy.EncodeTo(e)
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -1030,6 +1046,30 @@ func (p *SpendPolicy) DecodeFrom(d *Decoder) {
 }
 
 // DecodeFrom implements types.DecoderFrom.
+func (sp *SatisfiedPolicy) DecodeFrom(d *Decoder) {
+	sp.Policy.DecodeFrom(d)
+
+	var rec func(SpendPolicy)
+	rec = func(p SpendPolicy) {
+		switch p := p.Type.(type) {
+		case PolicyTypePublicKey:
+			var s Signature
+			s.DecodeFrom(d)
+			sp.Signatures = append(sp.Signatures, s)
+		case PolicyTypeHash:
+			sp.Preimages = append(sp.Preimages, d.ReadBytes())
+		case PolicyTypeThreshold:
+			for i := range p.Of {
+				rec(p.Of[i])
+			}
+		default:
+			// nothing to do
+		}
+	}
+	rec(sp.Policy)
+}
+
+// DecodeFrom implements types.DecoderFrom.
 func (se *StateElement) DecodeFrom(d *Decoder) {
 	se.ID.DecodeFrom(d)
 	se.LeafIndex = d.ReadUint64()
@@ -1042,11 +1082,7 @@ func (se *StateElement) DecodeFrom(d *Decoder) {
 // DecodeFrom implements types.DecoderFrom.
 func (in *V2SiacoinInput) DecodeFrom(d *Decoder) {
 	in.Parent.DecodeFrom(d)
-	in.SpendPolicy.DecodeFrom(d)
-	in.Signatures = make([]Signature, d.ReadPrefix())
-	for i := range in.Signatures {
-		in.Signatures[i].DecodeFrom(d)
-	}
+	in.SatisfiedPolicy.DecodeFrom(d)
 }
 
 // DecodeFrom implements types.DecoderFrom.
@@ -1066,11 +1102,7 @@ func (sce *SiacoinElement) DecodeFrom(d *Decoder) {
 func (in *V2SiafundInput) DecodeFrom(d *Decoder) {
 	in.Parent.DecodeFrom(d)
 	in.ClaimAddress.DecodeFrom(d)
-	in.SpendPolicy.DecodeFrom(d)
-	in.Signatures = make([]Signature, d.ReadPrefix())
-	for i := range in.Signatures {
-		in.Signatures[i].DecodeFrom(d)
-	}
+	in.SatisfiedPolicy.DecodeFrom(d)
 }
 
 // DecodeFrom implements types.DecoderFrom.

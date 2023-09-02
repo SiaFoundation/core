@@ -433,6 +433,8 @@ func TestValidateV2Block(t *testing.T) {
 
 	giftPrivateKey := types.GeneratePrivateKey()
 	giftPublicKey := giftPrivateKey.PublicKey()
+	giftPolicy := types.PolicyPublicKey(giftPublicKey)
+	giftAddress := types.StandardAddress(giftPublicKey)
 
 	renterPrivateKey := types.GeneratePrivateKey()
 	renterPublicKey := renterPrivateKey.PublicKey()
@@ -450,16 +452,17 @@ func TestValidateV2Block(t *testing.T) {
 			txn.FileContractRevisions[i].Revision.RenterSignature = renterPrivateKey.SignHash(cs.ContractSigHash(txn.FileContractRevisions[i].Revision))
 			txn.FileContractRevisions[i].Revision.HostSignature = hostPrivateKey.SignHash(cs.ContractSigHash(txn.FileContractRevisions[i].Revision))
 		}
+		sp := types.SatisfiedPolicy{
+			Policy:     giftPolicy,
+			Signatures: []types.Signature{giftPrivateKey.SignHash(cs.InputSigHash(*txn))},
+		}
 		for i := range txn.SiacoinInputs {
-			txn.SiacoinInputs[i].Signatures = append(txn.SiacoinInputs[i].Signatures, giftPrivateKey.SignHash(cs.InputSigHash(*txn)))
+			txn.SiacoinInputs[i].SatisfiedPolicy = sp
 		}
 		for i := range txn.SiafundInputs {
-			txn.SiafundInputs[i].Signatures = append(txn.SiafundInputs[i].Signatures, giftPrivateKey.SignHash(cs.InputSigHash(*txn)))
+			txn.SiafundInputs[i].SatisfiedPolicy = sp
 		}
 	}
-
-	giftAddress := types.StandardUnlockHash(giftPublicKey)
-	giftPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(giftPublicKey))}
 
 	giftAmountSC := types.Siacoins(100)
 	giftAmountSF := uint64(100)
@@ -530,13 +533,11 @@ func TestValidateV2Block(t *testing.T) {
 			Height: 1,
 			Transactions: []types.V2Transaction{{
 				SiacoinInputs: []types.V2SiacoinInput{{
-					Parent:      sces[0],
-					SpendPolicy: giftPolicy,
+					Parent: sces[0],
 				}},
 				SiafundInputs: []types.V2SiafundInput{{
 					Parent:       sfes[0],
 					ClaimAddress: types.VoidAddress,
-					SpendPolicy:  giftPolicy,
 				}},
 				SiacoinOutputs: []types.SiacoinOutput{
 					{Value: giftAmountSC.Sub(minerFee).Sub(difference), Address: giftAddress},
@@ -702,25 +703,31 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			{
-				"siacoin input claiming incorrect unlock conditions",
+				"siacoin input claiming incorrect policy",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
-
-					if uc, ok := txn.SiacoinInputs[0].SpendPolicy.Type.(types.PolicyTypeUnlockConditions); ok {
-						uc.PublicKeys[0].Key[0] ^= 255
-						txn.SiacoinInputs[0].SpendPolicy = types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(uc)}
-					}
+					txn.SiacoinInputs[0].SatisfiedPolicy.Policy = types.AnyoneCanSpend()
 				},
 			},
 			{
-				"siafund input claiming incorrect unlock conditions",
+				"siafund input claiming incorrect policy",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
-
-					if uc, ok := txn.SiafundInputs[0].SpendPolicy.Type.(types.PolicyTypeUnlockConditions); ok {
-						uc.PublicKeys[0].Key[0] ^= 255
-						txn.SiafundInputs[0].SpendPolicy = types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(uc)}
-					}
+					txn.SiafundInputs[0].SatisfiedPolicy.Policy = types.AnyoneCanSpend()
+				},
+			},
+			{
+				"siacoin input claiming invalid policy",
+				func(b *types.Block) {
+					txn := &b.V2.Transactions[0]
+					txn.SiacoinInputs[0].SatisfiedPolicy.Signatures[0][0] ^= 1
+				},
+			},
+			{
+				"siafund input claiming invalid policy",
+				func(b *types.Block) {
+					txn := &b.V2.Transactions[0]
+					txn.SiafundInputs[0].SatisfiedPolicy.Signatures[0][0] ^= 1
 				},
 			},
 			{

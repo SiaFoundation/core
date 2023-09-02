@@ -3,6 +3,7 @@ package types
 import (
 	"bytes"
 	"testing"
+	"time"
 )
 
 func roundtrip(from EncoderTo, to DecoderFrom) {
@@ -197,7 +198,7 @@ func TestPolicyVerify(t *testing.T) {
 			true,
 		},
 	} {
-		if err := test.p.Verify(test.height, sigHash, test.sigs); err != nil && test.valid {
+		if err := test.p.Verify(test.height, time.Time{}, sigHash, test.sigs, nil); err != nil && test.valid {
 			t.Fatal(err)
 		} else if err == nil && !test.valid {
 			t.Fatal("expected error")

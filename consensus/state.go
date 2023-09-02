@@ -292,10 +292,10 @@ func (s State) V2TransactionWeight(txn types.V2Transaction) uint64 {
 
 	var signatures int
 	for _, sci := range txn.SiacoinInputs {
-		signatures += len(sci.Signatures)
+		signatures += len(sci.SatisfiedPolicy.Signatures)
 	}
 	for _, sfi := range txn.SiafundInputs {
-		signatures += len(sfi.Signatures)
+		signatures += len(sfi.SatisfiedPolicy.Signatures)
 	}
 	signatures += 2 * len(txn.FileContracts)
 	signatures += 2 * len(txn.FileContractRevisions)
