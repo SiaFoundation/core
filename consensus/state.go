@@ -633,6 +633,99 @@ func (s State) AttestationSigHash(a types.Attestation) types.Hash256 {
 	return h.Sum()
 }
 
+// A MidState represents the state of the chain within a block.
+type MidState struct {
+	base               State
+	ephemeral          map[types.Hash256]int // indices into element slices
+	spends             map[types.Hash256]types.TransactionID
+	revs               map[types.Hash256]*types.FileContractElement
+	res                map[types.Hash256]bool
+	v2revs             map[types.Hash256]*types.V2FileContractElement
+	v2res              map[types.Hash256]types.V2FileContractResolutionType
+	siafundPool        types.Currency
+	foundationPrimary  types.Address
+	foundationFailsafe types.Address
+
+	// elements updated/added by block
+	sces   []types.SiacoinElement
+	sfes   []types.SiafundElement
+	fces   []types.FileContractElement
+	v2fces []types.V2FileContractElement
+	aes    []types.AttestationElement
+	cie    types.ChainIndexElement
+}
+
+func (ms *MidState) siacoinElement(ts V1TransactionSupplement, id types.SiacoinOutputID) (types.SiacoinElement, bool) {
+	if i, ok := ms.ephemeral[types.Hash256(id)]; ok {
+		return ms.sces[i], true
+	}
+	return ts.siacoinElement(id)
+}
+
+func (ms *MidState) siafundElement(ts V1TransactionSupplement, id types.SiafundOutputID) (types.SiafundElement, bool) {
+	if i, ok := ms.ephemeral[types.Hash256(id)]; ok {
+		return ms.sfes[i], true
+	}
+	return ts.siafundElement(id)
+}
+
+func (ms *MidState) fileContractElement(ts V1TransactionSupplement, id types.FileContractID) (types.FileContractElement, bool) {
+	if i, ok := ms.ephemeral[types.Hash256(id)]; ok {
+		return ms.fces[i], true
+	}
+	return ts.fileContractElement(id)
+}
+
+func (ms *MidState) mustSiacoinElement(ts V1TransactionSupplement, id types.SiacoinOutputID) types.SiacoinElement {
+	sce, ok := ms.siacoinElement(ts, id)
+	if !ok {
+		panic("missing SiacoinElement")
+	}
+	return sce
+}
+
+func (ms *MidState) mustSiafundElement(ts V1TransactionSupplement, id types.SiafundOutputID) types.SiafundElement {
+	sfe, ok := ms.siafundElement(ts, id)
+	if !ok {
+		panic("missing SiafundElement")
+	}
+	return sfe
+}
+
+func (ms *MidState) mustFileContractElement(ts V1TransactionSupplement, id types.FileContractID) types.FileContractElement {
+	fce, ok := ms.fileContractElement(ts, id)
+	if !ok {
+		panic("missing FileContractElement")
+	}
+	return fce
+}
+
+func (ms *MidState) spent(id types.Hash256) (types.TransactionID, bool) {
+	txid, ok := ms.spends[id]
+	return txid, ok
+}
+
+func (ms *MidState) isSpent(id types.Hash256) bool {
+	_, ok := ms.spends[id]
+	return ok
+}
+
+// NewMidState constructs a MidState initialized to the provided base state.
+func NewMidState(s State) *MidState {
+	return &MidState{
+		base:               s,
+		ephemeral:          make(map[types.Hash256]int),
+		spends:             make(map[types.Hash256]types.TransactionID),
+		revs:               make(map[types.Hash256]*types.FileContractElement),
+		res:                make(map[types.Hash256]bool),
+		v2revs:             make(map[types.Hash256]*types.V2FileContractElement),
+		v2res:              make(map[types.Hash256]types.V2FileContractResolutionType),
+		siafundPool:        s.SiafundPool,
+		foundationPrimary:  s.FoundationPrimaryAddress,
+		foundationFailsafe: s.FoundationFailsafeAddress,
+	}
+}
+
 // A V1TransactionSupplement contains elements that are associated with a v1
 // transaction, but not included in the transaction. For example, v1
 // transactions reference the ID of each SiacoinOutput they spend, but do not
