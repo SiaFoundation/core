@@ -796,6 +796,28 @@ func (m *Manager) PoolTransactions() []types.Transaction {
 	return append([]types.Transaction(nil), m.txpool.txns...)
 }
 
+// V2PoolTransaction returns the v2 transaction with the specified ID, if it is
+// currently in the pool.
+func (m *Manager) V2PoolTransaction(id types.TransactionID) (types.V2Transaction, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.revalidatePool()
+	i, ok := m.txpool.indices[id]
+	if !ok {
+		return types.V2Transaction{}, false
+	}
+	return m.txpool.v2txns[i], ok
+}
+
+// V2PoolTransactions returns the v2 transactions currently in the txpool. Any
+// prefix of the returned slice constitutes a valid transaction set.
+func (m *Manager) V2PoolTransactions() []types.V2Transaction {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.revalidatePool()
+	return append([]types.V2Transaction(nil), m.txpool.v2txns...)
+}
+
 // RecommendedFee returns the recommended fee (per weight unit) to ensure a high
 // probability of inclusion in the next block.
 func (m *Manager) RecommendedFee() types.Currency {
