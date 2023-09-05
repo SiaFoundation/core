@@ -507,7 +507,7 @@ func TestValidateV2Block(t *testing.T) {
 		sfes = append(sfes, sfe)
 	})
 	var fces []types.V2FileContractElement
-	cau.ForEachV2FileContractElement(func(fce types.V2FileContractElement, rev *types.V2FileContractElement, resolved bool) {
+	cau.ForEachV2FileContractElement(func(fce types.V2FileContractElement, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
 		fces = append(fces, fce)
 	})
 

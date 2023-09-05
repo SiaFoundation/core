@@ -383,7 +383,7 @@ func (db *DBStore) applyElements(cau consensus.ApplyUpdate) {
 		}
 		db.putElementProof(sfe.StateElement)
 	})
-	cau.ForEachFileContractElement(func(fce types.FileContractElement, rev *types.FileContractElement, resolved bool) {
+	cau.ForEachFileContractElement(func(fce types.FileContractElement, rev *types.FileContractElement, resolved, valid bool) {
 		if resolved {
 			db.deleteFileContractElement(types.FileContractID(fce.ID))
 			db.deleteFileContractExpiration(types.FileContractID(fce.ID), fce.FileContract.WindowEnd)
@@ -402,7 +402,7 @@ func (db *DBStore) applyElements(cau consensus.ApplyUpdate) {
 }
 
 func (db *DBStore) revertElements(cru consensus.RevertUpdate) {
-	cru.ForEachFileContractElement(func(fce types.FileContractElement, rev *types.FileContractElement, resolved bool) {
+	cru.ForEachFileContractElement(func(fce types.FileContractElement, rev *types.FileContractElement, resolved, valid bool) {
 		if resolved {
 			// contract no longer resolved; restore it
 			db.putFileContractElement(fce)

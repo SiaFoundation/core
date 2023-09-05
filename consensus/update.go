@@ -349,7 +349,8 @@ func (ms *MidState) reviseFileContractElement(fce types.FileContractElement, rev
 	}
 }
 
-func (ms *MidState) resolveFileContractElement(fce types.FileContractElement, txid types.TransactionID) {
+func (ms *MidState) resolveFileContractElement(fce types.FileContractElement, valid bool, txid types.TransactionID) {
+	ms.res[fce.ID] = valid
 	ms.spends[fce.ID] = txid
 	fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
 	ms.fces = append(ms.fces, fce)
@@ -379,7 +380,8 @@ func (ms *MidState) reviseV2FileContractElement(fce types.V2FileContractElement,
 	}
 }
 
-func (ms *MidState) resolveV2FileContractElement(fce types.V2FileContractElement, txid types.TransactionID) {
+func (ms *MidState) resolveV2FileContractElement(fce types.V2FileContractElement, res types.V2FileContractResolutionType, txid types.TransactionID) {
+	ms.v2res[fce.ID] = res
 	ms.spends[fce.ID] = txid
 	fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
 	ms.v2fces = append(ms.v2fces, fce)
@@ -429,7 +431,7 @@ func (ms *MidState) ApplyTransaction(txn types.Transaction, ts V1TransactionSupp
 	}
 	for _, sp := range txn.StorageProofs {
 		fce := ms.mustFileContractElement(ts, sp.ParentID)
-		ms.resolveFileContractElement(fce, txid)
+		ms.resolveFileContractElement(fce, true, txid)
 		for i, sco := range fce.FileContract.ValidProofOutputs {
 			ms.addSiacoinElement(types.SiacoinElement{
 				StateElement:   types.StateElement{ID: types.Hash256(sp.ParentID.ValidOutputID(i))},
@@ -489,7 +491,7 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 		ms.reviseV2FileContractElement(fcr.Parent, fcr.Revision)
 	}
 	for _, fcr := range txn.FileContractResolutions {
-		ms.resolveV2FileContractElement(fcr.Parent, txid)
+		ms.resolveV2FileContractElement(fcr.Parent, fcr.Resolution, txid)
 
 		fce := fcr.Parent
 		fc := fce.V2FileContract
@@ -560,7 +562,7 @@ func (ms *MidState) ApplyBlock(b types.Block, bs V1BlockSupplement) {
 		if ms.isSpent(fce.ID) {
 			continue
 		}
-		ms.resolveFileContractElement(fce, types.TransactionID(bid))
+		ms.resolveFileContractElement(fce, false, types.TransactionID(bid))
 		for i, sco := range fce.FileContract.MissedProofOutputs {
 			ms.addSiacoinElement(types.SiacoinElement{
 				StateElement:   types.StateElement{ID: types.Hash256(types.FileContractID(fce.ID).MissedOutputID(i))},
@@ -625,17 +627,18 @@ func (au ApplyUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, sp
 
 // ForEachFileContractElement calls fn on each file contract element related to
 // au. If the contract was revised, rev is non-nil.
-func (au ApplyUpdate) ForEachFileContractElement(fn func(fce types.FileContractElement, rev *types.FileContractElement, resolved bool)) {
+func (au ApplyUpdate) ForEachFileContractElement(fn func(fce types.FileContractElement, rev *types.FileContractElement, resolved, valid bool)) {
 	for _, fce := range au.ms.fces {
-		fn(fce, au.ms.revs[fce.ID], au.ms.isSpent(fce.ID))
+		fn(fce, au.ms.revs[fce.ID], au.ms.isSpent(fce.ID), au.ms.res[fce.ID])
 	}
 }
 
 // ForEachV2FileContractElement calls fn on each V2 file contract element
-// related to au. If the contract was revised, rev is non-nil.
-func (au ApplyUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileContractElement, rev *types.V2FileContractElement, resolved bool)) {
+// related to au. If the contract was revised, rev is non-nil. If the contract
+// was resolved, res is non-nil.
+func (au ApplyUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileContractElement, rev *types.V2FileContractElement, res types.V2FileContractResolutionType)) {
 	for _, fce := range au.ms.v2fces {
-		fn(fce, au.ms.v2revs[fce.ID], au.ms.isSpent(fce.ID))
+		fn(fce, au.ms.v2revs[fce.ID], au.ms.v2res[fce.ID])
 	}
 }
 
@@ -697,10 +700,20 @@ func (ru RevertUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, s
 
 // ForEachFileContractElement calls fn on each file contract element related to
 // ru. If the contract was revised, rev is non-nil.
-func (ru RevertUpdate) ForEachFileContractElement(fn func(fce types.FileContractElement, rev *types.FileContractElement, resolved bool)) {
+func (ru RevertUpdate) ForEachFileContractElement(fn func(fce types.FileContractElement, rev *types.FileContractElement, resolved, valid bool)) {
 	for i := range ru.ms.fces {
 		fce := ru.ms.fces[len(ru.ms.fces)-i-1]
-		fn(fce, ru.ms.revs[fce.ID], ru.ms.isSpent(fce.ID))
+		fn(fce, ru.ms.revs[fce.ID], ru.ms.isSpent(fce.ID), ru.ms.res[fce.ID])
+	}
+}
+
+// ForEachV2FileContractElement calls fn on each V2 file contract element
+// related to au. If the contract was revised, rev is non-nil. If the contract
+// was resolved, res is non-nil.
+func (ru RevertUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileContractElement, rev *types.V2FileContractElement, res types.V2FileContractResolutionType)) {
+	for i := range ru.ms.v2fces {
+		fce := ru.ms.v2fces[len(ru.ms.fces)-i-1]
+		fn(fce, ru.ms.v2revs[fce.ID], ru.ms.v2res[fce.ID])
 	}
 }
 

@@ -668,8 +668,13 @@ func (m *Manager) applyPoolUpdate(cau consensus.ApplyUpdate) {
 					newElements[sfe.ID] = sfe.StateElement
 				}
 			})
-			cau.ForEachFileContractElement(func(fce types.FileContractElement, rev *types.FileContractElement, spent bool) {
-				if !spent {
+			cau.ForEachFileContractElement(func(fce types.FileContractElement, rev *types.FileContractElement, resolved, valid bool) {
+				if !resolved {
+					newElements[fce.ID] = fce.StateElement
+				}
+			})
+			cau.ForEachV2FileContractElement(func(fce types.V2FileContractElement, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
+				if res != nil {
 					newElements[fce.ID] = fce.StateElement
 				}
 			})
@@ -729,8 +734,13 @@ func (m *Manager) revertPoolUpdate(cru consensus.RevertUpdate) {
 					uncreated[sfe.ID] = sfe.StateElement
 				}
 			})
-			cru.ForEachFileContractElement(func(fce types.FileContractElement, rev *types.FileContractElement, spent bool) {
-				if !spent {
+			cru.ForEachFileContractElement(func(fce types.FileContractElement, rev *types.FileContractElement, resolved, valid bool) {
+				if !resolved {
+					uncreated[fce.ID] = fce.StateElement
+				}
+			})
+			cru.ForEachV2FileContractElement(func(fce types.V2FileContractElement, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
+				if res != nil {
 					uncreated[fce.ID] = fce.StateElement
 				}
 			})

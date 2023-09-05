@@ -109,7 +109,9 @@ type MidState struct {
 	ephemeral          map[types.Hash256]int // indices into element slices
 	spends             map[types.Hash256]types.TransactionID
 	revs               map[types.Hash256]*types.FileContractElement
+	res                map[types.Hash256]bool
 	v2revs             map[types.Hash256]*types.V2FileContractElement
+	v2res              map[types.Hash256]types.V2FileContractResolutionType
 	siafundPool        types.Currency
 	foundationPrimary  types.Address
 	foundationFailsafe types.Address
@@ -190,7 +192,9 @@ func NewMidState(s State) *MidState {
 		ephemeral:          make(map[types.Hash256]int),
 		spends:             make(map[types.Hash256]types.TransactionID),
 		revs:               make(map[types.Hash256]*types.FileContractElement),
+		res:                make(map[types.Hash256]bool),
 		v2revs:             make(map[types.Hash256]*types.V2FileContractElement),
+		v2res:              make(map[types.Hash256]types.V2FileContractResolutionType),
 		siafundPool:        s.SiafundPool,
 		foundationPrimary:  s.FoundationPrimaryAddress,
 		foundationFailsafe: s.FoundationFailsafeAddress,
@@ -639,8 +643,8 @@ func validateV2CurrencyValues(ms *MidState, txn types.V2Transaction) error {
 	for _, fc := range txn.FileContractRevisions {
 		addContract(fc.Revision)
 	}
-	for i, res := range txn.FileContractResolutions {
-		switch r := res.Resolution.(type) {
+	for i, fcr := range txn.FileContractResolutions {
+		switch r := fcr.Resolution.(type) {
 		case *types.V2FileContractRenewal:
 			if r.InitialRevision.RenterOutput.Value.IsZero() && r.InitialRevision.HostOutput.Value.IsZero() {
 				return fmt.Errorf("file contract renewal %v creates contract with zero value", i)
@@ -697,8 +701,8 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 	for _, fc := range txn.FileContracts {
 		outputSum = outputSum.Add(fc.RenterOutput.Value).Add(fc.HostOutput.Value).Add(ms.base.V2FileContractTax(fc))
 	}
-	for _, res := range txn.FileContractResolutions {
-		if r, ok := res.Resolution.(*types.V2FileContractRenewal); ok {
+	for _, fcr := range txn.FileContractResolutions {
+		if r, ok := fcr.Resolution.(*types.V2FileContractRenewal); ok {
 			// a renewal creates a new contract, optionally "rolling over" funds
 			// from the old contract
 			inputSum = inputSum.Add(r.RenterRollover)

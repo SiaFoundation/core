@@ -693,8 +693,8 @@ func (txn V2Transaction) EncodeTo(e *Encoder) {
 	}
 	if fields&(1<<6) != 0 {
 		e.WritePrefix(len(txn.FileContractResolutions))
-		for _, res := range txn.FileContractResolutions {
-			res.EncodeTo(e)
+		for _, fcr := range txn.FileContractResolutions {
+			fcr.EncodeTo(e)
 		}
 	}
 	if fields&(1<<7) != 0 {
