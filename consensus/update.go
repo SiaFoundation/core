@@ -453,24 +453,13 @@ func (ms *MidState) ApplyTransaction(txn types.Transaction, ts V1TransactionSupp
 // ApplyV2Transaction applies a v2 transaction to the MidState.
 func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 	txid := txn.ID()
-	var elems uint64
-	h := hasherPool.Get().(*types.Hasher)
-	defer hasherPool.Put(h)
-	nextElement := func() types.StateElement {
-		h.Reset()
-		types.SpecifierElementID.EncodeTo(h.E)
-		txid.EncodeTo(h.E)
-		h.E.WriteUint64(elems)
-		elems++
-		return types.StateElement{ID: h.Sum()}
-	}
 
 	for _, sci := range txn.SiacoinInputs {
 		ms.spendSiacoinElement(sci.Parent, txid)
 	}
-	for _, sco := range txn.SiacoinOutputs {
+	for i, sco := range txn.SiacoinOutputs {
 		ms.addSiacoinElement(types.SiacoinElement{
-			StateElement:  nextElement(),
+			StateElement:  types.StateElement{ID: types.Hash256(txn.SiacoinOutputID(txid, i))},
 			SiacoinOutput: sco,
 		})
 	}
@@ -478,21 +467,21 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 		ms.spendSiafundElement(sfi.Parent, txid)
 		claimPortion := ms.siafundPool.Sub(sfi.Parent.ClaimStart).Div64(ms.base.SiafundCount()).Mul64(sfi.Parent.SiafundOutput.Value)
 		ms.addSiacoinElement(types.SiacoinElement{
-			StateElement:   nextElement(),
+			StateElement:   types.StateElement{ID: types.Hash256(types.SiafundOutputID(sfi.Parent.ID).ClaimOutputID())},
 			SiacoinOutput:  types.SiacoinOutput{Value: claimPortion, Address: sfi.ClaimAddress},
 			MaturityHeight: ms.base.MaturityHeight(),
 		})
 	}
-	for _, sfo := range txn.SiafundOutputs {
+	for i, sfo := range txn.SiafundOutputs {
 		ms.addSiafundElement(types.SiafundElement{
-			StateElement:  nextElement(),
+			StateElement:  types.StateElement{ID: types.Hash256(txn.SiafundOutputID(txid, i))},
 			SiafundOutput: sfo,
 			ClaimStart:    ms.siafundPool,
 		})
 	}
-	for _, fc := range txn.FileContracts {
+	for i, fc := range txn.FileContracts {
 		ms.addV2FileContractElement(types.V2FileContractElement{
-			StateElement:   nextElement(),
+			StateElement:   types.StateElement{ID: types.Hash256(txn.V2FileContractID(txid, i))},
 			V2FileContract: fc,
 		})
 	}
@@ -511,7 +500,7 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 			renter.Value = renter.Value.Sub(r.RenterRollover)
 			host.Value = host.Value.Sub(r.HostRollover)
 			ms.addV2FileContractElement(types.V2FileContractElement{
-				StateElement:   nextElement(),
+				StateElement:   types.StateElement{ID: types.Hash256(types.FileContractID(fce.ID).V2RenewalID())},
 				V2FileContract: r.InitialRevision,
 			})
 		case *types.V2StorageProof:
@@ -522,19 +511,19 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 			renter, host = fc.RenterOutput, fc.MissedHostOutput()
 		}
 		ms.addSiacoinElement(types.SiacoinElement{
-			StateElement:   nextElement(),
+			StateElement:   types.StateElement{ID: types.Hash256(types.FileContractID(fce.ID).V2RenterOutputID())},
 			SiacoinOutput:  renter,
 			MaturityHeight: ms.base.MaturityHeight(),
 		})
 		ms.addSiacoinElement(types.SiacoinElement{
-			StateElement:   nextElement(),
+			StateElement:   types.StateElement{ID: types.Hash256(types.FileContractID(fce.ID).V2HostOutputID())},
 			SiacoinOutput:  host,
 			MaturityHeight: ms.base.MaturityHeight(),
 		})
 	}
-	for _, a := range txn.Attestations {
+	for i, a := range txn.Attestations {
 		ms.addAttestationElement(types.AttestationElement{
-			StateElement: nextElement(),
+			StateElement: types.StateElement{ID: txn.AttestationID(txid, i)},
 			Attestation:  a,
 		})
 	}

@@ -45,9 +45,9 @@ var (
 	SpecifierClaimOutput   = NewSpecifier("claim output")
 	SpecifierFileContract  = NewSpecifier("file contract")
 	SpecifierStorageProof  = NewSpecifier("storage proof")
+	SpecifierAttestation   = NewSpecifier("attestation")
 	SpecifierFoundation    = NewSpecifier("foundation")
 	SpecifierEntropy       = NewSpecifier("entropy")
-	SpecifierElementID     = NewSpecifier("element id")
 )
 
 // A Hash256 is a generic 256-bit cryptographic hash.
@@ -318,6 +318,38 @@ func (fcid FileContractID) MissedOutputID(i int) SiacoinOutputID {
 	h.E.WriteBool(false)
 	h.E.WriteUint64(uint64(i))
 	return SiacoinOutputID(h.Sum())
+}
+
+// V2RenterOutputID returns the ID of the renter output for a v2 contract.
+func (fcid FileContractID) V2RenterOutputID() SiacoinOutputID {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	SpecifierSiacoinOutput.EncodeTo(h.E)
+	fcid.EncodeTo(h.E)
+	h.E.WriteUint64(0)
+	return SiacoinOutputID(h.Sum())
+}
+
+// V2HostOutputID returns the ID of the host output for a v2 contract.
+func (fcid FileContractID) V2HostOutputID() SiacoinOutputID {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	SpecifierSiacoinOutput.EncodeTo(h.E)
+	fcid.EncodeTo(h.E)
+	h.E.WriteUint64(1)
+	return SiacoinOutputID(h.Sum())
+}
+
+// V2RenewalID returns the ID of the renewal of a v2 contract.
+func (fcid FileContractID) V2RenewalID() FileContractID {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	SpecifierFileContract.EncodeTo(h.E)
+	fcid.EncodeTo(h.E)
+	return FileContractID(h.Sum())
 }
 
 // A FileContractRevision updates the state of an existing file contract.
@@ -725,18 +757,56 @@ func (txn *V2Transaction) ID() TransactionID {
 	return TransactionID(h.Sum())
 }
 
-// EphemeralSiacoinOutput returns a SiacoinElement for the siacoin output at
-// index i.
-func (txn *V2Transaction) EphemeralSiacoinOutput(i int) SiacoinElement {
+// SiacoinOutputID returns the ID for the siacoin output at index i.
+func (*V2Transaction) SiacoinOutputID(txid TransactionID, i int) SiacoinOutputID {
 	h := hasherPool.Get().(*Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
 	SpecifierSiacoinOutput.EncodeTo(h.E)
-	txn.ID().EncodeTo(h.E)
+	txid.EncodeTo(h.E)
 	h.E.WriteUint64(uint64(i))
+	return SiacoinOutputID(h.Sum())
+}
+
+// SiafundOutputID returns the ID for the siafund output at index i.
+func (*V2Transaction) SiafundOutputID(txid TransactionID, i int) SiafundOutputID {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	SpecifierSiafundOutput.EncodeTo(h.E)
+	txid.EncodeTo(h.E)
+	h.E.WriteUint64(uint64(i))
+	return SiafundOutputID(h.Sum())
+}
+
+// V2FileContractID returns the ID for the v2 file contract at index i.
+func (*V2Transaction) V2FileContractID(txid TransactionID, i int) FileContractID {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	SpecifierFileContract.EncodeTo(h.E)
+	txid.EncodeTo(h.E)
+	h.E.WriteUint64(uint64(i))
+	return FileContractID(h.Sum())
+}
+
+// AttestationID returns the ID for the attestation at index i.
+func (*V2Transaction) AttestationID(txid TransactionID, i int) Hash256 {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	SpecifierAttestation.EncodeTo(h.E)
+	txid.EncodeTo(h.E)
+	h.E.WriteUint64(uint64(i))
+	return h.Sum()
+}
+
+// EphemeralSiacoinOutput returns a SiacoinElement for the siacoin output at
+// index i.
+func (txn *V2Transaction) EphemeralSiacoinOutput(i int) SiacoinElement {
 	return SiacoinElement{
 		StateElement: StateElement{
-			ID:        h.Sum(),
+			ID:        Hash256(txn.SiacoinOutputID(txn.ID(), i)),
 			LeafIndex: EphemeralLeafIndex,
 		},
 		SiacoinOutput: txn.SiacoinOutputs[i],
@@ -746,15 +816,9 @@ func (txn *V2Transaction) EphemeralSiacoinOutput(i int) SiacoinElement {
 // EphemeralSiafundOutput returns a SiafundElement for the siafund output at
 // index i.
 func (txn *V2Transaction) EphemeralSiafundOutput(i int) SiafundElement {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	SpecifierSiafundOutput.EncodeTo(h.E)
-	txn.ID().EncodeTo(h.E)
-	h.E.WriteUint64(uint64(i))
 	return SiafundElement{
 		StateElement: StateElement{
-			ID:        h.Sum(),
+			ID:        Hash256(txn.SiafundOutputID(txn.ID(), i)),
 			LeafIndex: EphemeralLeafIndex,
 		},
 		SiafundOutput: txn.SiafundOutputs[i],
