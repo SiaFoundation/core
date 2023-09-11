@@ -442,7 +442,9 @@ func (p SpendPolicy) encodePolicy(e *Encoder) {
 	const (
 		opInvalid = iota
 		opAbove
+		opAfter
 		opPublicKey
+		opHash
 		opThreshold
 		opOpaque
 		opUnlockConditions
@@ -451,9 +453,15 @@ func (p SpendPolicy) encodePolicy(e *Encoder) {
 	case PolicyTypeAbove:
 		e.WriteUint8(opAbove)
 		e.WriteUint64(uint64(p))
+	case PolicyTypeAfter:
+		e.WriteUint8(opAfter)
+		e.WriteTime(time.Time(p))
 	case PolicyTypePublicKey:
 		e.WriteUint8(opPublicKey)
 		PublicKey(p).EncodeTo(e)
+	case PolicyTypeHash:
+		e.WriteUint8(opHash)
+		Hash256(p).EncodeTo(e)
 	case PolicyTypeThreshold:
 		e.WriteUint8(opThreshold)
 		e.WriteUint8(p.N)
@@ -994,7 +1002,9 @@ func (p *SpendPolicy) DecodeFrom(d *Decoder) {
 	const (
 		opInvalid = iota
 		opAbove
+		opAfter
 		opPublicKey
+		opHash
 		opThreshold
 		opOpaque
 		opUnlockConditions
@@ -1006,10 +1016,16 @@ func (p *SpendPolicy) DecodeFrom(d *Decoder) {
 		switch op := d.ReadUint8(); op {
 		case opAbove:
 			return PolicyAbove(d.ReadUint64()), nil
+		case opAfter:
+			return PolicyAfter(d.ReadTime()), nil
 		case opPublicKey:
 			var pk PublicKey
 			pk.DecodeFrom(d)
 			return PolicyPublicKey(pk), nil
+		case opHash:
+			var h Hash256
+			h.DecodeFrom(d)
+			return PolicyHash(h), nil
 		case opThreshold:
 			n := d.ReadUint8()
 			of := make([]SpendPolicy, d.ReadUint8())
