@@ -394,7 +394,7 @@ func updateLeaves(leaves []elementLeaf) [64][]elementLeaf {
 
 // applyBlock applies the supplied leaves to the accumulator, modifying it and
 // producing an update.
-func (acc *ElementAccumulator) applyBlock(updated, added []elementLeaf) (eau ElementApplyUpdate) {
+func (acc *ElementAccumulator) applyBlock(updated, added []elementLeaf) (eau elementApplyUpdate) {
 	eau.updated = updateLeaves(updated)
 	for height, es := range eau.updated {
 		if len(es) > 0 {
@@ -412,7 +412,7 @@ func (acc *ElementAccumulator) applyBlock(updated, added []elementLeaf) (eau Ele
 // under acc, which must be the accumulator prior to the application of those
 // elements. All of the elements will be marked unspent. The accumulator itself
 // is not modified.
-func (acc *ElementAccumulator) revertBlock(updated []elementLeaf) (eru ElementRevertUpdate) {
+func (acc *ElementAccumulator) revertBlock(updated []elementLeaf) (eru elementRevertUpdate) {
 	eru.updated = updateLeaves(updated)
 	eru.numLeaves = acc.NumLeaves
 	return
@@ -443,17 +443,12 @@ func updateProof(e *types.StateElement, updated *[64][]elementLeaf) {
 	}
 }
 
-// An ElementApplyUpdate reflects the changes to an ElementAccumulator resulting
-// from the application of a block.
-type ElementApplyUpdate struct {
+type elementApplyUpdate struct {
 	updated    [64][]elementLeaf
 	treeGrowth [64][]types.Hash256
 }
 
-// UpdateElementProof updates the Merkle proof of the supplied element to
-// incorporate the changes made to the accumulator. The element's proof must be
-// up-to-date; if it is not, UpdateElementProof may panic.
-func (eau *ElementApplyUpdate) UpdateElementProof(e *types.StateElement) {
+func (eau *elementApplyUpdate) updateElementProof(e *types.StateElement) {
 	if e.LeafIndex == types.EphemeralLeafIndex {
 		panic("cannot update an ephemeral element")
 	}
@@ -461,17 +456,12 @@ func (eau *ElementApplyUpdate) UpdateElementProof(e *types.StateElement) {
 	e.MerkleProof = append(e.MerkleProof, eau.treeGrowth[len(e.MerkleProof)]...)
 }
 
-// An ElementRevertUpdate reflects the changes to an ElementAccumulator
-// resulting from the removal of a block.
-type ElementRevertUpdate struct {
+type elementRevertUpdate struct {
 	updated   [64][]elementLeaf
 	numLeaves uint64
 }
 
-// UpdateElementProof updates the Merkle proof of the supplied element to
-// incorporate the changes made to the accumulator. The element's proof must be
-// up-to-date; if it is not, UpdateElementProof may panic.
-func (eru *ElementRevertUpdate) UpdateElementProof(e *types.StateElement) {
+func (eru *elementRevertUpdate) updateElementProof(e *types.StateElement) {
 	if e.LeafIndex == types.EphemeralLeafIndex {
 		panic("cannot update an ephemeral element")
 	} else if e.LeafIndex >= eru.numLeaves {

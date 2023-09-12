@@ -423,13 +423,23 @@ type Transaction struct {
 // transaction's effects, but not incidental data such as signatures. This
 // ensures that the ID will remain stable (i.e. non-malleable).
 //
-// To hash all of the data in a transaction, use the EncodeTo method.
+// To hash all of the data in a transaction, use the FullHash method.
 func (txn *Transaction) ID() TransactionID {
 	h := hasherPool.Get().(*Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
 	txn.encodeNoSignatures(h.E)
 	return TransactionID(h.Sum())
+}
+
+// FullHash returns the hash of the transaction's binary encoding. This hash is
+// only used in specific circumstances; generally, ID should be used instead.
+func (txn *Transaction) FullHash() Hash256 {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	txn.EncodeTo(h.E)
+	return h.Sum()
 }
 
 // SiacoinOutputID returns the ID of the siacoin output at index i.
@@ -700,7 +710,7 @@ type V2Transaction struct {
 // transaction's effects, but not incidental data such as signatures or Merkle
 // proofs. This ensures that the ID will remain stable (i.e. non-malleable).
 //
-// To hash all of the data in a transaction, use the EncodeTo method.
+// To hash all of the data in a transaction, use the FullHash method.
 func (txn *V2Transaction) ID() TransactionID {
 	// NOTE: In general, it is not possible to change a transaction's ID without
 	// causing it to become invalid, but an exception exists for non-standard
@@ -755,6 +765,16 @@ func (txn *V2Transaction) ID() TransactionID {
 	}
 	txn.MinerFee.EncodeTo(h.E)
 	return TransactionID(h.Sum())
+}
+
+// FullHash returns the hash of the transaction's binary encoding. This hash is
+// only used in specific circumstances; generally, ID should be used instead.
+func (txn *V2Transaction) FullHash() Hash256 {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	txn.EncodeTo(h.E)
+	return h.Sum()
 }
 
 // SiacoinOutputID returns the ID for the siacoin output at index i.

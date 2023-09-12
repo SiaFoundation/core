@@ -27,7 +27,7 @@ type Checkpoint struct {
 func (c Checkpoint) EncodeTo(e *types.Encoder) {
 	e.WriteUint8(2) // block (and supplement) version
 	types.V2Block(c.Block).EncodeTo(e)
-	e.WriteUint8(1) // state version
+	e.WriteUint8(2) // state version
 	c.State.EncodeTo(e)
 	e.WriteBool(c.Supplement != nil)
 	if c.Supplement != nil {
@@ -42,7 +42,7 @@ func (c *Checkpoint) DecodeFrom(d *types.Decoder) {
 		d.SetErr(fmt.Errorf("incompatible block version (%d)", v))
 	}
 	(*types.V2Block)(&c.Block).DecodeFrom(d)
-	if v := d.ReadUint8(); v != 1 {
+	if v := d.ReadUint8(); v != 2 {
 		d.SetErr(fmt.Errorf("incompatible state version (%d)", v))
 	}
 	c.State.DecodeFrom(d)
@@ -149,6 +149,14 @@ func (m *Manager) Tip() types.ChainIndex {
 	return m.TipState().Index
 }
 
+// SyncCheckpoint returns the block at the specified index, along with its
+// parent state.
+func (m *Manager) SyncCheckpoint(index types.ChainIndex) (types.Block, consensus.State, bool) {
+	c, ok := m.store.Checkpoint(index.ID)
+	pc, ok2 := m.store.Checkpoint(c.Block.ParentID)
+	return c.Block, pc.State, ok && ok2
+}
+
 // Block returns the block with the specified ID.
 func (m *Manager) Block(id types.BlockID) (types.Block, bool) {
 	c, ok := m.store.Checkpoint(id)
@@ -190,13 +198,12 @@ func (m *Manager) History() ([32]types.BlockID, error) {
 	return history, nil
 }
 
-// BlocksForHistory fills the provided slice with consecutive blocks from the
-// best chain, starting from the "attach point" -- the first ID in the history
-// that is present in the best chain (or, if no match is found, genesis).
-//
-// The returned slice may have fewer than len(blocks) elements if the end of the
-// best chain is reached.
-func (m *Manager) BlocksForHistory(blocks []types.Block, history []types.BlockID) ([]types.Block, error) {
+// BlocksForHistory returns up to max consecutive blocks from the best chain,
+// starting from the "attach point" -- the first ID in the history that is
+// present in the best chain (or, if no match is found, genesis). It also
+// returns the number of blocks between the end of the returned slice and the
+// current tip.
+func (m *Manager) BlocksForHistory(history []types.BlockID, max uint64) ([]types.Block, uint64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var attachHeight uint64
@@ -208,16 +215,19 @@ func (m *Manager) BlocksForHistory(blocks []types.Block, history []types.BlockID
 			break
 		}
 	}
-	for i := range blocks {
-		if index, ok := m.store.BestIndex(attachHeight + uint64(i) + 1); !ok {
-			return blocks[:i], nil
-		} else if c, ok := m.store.Checkpoint(index.ID); !ok {
-			return nil, fmt.Errorf("missing block %v", index)
-		} else {
-			blocks[i] = c.Block
-		}
+	if max > m.tipState.Index.Height-attachHeight {
+		max = m.tipState.Index.Height - attachHeight
 	}
-	return blocks, nil
+	blocks := make([]types.Block, max)
+	for i := range blocks {
+		index, _ := m.store.BestIndex(attachHeight + uint64(i) + 1)
+		c, ok := m.store.Checkpoint(index.ID)
+		if !ok {
+			return nil, 0, fmt.Errorf("missing block %v", index)
+		}
+		blocks[i] = c.Block
+	}
+	return blocks, m.tipState.Index.Height - (attachHeight + max), nil
 }
 
 // AddBlocks adds a sequence of blocks to a tracked chain. If the blocks are
@@ -826,6 +836,36 @@ func (m *Manager) V2PoolTransactions() []types.V2Transaction {
 	defer m.mu.Unlock()
 	m.revalidatePool()
 	return append([]types.V2Transaction(nil), m.txpool.v2txns...)
+}
+
+// TransactionsForPartialBlock returns the transactions in the txpool with the
+// specified hashes.
+func (m *Manager) TransactionsForPartialBlock(missing []types.Hash256) (txns []types.Transaction, v2txns []types.V2Transaction) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.revalidatePool()
+	want := make(map[types.Hash256]bool)
+	for _, h := range missing {
+		want[h] = true
+	}
+	// TODO: might want to cache these
+	for _, txn := range m.txpool.txns {
+		if h := txn.FullHash(); want[h] {
+			txns = append(txns, txn)
+			if delete(want, h); len(want) == 0 {
+				return
+			}
+		}
+	}
+	for _, txn := range m.txpool.v2txns {
+		if h := txn.FullHash(); want[h] {
+			v2txns = append(v2txns, txn)
+			if delete(want, h); len(want) == 0 {
+				return
+			}
+		}
+	}
+	return
 }
 
 // RecommendedFee returns the recommended fee (per weight unit) to ensure a high

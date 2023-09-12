@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"io"
 
+	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
 )
 
-func withEncoder(w io.Writer, fn func(*types.Encoder)) error {
+func withV1Encoder(w io.Writer, fn func(*types.Encoder)) error {
 	var buf bytes.Buffer
 	e := types.NewEncoder(&buf)
 	e.WritePrefix(0) // placeholder
@@ -21,9 +22,21 @@ func withEncoder(w io.Writer, fn func(*types.Encoder)) error {
 	return err
 }
 
-func withDecoder(r io.Reader, maxLen int, fn func(*types.Decoder)) error {
+func withV1Decoder(r io.Reader, maxLen int, fn func(*types.Decoder)) error {
 	d := types.NewDecoder(io.LimitedReader{R: r, N: int64(8 + maxLen)})
 	d.ReadPrefix() // ignored
+	fn(d)
+	return d.Err()
+}
+
+func withV2Encoder(w io.Writer, fn func(*types.Encoder)) error {
+	e := types.NewEncoder(w)
+	fn(e)
+	return e.Flush()
+}
+
+func withV2Decoder(r io.Reader, maxLen int, fn func(*types.Decoder)) error {
+	d := types.NewDecoder(io.LimitedReader{R: r, N: int64(maxLen)})
 	fn(d)
 	return d.Err()
 }
@@ -55,21 +68,65 @@ func (h *BlockHeader) decodeFrom(d *types.Decoder) {
 }
 
 func (h *V2BlockHeader) encodeTo(e *types.Encoder) {
-	e.WriteUint64(h.Height)
-	h.ParentID.EncodeTo(e)
+	h.Parent.EncodeTo(e)
 	e.WriteUint64(h.Nonce)
 	e.WriteTime(h.Timestamp)
+	h.TransactionsRoot.EncodeTo(e)
 	h.MinerAddress.EncodeTo(e)
-	h.Commitment.EncodeTo(e)
 }
 
 func (h *V2BlockHeader) decodeFrom(d *types.Decoder) {
-	h.Height = d.ReadUint64()
-	h.ParentID.DecodeFrom(d)
+	h.Parent.DecodeFrom(d)
 	h.Nonce = d.ReadUint64()
 	h.Timestamp = d.ReadTime()
+	h.TransactionsRoot.DecodeFrom(d)
 	h.MinerAddress.DecodeFrom(d)
-	h.Commitment.DecodeFrom(d)
+}
+
+func (ot *OutlineTransaction) encodeTo(e *types.Encoder) {
+	ot.Hash.EncodeTo(e)
+	if ot.Transaction != nil {
+		e.WriteBool(true)
+		ot.Transaction.EncodeTo(e)
+	} else {
+		e.WriteBool(false)
+		ot.V2Transaction.EncodeTo(e)
+	}
+}
+
+func (ot *OutlineTransaction) decodeFrom(d *types.Decoder) {
+	ot.Hash.DecodeFrom(d)
+	if d.ReadBool() {
+		ot.Transaction = new(types.Transaction)
+		ot.Transaction.DecodeFrom(d)
+	} else {
+		ot.V2Transaction = new(types.V2Transaction)
+		ot.V2Transaction.DecodeFrom(d)
+	}
+}
+
+func (pb *V2BlockOutline) encodeTo(e *types.Encoder) {
+	e.WriteUint64(pb.Height)
+	pb.ParentID.EncodeTo(e)
+	e.WriteUint64(pb.Nonce)
+	e.WriteTime(pb.Timestamp)
+	pb.MinerAddress.EncodeTo(e)
+	e.WritePrefix(len(pb.Transactions))
+	for i := range pb.Transactions {
+		pb.Transactions[i].encodeTo(e)
+	}
+}
+
+func (pb *V2BlockOutline) decodeFrom(d *types.Decoder) {
+	pb.Height = d.ReadUint64()
+	pb.ParentID.DecodeFrom(d)
+	pb.Nonce = d.ReadUint64()
+	pb.Timestamp = d.ReadTime()
+	pb.MinerAddress.DecodeFrom(d)
+	pb.Transactions = make([]OutlineTransaction, d.ReadPrefix())
+	for i := range pb.Transactions {
+		pb.Transactions[i].decodeFrom(d)
+	}
 }
 
 type object interface {
@@ -187,16 +244,6 @@ func (r *RPCRelayHeader) encodeRequest(e *types.Encoder) { r.Header.encodeTo(e) 
 func (r *RPCRelayHeader) decodeRequest(d *types.Decoder) { r.Header.decodeFrom(d) }
 func (r *RPCRelayHeader) maxRequestLen() int             { return 32 + 8 + 8 + 32 }
 
-// RPCRelayV2Header relays a v2 header.
-type RPCRelayV2Header struct {
-	Header V2BlockHeader
-	emptyResponse
-}
-
-func (r *RPCRelayV2Header) encodeRequest(e *types.Encoder) { r.Header.encodeTo(e) }
-func (r *RPCRelayV2Header) decodeRequest(d *types.Decoder) { r.Header.decodeFrom(d) }
-func (r *RPCRelayV2Header) maxRequestLen() int             { return 32 + 8 + 8 + 32 }
-
 // RPCRelayTransactionSet relays a transaction set.
 type RPCRelayTransactionSet struct {
 	Transactions []types.Transaction
@@ -216,6 +263,134 @@ func (r *RPCRelayTransactionSet) decodeRequest(d *types.Decoder) {
 	}
 }
 func (r *RPCRelayTransactionSet) maxRequestLen() int { return 5e6 }
+
+// RPCSendV2Blocks requests a set of blocks.
+type RPCSendV2Blocks struct {
+	History   []types.BlockID
+	Max       uint64
+	Blocks    []types.Block
+	Remaining uint64
+}
+
+func (r *RPCSendV2Blocks) encodeRequest(e *types.Encoder) {
+	for i := range r.History {
+		r.History[i].EncodeTo(e)
+	}
+	e.WriteUint64(r.Max)
+}
+func (r *RPCSendV2Blocks) decodeRequest(d *types.Decoder) {
+	r.History = make([]types.BlockID, d.ReadPrefix())
+	for i := range r.History {
+		r.History[i].DecodeFrom(d)
+	}
+	r.Max = d.ReadUint64()
+}
+func (r *RPCSendV2Blocks) maxRequestLen() int { return 8 + 32*32 + 8 }
+
+func (r *RPCSendV2Blocks) encodeResponse(e *types.Encoder) {
+	e.WritePrefix(len(r.Blocks))
+	for i := range r.Blocks {
+		types.V2Block(r.Blocks[i]).EncodeTo(e)
+	}
+	e.WriteUint64(r.Remaining)
+}
+func (r *RPCSendV2Blocks) decodeResponse(d *types.Decoder) {
+	r.Blocks = make([]types.Block, d.ReadPrefix())
+	for i := range r.Blocks {
+		(*types.V2Block)(&r.Blocks[i]).DecodeFrom(d)
+	}
+	r.Remaining = d.ReadUint64()
+}
+func (r *RPCSendV2Blocks) maxResponseLen() int { return int(r.Max) * 5e6 }
+
+// RPCSendTransactions requests a subset of a block's transactions.
+type RPCSendTransactions struct {
+	Index  types.ChainIndex
+	Hashes []types.Hash256
+
+	Transactions   []types.Transaction
+	V2Transactions []types.V2Transaction
+}
+
+func (r *RPCSendTransactions) encodeRequest(e *types.Encoder) {
+	r.Index.EncodeTo(e)
+	e.WritePrefix(len(r.Hashes))
+	for i := range r.Hashes {
+		r.Hashes[i].EncodeTo(e)
+	}
+}
+func (r *RPCSendTransactions) decodeRequest(d *types.Decoder) {
+	r.Index.DecodeFrom(d)
+	r.Hashes = make([]types.Hash256, d.ReadPrefix())
+	for i := range r.Hashes {
+		r.Hashes[i].DecodeFrom(d)
+	}
+}
+func (r *RPCSendTransactions) maxRequestLen() int { return 8 + 32 + 8 + 100*32 }
+
+func (r *RPCSendTransactions) encodeResponse(e *types.Encoder) {
+	e.WritePrefix(len(r.Transactions))
+	for i := range r.Transactions {
+		r.Transactions[i].EncodeTo(e)
+	}
+	e.WritePrefix(len(r.V2Transactions))
+	for i := range r.V2Transactions {
+		r.V2Transactions[i].EncodeTo(e)
+	}
+}
+func (r *RPCSendTransactions) decodeResponse(d *types.Decoder) {
+	r.Transactions = make([]types.Transaction, d.ReadPrefix())
+	for i := range r.Transactions {
+		r.Transactions[i].DecodeFrom(d)
+	}
+	r.V2Transactions = make([]types.V2Transaction, d.ReadPrefix())
+	for i := range r.V2Transactions {
+		r.V2Transactions[i].DecodeFrom(d)
+	}
+}
+func (r *RPCSendTransactions) maxResponseLen() int { return 5e6 }
+
+// RPCSendCheckpoint requests a checkpoint.
+type RPCSendCheckpoint struct {
+	Index types.ChainIndex
+
+	Block types.Block
+	State consensus.State
+}
+
+func (r *RPCSendCheckpoint) encodeRequest(e *types.Encoder) { r.Index.EncodeTo(e) }
+func (r *RPCSendCheckpoint) decodeRequest(d *types.Decoder) { r.Index.DecodeFrom(d) }
+func (r *RPCSendCheckpoint) maxRequestLen() int             { return 8 + 32 }
+
+func (r *RPCSendCheckpoint) encodeResponse(e *types.Encoder) {
+	(types.V2Block)(r.Block).EncodeTo(e)
+	r.State.EncodeTo(e)
+}
+func (r *RPCSendCheckpoint) decodeResponse(d *types.Decoder) {
+	(*types.V2Block)(&r.Block).DecodeFrom(d)
+	r.State.DecodeFrom(d)
+}
+func (r *RPCSendCheckpoint) maxResponseLen() int { return 5e6 + 4e3 }
+
+// RPCRelayV2Header relays a v2 block header.
+type RPCRelayV2Header struct {
+	Header V2BlockHeader
+	emptyResponse
+}
+
+func (r *RPCRelayV2Header) encodeRequest(e *types.Encoder) { r.Header.encodeTo(e) }
+func (r *RPCRelayV2Header) decodeRequest(d *types.Decoder) { r.Header.decodeFrom(d) }
+func (r *RPCRelayV2Header) maxRequestLen() int             { return 8 + 32 + 8 + 8 + 32 + 32 }
+
+// RPCRelayV2BlockOutline relays a v2 block outline.
+type RPCRelayV2BlockOutline struct {
+	Block V2BlockOutline
+	emptyResponse
+}
+
+func (r *RPCRelayV2BlockOutline) encodeRequest(e *types.Encoder) { r.Block.encodeTo(e) }
+func (r *RPCRelayV2BlockOutline) decodeRequest(d *types.Decoder) { r.Block.decodeFrom(d) }
+func (r *RPCRelayV2BlockOutline) maxRequestLen() int             { return 5e6 }
 
 // RPCRelayV2TransactionSet relays a v2 transaction set.
 type RPCRelayV2TransactionSet struct {
@@ -237,26 +412,29 @@ func (r *RPCRelayV2TransactionSet) decodeRequest(d *types.Decoder) {
 }
 func (r *RPCRelayV2TransactionSet) maxRequestLen() int { return 5e6 }
 
-type rpcID types.Specifier
+type v1RPCID types.Specifier
 
-func (id *rpcID) encodeTo(e *types.Encoder)   { e.Write(id[:8]) }
-func (id *rpcID) decodeFrom(d *types.Decoder) { d.Read(id[:8]) }
-
-func newID(str string) (id rpcID) {
-	copy(id[:8], str)
-	return
-}
+func (id *v1RPCID) encodeTo(e *types.Encoder)   { e.Write(id[:8]) }
+func (id *v1RPCID) decodeFrom(d *types.Decoder) { d.Read(id[:8]) }
 
 var (
-	idShareNodes          = newID("ShareNodes")
-	idDiscoverIP          = newID("DiscoverIP")
-	idSendBlocks          = newID("SendBlocks")
-	idSendBlk             = newID("SendBlk")
-	idRelayHeader         = newID("RelayHeader")
-	idRelayTransactionSet = newID("RelayTransactionSet")
+	// v1
+	idShareNodes          = types.NewSpecifier("ShareNodes")
+	idDiscoverIP          = types.NewSpecifier("DiscoverIP")
+	idSendBlocks          = types.NewSpecifier("SendBlocks")
+	idSendBlk             = types.NewSpecifier("SendBlk")
+	idRelayHeader         = types.NewSpecifier("RelayHeader")
+	idRelayTransactionSet = types.NewSpecifier("RelayTransactionSet")
+	// v2
+	idSendV2Blocks          = types.NewSpecifier("SendV2Blocks")
+	idSendTransactions      = types.NewSpecifier("SendTransactions")
+	idSendCheckpoint        = types.NewSpecifier("SendCheckpoint")
+	idRelayV2Header         = types.NewSpecifier("RelayV2Header")
+	idRelayV2BlockOutline   = types.NewSpecifier("RelayV2BlockOutline")
+	idRelayV2TransactionSet = types.NewSpecifier("RelayV2TransactionSet")
 )
 
-func idForObject(o object) rpcID {
+func idForObject(o object) types.Specifier {
 	switch o.(type) {
 	case *RPCShareNodes:
 		return idShareNodes
@@ -270,12 +448,24 @@ func idForObject(o object) rpcID {
 		return idRelayHeader
 	case *RPCRelayTransactionSet:
 		return idRelayTransactionSet
+	case *RPCSendV2Blocks:
+		return idSendV2Blocks
+	case *RPCSendTransactions:
+		return idSendTransactions
+	case *RPCSendCheckpoint:
+		return idSendCheckpoint
+	case *RPCRelayV2Header:
+		return idRelayV2Header
+	case *RPCRelayV2BlockOutline:
+		return idRelayV2BlockOutline
+	case *RPCRelayV2TransactionSet:
+		return idRelayV2TransactionSet
 	default:
 		panic(fmt.Sprintf("unhandled object type %T", o))
 	}
 }
 
-func objectForID(id rpcID) object {
+func objectForID(id types.Specifier) object {
 	switch id {
 	case idShareNodes:
 		return new(RPCShareNodes)
@@ -289,6 +479,14 @@ func objectForID(id rpcID) object {
 		return new(RPCRelayHeader)
 	case idRelayTransactionSet:
 		return new(RPCRelayTransactionSet)
+	case idSendV2Blocks:
+		return new(RPCSendV2Blocks)
+	case idSendTransactions:
+		return new(RPCSendTransactions)
+	case idRelayV2Header:
+		return new(RPCRelayV2BlockOutline)
+	case idRelayV2TransactionSet:
+		return new(RPCRelayV2TransactionSet)
 	default:
 		return nil
 	}

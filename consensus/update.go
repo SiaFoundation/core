@@ -607,8 +607,15 @@ func (ms *MidState) forEachElementLeaf(fn func(elementLeaf)) {
 
 // An ApplyUpdate represents the effects of applying a block to a state.
 type ApplyUpdate struct {
-	ElementApplyUpdate
-	ms *MidState
+	ms  *MidState
+	eau elementApplyUpdate
+}
+
+// UpdateElementProof updates the Merkle proof of the supplied element to
+// incorporate the changes made to the accumulator. The element's proof must be
+// up-to-date; if it is not, UpdateElementProof may panic.
+func (au ApplyUpdate) UpdateElementProof(e *types.StateElement) {
+	au.eau.updateElementProof(e)
 }
 
 // ForEachSiacoinElement calls fn on each siacoin element related to au.
@@ -673,13 +680,20 @@ func ApplyBlock(s State, b types.Block, bs V1BlockSupplement, targetTimestamp ti
 	})
 	eau := s.Elements.applyBlock(updated, added)
 	s = ApplyOrphan(s, b, targetTimestamp)
-	return s, ApplyUpdate{eau, ms}
+	return s, ApplyUpdate{ms, eau}
 }
 
 // A RevertUpdate represents the effects of reverting to a prior state.
 type RevertUpdate struct {
-	ElementRevertUpdate
-	ms *MidState
+	ms  *MidState
+	eru elementRevertUpdate
+}
+
+// UpdateElementProof updates the Merkle proof of the supplied element to
+// incorporate the changes made to the accumulator. The element's proof must be
+// up-to-date; if it is not, UpdateElementProof may panic.
+func (ru RevertUpdate) UpdateElementProof(e *types.StateElement) {
+	ru.eru.updateElementProof(e)
 }
 
 // ForEachSiacoinElement calls fn on each siacoin element related to ru.
@@ -734,5 +748,5 @@ func RevertBlock(s State, b types.Block, bs V1BlockSupplement) RevertUpdate {
 		}
 	})
 	eru := s.Elements.revertBlock(updated)
-	return RevertUpdate{eru, ms}
+	return RevertUpdate{ms, eru}
 }

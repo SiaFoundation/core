@@ -495,31 +495,27 @@ func (s State) PartialSigHash(txn types.Transaction, cf types.CoveredFields) typ
 	return h.Sum()
 }
 
-// Commitment computes the commitment hash for a child block.
-func (s State) Commitment(minerAddr types.Address, txns []types.Transaction, v2txns []types.V2Transaction) types.Hash256 {
+// TransactionsCommitment returns the commitment hash covering the transactions
+// that comprise a child block.
+func (s *State) TransactionsCommitment(txns []types.Transaction, v2txns []types.V2Transaction) types.Hash256 {
+	var acc blake2b.Accumulator
+	for _, txn := range txns {
+		acc.AddLeaf(txn.FullHash())
+	}
+	for _, txn := range v2txns {
+		acc.AddLeaf(txn.FullHash())
+	}
+	return acc.Root()
+}
+
+// Commitment computes the commitment hash for a child block with the given
+// transactions and miner address.
+func (s State) Commitment(txnsHash types.Hash256, minerAddr types.Address) types.Hash256 {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-
-	// hash the state
 	s.EncodeTo(h.E)
 	stateHash := h.Sum()
-
-	// hash the transactions
-	var acc blake2b.Accumulator
-	for _, txn := range txns {
-		h.Reset()
-		txn.EncodeTo(h.E)
-		acc.AddLeaf(h.Sum())
-	}
-	for _, txn := range v2txns {
-		h.Reset()
-		txn.EncodeTo(h.E)
-		acc.AddLeaf(h.Sum())
-	}
-	txnsHash := types.Hash256(acc.Root())
-
-	// concatenate the hashes and the miner address
 	h.Reset()
 	h.WriteDistinguisher("commitment")
 	h.E.WriteUint8(s.v2ReplayPrefix())
@@ -536,7 +532,7 @@ func (s State) InputSigHash(txn types.V2Transaction) types.Hash256 {
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
-	h.WriteDistinguisher("id/transaction")
+	h.WriteDistinguisher("sig/input")
 	h.E.WriteUint8(s.v2ReplayPrefix())
 	h.E.WritePrefix(len(txn.SiacoinInputs))
 	for _, in := range txn.SiacoinInputs {

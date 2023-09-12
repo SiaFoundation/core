@@ -563,7 +563,7 @@ func TestValidateV2Block(t *testing.T) {
 		}},
 	}
 	signTxn(cs, &b.V2.Transactions[0])
-	b.V2.Commitment = cs.Commitment(b.MinerPayouts[0].Address, b.Transactions, b.V2.Transactions)
+	b.V2.Commitment = cs.Commitment(cs.TransactionsCommitment(b.Transactions, b.V2Transactions()), b.MinerPayouts[0].Address)
 
 	// initial block should be valid
 	validBlock := deepCopyBlock(b)
@@ -802,7 +802,7 @@ func TestValidateV2Block(t *testing.T) {
 			test.corrupt(&corruptBlock)
 			signTxn(cs, &corruptBlock.V2.Transactions[0])
 			if len(corruptBlock.MinerPayouts) > 0 {
-				corruptBlock.V2.Commitment = cs.Commitment(corruptBlock.MinerPayouts[0].Address, corruptBlock.Transactions, corruptBlock.V2.Transactions)
+				corruptBlock.V2.Commitment = cs.Commitment(cs.TransactionsCommitment(corruptBlock.Transactions, corruptBlock.V2Transactions()), corruptBlock.MinerPayouts[0].Address)
 			}
 			findBlockNonce(cs, &corruptBlock)
 

@@ -96,7 +96,7 @@ func ValidateOrphan(s State, b types.Block) error {
 	if b.V2 != nil {
 		if b.V2.Height != s.Index.Height+1 {
 			return errors.New("block height does not increment parent height")
-		} else if b.V2.Commitment != s.Commitment(b.MinerPayouts[0].Address, b.Transactions, b.V2.Transactions) {
+		} else if b.V2.Commitment != s.Commitment(s.TransactionsCommitment(b.Transactions, b.V2Transactions()), b.MinerPayouts[0].Address) {
 			return errors.New("commitment hash does not match header")
 		}
 	}
