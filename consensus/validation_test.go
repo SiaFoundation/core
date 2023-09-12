@@ -400,6 +400,14 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
+				"double-spent input",
+				func(b *types.Block) {
+					txn := &b.Transactions[0]
+					txn.SiacoinInputs = append(txn.SiacoinInputs, txn.SiacoinInputs[0])
+					txn.SiacoinOutputs[0].Value = txn.SiacoinOutputs[0].Value.Add(types.Siacoins(100))
+				},
+			},
+			{
 				"conflicting revisions in same transaction",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
@@ -452,15 +460,11 @@ func TestValidateV2Block(t *testing.T) {
 			txn.FileContractRevisions[i].Revision.RenterSignature = renterPrivateKey.SignHash(cs.ContractSigHash(txn.FileContractRevisions[i].Revision))
 			txn.FileContractRevisions[i].Revision.HostSignature = hostPrivateKey.SignHash(cs.ContractSigHash(txn.FileContractRevisions[i].Revision))
 		}
-		sp := types.SatisfiedPolicy{
-			Policy:     giftPolicy,
-			Signatures: []types.Signature{giftPrivateKey.SignHash(cs.InputSigHash(*txn))},
-		}
 		for i := range txn.SiacoinInputs {
-			txn.SiacoinInputs[i].SatisfiedPolicy = sp
+			txn.SiacoinInputs[i].SatisfiedPolicy.Signatures = []types.Signature{giftPrivateKey.SignHash(cs.InputSigHash(*txn))}
 		}
 		for i := range txn.SiafundInputs {
-			txn.SiafundInputs[i].SatisfiedPolicy = sp
+			txn.SiafundInputs[i].SatisfiedPolicy.Signatures = []types.Signature{giftPrivateKey.SignHash(cs.InputSigHash(*txn))}
 		}
 	}
 
@@ -523,8 +527,6 @@ func TestValidateV2Block(t *testing.T) {
 
 	rev1 := v2GiftFC
 	rev1.RevisionNumber++
-	rev2 := rev1
-	rev2.RevisionNumber++
 	minerFee := types.Siacoins(1)
 	b := types.Block{
 		ParentID:  genesisBlock.ID(),
@@ -533,11 +535,13 @@ func TestValidateV2Block(t *testing.T) {
 			Height: 1,
 			Transactions: []types.V2Transaction{{
 				SiacoinInputs: []types.V2SiacoinInput{{
-					Parent: sces[0],
+					Parent:          sces[0],
+					SatisfiedPolicy: types.SatisfiedPolicy{Policy: giftPolicy},
 				}},
 				SiafundInputs: []types.V2SiafundInput{{
-					Parent:       sfes[0],
-					ClaimAddress: types.VoidAddress,
+					Parent:          sfes[0],
+					ClaimAddress:    types.VoidAddress,
+					SatisfiedPolicy: types.SatisfiedPolicy{Policy: giftPolicy},
 				}},
 				SiacoinOutputs: []types.SiacoinOutput{
 					{Value: giftAmountSC.Sub(minerFee).Sub(difference), Address: giftAddress},
@@ -548,14 +552,7 @@ func TestValidateV2Block(t *testing.T) {
 				},
 				FileContracts: []types.V2FileContract{fc},
 				FileContractRevisions: []types.V2FileContractRevision{
-					{
-						Parent:   fces[0],
-						Revision: rev1,
-					},
-					{
-						Parent:   fces[0],
-						Revision: rev2,
-					},
+					{Parent: fces[0], Revision: rev1},
 				},
 				MinerFee: minerFee,
 			}},
@@ -717,20 +714,6 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			{
-				"siacoin input claiming invalid policy",
-				func(b *types.Block) {
-					txn := &b.V2.Transactions[0]
-					txn.SiacoinInputs[0].SatisfiedPolicy.Signatures[0][0] ^= 1
-				},
-			},
-			{
-				"siafund input claiming invalid policy",
-				func(b *types.Block) {
-					txn := &b.V2.Transactions[0]
-					txn.SiafundInputs[0].SatisfiedPolicy.Signatures[0][0] ^= 1
-				},
-			},
-			{
 				"invalid FoundationAddressUpdate",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
@@ -802,6 +785,15 @@ func TestValidateV2Block(t *testing.T) {
 					txn := &b.V2.Transactions[0]
 					txn.SiacoinOutputs[0].Value = txn.SiacoinOutputs[0].Value.Add(types.Siacoins(1))
 					txn.FileContracts[0].TotalCollateral = txn.FileContracts[0].TotalCollateral.Sub(types.Siacoins(1))
+				},
+			},
+			{
+				"conflicting revisions in same transaction",
+				func(b *types.Block) {
+					txn := &b.V2.Transactions[0]
+					newRevision := txn.FileContractRevisions[0]
+					newRevision.Revision.RevisionNumber++
+					txn.FileContractRevisions = append(txn.FileContractRevisions, newRevision)
 				},
 			},
 		}

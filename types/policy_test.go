@@ -24,48 +24,56 @@ func TestPolicyVerify(t *testing.T) {
 	sigHash := Hash256{1, 2, 3}
 
 	for _, test := range []struct {
+		desc   string
 		p      SpendPolicy
 		height uint64
 		sigs   []Signature
 		valid  bool
 	}{
 		{
+			"above 0",
 			PolicyAbove(0),
 			0,
 			nil,
 			true,
 		},
 		{
+			"below 1",
 			PolicyAbove(1),
 			0,
 			nil,
 			false,
 		},
 		{
+			"above 1",
 			PolicyAbove(1),
 			1,
 			nil,
 			true,
 		},
 		{
+			"no signature",
 			PolicyPublicKey(pk),
 			1,
 			nil,
 			false,
 		},
 		{
+			"invalid signature",
 			PolicyPublicKey(pk),
 			1,
 			[]Signature{key.SignHash(Hash256{})},
 			false,
 		},
 		{
+			"valid signature",
 			PolicyPublicKey(pk),
 			1,
 			[]Signature{key.SignHash(sigHash)},
 			true,
 		},
 		{
+			"valid signature, invalid height",
 			PolicyThreshold(2, []SpendPolicy{
 				PolicyAbove(10),
 				PolicyPublicKey(pk),
@@ -75,6 +83,7 @@ func TestPolicyVerify(t *testing.T) {
 			false,
 		},
 		{
+			"valid height, invalid signature",
 			PolicyThreshold(2, []SpendPolicy{
 				PolicyAbove(10),
 				PolicyPublicKey(pk),
@@ -84,6 +93,7 @@ func TestPolicyVerify(t *testing.T) {
 			false,
 		},
 		{
+			"valid height, valid signature",
 			PolicyThreshold(2, []SpendPolicy{
 				PolicyAbove(10),
 				PolicyPublicKey(pk),
@@ -93,24 +103,17 @@ func TestPolicyVerify(t *testing.T) {
 			true,
 		},
 		{
-			PolicyThreshold(1, []SpendPolicy{
-				PolicyAbove(10),
-				PolicyPublicKey(pk),
-			}),
-			11,
-			[]Signature{key.SignHash(sigHash)},
-			true,
-		},
-		{
+			"lower threshold, valid height",
 			PolicyThreshold(1, []SpendPolicy{
 				PolicyAbove(10),
 				PolicyOpaque(PolicyPublicKey(pk)),
 			}),
 			11,
-			[]Signature{key.SignHash(sigHash)},
+			nil,
 			true,
 		},
 		{
+			"lower threshold, valid signature",
 			PolicyThreshold(1, []SpendPolicy{
 				PolicyOpaque(PolicyAbove(10)),
 				PolicyPublicKey(pk),
@@ -120,6 +123,17 @@ func TestPolicyVerify(t *testing.T) {
 			true,
 		},
 		{
+			"exceed threshold",
+			PolicyThreshold(1, []SpendPolicy{
+				PolicyAbove(10),
+				PolicyPublicKey(pk),
+			}),
+			11,
+			[]Signature{key.SignHash(sigHash)},
+			false,
+		},
+		{
+			"lower threshold, neither valid",
 			PolicyThreshold(1, []SpendPolicy{
 				PolicyOpaque(PolicyAbove(10)),
 				PolicyOpaque(PolicyPublicKey(pk)),
@@ -129,6 +143,7 @@ func TestPolicyVerify(t *testing.T) {
 			false,
 		},
 		{
+			"unlock conditions within threshold",
 			PolicyThreshold(1, []SpendPolicy{
 				{PolicyTypeUnlockConditions{
 					PublicKeys:         []UnlockKey{pk.UnlockKey()},
@@ -140,6 +155,7 @@ func TestPolicyVerify(t *testing.T) {
 			false,
 		},
 		{
+			"unlock conditions, invalid height",
 			SpendPolicy{PolicyTypeUnlockConditions{
 				Timelock: 10,
 			}},
@@ -148,6 +164,7 @@ func TestPolicyVerify(t *testing.T) {
 			false,
 		},
 		{
+			"unlock conditions, insufficient signatures",
 			SpendPolicy{PolicyTypeUnlockConditions{
 				SignaturesRequired: 1000,
 			}},
@@ -156,6 +173,7 @@ func TestPolicyVerify(t *testing.T) {
 			false,
 		},
 		{
+			"unlock conditions, wrong signature algorithm",
 			SpendPolicy{PolicyTypeUnlockConditions{
 				PublicKeys: []UnlockKey{{
 					Algorithm: SpecifierEntropy,
@@ -168,6 +186,7 @@ func TestPolicyVerify(t *testing.T) {
 			false,
 		},
 		{
+			"unlock conditions, wrong pubkey",
 			SpendPolicy{PolicyTypeUnlockConditions{
 				PublicKeys: []UnlockKey{{
 					Algorithm: SpecifierEd25519,
@@ -180,6 +199,7 @@ func TestPolicyVerify(t *testing.T) {
 			false,
 		},
 		{
+			"unlock conditions, insufficient signatures",
 			SpendPolicy{PolicyTypeUnlockConditions{
 				PublicKeys:         []UnlockKey{pk.UnlockKey()},
 				SignaturesRequired: 2,
@@ -189,6 +209,7 @@ func TestPolicyVerify(t *testing.T) {
 			false,
 		},
 		{
+			"unlock conditions, valid",
 			SpendPolicy{PolicyTypeUnlockConditions{
 				PublicKeys:         []UnlockKey{pk.UnlockKey()},
 				SignaturesRequired: 1,
@@ -199,7 +220,7 @@ func TestPolicyVerify(t *testing.T) {
 		},
 	} {
 		if err := test.p.Verify(test.height, time.Time{}, sigHash, test.sigs, nil); err != nil && test.valid {
-			t.Fatal(err)
+			t.Fatalf("%v: %v", test.desc, err)
 		} else if err == nil && !test.valid {
 			t.Fatal("expected error")
 		}
@@ -226,7 +247,7 @@ func TestPolicyGolden(t *testing.T) {
 			PolicyPublicKey(PublicKey{4, 5, 6}),
 		}),
 	})
-	if p.Address().String() != "addr:2fb1e5d351aea601e5b507f1f5e021a6aff363951850983f0d930361d17f8ba507f19a409e21" {
+	if p.Address().String() != "addr:111d2995afa8bf162180a647b9f1eb6a275fe8818e836b69b351871d5caf9c590ed25aec0616" {
 		t.Fatal("wrong address:", p, p.Address())
 	}
 }

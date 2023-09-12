@@ -415,28 +415,38 @@ func validateArbitraryData(ms *MidState, txn types.Transaction) error {
 func validateSignatures(ms *MidState, txn types.Transaction) error {
 	// build a map of all outstanding signatures
 	//
-	// NOTE: siad checks for double-spends here, but this is redundant
+	// NOTE: we also check for intra-transaction double-spends here
 	type sigMapEntry struct {
 		need uint64
 		keys []types.UnlockKey
 		used []bool
 	}
 	sigMap := make(map[types.Hash256]*sigMapEntry)
-	addEntry := func(id types.Hash256, uc types.UnlockConditions) {
+	addEntry := func(id types.Hash256, uc types.UnlockConditions) bool {
+		if _, ok := sigMap[id]; ok {
+			return false
+		}
 		sigMap[id] = &sigMapEntry{
 			need: uc.SignaturesRequired,
 			keys: uc.PublicKeys,
 			used: make([]bool, len(uc.PublicKeys)),
 		}
+		return true
 	}
 	for _, sci := range txn.SiacoinInputs {
-		addEntry(types.Hash256(sci.ParentID), sci.UnlockConditions)
+		if !addEntry(types.Hash256(sci.ParentID), sci.UnlockConditions) {
+			return fmt.Errorf("transaction spends siacoin input %v more than once", sci.ParentID)
+		}
 	}
 	for _, sfi := range txn.SiafundInputs {
-		addEntry(types.Hash256(sfi.ParentID), sfi.UnlockConditions)
+		if !addEntry(types.Hash256(sfi.ParentID), sfi.UnlockConditions) {
+			return fmt.Errorf("transaction spends siafund input %v more than once", sfi.ParentID)
+		}
 	}
 	for _, fcr := range txn.FileContractRevisions {
-		addEntry(types.Hash256(fcr.ParentID), fcr.UnlockConditions)
+		if !addEntry(types.Hash256(fcr.ParentID), fcr.UnlockConditions) {
+			return fmt.Errorf("transaction revises file contract %v more than once", fcr.ParentID)
+		}
 	}
 
 	for i, sig := range txn.Signatures {
@@ -567,10 +577,14 @@ func validateV2CurrencyValues(ms *MidState, txn types.V2Transaction) error {
 
 func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 	sigHash := ms.base.InputSigHash(txn)
+	spent := make(map[types.Hash256]int)
 	for i, sci := range txn.SiacoinInputs {
 		if txid, ok := ms.spent(sci.Parent.ID); ok {
 			return fmt.Errorf("siacoin input %v double-spends parent output (previously spent in %v)", i, txid)
+		} else if j, ok := spent[sci.Parent.ID]; ok {
+			return fmt.Errorf("siacoin input %v double-spends parent output (previously spent by input %v)", i, j)
 		}
+		spent[sci.Parent.ID] = i
 
 		// check accumulator
 		if sci.Parent.LeafIndex == types.EphemeralLeafIndex {
@@ -624,10 +638,14 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 
 func validateV2Siafunds(ms *MidState, txn types.V2Transaction) error {
 	sigHash := ms.base.InputSigHash(txn)
+	spent := make(map[types.Hash256]int)
 	for i, sfi := range txn.SiafundInputs {
 		if txid, ok := ms.spent(sfi.Parent.ID); ok {
 			return fmt.Errorf("siafund input %v double-spends parent output (previously spent in %v)", i, txid)
+		} else if j, ok := spent[sfi.Parent.ID]; ok {
+			return fmt.Errorf("siafund input %v double-spends parent output (previously spent by input %v)", i, j)
 		}
+		spent[sfi.Parent.ID] = i
 
 		// check accumulator
 		if sfi.Parent.LeafIndex == types.EphemeralLeafIndex {
@@ -674,9 +692,15 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 		return errors.New("transaction both resolves a file contract and creates new outputs")
 	}
 
+	revised := make(map[types.Hash256]int)
+	resolved := make(map[types.Hash256]int)
 	validateParent := func(fce types.V2FileContractElement) error {
 		if txid, ok := ms.spent(fce.ID); ok {
 			return fmt.Errorf("has already been resolved in transaction %v", txid)
+		} else if i, ok := revised[fce.ID]; ok {
+			return fmt.Errorf("has already been revised by contract revision %v", i)
+		} else if i, ok := resolved[fce.ID]; ok {
+			return fmt.Errorf("has already been resolved by contract resolution %v", i)
 		} else if !ms.base.Elements.containsUnresolvedV2FileContractElement(fce) {
 			if ms.base.Elements.containsResolvedV2FileContractElement(fce) {
 				return errors.New("has already been resolved in a previous block")
@@ -753,6 +777,7 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 		} else if err := validateRevision(cur, rev); err != nil {
 			return fmt.Errorf("file contract revision %v %s", i, err)
 		}
+		revised[fcr.Parent.ID] = i
 	}
 
 	for i, fcr := range txn.FileContractResolutions {
@@ -814,6 +839,7 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 				return fmt.Errorf("file contract expiration %v cannot be submitted until after expiration height (%v) ", i, fc.ExpirationHeight)
 			}
 		}
+		resolved[fcr.Parent.ID] = i
 	}
 
 	return nil

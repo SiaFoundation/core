@@ -58,7 +58,7 @@ func StandardAddress(pk PublicKey) Address {
 	buf := make([]byte, 12+1+1+len(pk))
 	copy(buf, "sia/address|")
 	buf[12] = 1 // version
-	buf[13] = 2 // opPublicKey
+	buf[13] = 3 // opPublicKey
 	copy(buf[14:], pk[:])
 	return Address(blake2b.Sum256(buf))
 }
