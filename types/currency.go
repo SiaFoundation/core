@@ -255,11 +255,13 @@ func (c Currency) String() string {
 	}
 
 	// iterate until we find a unit greater than c
+	//
+	// NOTE: MaxCurrency is ~340.3 TS
 	mag := pico
 	unit := ""
 	for _, unit = range []string{"pS", "nS", "uS", "mS", "SC", "KS", "MS", "GS", "TS"} {
-		j := mag.Mul64(1000)
-		if c.Cmp(j) < 0 || unit == "TS" {
+		j, overflow := mag.Mul64WithOverflow(1000)
+		if overflow || c.Cmp(j) < 0 || unit == "TS" {
 			break
 		}
 		mag = j
