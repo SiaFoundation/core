@@ -621,11 +621,6 @@ func (m *Manager) computeMedianFee() types.Currency {
 		index, ok1 := m.store.BestIndex(m.tipState.Index.Height - i)
 		c, ok2 := m.store.Checkpoint(index.ID)
 		pc, ok3 := m.store.Checkpoint(c.Block.ParentID)
-		if !ok3 && m.tipState.Index.Height == 0 {
-			// bit of a hack to make the genesis block work
-			pc.State = c.State.Network.GenesisState()
-			ok3 = true
-		}
 		if ok1 && ok2 && ok3 {
 			prevFees = append(prevFees, calculateBlockMedianFee(pc.State, c.Block))
 		}

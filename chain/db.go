@@ -613,6 +613,7 @@ func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (_ *DBSto
 
 		// store genesis checkpoint and apply its effects
 		genesisState := n.GenesisState()
+		dbs.putCheckpoint(Checkpoint{types.Block{}, genesisState, &consensus.V1BlockSupplement{}})
 		bs := consensus.V1BlockSupplement{Transactions: make([]consensus.V1TransactionSupplement, len(genesisBlock.Transactions))}
 		cs, cau := consensus.ApplyBlock(genesisState, genesisBlock, bs, time.Time{})
 		dbs.putCheckpoint(Checkpoint{genesisBlock, cs, &bs})
