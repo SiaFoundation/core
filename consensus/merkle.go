@@ -401,10 +401,12 @@ func (acc *ElementAccumulator) applyBlock(updated, added []elementLeaf) (eau ele
 			acc.Trees[height] = es[0].proofRoot()
 		}
 	}
+	eau.oldNumLeaves = acc.NumLeaves
 	eau.treeGrowth = acc.addLeaves(added)
 	for _, e := range updated {
 		e.MerkleProof = append(e.MerkleProof, eau.treeGrowth[len(e.MerkleProof)]...)
 	}
+	eau.numLeaves = acc.NumLeaves
 	return eau
 }
 
@@ -444,16 +446,22 @@ func updateProof(e *types.StateElement, updated *[64][]elementLeaf) {
 }
 
 type elementApplyUpdate struct {
-	updated    [64][]elementLeaf
-	treeGrowth [64][]types.Hash256
+	updated      [64][]elementLeaf
+	treeGrowth   [64][]types.Hash256
+	oldNumLeaves uint64
+	numLeaves    uint64
 }
 
 func (eau *elementApplyUpdate) updateElementProof(e *types.StateElement) {
 	if e.LeafIndex == types.EphemeralLeafIndex {
 		panic("cannot update an ephemeral element")
+	} else if e.LeafIndex >= eau.oldNumLeaves {
+		return // newly-added element
 	}
 	updateProof(e, &eau.updated)
-	e.MerkleProof = append(e.MerkleProof, eau.treeGrowth[len(e.MerkleProof)]...)
+	if mh := mergeHeight(eau.numLeaves, e.LeafIndex); mh != len(e.MerkleProof) {
+		e.MerkleProof = append(e.MerkleProof, eau.treeGrowth[len(e.MerkleProof)]...)
+	}
 }
 
 type elementRevertUpdate struct {
