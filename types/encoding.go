@@ -504,6 +504,10 @@ func (sp SatisfiedPolicy) EncodeTo(e *Encoder) {
 			for i := range p.Of {
 				rec(p.Of[i])
 			}
+		case PolicyTypeUnlockConditions:
+			for i := range p.PublicKeys {
+				rec(PolicyPublicKey(*(*PublicKey)(p.PublicKeys[i].Key)))
+			}
 		default:
 			// nothing to do
 		}
@@ -1077,6 +1081,10 @@ func (sp *SatisfiedPolicy) DecodeFrom(d *Decoder) {
 		case PolicyTypeThreshold:
 			for i := range p.Of {
 				rec(p.Of[i])
+			}
+		case PolicyTypeUnlockConditions:
+			for i := range p.PublicKeys {
+				rec(PolicyPublicKey(*(*PublicKey)(p.PublicKeys[i].Key)))
 			}
 		default:
 			// nothing to do

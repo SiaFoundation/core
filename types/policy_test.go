@@ -2,6 +2,7 @@ package types
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -305,5 +306,26 @@ func TestPolicyRoundtrip(t *testing.T) {
 		} else if p.Address() != p2.Address() {
 			t.Fatal("policy did not survive roundtrip")
 		}
+	}
+
+	// also check satisfied policy
+	sp := SatisfiedPolicy{
+		Policy: SpendPolicy{PolicyTypeUnlockConditions{
+			PublicKeys: []UnlockKey{
+				PublicKey{1, 2, 3}.UnlockKey(),
+				PublicKey{4, 5, 6}.UnlockKey(),
+				PublicKey{7, 8, 9}.UnlockKey(),
+			},
+		}},
+		Signatures: []Signature{
+			{1, 2, 3},
+			{4, 5, 6},
+			{7, 8, 9},
+		},
+	}
+	var sp2 SatisfiedPolicy
+	roundtrip(sp, &sp2)
+	if fmt.Sprint(sp) != fmt.Sprint(sp2) {
+		t.Fatal("satisfied policy did not survive roundtrip:", sp, sp2)
 	}
 }
