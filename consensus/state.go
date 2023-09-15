@@ -107,7 +107,7 @@ type State struct {
 // EncodeTo implements types.EncoderTo.
 func (s State) EncodeTo(e *types.Encoder) {
 	s.Index.EncodeTo(e)
-	for _, ts := range s.PrevTimestamps {
+	for _, ts := range s.PrevTimestamps[:s.numTimestamps()] {
 		e.WriteTime(ts)
 	}
 	s.Depth.EncodeTo(e)
@@ -128,7 +128,7 @@ func (s State) EncodeTo(e *types.Encoder) {
 // DecodeFrom implements types.DecoderFrom.
 func (s *State) DecodeFrom(d *types.Decoder) {
 	s.Index.DecodeFrom(d)
-	for i := range s.PrevTimestamps {
+	for i := range s.PrevTimestamps[:s.numTimestamps()] {
 		s.PrevTimestamps[i] = d.ReadTime()
 	}
 	s.Depth.DecodeFrom(d)
