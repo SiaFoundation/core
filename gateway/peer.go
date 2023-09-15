@@ -104,7 +104,7 @@ type RPCHandler interface {
 	// v2
 	Transactions(index types.ChainIndex, txns []types.Hash256) ([]types.Transaction, []types.V2Transaction, error)
 	Checkpoint(index types.ChainIndex) (types.Block, consensus.State, error)
-	RelayV2BlockHeader(h V2BlockHeader, origin *Peer)
+	RelayV2Header(h V2BlockHeader, origin *Peer)
 	RelayV2BlockOutline(b V2BlockOutline, origin *Peer)
 	RelayV2TransactionSet(txns []types.V2Transaction, origin *Peer)
 }
@@ -196,7 +196,7 @@ func (p *Peer) HandleRPC(id types.Specifier, stream net.Conn, h RPCHandler) erro
 		if err := p.withDecoder(stream, r.maxRequestLen(), r.decodeRequest); err != nil {
 			return err
 		}
-		h.RelayV2BlockHeader(r.Header, p)
+		h.RelayV2Header(r.Header, p)
 		return nil
 	case *RPCRelayV2BlockOutline:
 		if err := p.withDecoder(stream, r.maxRequestLen(), r.decodeRequest); err != nil {

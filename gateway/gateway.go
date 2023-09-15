@@ -130,26 +130,26 @@ type V2BlockOutline struct {
 	Transactions []OutlineTransaction
 }
 
-func (pb V2BlockOutline) commitment(cs consensus.State) types.Hash256 {
+func (bo V2BlockOutline) commitment(cs consensus.State) types.Hash256 {
 	var acc blake2b.Accumulator
-	for _, txn := range pb.Transactions {
+	for _, txn := range bo.Transactions {
 		acc.AddLeaf(txn.Hash)
 	}
-	return cs.Commitment(acc.Root(), pb.MinerAddress)
+	return cs.Commitment(acc.Root(), bo.MinerAddress)
 }
 
 // ID returns a hash that uniquely identifies the block.
-func (pb V2BlockOutline) ID(cs consensus.State) types.BlockID {
+func (bo V2BlockOutline) ID(cs consensus.State) types.BlockID {
 	return (&types.Block{
-		Nonce:     pb.Nonce,
-		Timestamp: pb.Timestamp,
-		V2:        &types.V2BlockData{Commitment: pb.commitment(cs)},
+		Nonce:     bo.Nonce,
+		Timestamp: bo.Timestamp,
+		V2:        &types.V2BlockData{Commitment: bo.commitment(cs)},
 	}).ID()
 }
 
 // Missing returns the hashes of transactions that are missing from the block.
-func (pb V2BlockOutline) Missing() (missing []types.Hash256) {
-	for _, txn := range pb.Transactions {
+func (bo V2BlockOutline) Missing() (missing []types.Hash256) {
+	for _, txn := range bo.Transactions {
 		if txn.Transaction == nil && txn.V2Transaction == nil {
 			missing = append(missing, txn.Hash)
 		}
@@ -160,7 +160,7 @@ func (pb V2BlockOutline) Missing() (missing []types.Hash256) {
 // Complete attempts to reconstruct the original block using the supplied
 // transactions. If the block cannot be fully reconstructed, it returns the
 // hashes of the missing transactions.
-func (pb *V2BlockOutline) Complete(cs consensus.State, txns []types.Transaction, v2txns []types.V2Transaction) (types.Block, []types.Hash256) {
+func (bo *V2BlockOutline) Complete(cs consensus.State, txns []types.Transaction, v2txns []types.V2Transaction) (types.Block, []types.Hash256) {
 	var v1hashes map[types.Hash256]types.Transaction
 	var v2hashes map[types.Hash256]types.V2Transaction
 	completeTxn := func(ptxn *OutlineTransaction) {
@@ -190,17 +190,17 @@ func (pb *V2BlockOutline) Complete(cs consensus.State, txns []types.Transaction,
 	}
 
 	b := types.Block{
-		ParentID:     pb.ParentID,
-		Nonce:        pb.Nonce,
-		Timestamp:    pb.Timestamp,
-		MinerPayouts: []types.SiacoinOutput{{Address: pb.MinerAddress, Value: cs.BlockReward()}},
+		ParentID:     bo.ParentID,
+		Nonce:        bo.Nonce,
+		Timestamp:    bo.Timestamp,
+		MinerPayouts: []types.SiacoinOutput{{Address: bo.MinerAddress, Value: cs.BlockReward()}},
 		V2: &types.V2BlockData{
-			Height:     pb.Height,
-			Commitment: pb.commitment(cs),
+			Height:     bo.Height,
+			Commitment: bo.commitment(cs),
 		},
 	}
-	for i := range pb.Transactions {
-		ptxn := &pb.Transactions[i]
+	for i := range bo.Transactions {
+		ptxn := &bo.Transactions[i]
 		completeTxn(ptxn)
 		if ptxn.Transaction != nil {
 			b.Transactions = append(b.Transactions, *ptxn.Transaction)
@@ -212,11 +212,11 @@ func (pb *V2BlockOutline) Complete(cs consensus.State, txns []types.Transaction,
 			b.MinerPayouts[0].Value = b.MinerPayouts[0].Value.Add(ptxn.V2Transaction.MinerFee)
 		}
 	}
-	return b, pb.Missing()
+	return b, bo.Missing()
 }
 
 // RemoveTransactions removes the specified transactions from the block.
-func (pb *V2BlockOutline) RemoveTransactions(txns []types.Transaction, v2txns []types.V2Transaction) {
+func (bo *V2BlockOutline) RemoveTransactions(txns []types.Transaction, v2txns []types.V2Transaction) {
 	remove := make(map[types.Hash256]bool)
 	for _, txn := range txns {
 		remove[txn.FullHash()] = true
@@ -224,12 +224,40 @@ func (pb *V2BlockOutline) RemoveTransactions(txns []types.Transaction, v2txns []
 	for _, txn := range v2txns {
 		remove[txn.FullHash()] = true
 	}
-	for i := range pb.Transactions {
-		if remove[pb.Transactions[i].Hash] {
-			pb.Transactions[i].Transaction = nil
-			pb.Transactions[i].V2Transaction = nil
+	for i := range bo.Transactions {
+		if remove[bo.Transactions[i].Hash] {
+			bo.Transactions[i].Transaction = nil
+			bo.Transactions[i].V2Transaction = nil
 		}
 	}
+}
+
+// OutlineBlock returns a block outline for b that omits the specified
+// transactions.
+func OutlineBlock(b types.Block, txns []types.Transaction, v2txns []types.V2Transaction) V2BlockOutline {
+	var otxns []OutlineTransaction
+	for _, txn := range b.Transactions {
+		otxns = append(otxns, OutlineTransaction{
+			Hash:        txn.FullHash(),
+			Transaction: &txn,
+		})
+	}
+	for _, txn := range b.V2Transactions() {
+		otxns = append(otxns, OutlineTransaction{
+			Hash:          txn.FullHash(),
+			V2Transaction: &txn,
+		})
+	}
+	bo := V2BlockOutline{
+		Height:       b.V2.Height,
+		ParentID:     b.ParentID,
+		Nonce:        b.Nonce,
+		Timestamp:    b.Timestamp,
+		MinerAddress: b.MinerPayouts[0].Address,
+		Transactions: otxns,
+	}
+	bo.RemoveTransactions(txns, v2txns)
+	return bo
 }
 
 // Dial initiates the gateway handshake with a peer.

@@ -84,24 +84,32 @@ func (h *V2BlockHeader) decodeFrom(d *types.Decoder) {
 }
 
 func (ot *OutlineTransaction) encodeTo(e *types.Encoder) {
-	ot.Hash.EncodeTo(e)
 	if ot.Transaction != nil {
-		e.WriteBool(true)
+		e.WriteUint8(0)
 		ot.Transaction.EncodeTo(e)
-	} else {
-		e.WriteBool(false)
+	} else if ot.V2Transaction != nil {
+		e.WriteUint8(1)
 		ot.V2Transaction.EncodeTo(e)
+	} else {
+		e.WriteUint8(2)
+		ot.Hash.EncodeTo(e)
 	}
 }
 
 func (ot *OutlineTransaction) decodeFrom(d *types.Decoder) {
-	ot.Hash.DecodeFrom(d)
-	if d.ReadBool() {
+	switch t := d.ReadUint8(); t {
+	case 0:
 		ot.Transaction = new(types.Transaction)
 		ot.Transaction.DecodeFrom(d)
-	} else {
+		ot.Hash = ot.Transaction.FullHash()
+	case 1:
 		ot.V2Transaction = new(types.V2Transaction)
 		ot.V2Transaction.DecodeFrom(d)
+		ot.Hash = ot.V2Transaction.FullHash()
+	case 2:
+		ot.Hash.DecodeFrom(d)
+	default:
+		d.SetErr(fmt.Errorf("invalid outline transaction type (%d)", t))
 	}
 }
 
@@ -484,6 +492,8 @@ func objectForID(id types.Specifier) object {
 	case idSendTransactions:
 		return new(RPCSendTransactions)
 	case idRelayV2Header:
+		return new(RPCRelayV2Header)
+	case idRelayV2BlockOutline:
 		return new(RPCRelayV2BlockOutline)
 	case idRelayV2TransactionSet:
 		return new(RPCRelayV2TransactionSet)
