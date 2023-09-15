@@ -3,6 +3,7 @@ package consensus
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"math/big"
 	"math/bits"
 	"time"
@@ -26,6 +27,39 @@ func (w Work) EncodeTo(e *types.Encoder) { e.Write(w.n[:]) }
 
 // DecodeFrom implements types.DecoderFrom.
 func (w *Work) DecodeFrom(d *types.Decoder) { d.Read(w.n[:]) }
+
+// String implements fmt.Stringer.
+func (w Work) String() string { return new(big.Int).SetBytes(w.n[:]).String() }
+
+// MarshalText implements encoding.TextMarshaler.
+func (w Work) MarshalText() ([]byte, error) {
+	return new(big.Int).SetBytes(w.n[:]).MarshalText()
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (w *Work) UnmarshalText(b []byte) error {
+	i := new(big.Int)
+	if err := i.UnmarshalText(b); err != nil {
+		return err
+	} else if i.Sign() < 0 {
+		return errors.New("value cannot be negative")
+	} else if i.BitLen() > 256 {
+		return errors.New("value overflows Work representation")
+	}
+	i.FillBytes(w.n[:])
+	return nil
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (w *Work) UnmarshalJSON(b []byte) error {
+	return w.UnmarshalText(bytes.Trim(b, `"`))
+}
+
+// MarshalJSON implements json.Marshaler.
+func (w Work) MarshalJSON() ([]byte, error) {
+	js, err := new(big.Int).SetBytes(w.n[:]).MarshalJSON()
+	return []byte(`"` + string(js) + `"`), err
+}
 
 func (w Work) add(v Work) Work {
 	var r Work
