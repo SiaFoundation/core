@@ -92,12 +92,11 @@ func ValidateOrphan(s State, b types.Block) error {
 	} else if err := validateHeader(s, b.ParentID, b.Timestamp, b.Nonce, b.ID()); err != nil {
 		return err
 	}
-
 	if b.V2 != nil {
 		if b.V2.Height != s.Index.Height+1 {
 			return errors.New("block height does not increment parent height")
 		} else if b.V2.Commitment != s.Commitment(s.TransactionsCommitment(b.Transactions, b.V2Transactions()), b.MinerPayouts[0].Address) {
-			return errors.New("commitment hash does not match header")
+			return errors.New("commitment hash mismatch")
 		}
 	}
 	return nil
@@ -496,7 +495,9 @@ func validateSignatures(ms *MidState, txn types.Transaction) error {
 
 // ValidateTransaction validates txn within the context of ms and store.
 func ValidateTransaction(ms *MidState, txn types.Transaction, ts V1TransactionSupplement) error {
-	if err := validateCurrencyOverflow(ms, txn); err != nil {
+	if ms.base.childHeight() >= ms.base.Network.HardforkV2.RequireHeight {
+		return errors.New("v1 transactions are not allowed after v2 hardfork is complete")
+	} else if err := validateCurrencyOverflow(ms, txn); err != nil {
 		return err
 	} else if err := validateMinimumValues(ms, txn); err != nil {
 		return err
@@ -871,7 +872,9 @@ func validateFoundationUpdate(ms *MidState, txn types.V2Transaction) error {
 
 // ValidateV2Transaction validates txn within the context of ms.
 func ValidateV2Transaction(ms *MidState, txn types.V2Transaction) error {
-	if err := validateV2CurrencyValues(ms, txn); err != nil {
+	if ms.base.childHeight() < ms.base.Network.HardforkV2.AllowHeight {
+		return errors.New("v2 transactions are not allowed until v2 hardfork begins")
+	} else if err := validateV2CurrencyValues(ms, txn); err != nil {
 		return err
 	} else if err := validateV2Siacoins(ms, txn); err != nil {
 		return err
@@ -897,27 +900,17 @@ func ValidateBlock(s State, b types.Block, bs V1BlockSupplement) error {
 		return err
 	}
 	ms := NewMidState(s)
-	if len(b.Transactions) > 0 {
-		if s.childHeight() >= ms.base.Network.HardforkV2.RequireHeight {
-			return errors.New("v1 transactions are not allowed after v2 hardfork is complete")
+	for i, txn := range b.Transactions {
+		if err := ValidateTransaction(ms, txn, bs.Transactions[i]); err != nil {
+			return fmt.Errorf("transaction %v is invalid: %w", i, err)
 		}
-		for i, txn := range b.Transactions {
-			if err := ValidateTransaction(ms, txn, bs.Transactions[i]); err != nil {
-				return fmt.Errorf("transaction %v is invalid: %w", i, err)
-			}
-			ms.ApplyTransaction(txn, bs.Transactions[i])
-		}
+		ms.ApplyTransaction(txn, bs.Transactions[i])
 	}
-	if b.V2 != nil {
-		if s.childHeight() < ms.base.Network.HardforkV2.AllowHeight {
-			return errors.New("v2 transactions are not allowed until v2 hardfork begins")
+	for i, txn := range b.V2Transactions() {
+		if err := ValidateV2Transaction(ms, txn); err != nil {
+			return fmt.Errorf("v2 transaction %v is invalid: %w", i, err)
 		}
-		for i, txn := range b.V2.Transactions {
-			if err := ValidateV2Transaction(ms, txn); err != nil {
-				return fmt.Errorf("v2 transaction %v is invalid: %w", i, err)
-			}
-			ms.ApplyV2Transaction(txn)
-		}
+		ms.ApplyV2Transaction(txn)
 	}
 	return nil
 }
