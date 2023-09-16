@@ -16,42 +16,6 @@ var (
 	ErrFutureBlock = errors.New("block's timestamp is too far in the future")
 )
 
-// A Checkpoint pairs a block with its resulting chain state.
-type Checkpoint struct {
-	Block      types.Block
-	State      consensus.State
-	Supplement *consensus.V1BlockSupplement
-}
-
-// EncodeTo implements types.EncoderTo.
-func (c Checkpoint) EncodeTo(e *types.Encoder) {
-	e.WriteUint8(2) // block (and supplement) version
-	types.V2Block(c.Block).EncodeTo(e)
-	e.WriteUint8(2) // state version
-	c.State.EncodeTo(e)
-	e.WriteBool(c.Supplement != nil)
-	if c.Supplement != nil {
-		c.Supplement.EncodeTo(e)
-	}
-}
-
-// DecodeFrom implements types.DecoderFrom.
-func (c *Checkpoint) DecodeFrom(d *types.Decoder) {
-	v := d.ReadUint8()
-	if v != 2 {
-		d.SetErr(fmt.Errorf("incompatible block version (%d)", v))
-	}
-	(*types.V2Block)(&c.Block).DecodeFrom(d)
-	if v := d.ReadUint8(); v != 2 {
-		d.SetErr(fmt.Errorf("incompatible state version (%d)", v))
-	}
-	c.State.DecodeFrom(d)
-	if d.ReadBool() {
-		c.Supplement = new(consensus.V1BlockSupplement)
-		c.Supplement.DecodeFrom(d)
-	}
-}
-
 // An ApplyUpdate reflects the changes to the blockchain resulting from the
 // addition of a block.
 type ApplyUpdate struct {
@@ -85,8 +49,10 @@ type Store interface {
 	SupplementTipTransaction(txn types.Transaction) consensus.V1TransactionSupplement
 	SupplementTipBlock(b types.Block) consensus.V1BlockSupplement
 
-	AddCheckpoint(c Checkpoint)
-	Checkpoint(id types.BlockID) (Checkpoint, bool)
+	Block(id types.BlockID) (types.Block, *consensus.V1BlockSupplement, bool)
+	AddBlock(b types.Block, bs *consensus.V1BlockSupplement)
+	State(id types.BlockID) (consensus.State, bool)
+	AddState(cs consensus.State)
 
 	// Except when mustCommit is set, ApplyBlock and RevertBlock are free to
 	// commit whenever they see fit.
@@ -94,23 +60,39 @@ type Store interface {
 	RevertBlock(s consensus.State, cru consensus.RevertUpdate)
 }
 
+// blockAndParent returns the block with the specified ID, along with its parent
+// state.
+func blockAndParent(s Store, id types.BlockID) (types.Block, *consensus.V1BlockSupplement, consensus.State, bool) {
+	b, bs, ok := s.Block(id)
+	cs, ok2 := s.State(b.ParentID)
+	return b, bs, cs, ok && ok2
+}
+
+// blockAndChild returns the block with the specified ID, along with its child
+// state.
+func blockAndChild(s Store, id types.BlockID) (types.Block, *consensus.V1BlockSupplement, consensus.State, bool) {
+	b, bs, ok := s.Block(id)
+	cs, ok2 := s.State(id)
+	return b, bs, cs, ok && ok2
+}
+
 // ancestorTimestamp returns the timestamp of the n'th ancestor of id.
 func ancestorTimestamp(s Store, id types.BlockID, n uint64) time.Time {
-	c, _ := s.Checkpoint(id)
+	b, _, cs, _ := blockAndChild(s, id)
 	for i := uint64(1); i < n; i++ {
 		// if we're on the best path, we can jump to the n'th block directly
-		if index, _ := s.BestIndex(c.State.Index.Height); index.ID == id {
-			height := c.State.Index.Height - (n - i)
-			if c.State.Index.Height < (n - i) {
+		if index, _ := s.BestIndex(cs.Index.Height); index.ID == id {
+			height := cs.Index.Height - (n - i)
+			if cs.Index.Height < (n - i) {
 				height = 0
 			}
 			ancestorIndex, _ := s.BestIndex(height)
-			c, _ = s.Checkpoint(ancestorIndex.ID)
+			b, _, _ = s.Block(ancestorIndex.ID)
 			break
 		}
-		c, _ = s.Checkpoint(c.Block.ParentID)
+		b, _, cs, _ = blockAndChild(s, b.ParentID)
 	}
-	return c.Block.Timestamp
+	return b.Timestamp
 }
 
 // A Manager tracks multiple blockchains and identifies the best valid
@@ -152,15 +134,14 @@ func (m *Manager) Tip() types.ChainIndex {
 // SyncCheckpoint returns the block at the specified index, along with its
 // parent state.
 func (m *Manager) SyncCheckpoint(index types.ChainIndex) (types.Block, consensus.State, bool) {
-	c, ok := m.store.Checkpoint(index.ID)
-	pc, ok2 := m.store.Checkpoint(c.Block.ParentID)
-	return c.Block, pc.State, ok && ok2
+	b, _, cs, ok := blockAndParent(m.store, index.ID)
+	return b, cs, ok
 }
 
 // Block returns the block with the specified ID.
 func (m *Manager) Block(id types.BlockID) (types.Block, bool) {
-	c, ok := m.store.Checkpoint(id)
-	return c.Block, ok
+	b, _, ok := m.store.Block(id)
+	return b, ok
 }
 
 // BestIndex returns the index of the block at the specified height within the
@@ -208,10 +189,10 @@ func (m *Manager) BlocksForHistory(history []types.BlockID, max uint64) ([]types
 	defer m.mu.Unlock()
 	var attachHeight uint64
 	for _, id := range history {
-		if c, ok := m.store.Checkpoint(id); !ok {
+		if cs, ok := m.store.State(id); !ok {
 			continue
-		} else if index, ok := m.store.BestIndex(c.State.Index.Height); ok && index == c.State.Index {
-			attachHeight = c.State.Index.Height
+		} else if index, ok := m.store.BestIndex(cs.Index.Height); ok && index == cs.Index {
+			attachHeight = cs.Index.Height
 			break
 		}
 	}
@@ -221,11 +202,11 @@ func (m *Manager) BlocksForHistory(history []types.BlockID, max uint64) ([]types
 	blocks := make([]types.Block, max)
 	for i := range blocks {
 		index, _ := m.store.BestIndex(attachHeight + uint64(i) + 1)
-		c, ok := m.store.Checkpoint(index.ID)
+		b, _, ok := m.store.Block(index.ID)
 		if !ok {
 			return nil, 0, fmt.Errorf("missing block %v", index)
 		}
-		blocks[i] = c.Block
+		blocks[i] = b
 	}
 	return blocks, m.tipState.Index.Height - (attachHeight + max), nil
 }
@@ -242,18 +223,16 @@ func (m *Manager) AddBlocks(blocks []types.Block) error {
 	cs := m.tipState
 	for _, b := range blocks {
 		bid := b.ID()
+		var ok bool
 		if err := m.invalidBlocks[bid]; err != nil {
 			return fmt.Errorf("block %v is invalid: %w", types.ChainIndex{Height: cs.Index.Height + 1, ID: bid}, err)
-		} else if c, ok := m.store.Checkpoint(bid); ok {
+		} else if cs, ok = m.store.State(bid); ok {
 			// already have this block
-			cs = c.State
 			continue
-		} else if b.ParentID != c.State.Index.ID {
-			c, ok := m.store.Checkpoint(b.ParentID)
-			if !ok {
-				return fmt.Errorf("missing parent checkpoint for block %v", bid)
+		} else if b.ParentID != cs.Index.ID {
+			if cs, ok = m.store.State(b.ParentID); !ok {
+				return fmt.Errorf("missing parent state for block %v", bid)
 			}
-			cs = c.State
 		}
 		if b.Timestamp.After(cs.MaxFutureTimestamp(time.Now())) {
 			return ErrFutureBlock
@@ -262,7 +241,8 @@ func (m *Manager) AddBlocks(blocks []types.Block) error {
 			return fmt.Errorf("block %v is invalid: %w", types.ChainIndex{Height: cs.Index.Height + 1, ID: bid}, err)
 		}
 		cs = consensus.ApplyOrphan(cs, b, ancestorTimestamp(m.store, b.ParentID, cs.AncestorDepth()))
-		m.store.AddCheckpoint(Checkpoint{b, cs, nil})
+		m.store.AddState(cs)
+		m.store.AddBlock(b, nil)
 	}
 
 	// if this chain is now the best chain, trigger a reorg
@@ -292,18 +272,14 @@ func (m *Manager) markBadBlock(bid types.BlockID, err error) {
 
 // revertTip reverts the current tip.
 func (m *Manager) revertTip() error {
-	c, ok := m.store.Checkpoint(m.tipState.Index.ID)
+	b, bs, cs, ok := blockAndParent(m.store, m.tipState.Index.ID)
 	if !ok {
-		return fmt.Errorf("missing checkpoint for index %v", m.tipState.Index)
+		return fmt.Errorf("missing block at index %v", m.tipState.Index)
 	}
-	pc, ok := m.store.Checkpoint(c.Block.ParentID)
-	if !ok {
-		return fmt.Errorf("missing checkpoint for block %v", c.Block.ParentID)
-	}
-	cru := consensus.RevertBlock(pc.State, c.Block, *c.Supplement)
-	m.store.RevertBlock(pc.State, cru)
+	cru := consensus.RevertBlock(cs, b, *bs)
+	m.store.RevertBlock(cs, cru)
 
-	update := RevertUpdate{cru, c.Block, pc.State}
+	update := RevertUpdate{cru, b, cs}
 	for _, s := range m.subscribers {
 		if err := s.ProcessChainRevertUpdate(&update); err != nil {
 			return fmt.Errorf("subscriber %T: %w", s, err)
@@ -311,43 +287,44 @@ func (m *Manager) revertTip() error {
 	}
 
 	m.revertPoolUpdate(cru)
-	m.tipState = pc.State
+	m.tipState = cs
 	return nil
 }
 
 // applyTip adds a block to the current tip.
 func (m *Manager) applyTip(index types.ChainIndex) error {
 	var cau consensus.ApplyUpdate
-	c, ok := m.store.Checkpoint(index.ID)
+	b, bs, cs, ok := blockAndChild(m.store, index.ID)
 	if !ok {
-		return fmt.Errorf("missing checkpoint for index %v", index)
-	} else if c.Block.ParentID != m.tipState.Index.ID {
+		return fmt.Errorf("missing block at index %v", index)
+	} else if b.ParentID != m.tipState.Index.ID {
 		panic("applyTip called with non-attaching block")
-	} else if c.Supplement == nil {
-		bs := m.store.SupplementTipBlock(c.Block)
-		if err := consensus.ValidateBlock(m.tipState, c.Block, bs); err != nil {
+	} else if bs == nil {
+		bs = new(consensus.V1BlockSupplement)
+		*bs = m.store.SupplementTipBlock(b)
+		if err := consensus.ValidateBlock(m.tipState, b, *bs); err != nil {
 			m.markBadBlock(index.ID, err)
 			return fmt.Errorf("block %v is invalid: %w", index, err)
 		}
-		c.Supplement = &bs
-		targetTimestamp := ancestorTimestamp(m.store, c.Block.ParentID, m.tipState.AncestorDepth())
-		c.State, cau = consensus.ApplyBlock(m.tipState, c.Block, bs, targetTimestamp)
-		m.store.AddCheckpoint(c)
+		targetTimestamp := ancestorTimestamp(m.store, b.ParentID, m.tipState.AncestorDepth())
+		cs, cau = consensus.ApplyBlock(m.tipState, b, *bs, targetTimestamp)
+		m.store.AddState(cs)
+		m.store.AddBlock(b, bs)
 	} else {
-		targetTimestamp := ancestorTimestamp(m.store, c.Block.ParentID, m.tipState.AncestorDepth())
-		_, cau = consensus.ApplyBlock(m.tipState, c.Block, *c.Supplement, targetTimestamp)
+		targetTimestamp := ancestorTimestamp(m.store, b.ParentID, m.tipState.AncestorDepth())
+		_, cau = consensus.ApplyBlock(m.tipState, b, *bs, targetTimestamp)
 	}
 
 	// force the store to commit if we're at the tip (or close to it), or at
 	// least every 2 seconds; this ensures that the amount of uncommitted data
 	// never grows too large
-	forceCommit := time.Since(c.Block.Timestamp) < c.State.BlockInterval()*2 || time.Since(m.lastCommit) > 2*time.Second
-	committed := m.store.ApplyBlock(c.State, cau, forceCommit)
+	forceCommit := time.Since(b.Timestamp) < cs.BlockInterval()*2 || time.Since(m.lastCommit) > 2*time.Second
+	committed := m.store.ApplyBlock(cs, cau, forceCommit)
 	if committed {
 		m.lastCommit = time.Now()
 	}
 
-	update := &ApplyUpdate{cau, c.Block, c.State}
+	update := &ApplyUpdate{cau, b, cs}
 	for _, s := range m.subscribers {
 		if err := s.ProcessChainApplyUpdate(update, committed); err != nil {
 			return fmt.Errorf("subscriber %T: %w", s, err)
@@ -355,7 +332,7 @@ func (m *Manager) applyTip(index types.ChainIndex) error {
 	}
 
 	m.applyPoolUpdate(cau)
-	m.tipState = c.State
+	m.tipState = cs
 	return nil
 }
 
@@ -366,9 +343,9 @@ func (m *Manager) reorgPath(a, b types.ChainIndex) (revert, apply []types.ChainI
 		if bi, _ := m.store.BestIndex(index.Height); bi.ID == index.ID {
 			*index, ok = m.store.BestIndex(index.Height - 1)
 		} else {
-			var c Checkpoint
-			c, ok = m.store.Checkpoint(index.ID)
-			*index = types.ChainIndex{Height: index.Height - 1, ID: c.Block.ParentID}
+			var b types.Block
+			b, _, ok = m.store.Block(index.ID)
+			*index = types.ChainIndex{Height: index.Height - 1, ID: b.ParentID}
 		}
 		return ok
 	}
@@ -431,11 +408,9 @@ func (m *Manager) reorgTo(index types.ChainIndex) error {
 	m.txpool.medianFee = nil
 	m.txpool.parentMap = nil
 	if len(revert) > 0 {
-		c, _ := m.store.Checkpoint(revert[0].ID)
-		m.txpool.lastReverted = c.Block.Transactions
-		if c.Block.V2 != nil {
-			m.txpool.lastRevertedV2 = c.Block.V2.Transactions
-		}
+		b, _, _ := m.store.Block(revert[0].ID)
+		m.txpool.lastReverted = b.Transactions
+		m.txpool.lastRevertedV2 = b.V2Transactions()
 	}
 
 	return nil
@@ -454,36 +429,28 @@ func (m *Manager) AddSubscriber(s Subscriber, tip types.ChainIndex) error {
 		return fmt.Errorf("couldn't determine reorg path from %v to %v: %w", tip, m.tipState.Index, err)
 	}
 	for _, index := range revert {
-		c, ok := m.store.Checkpoint(index.ID)
+		b, bs, cs, ok := blockAndParent(m.store, index.ID)
 		if !ok {
-			return fmt.Errorf("missing revert checkpoint %v", index)
-		} else if c.Supplement == nil {
+			return fmt.Errorf("missing reverted block at index %v", index)
+		} else if bs == nil {
 			panic("missing supplement for reverted block")
 		}
-		pc, ok := m.store.Checkpoint(c.Block.ParentID)
-		if !ok {
-			return fmt.Errorf("missing revert parent checkpoint %v", c.Block.ParentID)
-		}
-		cru := consensus.RevertBlock(pc.State, c.Block, *c.Supplement)
-		if err := s.ProcessChainRevertUpdate(&RevertUpdate{cru, c.Block, pc.State}); err != nil {
+		cru := consensus.RevertBlock(cs, b, *bs)
+		if err := s.ProcessChainRevertUpdate(&RevertUpdate{cru, b, cs}); err != nil {
 			return fmt.Errorf("couldn't process revert update: %w", err)
 		}
 	}
 	for _, index := range apply {
-		c, ok := m.store.Checkpoint(index.ID)
+		b, bs, cs, ok := blockAndParent(m.store, index.ID)
 		if !ok {
-			return fmt.Errorf("missing apply checkpoint %v", index)
-		} else if c.Supplement == nil {
+			return fmt.Errorf("missing applied block at index %v", index)
+		} else if bs == nil {
 			panic("missing supplement for applied block")
 		}
-		pc, ok := m.store.Checkpoint(c.Block.ParentID)
-		if !ok {
-			return fmt.Errorf("missing apply parent checkpoint %v", c.Block.ParentID)
-		}
-		_, cau := consensus.ApplyBlock(pc.State, c.Block, *c.Supplement, ancestorTimestamp(m.store, c.Block.ParentID, pc.State.AncestorDepth()))
+		cs, cau := consensus.ApplyBlock(cs, b, *bs, ancestorTimestamp(m.store, b.ParentID, cs.AncestorDepth()))
 		// TODO: commit every minute for large len(apply)?
 		shouldCommit := index == m.tipState.Index
-		if err := s.ProcessChainApplyUpdate(&ApplyUpdate{cau, c.Block, c.State}, shouldCommit); err != nil {
+		if err := s.ProcessChainApplyUpdate(&ApplyUpdate{cau, b, cs}, shouldCommit); err != nil {
 			return fmt.Errorf("couldn't process apply update: %w", err)
 		}
 	}
@@ -619,10 +586,9 @@ func (m *Manager) computeMedianFee() types.Currency {
 	prevFees := make([]types.Currency, 0, 10)
 	for i := uint64(0); i < 10; i++ {
 		index, ok1 := m.store.BestIndex(m.tipState.Index.Height - i)
-		c, ok2 := m.store.Checkpoint(index.ID)
-		pc, ok3 := m.store.Checkpoint(c.Block.ParentID)
-		if ok1 && ok2 && ok3 {
-			prevFees = append(prevFees, calculateBlockMedianFee(pc.State, c.Block))
+		b, _, cs, ok2 := blockAndParent(m.store, index.ID)
+		if ok1 && ok2 {
+			prevFees = append(prevFees, calculateBlockMedianFee(cs, b))
 		}
 	}
 	sort.Slice(prevFees, func(i, j int) bool { return prevFees[i].Cmp(prevFees[j]) < 0 })

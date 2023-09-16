@@ -12,6 +12,48 @@ import (
 	"go.sia.tech/core/types"
 )
 
+type supplementedBlock struct {
+	Block      types.Block
+	Supplement *consensus.V1BlockSupplement
+}
+
+func (sb supplementedBlock) EncodeTo(e *types.Encoder) {
+	e.WriteUint8(2)
+	(types.V2Block)(sb.Block).EncodeTo(e)
+	e.WriteBool(sb.Supplement != nil)
+	if sb.Supplement != nil {
+		sb.Supplement.EncodeTo(e)
+	}
+}
+
+func (sb *supplementedBlock) DecodeFrom(d *types.Decoder) {
+	if v := d.ReadUint8(); v != 2 {
+		d.SetErr(fmt.Errorf("incompatible version (%d)", v))
+	}
+	(*types.V2Block)(&sb.Block).DecodeFrom(d)
+	if d.ReadBool() {
+		sb.Supplement = new(consensus.V1BlockSupplement)
+		sb.Supplement.DecodeFrom(d)
+	}
+}
+
+type versionedState struct {
+	State consensus.State
+}
+
+func (vs versionedState) EncodeTo(e *types.Encoder) {
+	e.WriteUint8(2)
+	vs.State.EncodeTo(e)
+
+}
+
+func (vs *versionedState) DecodeFrom(d *types.Decoder) {
+	if v := d.ReadUint8(); v != 2 {
+		d.SetErr(fmt.Errorf("incompatible version (%d)", v))
+	}
+	vs.State.DecodeFrom(d)
+}
+
 // A DB is a generic key-value database.
 type DB interface {
 	Bucket(name []byte) DBBucket
@@ -189,7 +231,8 @@ func (b *dbBucket) delete(key []byte) {
 var (
 	bVersion              = []byte("Version")
 	bMainChain            = []byte("MainChain")
-	bCheckpoints          = []byte("Checkpoints")
+	bStates               = []byte("States")
+	bBlocks               = []byte("Blocks")
 	bFileContractElements = []byte("FileContracts")
 	bSiacoinElements      = []byte("SiacoinElements")
 	bSiafundElements      = []byte("SiafundElements")
@@ -201,7 +244,7 @@ var (
 // DBStore implements Store using a key-value database.
 type DBStore struct {
 	db  DB
-	n   *consensus.Network // for getCheckpoint
+	n   *consensus.Network // for getState
 	enc types.Encoder
 
 	unflushed int
@@ -236,8 +279,26 @@ func (db *DBStore) putHeight(height uint64) {
 	db.bucket(bMainChain).putRaw(keyHeight, db.encHeight(height))
 }
 
-func (db *DBStore) putCheckpoint(c Checkpoint) {
-	db.bucket(bCheckpoints).put(c.State.Index.ID[:], c)
+func (db *DBStore) getState(id types.BlockID) (consensus.State, bool) {
+	var vs versionedState
+	ok := db.bucket(bStates).get(id[:], &vs)
+	vs.State.Network = db.n
+	return vs.State, ok
+}
+
+func (db *DBStore) putState(cs consensus.State) {
+	db.bucket(bStates).put(cs.Index.ID[:], versionedState{cs})
+}
+
+func (db *DBStore) getBlock(id types.BlockID) (b types.Block, bs *consensus.V1BlockSupplement, _ bool) {
+	var sb supplementedBlock
+	ok := db.bucket(bBlocks).get(id[:], &sb)
+	return sb.Block, sb.Supplement, ok
+}
+
+func (db *DBStore) putBlock(b types.Block, bs *consensus.V1BlockSupplement) {
+	id := b.ID()
+	db.bucket(bBlocks).put(id[:], supplementedBlock{b, bs})
 }
 
 func (db *DBStore) encLeaf(index uint64, height int) []byte {
@@ -466,8 +527,8 @@ func (db *DBStore) BestIndex(height uint64) (index types.ChainIndex, ok bool) {
 func (db *DBStore) SupplementTipTransaction(txn types.Transaction) (ts consensus.V1TransactionSupplement) {
 	// get tip state, for proof-trimming
 	index, _ := db.BestIndex(db.getHeight())
-	c, _ := db.Checkpoint(index.ID)
-	numLeaves := c.State.Elements.NumLeaves
+	cs, _ := db.State(index.ID)
+	numLeaves := cs.Elements.NumLeaves
 
 	for _, sci := range txn.SiacoinInputs {
 		if sce, ok := db.getSiacoinElement(sci.ParentID, numLeaves); ok {
@@ -499,8 +560,8 @@ func (db *DBStore) SupplementTipTransaction(txn types.Transaction) (ts consensus
 func (db *DBStore) SupplementTipBlock(b types.Block) (bs consensus.V1BlockSupplement) {
 	// get tip state, for proof-trimming
 	index, _ := db.BestIndex(db.getHeight())
-	c, _ := db.Checkpoint(index.ID)
-	numLeaves := c.State.Elements.NumLeaves
+	cs, _ := db.State(index.ID)
+	numLeaves := cs.Elements.NumLeaves
 
 	bs = consensus.V1BlockSupplement{
 		Transactions: make([]consensus.V1TransactionSupplement, len(b.Transactions)),
@@ -519,16 +580,24 @@ func (db *DBStore) SupplementTipBlock(b types.Block) (bs consensus.V1BlockSupple
 	return bs
 }
 
-// AddCheckpoint implements Store.
-func (db *DBStore) AddCheckpoint(c Checkpoint) {
-	db.bucket(bCheckpoints).put(c.State.Index.ID[:], c)
+// State implements Store.
+func (db *DBStore) State(id types.BlockID) (consensus.State, bool) {
+	return db.getState(id)
 }
 
-// Checkpoint implements Store.
-func (db *DBStore) Checkpoint(id types.BlockID) (c Checkpoint, ok bool) {
-	ok = db.bucket(bCheckpoints).get(id[:], &c)
-	c.State.Network = db.n
-	return
+// AddState implements Store.
+func (db *DBStore) AddState(cs consensus.State) {
+	db.putState(cs)
+}
+
+// Block implements Store.
+func (db *DBStore) Block(id types.BlockID) (types.Block, *consensus.V1BlockSupplement, bool) {
+	return db.getBlock(id)
+}
+
+// AddBlock implements Store.
+func (db *DBStore) AddBlock(b types.Block, bs *consensus.V1BlockSupplement) {
+	db.putBlock(b, bs)
 }
 
 func (db *DBStore) shouldFlush() bool {
@@ -572,9 +641,9 @@ func (db *DBStore) Close() error {
 	return db.db.Flush()
 }
 
-// NewDBStore creates a new DBStore using the provided database. The current
-// checkpoint is also returned.
-func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (_ *DBStore, _ Checkpoint, err error) {
+// NewDBStore creates a new DBStore using the provided database. The tip state
+// is also returned.
+func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (_ *DBStore, _ consensus.State, err error) {
 	// during initialization, we should return an error instead of panicking
 	defer func() {
 		if r := recover(); r != nil {
@@ -585,7 +654,7 @@ func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (_ *DBSto
 
 	// don't accidentally overwrite a siad database
 	if db.Bucket([]byte("ChangeLog")) != nil {
-		return nil, Checkpoint{}, errors.New("detected siad database, refusing to proceed")
+		return nil, consensus.State{}, errors.New("detected siad database, refusing to proceed")
 	}
 
 	dbs := &DBStore{
@@ -599,7 +668,8 @@ func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (_ *DBSto
 		for _, bucket := range [][]byte{
 			bVersion,
 			bMainChain,
-			bCheckpoints,
+			bStates,
+			bBlocks,
 			bFileContractElements,
 			bSiacoinElements,
 			bSiafundElements,
@@ -611,28 +681,29 @@ func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (_ *DBSto
 		}
 		dbs.bucket(bVersion).putRaw(bVersion, []byte{1})
 
-		// store genesis checkpoint and apply its effects
+		// store genesis state and apply genesis block to it
 		genesisState := n.GenesisState()
-		dbs.putCheckpoint(Checkpoint{types.Block{}, genesisState, &consensus.V1BlockSupplement{}})
+		dbs.putState(genesisState)
 		bs := consensus.V1BlockSupplement{Transactions: make([]consensus.V1TransactionSupplement, len(genesisBlock.Transactions))}
 		cs, cau := consensus.ApplyBlock(genesisState, genesisBlock, bs, time.Time{})
-		dbs.putCheckpoint(Checkpoint{genesisBlock, cs, &bs})
+		dbs.putBlock(genesisBlock, &bs)
+		dbs.putState(cs)
 		dbs.ApplyBlock(cs, cau, true)
 	} else if dbGenesis.ID != genesisBlock.ID() {
 		// try to detect network so we can provide a more helpful error message
 		_, mainnetGenesis := Mainnet()
 		_, zenGenesis := TestnetZen()
 		if genesisBlock.ID() == mainnetGenesis.ID() && dbGenesis.ID == zenGenesis.ID() {
-			return nil, Checkpoint{}, errors.New("cannot use Zen testnet database on mainnet")
+			return nil, consensus.State{}, errors.New("cannot use Zen testnet database on mainnet")
 		} else if genesisBlock.ID() == zenGenesis.ID() && dbGenesis.ID == mainnetGenesis.ID() {
-			return nil, Checkpoint{}, errors.New("cannot use mainnet database on Zen testnet")
+			return nil, consensus.State{}, errors.New("cannot use mainnet database on Zen testnet")
 		} else {
-			return nil, Checkpoint{}, errors.New("database previously initialized with different genesis block")
+			return nil, consensus.State{}, errors.New("database previously initialized with different genesis block")
 		}
 	}
 
-	// load current checkpoint
+	// load tip state
 	index, _ := dbs.BestIndex(dbs.getHeight())
-	c, _ := dbs.Checkpoint(index.ID)
-	return dbs, c, err
+	cs, _ := dbs.State(index.ID)
+	return dbs, cs, err
 }

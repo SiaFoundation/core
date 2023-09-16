@@ -59,11 +59,11 @@ func TestValidateBlock(t *testing.T) {
 	}
 	genesisBlock.Transactions = []types.Transaction{giftTxn}
 
-	dbStore, checkpoint, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
+	dbStore, tipState, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cs := checkpoint.State
+	cs := tipState
 
 	signTxn := func(txn *types.Transaction) {
 		appendSig := func(key types.PrivateKey, pubkeyIndex uint64, parentID types.Hash256) {
@@ -515,11 +515,11 @@ func TestValidateV2Block(t *testing.T) {
 		fces = append(fces, fce)
 	})
 
-	dbStore, checkpoint, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
+	dbStore, tipState, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cs := checkpoint.State
+	cs := tipState
 
 	fc := v2GiftFC
 	fc.TotalCollateral = fc.HostOutput.Value

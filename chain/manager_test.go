@@ -39,12 +39,12 @@ func TestManager(t *testing.T) {
 
 	n.InitialTarget = types.BlockID{0xFF}
 
-	store, checkpoint, err := NewDBStore(NewMemDB(), n, genesisBlock)
+	store, tipState, err := NewDBStore(NewMemDB(), n, genesisBlock)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	cm := NewManager(store, checkpoint.State)
+	cm := NewManager(store, tipState)
 
 	var hs historySubscriber
 	cm.AddSubscriber(&hs, cm.Tip())
@@ -115,11 +115,11 @@ func TestTxPool(t *testing.T) {
 	}
 	genesisBlock.Transactions = []types.Transaction{giftTxn}
 
-	store, checkpoint, err := NewDBStore(NewMemDB(), n, genesisBlock)
+	store, tipState, err := NewDBStore(NewMemDB(), n, genesisBlock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cm := NewManager(store, checkpoint.State)
+	cm := NewManager(store, tipState)
 
 	signTxn := func(txn *types.Transaction) {
 		for _, sci := range txn.SiacoinInputs {
