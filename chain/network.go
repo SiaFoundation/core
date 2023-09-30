@@ -45,6 +45,9 @@ func Mainnet() (*consensus.Network, types.Block) {
 	n.HardforkFoundation.PrimaryAddress = parseAddr("addr:053b2def3cbdd078c19d62ce2b4f0b1a3c5e0ffbeeff01280efb1f8969b2f5bb4fdc680f0807")
 	n.HardforkFoundation.FailsafeAddress = parseAddr("addr:27c22a6c6e6645802a3b8fa0e5374657438ef12716d2205d3e866272de1b644dbabd53d6d560")
 
+	n.HardforkV2.AllowHeight = 1000000   // TBD
+	n.HardforkV2.RequireHeight = 1025000 // ~six months later
+
 	b := types.Block{
 		Timestamp: n.HardforkOak.GenesisTimestamp,
 		Transactions: []types.Transaction{{
@@ -133,6 +136,9 @@ func TestnetZen() (*consensus.Network, types.Block) {
 	n.HardforkFoundation.Height = 30
 	n.HardforkFoundation.PrimaryAddress = parseAddr("addr:053b2def3cbdd078c19d62ce2b4f0b1a3c5e0ffbeeff01280efb1f8969b2f5bb4fdc680f0807")
 	n.HardforkFoundation.FailsafeAddress = types.VoidAddress
+
+	n.HardforkV2.AllowHeight = 30000   // TBD
+	n.HardforkV2.RequireHeight = 32000 // ~two weeks later
 
 	b := types.Block{
 		Timestamp: n.HardforkOak.GenesisTimestamp,

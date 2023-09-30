@@ -3,7 +3,6 @@ package types
 import (
 	"encoding/binary"
 	"hash"
-	"math/bits"
 	"sync"
 
 	"go.sia.tech/core/internal/blake2b"
@@ -20,8 +19,16 @@ type Hasher struct {
 	E *Encoder
 }
 
-// Reset resets the underlying hash digest state.
-func (h *Hasher) Reset() { h.h.Reset() }
+// Reset resets the underlying hash and encoder state.
+func (h *Hasher) Reset() {
+	h.E.n = 0
+	h.h.Reset()
+}
+
+// WriteDistinguisher writes a distinguisher prefix to the encoder.
+func (h *Hasher) WriteDistinguisher(p string) {
+	h.E.Write([]byte("sia/" + p + "|"))
+}
 
 // Sum returns the digest of the objects written to the Hasher.
 func (h *Hasher) Sum() (sum Hash256) {
@@ -45,40 +52,21 @@ var hasherPool = &sync.Pool{New: func() interface{} { return NewHasher() }}
 
 const leafHashPrefix = 0 // from RFC 6962
 
-type merkleAccumulator struct {
-	trees     [64]Hash256
-	numLeaves uint64
+// StandardAddress returns the standard v2 Address derived from pk. It is
+// equivalent to PolicyPublicKey(pk).Address().
+func StandardAddress(pk PublicKey) Address {
+	buf := make([]byte, 12+1+1+len(pk))
+	copy(buf, "sia/address|")
+	buf[12] = 1 // version
+	buf[13] = 3 // opPublicKey
+	copy(buf[14:], pk[:])
+	return Address(blake2b.Sum256(buf))
 }
 
-func (acc *merkleAccumulator) hasTreeAtHeight(height int) bool {
-	return acc.numLeaves&(1<<height) != 0
-}
-
-func (acc *merkleAccumulator) addLeaf(h Hash256) {
-	i := 0
-	for ; acc.hasTreeAtHeight(i); i++ {
-		h = blake2b.SumPair(acc.trees[i], h)
-	}
-	acc.trees[i] = h
-	acc.numLeaves++
-}
-
-func (acc *merkleAccumulator) root() Hash256 {
-	i := bits.TrailingZeros64(acc.numLeaves)
-	if i == 64 {
-		return Hash256{}
-	}
-	root := acc.trees[i]
-	for i++; i < 64; i++ {
-		if acc.hasTreeAtHeight(i) {
-			root = blake2b.SumPair(acc.trees[i], root)
-		}
-	}
-	return root
-}
-
-func standardUnlockHash(pk PublicKey) Address {
-	// An Address is the Merkle root of UnlockConditions. Since the standard
+// StandardUnlockHash returns the standard UnlockHash derived from pk. It is equivalent to
+// SpendPolicy{PolicyUnlockConditions(StandardUnlockConditions(pk))}.Address().
+func StandardUnlockHash(pk PublicKey) Address {
+	// An UnlockHash is the Merkle root of UnlockConditions. Since the standard
 	// UnlockConditions use a single public key, the Merkle tree is:
 	//
 	//           ┌─────────┴──────────┐
@@ -114,4 +102,44 @@ func standardUnlockHash(pk PublicKey) Address {
 	}
 
 	return Address(blake2b.SumPair(blake2b.SumPair(timelockHash, pubkeyHash), sigsrequiredHash))
+}
+
+func unlockConditionsRoot(uc UnlockConditions) Address {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	var acc blake2b.Accumulator
+	h.Reset()
+	h.E.WriteUint8(leafHashPrefix)
+	h.E.WriteUint64(uc.Timelock)
+	acc.AddLeaf(h.Sum())
+	for _, key := range uc.PublicKeys {
+		h.Reset()
+		h.E.WriteUint8(leafHashPrefix)
+		key.EncodeTo(h.E)
+		acc.AddLeaf(h.Sum())
+	}
+	h.Reset()
+	h.E.WriteUint8(leafHashPrefix)
+	h.E.WriteUint64(uc.SignaturesRequired)
+	acc.AddLeaf(h.Sum())
+	return acc.Root()
+}
+
+func blockMerkleRoot(minerPayouts []SiacoinOutput, txns []Transaction) Hash256 {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	var acc blake2b.Accumulator
+	for _, mp := range minerPayouts {
+		h.Reset()
+		h.E.WriteUint8(leafHashPrefix)
+		mp.EncodeTo(h.E)
+		acc.AddLeaf(h.Sum())
+	}
+	for _, txn := range txns {
+		h.Reset()
+		h.E.WriteUint8(leafHashPrefix)
+		txn.EncodeTo(h.E)
+		acc.AddLeaf(h.Sum())
+	}
+	return acc.Root()
 }

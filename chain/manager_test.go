@@ -39,12 +39,12 @@ func TestManager(t *testing.T) {
 
 	n.InitialTarget = types.BlockID{0xFF}
 
-	store, checkpoint, err := NewDBStore(NewMemDB(), n, genesisBlock)
+	store, tipState, err := NewDBStore(NewMemDB(), n, genesisBlock)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	cm := NewManager(store, checkpoint.State)
+	cm := NewManager(store, tipState)
 
 	var hs historySubscriber
 	cm.AddSubscriber(&hs, cm.Tip())
@@ -60,7 +60,7 @@ func TestManager(t *testing.T) {
 				}},
 			}
 			findBlockNonce(cs, &b)
-			cs = consensus.ApplyState(cs, store, b)
+			cs, _ = consensus.ApplyBlock(cs, b, store.SupplementTipBlock(b), ancestorTimestamp(store, b.ParentID, cs.AncestorDepth()))
 			blocks = append(blocks, b)
 		}
 		return
@@ -106,7 +106,7 @@ func TestTxPool(t *testing.T) {
 
 	giftPrivateKey := types.GeneratePrivateKey()
 	giftPublicKey := giftPrivateKey.PublicKey()
-	giftAddress := giftPublicKey.StandardAddress()
+	giftAddress := types.StandardUnlockHash(giftPublicKey)
 	giftAmountSC := types.Siacoins(100)
 	giftTxn := types.Transaction{
 		SiacoinOutputs: []types.SiacoinOutput{
@@ -115,11 +115,11 @@ func TestTxPool(t *testing.T) {
 	}
 	genesisBlock.Transactions = []types.Transaction{giftTxn}
 
-	store, checkpoint, err := NewDBStore(NewMemDB(), n, genesisBlock)
+	store, tipState, err := NewDBStore(NewMemDB(), n, genesisBlock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cm := NewManager(store, checkpoint.State)
+	cm := NewManager(store, tipState)
 
 	signTxn := func(txn *types.Transaction) {
 		for _, sci := range txn.SiacoinInputs {
@@ -137,7 +137,7 @@ func TestTxPool(t *testing.T) {
 	parentTxn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
 			ParentID:         giftTxn.SiacoinOutputID(0),
-			UnlockConditions: giftPublicKey.StandardUnlockConditions(),
+			UnlockConditions: types.StandardUnlockConditions(giftPublicKey),
 		}},
 		SiacoinOutputs: []types.SiacoinOutput{{
 			Address: giftAddress,
@@ -155,7 +155,7 @@ func TestTxPool(t *testing.T) {
 	childTxn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
 			ParentID:         parentTxn.SiacoinOutputID(0),
-			UnlockConditions: giftPublicKey.StandardUnlockConditions(),
+			UnlockConditions: types.StandardUnlockConditions(giftPublicKey),
 		}},
 		MinerFees: []types.Currency{giftAmountSC},
 	}

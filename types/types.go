@@ -29,6 +29,12 @@ const (
 	// HostContractIndex defines the index of the host's output and public key in
 	// a FileContract.
 	HostContractIndex = 1
+
+	// EphemeralLeafIndex is used as the LeafIndex of StateElements that are created
+	// and spent within the same block. Such elements do not require a proof of
+	// existence. They are, however, assigned a proper index and are incorporated
+	// into the state accumulator when the block is processed.
+	EphemeralLeafIndex = math.MaxUint64
 )
 
 // Various specifiers.
@@ -36,8 +42,10 @@ var (
 	SpecifierEd25519       = NewSpecifier("ed25519")
 	SpecifierSiacoinOutput = NewSpecifier("siacoin output")
 	SpecifierSiafundOutput = NewSpecifier("siafund output")
+	SpecifierClaimOutput   = NewSpecifier("claim output")
 	SpecifierFileContract  = NewSpecifier("file contract")
 	SpecifierStorageProof  = NewSpecifier("storage proof")
+	SpecifierAttestation   = NewSpecifier("attestation")
 	SpecifierFoundation    = NewSpecifier("foundation")
 	SpecifierEntropy       = NewSpecifier("entropy")
 )
@@ -61,13 +69,8 @@ func (pk PublicKey) UnlockKey() UnlockKey {
 	}
 }
 
-// StandardAddress returns the standard address derived from pk.
-func (pk PublicKey) StandardAddress() Address {
-	return standardUnlockHash(pk)
-}
-
 // StandardUnlockConditions returns the standard unlock conditions for pk.
-func (pk PublicKey) StandardUnlockConditions() UnlockConditions {
+func StandardUnlockConditions(pk PublicKey) UnlockConditions {
 	return UnlockConditions{
 		PublicKeys:         []UnlockKey{pk.UnlockKey()},
 		SignaturesRequired: 1,
@@ -141,28 +144,9 @@ func (uc UnlockConditions) UnlockHash() Address {
 		uc.PublicKeys[0].Algorithm == SpecifierEd25519 &&
 		len(uc.PublicKeys[0].Key) == len(PublicKey{}) &&
 		uc.SignaturesRequired == 1 {
-		return standardUnlockHash(*(*PublicKey)(uc.PublicKeys[0].Key))
+		return StandardUnlockHash(*(*PublicKey)(uc.PublicKeys[0].Key))
 	}
-
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-
-	var acc merkleAccumulator
-	h.E.WriteUint8(leafHashPrefix)
-	h.E.WriteUint64(uc.Timelock)
-	acc.addLeaf(h.Sum())
-	for _, key := range uc.PublicKeys {
-		h.Reset()
-		h.E.WriteUint8(leafHashPrefix)
-		key.EncodeTo(h.E)
-		acc.addLeaf(h.Sum())
-	}
-	h.Reset()
-	h.E.WriteUint8(leafHashPrefix)
-	h.E.WriteUint64(uc.SignaturesRequired)
-	acc.addLeaf(h.Sum())
-	return Address(acc.root())
+	return unlockConditionsRoot(uc)
 }
 
 // An Address is the hash of a set of UnlockConditions.
@@ -336,6 +320,38 @@ func (fcid FileContractID) MissedOutputID(i int) SiacoinOutputID {
 	return SiacoinOutputID(h.Sum())
 }
 
+// V2RenterOutputID returns the ID of the renter output for a v2 contract.
+func (fcid FileContractID) V2RenterOutputID() SiacoinOutputID {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	SpecifierSiacoinOutput.EncodeTo(h.E)
+	fcid.EncodeTo(h.E)
+	h.E.WriteUint64(0)
+	return SiacoinOutputID(h.Sum())
+}
+
+// V2HostOutputID returns the ID of the host output for a v2 contract.
+func (fcid FileContractID) V2HostOutputID() SiacoinOutputID {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	SpecifierSiacoinOutput.EncodeTo(h.E)
+	fcid.EncodeTo(h.E)
+	h.E.WriteUint64(1)
+	return SiacoinOutputID(h.Sum())
+}
+
+// V2RenewalID returns the ID of the renewal of a v2 contract.
+func (fcid FileContractID) V2RenewalID() FileContractID {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	SpecifierFileContract.EncodeTo(h.E)
+	fcid.EncodeTo(h.E)
+	return FileContractID(h.Sum())
+}
+
 // A FileContractRevision updates the state of an existing file contract.
 type FileContractRevision struct {
 	ParentID         FileContractID   `json:"parentID"`
@@ -389,8 +405,7 @@ type TransactionSignature struct {
 	Signature      []byte        `json:"signature"`
 }
 
-// A Transaction transfers value by consuming existing Outputs and creating new
-// Outputs.
+// A Transaction effects a change of blockchain state.
 type Transaction struct {
 	SiacoinInputs         []SiacoinInput         `json:"siacoinInputs,omitempty"`
 	SiacoinOutputs        []SiacoinOutput        `json:"siacoinOutputs,omitempty"`
@@ -408,13 +423,23 @@ type Transaction struct {
 // transaction's effects, but not incidental data such as signatures. This
 // ensures that the ID will remain stable (i.e. non-malleable).
 //
-// To hash all of the data in a transaction, use the EncodeTo method.
+// To hash all of the data in a transaction, use the FullHash method.
 func (txn *Transaction) ID() TransactionID {
 	h := hasherPool.Get().(*Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
 	txn.encodeNoSignatures(h.E)
 	return TransactionID(h.Sum())
+}
+
+// FullHash returns the hash of the transaction's binary encoding. This hash is
+// only used in specific circumstances; generally, ID should be used instead.
+func (txn *Transaction) FullHash() Hash256 {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	txn.EncodeTo(h.E)
+	return h.Sum()
 }
 
 // SiacoinOutputID returns the ID of the siacoin output at index i.
@@ -457,27 +482,423 @@ func (txn *Transaction) FileContractID(i int) FileContractID {
 	return FileContractID(h.Sum())
 }
 
-// A BlockHeader contains a Block's non-transaction data.
-type BlockHeader struct {
-	ParentID   BlockID   `json:"parentID"`
-	Nonce      uint64    `json:"nonce"`
-	Timestamp  time.Time `json:"timestamp"`
-	MerkleRoot Hash256   `json:"merkleRoot"`
+// TotalFees returns the sum of the transaction's miner fees.
+func (txn *Transaction) TotalFees() Currency {
+	var sum Currency
+	for _, fee := range txn.MinerFees {
+		sum = sum.Add(fee)
+	}
+	return sum
 }
 
-// ID returns a hash that uniquely identifies a block.
-func (bh BlockHeader) ID() BlockID {
-	buf := make([]byte, 32+8+8+32)
-	copy(buf[0:32], bh.ParentID[:])
-	binary.LittleEndian.PutUint64(buf[32:40], bh.Nonce)
-	binary.LittleEndian.PutUint64(buf[40:48], uint64(bh.Timestamp.Unix()))
-	copy(buf[48:80], bh.MerkleRoot[:])
-	return BlockID(HashBytes(buf))
+// A V2FileContract is a storage agreement between a renter and a host. It
+// consists of a bidirectional payment channel that resolves as either "valid"
+// or "missed" depending on whether a valid StorageProof is submitted for the
+// contract.
+type V2FileContract struct {
+	Filesize         uint64        `json:"filesize"`
+	FileMerkleRoot   Hash256       `json:"fileMerkleRoot"`
+	ProofHeight      uint64        `json:"proofHeight"`
+	ExpirationHeight uint64        `json:"expirationHeight"`
+	RenterOutput     SiacoinOutput `json:"renterOutput"`
+	HostOutput       SiacoinOutput `json:"hostOutput"`
+	MissedHostValue  Currency      `json:"missedHostValue"`
+	TotalCollateral  Currency      `json:"totalCollateral"`
+	RenterPublicKey  PublicKey     `json:"renterPublicKey"`
+	HostPublicKey    PublicKey     `json:"hostPublicKey"`
+	RevisionNumber   uint64        `json:"revisionNumber"`
+
+	// signatures cover above fields
+	RenterSignature Signature `json:"renterSignature"`
+	HostSignature   Signature `json:"hostSignature"`
+}
+
+// MissedHostOutput returns the host output that will be created if the contract
+// resolves missed.
+func (fc V2FileContract) MissedHostOutput() SiacoinOutput {
+	return SiacoinOutput{
+		Value:   fc.MissedHostValue,
+		Address: fc.HostOutput.Address,
+	}
+}
+
+// A V2SiacoinInput spends an unspent SiacoinElement in the state accumulator by
+// revealing its public key and signing the transaction.
+type V2SiacoinInput struct {
+	Parent          SiacoinElement  `json:"parent"`
+	SatisfiedPolicy SatisfiedPolicy `json:"satisfiedPolicy"`
+}
+
+// A V2SiafundInput spends an unspent SiafundElement in the state accumulator by
+// revealing its public key and signing the transaction. Inputs also include a
+// ClaimAddress, specifying the recipient of the siacoins that were earned by
+// the SiafundElement.
+type V2SiafundInput struct {
+	Parent          SiafundElement  `json:"parent"`
+	ClaimAddress    Address         `json:"claimAddress"`
+	SatisfiedPolicy SatisfiedPolicy `json:"satisfiedPolicy"`
+}
+
+// A V2FileContractRevision updates the state of an existing file contract.
+type V2FileContractRevision struct {
+	Parent   V2FileContractElement `json:"parent"`
+	Revision V2FileContract        `json:"revision"`
+}
+
+// A V2FileContractResolution closes a v2 file contract's payment channel. There
+// are four ways a contract can be resolved:
+//
+// 1) The renter and host can sign a final contract revision (a "finalization"),
+// after which the contract cannot be revised further.
+//
+// 2) The renter and host can jointly renew the contract. The old contract is
+// finalized, and a portion of its funds are "rolled over" into a new contract.
+//
+// 3) The host can submit a storage proof, asserting that it has faithfully
+// stored the contract data for the agreed-upon duration. Typically, a storage
+// proof is only required if the renter is unable or unwilling to sign a
+// finalization or renewal. A storage proof can only be submitted after the
+// contract's ProofHeight; this allows the renter (or host) to broadcast the
+// latest contract revision prior to the proof.
+//
+// 4) Lastly, anyone can submit a contract expiration. Typically, an expiration
+// is only required if the host is unable or unwilling to sign a finalization or
+// renewal. An expiration can only be submitted after the contract's
+// ExpirationHeight; this gives the host a reasonable window of time after the
+// ProofHeight in which to submit a storage proof.
+//
+// Once a contract has been resolved, it cannot be altered or resolved again.
+// When a contract is resolved, its RenterOutput and HostOutput are created
+// immediately (though they will not be spendable until their timelock expires).
+// However, if the contract is resolved via an expiration, the HostOutput will
+// have value equal to MissedHostValue; in other words, the host forfeits its
+// collateral. This is considered a "missed" resolution; all other resolution
+// types are "valid." As a special case, the expiration of an empty contract is
+// considered valid, reflecting the fact that the host has not failed to perform
+// any duty.
+type V2FileContractResolution struct {
+	Parent     V2FileContractElement        `json:"parent"`
+	Resolution V2FileContractResolutionType `json:"resolution"`
+}
+
+// V2FileContractResolutionType enumerates the types of file contract resolution.
+type V2FileContractResolutionType interface {
+	isV2FileContractResolution()
+}
+
+func (*V2FileContractFinalization) isV2FileContractResolution() {}
+func (*V2FileContractRenewal) isV2FileContractResolution()      {}
+func (*V2StorageProof) isV2FileContractResolution()             {}
+func (*V2FileContractExpiration) isV2FileContractResolution()   {}
+
+// A V2FileContractFinalization finalizes a contract, preventing further
+// revisions and immediately creating its valid outputs.
+type V2FileContractFinalization V2FileContract
+
+// A V2FileContractRenewal renews a file contract.
+type V2FileContractRenewal struct {
+	FinalRevision   V2FileContract `json:"finalRevision"`
+	InitialRevision V2FileContract `json:"initialRevision"`
+	RenterRollover  Currency       `json:"renterRollover"`
+	HostRollover    Currency       `json:"hostRollover"`
+
+	// signatures cover above fields
+	RenterSignature Signature `json:"renterSignature"`
+	HostSignature   Signature `json:"hostSignature"`
+}
+
+// A V2StorageProof asserts the presence of a randomly-selected leaf within the
+// Merkle tree of a V2FileContract's data.
+type V2StorageProof struct {
+	// Selecting the leaf requires a source of unpredictable entropy; we use the
+	// ID of the block at the contract's ProofHeight. The storage proof thus
+	// includes a proof that this ID is the correct ancestor.
+	//
+	// During validation, it is imperative to check that ProofIndex.Height
+	// matches the ProofHeight field of the contract's final revision;
+	// otherwise, the prover could use any ProofIndex, giving them control over
+	// the leaf index.
+	ProofIndex ChainIndexElement
+
+	// The leaf is always 64 bytes, extended with zeros if necessary.
+	Leaf  [64]byte
+	Proof []Hash256
+}
+
+// A V2FileContractExpiration resolves an expired contract. A contract is
+// considered expired when its proof window has elapsed. If the contract is not
+// storing any data, it will resolve as valid; otherwise, it resolves as missed.
+type V2FileContractExpiration struct{}
+
+// An Attestation associates a key-value pair with an identity. For example,
+// hosts attest to their network address by setting Key to "HostAnnouncement"
+// and Value to their address, thereby allowing renters to discover them.
+// Generally, an attestation for a particular key is considered to overwrite any
+// previous attestations with the same key. (This allows hosts to announce a new
+// network address, for example.)
+type Attestation struct {
+	PublicKey PublicKey `json:"publicKey"`
+	Key       string    `json:"key"`
+	Value     []byte    `json:"value"`
+	Signature Signature `json:"signature"`
+}
+
+// A StateElement is a generic element within the state accumulator.
+type StateElement struct {
+	ID          Hash256   `json:"id"` // SiacoinOutputID, FileContractID, etc.
+	LeafIndex   uint64    `json:"leafIndex"`
+	MerkleProof []Hash256 `json:"merkleProof"`
+}
+
+// A ChainIndexElement is a record of a ChainIndex within the state accumulator.
+type ChainIndexElement struct {
+	StateElement
+	ChainIndex ChainIndex `json:"chainIndex"`
+}
+
+// A SiacoinElement is a record of a SiacoinOutput within the state accumulator.
+type SiacoinElement struct {
+	StateElement
+	SiacoinOutput  SiacoinOutput `json:"siacoinOutput"`
+	MaturityHeight uint64        `json:"maturityHeight"`
+}
+
+// A SiafundElement is a record of a SiafundOutput within the state accumulator.
+type SiafundElement struct {
+	StateElement
+	SiafundOutput SiafundOutput `json:"siafundOutput"`
+	ClaimStart    Currency      `json:"claimStart"` // value of SiafundPool when element was created
+}
+
+// A FileContractElement is a record of a FileContract within the state
+// accumulator.
+type FileContractElement struct {
+	StateElement
+	FileContract FileContract `json:"fileContract"`
+}
+
+// A V2FileContractElement is a record of a V2FileContract within the state
+// accumulator.
+type V2FileContractElement struct {
+	StateElement
+	V2FileContract V2FileContract `json:"v2FileContract"`
+}
+
+// An AttestationElement is a record of an Attestation within the state
+// accumulator.
+type AttestationElement struct {
+	StateElement
+	Attestation Attestation `json:"attestation"`
+}
+
+// A V2Transaction effects a change of blockchain state.
+type V2Transaction struct {
+	SiacoinInputs           []V2SiacoinInput           `json:"siacoinInputs,omitempty"`
+	SiacoinOutputs          []SiacoinOutput            `json:"siacoinOutputs,omitempty"`
+	SiafundInputs           []V2SiafundInput           `json:"siafundInputs,omitempty"`
+	SiafundOutputs          []SiafundOutput            `json:"siafundOutputs,omitempty"`
+	FileContracts           []V2FileContract           `json:"fileContracts,omitempty"`
+	FileContractRevisions   []V2FileContractRevision   `json:"fileContractRevisions,omitempty"`
+	FileContractResolutions []V2FileContractResolution `json:"fileContractResolutions,omitempty"`
+	Attestations            []Attestation              `json:"attestations,omitempty"`
+	ArbitraryData           []byte                     `json:"arbitraryData,omitempty"`
+	NewFoundationAddress    *Address                   `json:"newFoundationAddress,omitempty"`
+	MinerFee                Currency                   `json:"minerFee"`
+}
+
+// ID returns the "semantic hash" of the transaction, covering all of the
+// transaction's effects, but not incidental data such as signatures or Merkle
+// proofs. This ensures that the ID will remain stable (i.e. non-malleable).
+//
+// To hash all of the data in a transaction, use the FullHash method.
+func (txn *V2Transaction) ID() TransactionID {
+	// NOTE: In general, it is not possible to change a transaction's ID without
+	// causing it to become invalid, but an exception exists for non-standard
+	// spend policies. Consider a policy that may be satisfied by either a
+	// signature or a timelock. If a transaction is broadcast that signs the
+	// input, and the timelock has expired, then anyone may remove the signature
+	// from the input without invalidating the transaction. Of course, the net
+	// result will be the same, so arguably there's little reason to care. You
+	// only need to worry about this if you're hashing the full transaction data
+	// for some reason.
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	h.WriteDistinguisher("id/transaction")
+	h.E.WritePrefix(len(txn.SiacoinInputs))
+	for _, in := range txn.SiacoinInputs {
+		in.Parent.ID.EncodeTo(h.E)
+	}
+	h.E.WritePrefix(len(txn.SiacoinOutputs))
+	for _, out := range txn.SiacoinOutputs {
+		out.EncodeTo(h.E)
+	}
+	h.E.WritePrefix(len(txn.SiafundInputs))
+	for _, in := range txn.SiafundInputs {
+		in.Parent.ID.EncodeTo(h.E)
+	}
+	h.E.WritePrefix(len(txn.SiafundOutputs))
+	for _, out := range txn.SiafundOutputs {
+		out.EncodeTo(h.E)
+	}
+	h.E.WritePrefix(len(txn.FileContracts))
+	for _, fc := range txn.FileContracts {
+		fc.EncodeTo(h.E)
+	}
+	h.E.WritePrefix(len(txn.FileContractRevisions))
+	for _, fcr := range txn.FileContractRevisions {
+		fcr.Parent.ID.EncodeTo(h.E)
+		fcr.Revision.EncodeTo(h.E)
+	}
+	h.E.WritePrefix(len(txn.FileContractResolutions))
+	for _, fcr := range txn.FileContractResolutions {
+		fcr.Parent.ID.EncodeTo(h.E)
+		fcr.Resolution.(EncoderTo).EncodeTo(h.E)
+	}
+	for _, a := range txn.Attestations {
+		a.EncodeTo(h.E)
+	}
+	h.E.WriteBytes(txn.ArbitraryData)
+	h.E.WriteBool(txn.NewFoundationAddress != nil)
+	if txn.NewFoundationAddress != nil {
+		txn.NewFoundationAddress.EncodeTo(h.E)
+	}
+	txn.MinerFee.EncodeTo(h.E)
+	return TransactionID(h.Sum())
+}
+
+// FullHash returns the hash of the transaction's binary encoding. This hash is
+// only used in specific circumstances; generally, ID should be used instead.
+func (txn *V2Transaction) FullHash() Hash256 {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	txn.EncodeTo(h.E)
+	return h.Sum()
+}
+
+// SiacoinOutputID returns the ID for the siacoin output at index i.
+func (*V2Transaction) SiacoinOutputID(txid TransactionID, i int) SiacoinOutputID {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	SpecifierSiacoinOutput.EncodeTo(h.E)
+	txid.EncodeTo(h.E)
+	h.E.WriteUint64(uint64(i))
+	return SiacoinOutputID(h.Sum())
+}
+
+// SiafundOutputID returns the ID for the siafund output at index i.
+func (*V2Transaction) SiafundOutputID(txid TransactionID, i int) SiafundOutputID {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	SpecifierSiafundOutput.EncodeTo(h.E)
+	txid.EncodeTo(h.E)
+	h.E.WriteUint64(uint64(i))
+	return SiafundOutputID(h.Sum())
+}
+
+// V2FileContractID returns the ID for the v2 file contract at index i.
+func (*V2Transaction) V2FileContractID(txid TransactionID, i int) FileContractID {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	SpecifierFileContract.EncodeTo(h.E)
+	txid.EncodeTo(h.E)
+	h.E.WriteUint64(uint64(i))
+	return FileContractID(h.Sum())
+}
+
+// AttestationID returns the ID for the attestation at index i.
+func (*V2Transaction) AttestationID(txid TransactionID, i int) Hash256 {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	SpecifierAttestation.EncodeTo(h.E)
+	txid.EncodeTo(h.E)
+	h.E.WriteUint64(uint64(i))
+	return h.Sum()
+}
+
+// EphemeralSiacoinOutput returns a SiacoinElement for the siacoin output at
+// index i.
+func (txn *V2Transaction) EphemeralSiacoinOutput(i int) SiacoinElement {
+	return SiacoinElement{
+		StateElement: StateElement{
+			ID:        Hash256(txn.SiacoinOutputID(txn.ID(), i)),
+			LeafIndex: EphemeralLeafIndex,
+		},
+		SiacoinOutput: txn.SiacoinOutputs[i],
+	}
+}
+
+// EphemeralSiafundOutput returns a SiafundElement for the siafund output at
+// index i.
+func (txn *V2Transaction) EphemeralSiafundOutput(i int) SiafundElement {
+	return SiafundElement{
+		StateElement: StateElement{
+			ID:        Hash256(txn.SiafundOutputID(txn.ID(), i)),
+			LeafIndex: EphemeralLeafIndex,
+		},
+		SiafundOutput: txn.SiafundOutputs[i],
+	}
+}
+
+// DeepCopy returns a copy of txn that does not alias any of its memory.
+func (txn *V2Transaction) DeepCopy() V2Transaction {
+	c := *txn
+	c.SiacoinInputs = append([]V2SiacoinInput(nil), c.SiacoinInputs...)
+	for i := range c.SiacoinInputs {
+		c.SiacoinInputs[i].Parent.MerkleProof = append([]Hash256(nil), c.SiacoinInputs[i].Parent.MerkleProof...)
+		c.SiacoinInputs[i].SatisfiedPolicy.Signatures = append([]Signature(nil), c.SiacoinInputs[i].SatisfiedPolicy.Signatures...)
+		c.SiacoinInputs[i].SatisfiedPolicy.Preimages = append([][]byte(nil), c.SiacoinInputs[i].SatisfiedPolicy.Preimages...)
+		for j := range c.SiacoinInputs[i].SatisfiedPolicy.Preimages {
+			c.SiacoinInputs[i].SatisfiedPolicy.Preimages[j] = append([]byte(nil), c.SiacoinInputs[i].SatisfiedPolicy.Preimages[j]...)
+		}
+	}
+	c.SiacoinOutputs = append([]SiacoinOutput(nil), c.SiacoinOutputs...)
+	c.SiafundInputs = append([]V2SiafundInput(nil), c.SiafundInputs...)
+	for i := range c.SiafundInputs {
+		c.SiafundInputs[i].Parent.MerkleProof = append([]Hash256(nil), c.SiafundInputs[i].Parent.MerkleProof...)
+		c.SiafundInputs[i].SatisfiedPolicy.Signatures = append([]Signature(nil), c.SiafundInputs[i].SatisfiedPolicy.Signatures...)
+		c.SiafundInputs[i].SatisfiedPolicy.Preimages = append([][]byte(nil), c.SiafundInputs[i].SatisfiedPolicy.Preimages...)
+		for j := range c.SiafundInputs[i].SatisfiedPolicy.Preimages {
+			c.SiafundInputs[i].SatisfiedPolicy.Preimages[j] = append([]byte(nil), c.SiafundInputs[i].SatisfiedPolicy.Preimages[j]...)
+		}
+	}
+	c.SiafundOutputs = append([]SiafundOutput(nil), c.SiafundOutputs...)
+	c.FileContracts = append([]V2FileContract(nil), c.FileContracts...)
+	c.FileContractRevisions = append([]V2FileContractRevision(nil), c.FileContractRevisions...)
+	for i := range c.FileContractRevisions {
+		c.FileContractRevisions[i].Parent.MerkleProof = append([]Hash256(nil), c.FileContractRevisions[i].Parent.MerkleProof...)
+	}
+	c.FileContractResolutions = append([]V2FileContractResolution(nil), c.FileContractResolutions...)
+	for i := range c.FileContractResolutions {
+		c.FileContractResolutions[i].Parent.MerkleProof = append([]Hash256(nil), c.FileContractResolutions[i].Parent.MerkleProof...)
+		if sp, ok := c.FileContractResolutions[i].Resolution.(*V2StorageProof); ok {
+			sp.ProofIndex.MerkleProof = append([]Hash256(nil), sp.ProofIndex.MerkleProof...)
+			sp.Proof = append([]Hash256(nil), sp.Proof...)
+		}
+	}
+	c.Attestations = append([]Attestation(nil), c.Attestations...)
+	for i := range c.Attestations {
+		c.Attestations[i].Value = append([]byte(nil), c.Attestations[i].Value...)
+	}
+	c.ArbitraryData = append([]byte(nil), c.ArbitraryData...)
+	return c
 }
 
 // CurrentTimestamp returns the current time, rounded to the nearest second. The
 // time zone is set to UTC.
 func CurrentTimestamp() time.Time { return time.Now().Round(time.Second).UTC() }
+
+// V2BlockData contains additional fields not present in v1 blocks.
+type V2BlockData struct {
+	Height       uint64          `json:"height"`
+	Commitment   Hash256         `json:"commitment"`
+	Transactions []V2Transaction `json:"transactions"`
+}
 
 // A Block is a set of transactions grouped under a header.
 type Block struct {
@@ -486,42 +907,39 @@ type Block struct {
 	Timestamp    time.Time       `json:"timestamp"`
 	MinerPayouts []SiacoinOutput `json:"minerPayouts"`
 	Transactions []Transaction   `json:"transactions"`
+
+	V2 *V2BlockData `json:"v2,omitempty"`
 }
 
-// Header returns the header for the block.
-//
-// Note that this is a relatively expensive operation, as it computes the Merkle
-// root of the block's transactions.
-func (b *Block) Header() BlockHeader {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	var acc merkleAccumulator
-	for _, mp := range b.MinerPayouts {
-		h.Reset()
-		h.E.WriteUint8(leafHashPrefix)
-		mp.EncodeTo(h.E)
-		acc.addLeaf(h.Sum())
-	}
-	for _, txn := range b.Transactions {
-		h.Reset()
-		h.E.WriteUint8(leafHashPrefix)
-		txn.EncodeTo(h.E)
-		acc.addLeaf(h.Sum())
-	}
-	return BlockHeader{
-		ParentID:   b.ParentID,
-		Nonce:      b.Nonce,
-		Timestamp:  b.Timestamp,
-		MerkleRoot: acc.root(),
-	}
+// MerkleRoot returns the Merkle root of the block's miner payouts and
+// transactions.
+func (b *Block) MerkleRoot() Hash256 {
+	return blockMerkleRoot(b.MinerPayouts, b.Transactions)
 }
 
-// ID returns a hash that uniquely identifies a block. It is equivalent to
-// b.Header().ID().
-//
-// Note that this is a relatively expensive operation, as it computes the Merkle
-// root of the block's transactions.
-func (b *Block) ID() BlockID { return b.Header().ID() }
+// V2Transactions returns the block's v2 transactions, if present.
+func (b *Block) V2Transactions() []V2Transaction {
+	if b.V2 != nil {
+		return b.V2.Transactions
+	}
+	return nil
+}
+
+// ID returns a hash that uniquely identifies a block.
+func (b *Block) ID() BlockID {
+	buf := make([]byte, 32+8+8+32)
+	binary.LittleEndian.PutUint64(buf[32:], b.Nonce)
+	binary.LittleEndian.PutUint64(buf[40:], uint64(b.Timestamp.Unix()))
+	if b.V2 != nil {
+		copy(buf[:32], "sia/id/block|")
+		copy(buf[48:], b.V2.Commitment[:])
+	} else {
+		root := b.MerkleRoot() // NOTE: expensive!
+		copy(buf[:32], b.ParentID[:])
+		copy(buf[48:], root[:])
+	}
+	return BlockID(HashBytes(buf))
+}
 
 // Implementations of fmt.Stringer, encoding.Text(Un)marshaler, and json.(Un)marshaler
 
@@ -626,11 +1044,11 @@ func (uk UnlockKey) MarshalText() ([]byte, error) {
 func (uk *UnlockKey) UnmarshalText(b []byte) error {
 	parts := bytes.Split(b, []byte(":"))
 	if len(parts) != 2 {
-		return fmt.Errorf("decoding <algorithm>::<key> failed: wrong number of separators")
+		return fmt.Errorf("decoding <algorithm>:<key> failed: wrong number of separators")
 	} else if err := uk.Algorithm.UnmarshalText(parts[0]); err != nil {
-		return fmt.Errorf("decoding <algorithm>::<key> failed: %w", err)
+		return fmt.Errorf("decoding <algorithm>:<key> failed: %w", err)
 	} else if uk.Key, err = hex.DecodeString(string(parts[1])); err != nil {
-		return fmt.Errorf("decoding <algorithm>::<key> failed: %w", err)
+		return fmt.Errorf("decoding <algorithm>:<key> failed: %w", err)
 	}
 	return nil
 }
@@ -741,7 +1159,7 @@ func (sp StorageProof) MarshalJSON() ([]byte, error) {
 	}{sp.ParentID, hex.EncodeToString(sp.Leaf[:]), sp.Proof})
 }
 
-// UnmarshalJSON implements json.Marshaler.
+// UnmarshalJSON implements json.Unmarshaler.
 func (sp *StorageProof) UnmarshalJSON(b []byte) error {
 	var leaf string
 	err := json.Unmarshal(b, &struct {
@@ -756,5 +1174,83 @@ func (sp *StorageProof) UnmarshalJSON(b []byte) error {
 	} else if _, err = hex.Decode(sp.Leaf[:], []byte(leaf)); err != nil {
 		return err
 	}
+	return nil
+}
+
+// MarshalJSON implements json.Marshaler.
+func (sp V2StorageProof) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		ProofIndex ChainIndexElement `json:"proofIndex"`
+		Leaf       string            `json:"leaf"`
+		Proof      []Hash256         `json:"proof"`
+	}{sp.ProofIndex, hex.EncodeToString(sp.Leaf[:]), sp.Proof})
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (sp *V2StorageProof) UnmarshalJSON(b []byte) error {
+	var leaf string
+	err := json.Unmarshal(b, &struct {
+		ProofIndex *ChainIndexElement
+		Leaf       *string
+		Proof      *[]Hash256
+	}{&sp.ProofIndex, &leaf, &sp.Proof})
+	if err != nil {
+		return err
+	} else if len(leaf) != len(sp.Leaf)*2 {
+		return errors.New("invalid storage proof leaf length")
+	} else if _, err = hex.Decode(sp.Leaf[:], []byte(leaf)); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarshalJSON implements json.Marshaler.
+func (res V2FileContractResolution) MarshalJSON() ([]byte, error) {
+	var typ string
+	switch res.Resolution.(type) {
+	case *V2FileContractRenewal:
+		typ = "renewal"
+	case *V2StorageProof:
+		typ = "storage proof"
+	case *V2FileContractFinalization:
+		typ = "finalization"
+	case *V2FileContractExpiration:
+		typ = "expiration"
+	default:
+		panic(fmt.Sprintf("unhandled file contract resolution type %T", res.Resolution))
+	}
+	return json.Marshal(struct {
+		Parent     V2FileContractElement        `json:"parent"`
+		Type       string                       `json:"type"`
+		Resolution V2FileContractResolutionType `json:"resolution"`
+	}{res.Parent, typ, res.Resolution})
+}
+
+// UnmarshalJSON implements json.Marshaler.
+func (res *V2FileContractResolution) UnmarshalJSON(b []byte) error {
+	var p struct {
+		Parent     V2FileContractElement
+		Type       string
+		Resolution json.RawMessage
+	}
+	if err := json.Unmarshal(b, &p); err != nil {
+		return err
+	}
+	switch p.Type {
+	case "renewal":
+		res.Resolution = new(V2FileContractRenewal)
+	case "storage proof":
+		res.Resolution = new(V2StorageProof)
+	case "finalization":
+		res.Resolution = new(V2FileContractFinalization)
+	case "expiration":
+		res.Resolution = new(V2FileContractExpiration)
+	default:
+		return fmt.Errorf("unknown file contract resolution type %q", p.Type)
+	}
+	if err := json.Unmarshal(p.Resolution, res.Resolution); err != nil {
+		return err
+	}
+	res.Parent = p.Parent
 	return nil
 }
