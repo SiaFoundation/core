@@ -1,6 +1,6 @@
 module go.sia.tech/core
 
-go 1.17
+go 1.20
 
 require (
 	go.sia.tech/mux v1.2.0
