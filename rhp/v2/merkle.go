@@ -506,6 +506,29 @@ func VerifyDiffProof(actions []RPCWriteAction, numLeaves uint64, treeHashes, lea
 	return verifyMulti(newProofIndices, treeHashes, newLeafHashes, numLeaves, newRoot)
 }
 
+// DiffProofSize returns the size of a Merkle diff proof for the specified
+// actions within a tree containing numLeaves leaves.
+func DiffProofSize(actions []RPCWriteAction, numLeaves uint64) (numHashes uint64) {
+	indices := sectorsChanged(actions, numLeaves)
+	numHashes += uint64(len(indices))
+
+	buildRange := func(i, j uint64) {
+		for i < j {
+			subtreeSize := nextSubtreeSize(i, j)
+			numHashes++
+			i += subtreeSize
+		}
+	}
+
+	var start uint64
+	for _, end := range indices {
+		buildRange(start, end)
+		start = end + 1
+	}
+	buildRange(start, numLeaves)
+	return
+}
+
 func sectorsChanged(actions []RPCWriteAction, numSectors uint64) []uint64 {
 	newNumSectors := numSectors
 	sectorsChanged := make(map[uint64]struct{})

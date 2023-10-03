@@ -3,8 +3,8 @@ package rhp
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"math/bits"
 	"net"
 	"strings"
 	"time"
@@ -139,6 +139,29 @@ var (
 	RPCWriteActionUpdate = types.NewSpecifier("Update")
 
 	RPCReadStop = types.NewSpecifier("ReadStop")
+)
+
+// RPC read/write errors
+var (
+	// ErrOffsetOutOfBounds is returned when the offset exceeds and length
+	// exceed the sector size.
+	ErrOffsetOutOfBounds = errors.New("update section is out of bounds")
+
+	// ErrInvalidSectorLength is returned when a sector is not the correct
+	// length.
+	ErrInvalidSectorLength = errors.New("length of sector data must be exactly 4MiB")
+	// ErrSwapOutOfBounds is returned when one of the swap indices exceeds the
+	// total number of sectors
+	ErrSwapOutOfBounds = errors.New("swap index is out of bounds")
+	// ErrTrimOutOfBounds is returned when a trim operation exceeds the total
+	// number of sectors
+	ErrTrimOutOfBounds = errors.New("trim size exceeds number of sectors")
+	// ErrUpdateOutOfBounds is returned when the update index exceeds the total
+	// number of sectors
+	ErrUpdateOutOfBounds = errors.New("update index is out of bounds")
+	// ErrUpdateProofSize is returned when a proof is requested for an update
+	// operation that is not a multiple of 64 bytes.
+	ErrUpdateProofSize = errors.New("update section is not a multiple of the segment size")
 )
 
 // RPC request/response objects
@@ -280,45 +303,116 @@ type (
 	}
 )
 
-// RPCSectorRootsCost returns the price of a SectorRoots RPC.
-func RPCSectorRootsCost(settings HostSettings, n uint64) types.Currency {
-	return settings.BaseRPCPrice.
-		Add(settings.DownloadBandwidthPrice.Mul64(n * 32)).  // roots
-		Add(settings.DownloadBandwidthPrice.Mul64(128 * 32)) // proof
+type RPCCost struct {
+	Base       types.Currency
+	Storage    types.Currency
+	Ingress    types.Currency
+	Egress     types.Currency
+	Collateral types.Currency
 }
 
-// RPCReadCost returns the price of a Read RPC.
-func RPCReadCost(settings HostSettings, sections []RPCReadRequestSection) types.Currency {
-	sectorAccessPrice := settings.SectorAccessPrice.Mul64(uint64(len(sections)))
+func (c RPCCost) Add(o RPCCost) RPCCost {
+	return RPCCost{
+		Base:       c.Base.Add(o.Base),
+		Storage:    c.Storage.Add(o.Storage),
+		Ingress:    c.Ingress.Add(o.Ingress),
+		Egress:     c.Egress.Add(o.Egress),
+		Collateral: c.Collateral.Add(o.Collateral),
+	}
+}
+
+func (c RPCCost) Total() (cost, collateral types.Currency) {
+	return c.Base.Add(c.Storage).Add(c.Ingress).Add(c.Egress), c.Collateral
+}
+
+// RPCReadCost returns the cost of a Read RPC.
+func RPCReadCost(sections []RPCReadRequestSection, proof bool, settings HostSettings) (RPCCost, error) {
+	// validate the request sections and calculate the cost
 	var bandwidth uint64
 	for _, sec := range sections {
-		bandwidth += sec.Length
-		bandwidth += 2 * uint64(bits.Len64(LeavesPerSector)) * 32 // proof
+		switch {
+		case uint64(sec.Offset)+uint64(sec.Length) > SectorSize:
+			return RPCCost{}, ErrOffsetOutOfBounds
+		case sec.Length == 0:
+			return RPCCost{}, errors.New("length cannot be zero")
+		case proof && (sec.Offset%LeafSize != 0 || sec.Length%LeafSize != 0):
+			return RPCCost{}, errors.New("offset and length must be multiples of SegmentSize when requesting a Merkle proof")
+		}
+
+		bandwidth += uint64(sec.Length)
+		if proof {
+			start := sec.Offset / LeafSize
+			end := (sec.Offset + sec.Length) / LeafSize
+			proofSize := RangeProofSize(LeavesPerSector, start, end)
+			bandwidth += proofSize * 32
+		}
 	}
-	if bandwidth < minMessageSize {
-		bandwidth = minMessageSize
-	}
-	bandwidthPrice := settings.DownloadBandwidthPrice.Mul64(bandwidth)
-	return settings.BaseRPCPrice.Add(sectorAccessPrice).Add(bandwidthPrice)
+
+	return RPCCost{
+		Base:   settings.BaseRPCPrice.Add(settings.SectorAccessPrice.Mul64(uint64(len(sections)))),
+		Egress: settings.DownloadBandwidthPrice.Mul64(bandwidth),
+	}, nil
 }
 
-// RPCAppendCost returns the price and collateral of a Write RPC with a single
-// append operation.
-func RPCAppendCost(settings HostSettings, storageDuration uint64) (price, collateral types.Currency) {
-	price = settings.BaseRPCPrice.
-		Add(settings.StoragePrice.Mul64(SectorSize).Mul64(storageDuration)).
-		Add(settings.UploadBandwidthPrice.Mul64(SectorSize)).
-		Add(settings.DownloadBandwidthPrice.Mul64(128 * 32)) // proof
-	collateral = settings.Collateral.Mul64(SectorSize).Mul64(storageDuration)
-	// add some leeway to reduce chance of host rejecting
-	price = price.Mul64(125).Div64(100)
-	collateral = collateral.Mul64(95).Div64(100)
-	return
+// RPCSectorRootsCost returns the cost of a SectorRoots RPC.
+func RPCSectorRootsCost(rootOffset, numRoots uint64, settings HostSettings) RPCCost {
+	proofSize := RangeProofSize(LeavesPerSector, rootOffset, rootOffset+numRoots)
+	return RPCCost{
+		Base:   settings.BaseRPCPrice,
+		Egress: settings.DownloadBandwidthPrice.Mul64((numRoots + proofSize) * 32),
+	}
 }
 
-// RPCDeleteCost returns the price of a Write RPC that deletes n sectors.
-func RPCDeleteCost(settings HostSettings, n int) types.Currency {
-	price := settings.BaseRPCPrice.
-		Add(settings.DownloadBandwidthPrice.Mul64(128 * 32)) // proof
-	return price.Mul64(105).Div64(100)
+// RPCWriteCost returns the cost of a Write RPC.
+func RPCWriteCost(actions []RPCWriteAction, oldSectors, remainingDuration uint64, proof bool, settings HostSettings) (RPCCost, error) {
+	var uploadBytes uint64
+	newSectors := oldSectors
+	for _, action := range actions {
+		switch action.Type {
+		case RPCWriteActionAppend:
+			if len(action.Data) != SectorSize {
+				return RPCCost{}, fmt.Errorf("invalid sector size: %v: %w", len(action.Data), ErrInvalidSectorLength)
+			}
+			newSectors++
+			uploadBytes += SectorSize
+		case RPCWriteActionTrim:
+			if action.A > newSectors {
+				return RPCCost{}, ErrTrimOutOfBounds
+			}
+			newSectors -= action.A
+		case RPCWriteActionSwap:
+			if action.A >= newSectors || action.B >= newSectors {
+				return RPCCost{}, ErrSwapOutOfBounds
+			}
+		case RPCWriteActionUpdate:
+			idx, offset := action.A, action.B
+			if idx >= newSectors {
+				return RPCCost{}, ErrUpdateOutOfBounds
+			} else if offset+uint64(len(action.Data)) > SectorSize {
+				return RPCCost{}, ErrOffsetOutOfBounds
+			} else if proof && (offset%LeafSize != 0) || len(action.Data)%LeafSize != 0 {
+				return RPCCost{}, ErrUpdateProofSize
+			}
+		default:
+			return RPCCost{}, fmt.Errorf("unknown write action type '%v'", action.Type)
+		}
+	}
+
+	cost := RPCCost{
+		Base:    settings.BaseRPCPrice,                            // base cost of the RPC
+		Ingress: settings.UploadBandwidthPrice.Mul64(uploadBytes), // cost of uploading the new sectors
+	}
+
+	if newSectors > oldSectors {
+		additionalSectors := (newSectors - oldSectors)
+		cost.Storage = settings.StoragePrice.Mul64(SectorSize * additionalSectors * remainingDuration)  // cost of storing the new sectors
+		cost.Collateral = settings.Collateral.Mul64(SectorSize * additionalSectors * remainingDuration) // collateral for the new sectors
+	}
+
+	if proof {
+		// estimate cost of Merkle proof
+		proofSize := DiffProofSize(actions, oldSectors)
+		cost.Egress = settings.DownloadBandwidthPrice.Mul64(proofSize * 32)
+	}
+	return cost, nil
 }
