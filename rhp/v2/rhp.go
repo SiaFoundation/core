@@ -326,7 +326,7 @@ func (c RPCCost) Total() (cost, collateral types.Currency) {
 }
 
 // RPCReadCost returns the cost of a Read RPC.
-func RPCReadCost(sections []RPCReadRequestSection, proof bool, settings HostSettings) (RPCCost, error) {
+func (hs *HostSettings) RPCReadCost(sections []RPCReadRequestSection, proof bool) (RPCCost, error) {
 	// validate the request sections and calculate the cost
 	var bandwidth uint64
 	for _, sec := range sections {
@@ -349,22 +349,22 @@ func RPCReadCost(sections []RPCReadRequestSection, proof bool, settings HostSett
 	}
 
 	return RPCCost{
-		Base:   settings.BaseRPCPrice.Add(settings.SectorAccessPrice.Mul64(uint64(len(sections)))),
-		Egress: settings.DownloadBandwidthPrice.Mul64(bandwidth),
+		Base:   hs.BaseRPCPrice.Add(hs.SectorAccessPrice.Mul64(uint64(len(sections)))),
+		Egress: hs.DownloadBandwidthPrice.Mul64(bandwidth),
 	}, nil
 }
 
 // RPCSectorRootsCost returns the cost of a SectorRoots RPC.
-func RPCSectorRootsCost(rootOffset, numRoots uint64, settings HostSettings) RPCCost {
+func (hs *HostSettings) RPCSectorRootsCost(rootOffset, numRoots uint64) RPCCost {
 	proofSize := RangeProofSize(LeavesPerSector, rootOffset, rootOffset+numRoots)
 	return RPCCost{
-		Base:   settings.BaseRPCPrice,
-		Egress: settings.DownloadBandwidthPrice.Mul64((numRoots + proofSize) * 32),
+		Base:   hs.BaseRPCPrice,
+		Egress: hs.DownloadBandwidthPrice.Mul64((numRoots + proofSize) * 32),
 	}
 }
 
 // RPCWriteCost returns the cost of a Write RPC.
-func RPCWriteCost(actions []RPCWriteAction, oldSectors, remainingDuration uint64, proof bool, settings HostSettings) (RPCCost, error) {
+func (hs *HostSettings) RPCWriteCost(actions []RPCWriteAction, oldSectors, remainingDuration uint64, proof bool) (RPCCost, error) {
 	var uploadBytes uint64
 	newSectors := oldSectors
 	for _, action := range actions {
@@ -399,20 +399,20 @@ func RPCWriteCost(actions []RPCWriteAction, oldSectors, remainingDuration uint64
 	}
 
 	cost := RPCCost{
-		Base:    settings.BaseRPCPrice,                            // base cost of the RPC
-		Ingress: settings.UploadBandwidthPrice.Mul64(uploadBytes), // cost of uploading the new sectors
+		Base:    hs.BaseRPCPrice,                            // base cost of the RPC
+		Ingress: hs.UploadBandwidthPrice.Mul64(uploadBytes), // cost of uploading the new sectors
 	}
 
 	if newSectors > oldSectors {
 		additionalSectors := (newSectors - oldSectors)
-		cost.Storage = settings.StoragePrice.Mul64(SectorSize * additionalSectors * remainingDuration)  // cost of storing the new sectors
-		cost.Collateral = settings.Collateral.Mul64(SectorSize * additionalSectors * remainingDuration) // collateral for the new sectors
+		cost.Storage = hs.StoragePrice.Mul64(SectorSize * additionalSectors * remainingDuration)  // cost of storing the new sectors
+		cost.Collateral = hs.Collateral.Mul64(SectorSize * additionalSectors * remainingDuration) // collateral for the new sectors
 	}
 
 	if proof {
 		// estimate cost of Merkle proof
 		proofSize := DiffProofSize(actions, oldSectors)
-		cost.Egress = settings.DownloadBandwidthPrice.Mul64(proofSize * 32)
+		cost.Egress = hs.DownloadBandwidthPrice.Mul64(proofSize * 32)
 	}
 	return cost, nil
 }
