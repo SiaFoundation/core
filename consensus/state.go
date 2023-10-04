@@ -288,27 +288,7 @@ func (s State) V2TransactionWeight(txn types.V2Transaction) uint64 {
 		a.EncodeTo(e)
 	}
 	e.WriteBytes(txn.ArbitraryData)
-	storage := uint64(wc.n)
-
-	var signatures int
-	for _, sci := range txn.SiacoinInputs {
-		signatures += len(sci.SatisfiedPolicy.Signatures)
-	}
-	for _, sfi := range txn.SiafundInputs {
-		signatures += len(sfi.SatisfiedPolicy.Signatures)
-	}
-	signatures += 2 * len(txn.FileContracts)
-	signatures += 2 * len(txn.FileContractRevisions)
-	for _, fcr := range txn.FileContractResolutions {
-		switch fcr.Resolution.(type) {
-		case *types.V2FileContractRenewal, *types.V2FileContractFinalization:
-			signatures += 2
-		}
-	}
-	signatures += len(txn.Attestations)
-
-	// TODO: choose coefficients empirically
-	return storage + 100*uint64(signatures)
+	return uint64(wc.n)
 }
 
 // FileContractTax computes the tax levied on a given contract.
