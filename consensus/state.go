@@ -570,6 +570,7 @@ func (s State) InputSigHash(txn types.V2Transaction) types.Hash256 {
 		}
 		fcr.Resolution.(types.EncoderTo).EncodeTo(h.E)
 	}
+	h.E.WritePrefix(len(txn.Attestations))
 	for _, a := range txn.Attestations {
 		a.EncodeTo(h.E)
 	}

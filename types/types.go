@@ -755,6 +755,7 @@ func (txn *V2Transaction) ID() TransactionID {
 		fcr.Parent.ID.EncodeTo(h.E)
 		fcr.Resolution.(EncoderTo).EncodeTo(h.E)
 	}
+	h.E.WritePrefix(len(txn.Attestations))
 	for _, a := range txn.Attestations {
 		a.EncodeTo(h.E)
 	}

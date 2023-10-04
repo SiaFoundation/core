@@ -254,12 +254,7 @@ func (c Currency) EncodeTo(e *Encoder) {
 	var buf [16]byte
 	binary.BigEndian.PutUint64(buf[:8], c.Hi)
 	binary.BigEndian.PutUint64(buf[8:], c.Lo)
-	i := 0
-	for i < len(buf) && buf[i] == 0 {
-		i++
-	}
-	e.WritePrefix(len(buf[i:]))
-	e.Write(buf[i:])
+	e.WriteBytes(bytes.TrimLeft(buf[:], "\x00"))
 }
 
 // EncodeTo implements types.EncoderTo.
