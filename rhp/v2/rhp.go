@@ -336,7 +336,7 @@ func (hs *HostSettings) RPCReadCost(sections []RPCReadRequestSection, proof bool
 		case sec.Length == 0:
 			return RPCCost{}, errors.New("length cannot be zero")
 		case proof && (sec.Offset%LeafSize != 0 || sec.Length%LeafSize != 0):
-			return RPCCost{}, errors.New("offset and length must be multiples of SegmentSize when requesting a Merkle proof")
+			return RPCCost{}, errors.New("offset and length must be multiples of LeafSize when requesting a Merkle proof")
 		}
 
 		bandwidth += uint64(sec.Length)
