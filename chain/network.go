@@ -137,8 +137,8 @@ func TestnetZen() (*consensus.Network, types.Block) {
 	n.HardforkFoundation.PrimaryAddress = parseAddr("addr:053b2def3cbdd078c19d62ce2b4f0b1a3c5e0ffbeeff01280efb1f8969b2f5bb4fdc680f0807")
 	n.HardforkFoundation.FailsafeAddress = types.VoidAddress
 
-	n.HardforkV2.AllowHeight = 30000   // TBD
-	n.HardforkV2.RequireHeight = 32000 // ~two weeks later
+	n.HardforkV2.AllowHeight = 100000   // TBD
+	n.HardforkV2.RequireHeight = 102000 // ~two weeks later
 
 	b := types.Block{
 		Timestamp: n.HardforkOak.GenesisTimestamp,
