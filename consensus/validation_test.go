@@ -475,13 +475,12 @@ func TestValidateV2Block(t *testing.T) {
 		Filesize:         v1GiftFC.Filesize,
 		ProofHeight:      5,
 		ExpirationHeight: 10,
-		// ExpirationHeight:
-		RenterOutput:    v1GiftFC.ValidProofOutputs[0],
-		HostOutput:      v1GiftFC.ValidProofOutputs[1],
-		MissedHostValue: v1GiftFC.MissedProofOutputs[1].Value,
-		TotalCollateral: v1GiftFC.Payout,
-		RenterPublicKey: renterPublicKey,
-		HostPublicKey:   hostPublicKey,
+		RenterOutput:     v1GiftFC.ValidProofOutputs[0],
+		HostOutput:       v1GiftFC.ValidProofOutputs[1],
+		MissedHostValue:  v1GiftFC.MissedProofOutputs[1].Value,
+		TotalCollateral:  v1GiftFC.Payout,
+		RenterPublicKey:  renterPublicKey,
+		HostPublicKey:    hostPublicKey,
 	}
 
 	giftTxn := types.V2Transaction{
@@ -523,7 +522,7 @@ func TestValidateV2Block(t *testing.T) {
 
 	fc := v2GiftFC
 	fc.TotalCollateral = fc.HostOutput.Value
-	difference, _ := types.ParseCurrency("2080000000000000000000000")
+	contractCost := fc.RenterOutput.Value.Add(fc.HostOutput.Value).Add(cs.V2FileContractTax(fc))
 
 	rev1 := v2GiftFC
 	rev1.RevisionNumber++
@@ -544,7 +543,7 @@ func TestValidateV2Block(t *testing.T) {
 					SatisfiedPolicy: types.SatisfiedPolicy{Policy: giftPolicy},
 				}},
 				SiacoinOutputs: []types.SiacoinOutput{
-					{Value: giftAmountSC.Sub(minerFee).Sub(difference), Address: giftAddress},
+					{Value: giftAmountSC.Sub(minerFee).Sub(contractCost), Address: giftAddress},
 				},
 				SiafundOutputs: []types.SiafundOutput{
 					{Value: giftAmountSF / 2, Address: giftAddress},

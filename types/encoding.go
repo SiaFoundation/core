@@ -725,10 +725,7 @@ func (txn V2Transaction) EncodeTo(e *Encoder) {
 func (b V2BlockData) EncodeTo(e *Encoder) {
 	e.WriteUint64(b.Height)
 	b.Commitment.EncodeTo(e)
-	e.WritePrefix(len(b.Transactions))
-	for i := range b.Transactions {
-		b.Transactions[i].EncodeTo(e)
-	}
+	V2TransactionsMultiproof(b.Transactions).EncodeTo(e)
 }
 
 // V1Block provides v1 encoding for Block.
@@ -1288,10 +1285,7 @@ func (txn *V2Transaction) DecodeFrom(d *Decoder) {
 func (b *V2BlockData) DecodeFrom(d *Decoder) {
 	b.Height = d.ReadUint64()
 	b.Commitment.DecodeFrom(d)
-	b.Transactions = make([]V2Transaction, d.ReadPrefix())
-	for i := range b.Transactions {
-		b.Transactions[i].DecodeFrom(d)
-	}
+	(*V2TransactionsMultiproof)(&b.Transactions).DecodeFrom(d)
 }
 
 // DecodeFrom implements types.DecoderFrom.
