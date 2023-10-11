@@ -83,7 +83,11 @@ func TestApplyBlock(t *testing.T) {
 		if err = consensus.ValidateBlock(cs, b, bs); err != nil {
 			return
 		}
-		cs, au = consensus.ApplyBlock(cs, b, bs, ancestorTimestamp(dbStore, b.ParentID, cs.AncestorDepth()))
+		prev := cs
+		cs, au = consensus.ApplyBlock(prev, b, bs, ancestorTimestamp(dbStore, b.ParentID, cs.AncestorDepth()))
+		dbStore.ApplyBlock(prev, au, true)
+		dbStore.AddBlock(b, &bs)
+		dbStore.AddState(cs)
 		return
 	}
 	checkUpdateElements := func(au consensus.ApplyUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {
@@ -118,6 +122,43 @@ func TestApplyBlock(t *testing.T) {
 				t.Fatalf("siafund element doesn't match:\n%s\nvs\n%s\n", js1, js2)
 			}
 			*sfes = (*sfes)[1:]
+		})
+		if len(addedSCEs)+len(spentSCEs)+len(addedSFEs)+len(spentSFEs) > 0 {
+			t.Fatal("extraneous elements")
+		}
+	}
+	checkRevertElements := func(ru consensus.RevertUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {
+		ru.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
+			sces := &addedSCEs
+			if spent {
+				sces = &spentSCEs
+			}
+			if len(*sces) == 0 {
+				t.Fatal("unexpected spent siacoin element")
+			}
+			sce.StateElement = types.StateElement{}
+			if !reflect.DeepEqual(sce, (*sces)[len(*sces)-1]) {
+				js1, _ := json.MarshalIndent(sce, "", "  ")
+				js2, _ := json.MarshalIndent((*sces)[len(*sces)-1], "", "  ")
+				t.Fatalf("siacoin element doesn't match:\n%s\nvs\n%s\n", js1, js2)
+			}
+			*sces = (*sces)[:len(*sces)-1]
+		})
+		ru.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
+			sfes := &addedSFEs
+			if spent {
+				sfes = &spentSFEs
+			}
+			if len(*sfes) == 0 {
+				t.Fatal("unexpected spent siafund element")
+			}
+			sfe.StateElement = types.StateElement{}
+			if !reflect.DeepEqual(sfe, (*sfes)[len(*sfes)-1]) {
+				js1, _ := json.MarshalIndent(sfe, "", "  ")
+				js2, _ := json.MarshalIndent((*sfes)[len(*sfes)-1], "", "  ")
+				t.Fatalf("siafund element doesn't match:\n%s\nvs\n%s\n", js1, js2)
+			}
+			*sfes = (*sfes)[:len(*sfes)-1]
 		})
 		if len(addedSCEs)+len(spentSCEs)+len(addedSFEs)+len(spentSFEs) > 0 {
 			t.Fatal("extraneous elements")
@@ -185,9 +226,16 @@ func TestApplyBlock(t *testing.T) {
 	spentSFEs = []types.SiafundElement{
 		{SiafundOutput: giftTxn.SiafundOutputs[0]},
 	}
+
+	prev := cs
+	bs := dbStore.SupplementTipBlock(b2)
 	if au, err := addBlock(b2); err != nil {
 		t.Fatal(err)
 	} else {
 		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
+
+	ru := consensus.RevertBlock(prev, b2, bs)
+	dbStore.RevertBlock(cs, ru)
+	checkRevertElements(ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 }
