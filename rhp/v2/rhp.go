@@ -326,7 +326,7 @@ func (c RPCCost) Total() (cost, collateral types.Currency) {
 }
 
 // RPCReadCost returns the cost of a Read RPC.
-func (hs *HostSettings) RPCReadCost(sections []RPCReadRequestSection, proof bool) (RPCCost, error) {
+func (hs HostSettings) RPCReadCost(sections []RPCReadRequestSection, proof bool) (RPCCost, error) {
 	// validate the request sections and calculate the cost
 	var bandwidth uint64
 	for _, sec := range sections {
@@ -355,7 +355,7 @@ func (hs *HostSettings) RPCReadCost(sections []RPCReadRequestSection, proof bool
 }
 
 // RPCSectorRootsCost returns the cost of a SectorRoots RPC.
-func (hs *HostSettings) RPCSectorRootsCost(rootOffset, numRoots uint64) RPCCost {
+func (hs HostSettings) RPCSectorRootsCost(rootOffset, numRoots uint64) RPCCost {
 	proofSize := RangeProofSize(LeavesPerSector, rootOffset, rootOffset+numRoots)
 	return RPCCost{
 		Base:   hs.BaseRPCPrice,
@@ -364,7 +364,7 @@ func (hs *HostSettings) RPCSectorRootsCost(rootOffset, numRoots uint64) RPCCost 
 }
 
 // RPCWriteCost returns the cost of a Write RPC.
-func (hs *HostSettings) RPCWriteCost(actions []RPCWriteAction, oldSectors, remainingDuration uint64, proof bool) (RPCCost, error) {
+func (hs HostSettings) RPCWriteCost(actions []RPCWriteAction, oldSectors, remainingDuration uint64, proof bool) (RPCCost, error) {
 	var uploadBytes uint64
 	newSectors := oldSectors
 	for _, action := range actions {
