@@ -15,8 +15,9 @@ func HashBytes(b []byte) Hash256 {
 
 // A Hasher streams objects into an instance of Sia's hash function.
 type Hasher struct {
-	h hash.Hash
-	E *Encoder
+	h   hash.Hash
+	sum Hash256 // prevent Sum from allocating
+	E   *Encoder
 }
 
 // Reset resets the underlying hash and encoder state.
@@ -33,15 +34,15 @@ func (h *Hasher) WriteDistinguisher(p string) {
 // Sum returns the digest of the objects written to the Hasher.
 func (h *Hasher) Sum() (sum Hash256) {
 	_ = h.E.Flush() // no error possible
-	h.h.Sum(sum[:0])
-	return
+	h.h.Sum(h.sum[:0])
+	return h.sum
 }
 
 // NewHasher returns a new Hasher instance.
 func NewHasher() *Hasher {
 	h := blake2b.New256()
 	e := NewEncoder(h)
-	return &Hasher{h, e}
+	return &Hasher{h: h, E: e}
 }
 
 // Pool for reducing heap allocations when hashing. This is only necessary

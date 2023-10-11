@@ -507,8 +507,8 @@ func (s State) Commitment(txnsHash types.Hash256, minerAddr types.Address) types
 
 // InputSigHash returns the hash that must be signed for each v2 transaction input.
 func (s State) InputSigHash(txn types.V2Transaction) types.Hash256 {
-	// NOTE: This currently covers exactly the same fields as txn.ID(), and for
-	// similar reasons.
+	// NOTE: This currently covers exactly the same fields as txn.ID(), for the
+	// same reasons.
 	h := hasherPool.Get().(*types.Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()

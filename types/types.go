@@ -712,15 +712,6 @@ type V2Transaction struct {
 //
 // To hash all of the data in a transaction, use the FullHash method.
 func (txn *V2Transaction) ID() TransactionID {
-	// NOTE: In general, it is not possible to change a transaction's ID without
-	// causing it to become invalid, but an exception exists for non-standard
-	// spend policies. Consider a policy that may be satisfied by either a
-	// signature or a timelock. If a transaction is broadcast that signs the
-	// input, and the timelock has expired, then anyone may remove the signature
-	// from the input without invalidating the transaction. Of course, the net
-	// result will be the same, so arguably there's little reason to care. You
-	// only need to worry about this if you're hashing the full transaction data
-	// for some reason.
 	h := hasherPool.Get().(*Hasher)
 	defer hasherPool.Put(h)
 	h.Reset()
@@ -753,6 +744,12 @@ func (txn *V2Transaction) ID() TransactionID {
 	h.E.WritePrefix(len(txn.FileContractResolutions))
 	for _, fcr := range txn.FileContractResolutions {
 		fcr.Parent.ID.EncodeTo(h.E)
+		// normalize proof
+		if sp, ok := fcr.Resolution.(*V2StorageProof); ok {
+			c := *sp // don't modify original
+			c.ProofIndex.MerkleProof = nil
+			fcr.Resolution = &c
+		}
 		fcr.Resolution.(EncoderTo).EncodeTo(h.E)
 	}
 	h.E.WritePrefix(len(txn.Attestations))

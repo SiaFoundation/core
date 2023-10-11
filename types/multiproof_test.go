@@ -113,9 +113,6 @@ func TestMultiproofEncoding(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(b, b2) {
-			t.Log(b.Transactions[0].SiacoinInputs[0].Parent.MerkleProof)
-			t.Log(b2.Transactions[0].SiacoinInputs[0].Parent.MerkleProof)
-			t.FailNow()
 			t.Fatalf("multiproof encoding of %v txns did not survive roundtrip: expected %v, got %v", n, b, b2)
 		}
 	}
