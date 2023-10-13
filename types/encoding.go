@@ -599,6 +599,11 @@ func (ren V2FileContractRenewal) EncodeTo(e *Encoder) {
 }
 
 // EncodeTo implements types.EncoderTo.
+func (fcf V2FileContractFinalization) EncodeTo(e *Encoder) {
+	V2FileContract(fcf).EncodeTo(e)
+}
+
+// EncodeTo implements types.EncoderTo.
 func (sp V2StorageProof) EncodeTo(e *Encoder) {
 	sp.ProofIndex.EncodeTo(e)
 	e.Write(sp.Leaf[:])
@@ -1171,6 +1176,11 @@ func (ren *V2FileContractRenewal) DecodeFrom(d *Decoder) {
 	ren.HostRollover.DecodeFrom(d)
 	ren.RenterSignature.DecodeFrom(d)
 	ren.HostSignature.DecodeFrom(d)
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (fcf V2FileContractFinalization) DecodeFrom(d *Decoder) {
+	(*V2FileContract)(&fcf).DecodeFrom(d)
 }
 
 // DecodeFrom implements types.DecoderFrom.

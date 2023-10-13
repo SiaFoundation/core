@@ -281,6 +281,7 @@ type RPCSendV2Blocks struct {
 }
 
 func (r *RPCSendV2Blocks) encodeRequest(e *types.Encoder) {
+	e.WritePrefix(len(r.History))
 	for i := range r.History {
 		r.History[i].EncodeTo(e)
 	}
