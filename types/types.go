@@ -221,6 +221,17 @@ func (sfoid SiafundOutputID) ClaimOutputID() SiacoinOutputID {
 	return SiacoinOutputID(HashBytes(sfoid[:]))
 }
 
+// V2ClaimOutputID returns the ID of the SiacoinOutput that is created when the
+// siafund output is spent.
+func (sfoid SiafundOutputID) V2ClaimOutputID() SiacoinOutputID {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	h.WriteDistinguisher("id/siacoinclaimoutput")
+	sfoid.EncodeTo(h.E)
+	return SiacoinOutputID(h.Sum())
+}
+
 // A SiafundInput spends an unspent SiafundOutput in the UTXO set by revealing
 // and satisfying its unlock conditions. SiafundInputs also include a
 // ClaimAddress, specifying the recipient of the siacoins that were earned by

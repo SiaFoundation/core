@@ -503,7 +503,7 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 		ms.spendSiafundElement(sfi.Parent, txid)
 		claimPortion := ms.siafundPool.Sub(sfi.Parent.ClaimStart).Div64(ms.base.SiafundCount()).Mul64(sfi.Parent.SiafundOutput.Value)
 		ms.addSiacoinElement(types.SiacoinElement{
-			StateElement:   types.StateElement{ID: types.Hash256(types.SiafundOutputID(sfi.Parent.ID).ClaimOutputID())},
+			StateElement:   types.StateElement{ID: types.Hash256(types.SiafundOutputID(sfi.Parent.ID).V2ClaimOutputID())},
 			SiacoinOutput:  types.SiacoinOutput{Value: claimPortion, Address: sfi.ClaimAddress},
 			MaturityHeight: ms.base.MaturityHeight(),
 		})
