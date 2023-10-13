@@ -3,6 +3,7 @@ package consensus
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math/big"
 	"math/bits"
 	"sort"
@@ -18,6 +19,29 @@ import (
 // compiler from doing escape analysis. Can be removed if we switch to an
 // implementation whose constructor returns a concrete type.
 var hasherPool = &sync.Pool{New: func() interface{} { return types.NewHasher() }}
+
+func hashAll(elems ...interface{}) [32]byte {
+	h := hasherPool.Get().(*types.Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	for _, e := range elems {
+		if et, ok := e.(types.EncoderTo); ok {
+			et.EncodeTo(h.E)
+		} else {
+			switch e := e.(type) {
+			case string:
+				h.WriteDistinguisher(e)
+			case uint8:
+				h.E.WriteUint8(e)
+			case uint64:
+				h.E.WriteUint64(e)
+			default:
+				panic(fmt.Sprintf("unhandled type %T", e))
+			}
+		}
+	}
+	return h.Sum()
+}
 
 // A Network specifies the fixed parameters of a Sia blockchain.
 type Network struct {
@@ -334,7 +358,7 @@ func (s State) StorageProofLeafIndex(filesize uint64, windowID types.BlockID, fc
 	if numLeaves == 0 {
 		return 0
 	}
-	seed := types.HashBytes(append(windowID[:], fcid[:]...))
+	seed := hashAll(windowID, fcid)
 	var r uint64
 	for i := 0; i < len(seed); i += 8 {
 		_, r = bits.Div64(r, binary.BigEndian.Uint64(seed[i:]), numLeaves)
@@ -491,123 +515,35 @@ func (s *State) TransactionsCommitment(txns []types.Transaction, v2txns []types.
 // Commitment computes the commitment hash for a child block with the given
 // transactions and miner address.
 func (s State) Commitment(txnsHash types.Hash256, minerAddr types.Address) types.Hash256 {
-	h := hasherPool.Get().(*types.Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	s.EncodeTo(h.E)
-	stateHash := h.Sum()
-	h.Reset()
-	h.WriteDistinguisher("commitment")
-	h.E.WriteUint8(s.v2ReplayPrefix())
-	stateHash.EncodeTo(h.E)
-	minerAddr.EncodeTo(h.E)
-	txnsHash.EncodeTo(h.E)
-	return h.Sum()
+	// NOTE: The state is hashed separately so that miners don't have to rehash
+	// it every time the transaction set changes
+	stateHash := types.Hash256(hashAll(s))
+	return hashAll("commitment", s.v2ReplayPrefix(), stateHash, minerAddr, txnsHash)
 }
 
 // InputSigHash returns the hash that must be signed for each v2 transaction input.
 func (s State) InputSigHash(txn types.V2Transaction) types.Hash256 {
-	// NOTE: This currently covers exactly the same fields as txn.ID(), for the
-	// same reasons.
-	h := hasherPool.Get().(*types.Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	h.WriteDistinguisher("sig/input")
-	h.E.WriteUint8(s.v2ReplayPrefix())
-	h.E.WritePrefix(len(txn.SiacoinInputs))
-	for _, in := range txn.SiacoinInputs {
-		in.Parent.ID.EncodeTo(h.E)
-	}
-	h.E.WritePrefix(len(txn.SiacoinOutputs))
-	for _, out := range txn.SiacoinOutputs {
-		out.EncodeTo(h.E)
-	}
-	h.E.WritePrefix(len(txn.SiafundInputs))
-	for _, in := range txn.SiafundInputs {
-		in.Parent.ID.EncodeTo(h.E)
-	}
-	h.E.WritePrefix(len(txn.SiafundOutputs))
-	for _, out := range txn.SiafundOutputs {
-		out.EncodeTo(h.E)
-	}
-	h.E.WritePrefix(len(txn.FileContracts))
-	for _, fc := range txn.FileContracts {
-		fc.EncodeTo(h.E)
-	}
-	h.E.WritePrefix(len(txn.FileContractRevisions))
-	for _, fcr := range txn.FileContractRevisions {
-		fcr.Parent.ID.EncodeTo(h.E)
-		fcr.Revision.EncodeTo(h.E)
-	}
-	h.E.WritePrefix(len(txn.FileContractResolutions))
-	for _, fcr := range txn.FileContractResolutions {
-		fcr.Parent.ID.EncodeTo(h.E)
-		// normalize proof
-		if sp, ok := fcr.Resolution.(*types.V2StorageProof); ok {
-			c := *sp // don't modify original
-			c.ProofIndex.MerkleProof = nil
-			fcr.Resolution = &c
-		}
-		fcr.Resolution.(types.EncoderTo).EncodeTo(h.E)
-	}
-	h.E.WritePrefix(len(txn.Attestations))
-	for _, a := range txn.Attestations {
-		a.EncodeTo(h.E)
-	}
-	h.E.WriteBytes(txn.ArbitraryData)
-	h.E.WriteBool(txn.NewFoundationAddress != nil)
-	if txn.NewFoundationAddress != nil {
-		txn.NewFoundationAddress.EncodeTo(h.E)
-	}
-	txn.MinerFee.EncodeTo(h.E)
-	return h.Sum()
+	return hashAll("sig/input", s.v2ReplayPrefix(), types.V2TransactionSemantics(txn))
 }
 
 // ContractSigHash returns the hash that must be signed for a v2 contract revision.
 func (s State) ContractSigHash(fc types.V2FileContract) types.Hash256 {
-	h := hasherPool.Get().(*types.Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	h.WriteDistinguisher("sig/filecontract")
-	h.E.WriteUint8(s.v2ReplayPrefix())
-	h.E.WriteUint64(fc.Filesize)
-	fc.FileMerkleRoot.EncodeTo(h.E)
-	h.E.WriteUint64(fc.ProofHeight)
-	h.E.WriteUint64(fc.ExpirationHeight)
-	fc.RenterOutput.EncodeTo(h.E)
-	fc.HostOutput.EncodeTo(h.E)
-	fc.MissedHostValue.EncodeTo(h.E)
-	fc.RenterPublicKey.EncodeTo(h.E)
-	fc.HostPublicKey.EncodeTo(h.E)
-	h.E.WriteUint64(fc.RevisionNumber)
-	return h.Sum()
+	fc.RenterSignature, fc.HostSignature = types.Signature{}, types.Signature{}
+	return hashAll("sig/filecontract", s.v2ReplayPrefix(), fc)
 }
 
 // RenewalSigHash returns the hash that must be signed for a file contract renewal.
 func (s State) RenewalSigHash(fcr types.V2FileContractRenewal) types.Hash256 {
-	h := hasherPool.Get().(*types.Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	h.WriteDistinguisher("sig/filecontractrenewal")
-	h.E.WriteUint8(s.v2ReplayPrefix())
-	fcr.FinalRevision.EncodeTo(h.E)
-	fcr.InitialRevision.EncodeTo(h.E)
-	fcr.RenterRollover.EncodeTo(h.E)
-	fcr.HostRollover.EncodeTo(h.E)
-	return h.Sum()
+	fcr.InitialRevision.RenterSignature, fcr.InitialRevision.HostSignature = types.Signature{}, types.Signature{}
+	fcr.FinalRevision.RenterSignature, fcr.FinalRevision.HostSignature = types.Signature{}, types.Signature{}
+	fcr.RenterSignature, fcr.HostSignature = types.Signature{}, types.Signature{}
+	return hashAll("sig/filecontractrenewal", s.v2ReplayPrefix(), fcr)
 }
 
 // AttestationSigHash returns the hash that must be signed for an attestation.
 func (s State) AttestationSigHash(a types.Attestation) types.Hash256 {
-	h := hasherPool.Get().(*types.Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	h.WriteDistinguisher("sig/attestation")
-	h.E.WriteUint8(s.v2ReplayPrefix())
-	a.PublicKey.EncodeTo(h.E)
-	h.E.WriteString(a.Key)
-	h.E.WriteBytes(a.Value)
-	return h.Sum()
+	a.Signature = types.Signature{}
+	return hashAll("sig/attestation", s.v2ReplayPrefix(), a)
 }
 
 // A MidState represents the state of the chain within a block.

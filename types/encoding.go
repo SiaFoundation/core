@@ -385,16 +385,9 @@ func (ts TransactionSignature) EncodeTo(e *Encoder) {
 	e.WriteBytes(ts.Signature)
 }
 
-// EncodeTo implements types.EncoderTo.
-func (txn Transaction) EncodeTo(e *Encoder) {
-	txn.encodeNoSignatures(e)
-	e.WritePrefix(len((txn.Signatures)))
-	for i := range txn.Signatures {
-		txn.Signatures[i].EncodeTo(e)
-	}
-}
+type txnSansSigs Transaction
 
-func (txn *Transaction) encodeNoSignatures(e *Encoder) {
+func (txn txnSansSigs) EncodeTo(e *Encoder) {
 	e.WritePrefix(len((txn.SiacoinInputs)))
 	for i := range txn.SiacoinInputs {
 		txn.SiacoinInputs[i].EncodeTo(e)
@@ -430,6 +423,15 @@ func (txn *Transaction) encodeNoSignatures(e *Encoder) {
 	e.WritePrefix(len((txn.ArbitraryData)))
 	for i := range txn.ArbitraryData {
 		e.WriteBytes(txn.ArbitraryData[i])
+	}
+}
+
+// EncodeTo implements types.EncoderTo.
+func (txn Transaction) EncodeTo(e *Encoder) {
+	txnSansSigs(txn).EncodeTo(e)
+	e.WritePrefix(len((txn.Signatures)))
+	for i := range txn.Signatures {
+		txn.Signatures[i].EncodeTo(e)
 	}
 }
 
@@ -724,6 +726,73 @@ func (txn V2Transaction) EncodeTo(e *Encoder) {
 	if fields&(1<<10) != 0 {
 		txn.MinerFee.EncodeTo(e)
 	}
+}
+
+// V2TransactionSemantics is a helper type that provides a "semantic encoding"
+// of a v2 transaction, for use in computing IDs and signature hashes.
+type V2TransactionSemantics V2Transaction
+
+// EncodeTo implements types.EncoderTo.
+func (txn V2TransactionSemantics) EncodeTo(e *Encoder) {
+	e.WritePrefix(len(txn.SiacoinInputs))
+	for _, in := range txn.SiacoinInputs {
+		in.Parent.ID.EncodeTo(e)
+	}
+	e.WritePrefix(len(txn.SiacoinOutputs))
+	for _, out := range txn.SiacoinOutputs {
+		out.EncodeTo(e)
+	}
+	e.WritePrefix(len(txn.SiafundInputs))
+	for _, in := range txn.SiafundInputs {
+		in.Parent.ID.EncodeTo(e)
+	}
+	e.WritePrefix(len(txn.SiafundOutputs))
+	for _, out := range txn.SiafundOutputs {
+		out.EncodeTo(e)
+	}
+	e.WritePrefix(len(txn.FileContracts))
+	for _, fc := range txn.FileContracts {
+		fc.RenterSignature, fc.HostSignature = Signature{}, Signature{}
+		fc.EncodeTo(e)
+	}
+	e.WritePrefix(len(txn.FileContractRevisions))
+	for _, fcr := range txn.FileContractRevisions {
+		fcr.Revision.RenterSignature, fcr.Revision.HostSignature = Signature{}, Signature{}
+		fcr.Parent.ID.EncodeTo(e)
+		fcr.Revision.EncodeTo(e)
+	}
+	e.WritePrefix(len(txn.FileContractResolutions))
+	for _, fcr := range txn.FileContractResolutions {
+		fcr.Parent.ID.EncodeTo(e)
+		// normalize (being careful not to modify the original)
+		switch res := fcr.Resolution.(type) {
+		case *V2FileContractFinalization:
+			fc := *res
+			fc.RenterSignature, fc.HostSignature = Signature{}, Signature{}
+			fcr.Resolution = &fc
+		case *V2FileContractRenewal:
+			renewal := *res
+			renewal.InitialRevision.RenterSignature, renewal.InitialRevision.HostSignature = Signature{}, Signature{}
+			renewal.FinalRevision.RenterSignature, renewal.FinalRevision.HostSignature = Signature{}, Signature{}
+			renewal.RenterSignature, renewal.HostSignature = Signature{}, Signature{}
+			fcr.Resolution = &renewal
+		case *V2StorageProof:
+			sp := *res
+			sp.ProofIndex.MerkleProof = nil
+			fcr.Resolution = &sp
+		}
+		fcr.Resolution.(EncoderTo).EncodeTo(e)
+	}
+	e.WritePrefix(len(txn.Attestations))
+	for _, a := range txn.Attestations {
+		a.EncodeTo(e)
+	}
+	e.WriteBytes(txn.ArbitraryData)
+	e.WriteBool(txn.NewFoundationAddress != nil)
+	if txn.NewFoundationAddress != nil {
+		txn.NewFoundationAddress.EncodeTo(e)
+	}
+	txn.MinerFee.EncodeTo(e)
 }
 
 // EncodeTo implements types.EncoderTo.

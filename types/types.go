@@ -165,18 +165,12 @@ func (bid BlockID) CmpWork(t BlockID) int {
 
 // MinerOutputID returns the ID of the block's i'th miner payout.
 func (bid BlockID) MinerOutputID(i int) SiacoinOutputID {
-	buf := make([]byte, 32+8)
-	copy(buf, bid[:])
-	binary.LittleEndian.PutUint64(buf[32:], uint64(i))
-	return SiacoinOutputID(HashBytes(buf))
+	return hashAll(bid, i)
 }
 
 // FoundationOutputID returns the ID of the block's Foundation subsidy.
 func (bid BlockID) FoundationOutputID() SiacoinOutputID {
-	buf := make([]byte, 32+16)
-	copy(buf, bid[:])
-	copy(buf[32:], SpecifierFoundation[:])
-	return SiacoinOutputID(HashBytes(buf))
+	return hashAll(bid, SpecifierFoundation)
 }
 
 // A TransactionID uniquely identifies a transaction.
@@ -218,18 +212,13 @@ type SiafundOutputID Hash256
 // ClaimOutputID returns the ID of the SiacoinOutput that is created when
 // the siafund output is spent.
 func (sfoid SiafundOutputID) ClaimOutputID() SiacoinOutputID {
-	return SiacoinOutputID(HashBytes(sfoid[:]))
+	return hashAll(sfoid)
 }
 
 // V2ClaimOutputID returns the ID of the SiacoinOutput that is created when the
 // siafund output is spent.
 func (sfoid SiafundOutputID) V2ClaimOutputID() SiacoinOutputID {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	h.WriteDistinguisher("id/siacoinclaimoutput")
-	sfoid.EncodeTo(h.E)
-	return SiacoinOutputID(h.Sum())
+	return hashAll("id/v2siacoinclaimoutput", sfoid)
 }
 
 // A SiafundInput spends an unspent SiafundOutput in the UTXO set by revealing
@@ -307,58 +296,27 @@ type FileContractID Hash256
 
 // ValidOutputID returns the ID of the valid proof output at index i.
 func (fcid FileContractID) ValidOutputID(i int) SiacoinOutputID {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	SpecifierStorageProof.EncodeTo(h.E)
-	fcid.EncodeTo(h.E)
-	h.E.WriteBool(true)
-	h.E.WriteUint64(uint64(i))
-	return SiacoinOutputID(h.Sum())
+	return hashAll(SpecifierStorageProof, fcid, true, i)
 }
 
 // MissedOutputID returns the ID of the missed proof output at index i.
 func (fcid FileContractID) MissedOutputID(i int) SiacoinOutputID {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	SpecifierStorageProof.EncodeTo(h.E)
-	fcid.EncodeTo(h.E)
-	h.E.WriteBool(false)
-	h.E.WriteUint64(uint64(i))
-	return SiacoinOutputID(h.Sum())
+	return hashAll(SpecifierStorageProof, fcid, false, i)
 }
 
 // V2RenterOutputID returns the ID of the renter output for a v2 contract.
 func (fcid FileContractID) V2RenterOutputID() SiacoinOutputID {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	h.WriteDistinguisher("id/v2filecontractoutput")
-	fcid.EncodeTo(h.E)
-	h.E.WriteUint64(0)
-	return SiacoinOutputID(h.Sum())
+	return hashAll("id/v2filecontractoutput", fcid, 0)
 }
 
 // V2HostOutputID returns the ID of the host output for a v2 contract.
 func (fcid FileContractID) V2HostOutputID() SiacoinOutputID {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	h.WriteDistinguisher("id/v2filecontractoutput")
-	fcid.EncodeTo(h.E)
-	h.E.WriteUint64(1)
-	return SiacoinOutputID(h.Sum())
+	return hashAll("id/v2filecontractoutput", fcid, 1)
 }
 
 // V2RenewalID returns the ID of the renewal of a v2 contract.
 func (fcid FileContractID) V2RenewalID() FileContractID {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	h.WriteDistinguisher("id/v2filecontractrenewal")
-	fcid.EncodeTo(h.E)
-	return FileContractID(h.Sum())
+	return hashAll("id/v2filecontractrenewal", fcid)
 }
 
 // A FileContractRevision updates the state of an existing file contract.
@@ -434,61 +392,34 @@ type Transaction struct {
 //
 // To hash all of the data in a transaction, use the FullHash method.
 func (txn *Transaction) ID() TransactionID {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	txn.encodeNoSignatures(h.E)
-	return TransactionID(h.Sum())
+	return hashAll((*txnSansSigs)(txn))
 }
 
 // FullHash returns the hash of the transaction's binary encoding. This hash is
 // only used in specific circumstances; generally, ID should be used instead.
 func (txn *Transaction) FullHash() Hash256 {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	txn.EncodeTo(h.E)
-	return h.Sum()
+	return hashAll(txn)
 }
 
 // SiacoinOutputID returns the ID of the siacoin output at index i.
 func (txn *Transaction) SiacoinOutputID(i int) SiacoinOutputID {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	SpecifierSiacoinOutput.EncodeTo(h.E)
-	txn.encodeNoSignatures(h.E)
-	h.E.WriteUint64(uint64(i))
-	return SiacoinOutputID(h.Sum())
+	return hashAll(SpecifierSiacoinOutput, (*txnSansSigs)(txn), i)
 }
 
 // SiafundOutputID returns the ID of the siafund output at index i.
 func (txn *Transaction) SiafundOutputID(i int) SiafundOutputID {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	SpecifierSiafundOutput.EncodeTo(h.E)
-	txn.encodeNoSignatures(h.E)
-	h.E.WriteUint64(uint64(i))
-	return SiafundOutputID(h.Sum())
+	return hashAll(SpecifierSiafundOutput, (*txnSansSigs)(txn), i)
 }
 
 // SiafundClaimOutputID returns the ID of the siacoin claim output for the
 // siafund input at index i.
 func (txn *Transaction) SiafundClaimOutputID(i int) SiacoinOutputID {
-	sfid := txn.SiafundOutputID(i)
-	return SiacoinOutputID(HashBytes(sfid[:]))
+	return hashAll(txn.SiafundOutputID(i))
 }
 
 // FileContractID returns the ID of the file contract at index i.
 func (txn *Transaction) FileContractID(i int) FileContractID {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	SpecifierFileContract.EncodeTo(h.E)
-	txn.encodeNoSignatures(h.E)
-	h.E.WriteUint64(uint64(i))
-	return FileContractID(h.Sum())
+	return hashAll(SpecifierFileContract, (*txnSansSigs)(txn), i)
 }
 
 // TotalFees returns the sum of the transaction's miner fees.
@@ -721,111 +652,33 @@ type V2Transaction struct {
 //
 // To hash all of the data in a transaction, use the FullHash method.
 func (txn *V2Transaction) ID() TransactionID {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	h.WriteDistinguisher("id/transaction")
-	h.E.WritePrefix(len(txn.SiacoinInputs))
-	for _, in := range txn.SiacoinInputs {
-		in.Parent.ID.EncodeTo(h.E)
-	}
-	h.E.WritePrefix(len(txn.SiacoinOutputs))
-	for _, out := range txn.SiacoinOutputs {
-		out.EncodeTo(h.E)
-	}
-	h.E.WritePrefix(len(txn.SiafundInputs))
-	for _, in := range txn.SiafundInputs {
-		in.Parent.ID.EncodeTo(h.E)
-	}
-	h.E.WritePrefix(len(txn.SiafundOutputs))
-	for _, out := range txn.SiafundOutputs {
-		out.EncodeTo(h.E)
-	}
-	h.E.WritePrefix(len(txn.FileContracts))
-	for _, fc := range txn.FileContracts {
-		fc.EncodeTo(h.E)
-	}
-	h.E.WritePrefix(len(txn.FileContractRevisions))
-	for _, fcr := range txn.FileContractRevisions {
-		fcr.Parent.ID.EncodeTo(h.E)
-		fcr.Revision.EncodeTo(h.E)
-	}
-	h.E.WritePrefix(len(txn.FileContractResolutions))
-	for _, fcr := range txn.FileContractResolutions {
-		fcr.Parent.ID.EncodeTo(h.E)
-		// normalize proof
-		if sp, ok := fcr.Resolution.(*V2StorageProof); ok {
-			c := *sp // don't modify original
-			c.ProofIndex.MerkleProof = nil
-			fcr.Resolution = &c
-		}
-		fcr.Resolution.(EncoderTo).EncodeTo(h.E)
-	}
-	h.E.WritePrefix(len(txn.Attestations))
-	for _, a := range txn.Attestations {
-		a.EncodeTo(h.E)
-	}
-	h.E.WriteBytes(txn.ArbitraryData)
-	h.E.WriteBool(txn.NewFoundationAddress != nil)
-	if txn.NewFoundationAddress != nil {
-		txn.NewFoundationAddress.EncodeTo(h.E)
-	}
-	txn.MinerFee.EncodeTo(h.E)
-	return TransactionID(h.Sum())
+	return hashAll("id/transaction", (*V2TransactionSemantics)(txn))
 }
 
 // FullHash returns the hash of the transaction's binary encoding. This hash is
 // only used in specific circumstances; generally, ID should be used instead.
 func (txn *V2Transaction) FullHash() Hash256 {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	txn.EncodeTo(h.E)
-	return h.Sum()
+	return hashAll(txn)
 }
 
 // SiacoinOutputID returns the ID for the siacoin output at index i.
 func (*V2Transaction) SiacoinOutputID(txid TransactionID, i int) SiacoinOutputID {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	h.WriteDistinguisher("id/siacoinoutput")
-	txid.EncodeTo(h.E)
-	h.E.WriteUint64(uint64(i))
-	return SiacoinOutputID(h.Sum())
+	return hashAll("id/siacoinoutput", txid, i)
 }
 
 // SiafundOutputID returns the ID for the siafund output at index i.
 func (*V2Transaction) SiafundOutputID(txid TransactionID, i int) SiafundOutputID {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	h.WriteDistinguisher("id/siafundoutput")
-	txid.EncodeTo(h.E)
-	h.E.WriteUint64(uint64(i))
-	return SiafundOutputID(h.Sum())
+	return hashAll("id/siafundoutput", txid, i)
 }
 
 // V2FileContractID returns the ID for the v2 file contract at index i.
 func (*V2Transaction) V2FileContractID(txid TransactionID, i int) FileContractID {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	h.WriteDistinguisher("id/filecontract")
-	txid.EncodeTo(h.E)
-	h.E.WriteUint64(uint64(i))
-	return FileContractID(h.Sum())
+	return hashAll("id/filecontract", txid, i)
 }
 
 // AttestationID returns the ID for the attestation at index i.
 func (*V2Transaction) AttestationID(txid TransactionID, i int) Hash256 {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	h.WriteDistinguisher("id/attestation")
-	txid.EncodeTo(h.E)
-	h.E.WriteUint64(uint64(i))
-	return h.Sum()
+	return hashAll("id/attestation", txid, i)
 }
 
 // EphemeralSiacoinOutput returns a SiacoinElement for the siacoin output at
