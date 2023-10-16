@@ -51,6 +51,29 @@ func NewHasher() *Hasher {
 // implementation whose constructor returns a concrete type.
 var hasherPool = &sync.Pool{New: func() interface{} { return NewHasher() }}
 
+func hashAll(elems ...interface{}) [32]byte {
+	h := hasherPool.Get().(*Hasher)
+	defer hasherPool.Put(h)
+	h.Reset()
+	for _, e := range elems {
+		if et, ok := e.(EncoderTo); ok {
+			et.EncodeTo(h.E)
+		} else {
+			switch e := e.(type) {
+			case string:
+				h.WriteDistinguisher(e)
+			case int:
+				h.E.WriteUint64(uint64(e))
+			case bool:
+				h.E.WriteBool(e)
+			default:
+				panic("unhandled type")
+			}
+		}
+	}
+	return h.Sum()
+}
+
 const leafHashPrefix = 0 // from RFC 6962
 
 // StandardAddress returns the standard v2 Address derived from pk. It is

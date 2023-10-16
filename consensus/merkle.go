@@ -75,94 +75,38 @@ func (l elementLeaf) proofRoot() types.Hash256 {
 
 // chainIndexLeaf returns the elementLeaf for a ChainIndexElement.
 func chainIndexLeaf(e *types.ChainIndexElement) elementLeaf {
-	h := hasherPool.Get().(*types.Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	h.WriteDistinguisher("leaf/chainindex")
-	e.StateElement.ID.EncodeTo(h.E)
-	e.ChainIndex.EncodeTo(h.E)
-	return elementLeaf{
-		StateElement: &e.StateElement,
-		ElementHash:  h.Sum(),
-		Spent:        false,
-	}
+	elemHash := hashAll("leaf/chainindex", e.ID, e.ChainIndex)
+	return elementLeaf{&e.StateElement, elemHash, false}
 }
 
 // siacoinLeaf returns the elementLeaf for a SiacoinElement.
 func siacoinLeaf(e *types.SiacoinElement, spent bool) elementLeaf {
-	h := hasherPool.Get().(*types.Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	h.WriteDistinguisher("leaf/siacoin")
-	e.ID.EncodeTo(h.E)
-	e.SiacoinOutput.EncodeTo(h.E)
-	h.E.WriteUint64(e.MaturityHeight)
-	return elementLeaf{
-		StateElement: &e.StateElement,
-		ElementHash:  h.Sum(),
-		Spent:        spent,
-	}
+	elemHash := hashAll("leaf/siacoin", e.ID, e.SiacoinOutput, e.MaturityHeight)
+	return elementLeaf{&e.StateElement, elemHash, spent}
 }
 
 // siafundLeaf returns the elementLeaf for a SiafundElement.
 func siafundLeaf(e *types.SiafundElement, spent bool) elementLeaf {
-	h := hasherPool.Get().(*types.Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	h.WriteDistinguisher("leaf/siafund")
-	e.ID.EncodeTo(h.E)
-	e.SiafundOutput.EncodeTo(h.E)
-	e.ClaimStart.EncodeTo(h.E)
-	return elementLeaf{
-		StateElement: &e.StateElement,
-		ElementHash:  h.Sum(),
-		Spent:        spent,
-	}
+	elemHash := hashAll("leaf/siafund", e.ID, e.SiafundOutput, e.ClaimStart)
+	return elementLeaf{&e.StateElement, elemHash, spent}
 }
 
 // fileContractLeaf returns the elementLeaf for a FileContractElement.
 func fileContractLeaf(e *types.FileContractElement, spent bool) elementLeaf {
-	h := hasherPool.Get().(*types.Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	h.WriteDistinguisher("leaf/filecontract")
-	e.ID.EncodeTo(h.E)
-	e.FileContract.EncodeTo(h.E)
-	return elementLeaf{
-		StateElement: &e.StateElement,
-		ElementHash:  h.Sum(),
-		Spent:        spent,
-	}
+	elemHash := hashAll("leaf/filecontract", e.ID, e.FileContract)
+	return elementLeaf{&e.StateElement, elemHash, spent}
 }
 
 // v2FileContractLeaf returns the elementLeaf for a V2FileContractElement.
 func v2FileContractLeaf(e *types.V2FileContractElement, spent bool) elementLeaf {
-	h := hasherPool.Get().(*types.Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	h.WriteDistinguisher("leaf/v2filecontract")
-	e.ID.EncodeTo(h.E)
-	e.V2FileContract.EncodeTo(h.E)
-	return elementLeaf{
-		StateElement: &e.StateElement,
-		ElementHash:  h.Sum(),
-		Spent:        spent,
-	}
+	elemHash := hashAll("leaf/v2filecontract", e.ID, e.V2FileContract)
+	return elementLeaf{&e.StateElement, elemHash, spent}
 }
 
 // attestationLeaf returns the elementLeaf for an AttestationElement.
 func attestationLeaf(e *types.AttestationElement) elementLeaf {
-	h := hasherPool.Get().(*types.Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	h.WriteDistinguisher("leaf/attestation")
-	e.StateElement.ID.EncodeTo(h.E)
-	e.Attestation.EncodeTo(h.E)
-	return elementLeaf{
-		StateElement: &e.StateElement,
-		ElementHash:  h.Sum(),
-		Spent:        false,
-	}
+	elemHash := hashAll("leaf/attestation", e.ID, e.Attestation)
+	return elementLeaf{&e.StateElement, elemHash, false}
 }
 
 // An ElementAccumulator tracks the state of an unbounded number of elements
