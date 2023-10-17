@@ -55,7 +55,7 @@ func writeHeader(conn net.Conn, ourHeader Header) error {
 	return nil
 }
 
-func readHeader(conn net.Conn, ourHeader Header, dialAddr *string) error {
+func readHeader(conn net.Conn, ourHeader Header, dialAddr *string, uniqueID *UniqueID) error {
 	var peerHeader Header
 	if err := withV1Decoder(conn, 32+8+128, peerHeader.decodeFrom); err != nil {
 		return fmt.Errorf("could not read peer's header: %w", err)
@@ -70,6 +70,7 @@ func readHeader(conn net.Conn, ourHeader Header, dialAddr *string) error {
 		return fmt.Errorf("peer provided invalid net address (%q): %w", peerHeader.NetAddress, err)
 	} else {
 		*dialAddr = net.JoinHostPort(host, port)
+		*uniqueID = peerHeader.UniqueID
 	}
 	return nil
 }
@@ -277,7 +278,7 @@ func Dial(conn net.Conn, ourHeader Header) (*Peer, error) {
 	// exchange headers
 	if err := writeHeader(conn, ourHeader); err != nil {
 		return nil, fmt.Errorf("could not write our header: %w", err)
-	} else if err := readHeader(conn, ourHeader, &p.Addr); err != nil {
+	} else if err := readHeader(conn, ourHeader, &p.Addr, &p.UniqueID); err != nil {
 		return nil, fmt.Errorf("could not read peer's header: %w", err)
 	}
 	// establish mux
@@ -305,7 +306,7 @@ func Accept(conn net.Conn, ourHeader Header) (*Peer, error) {
 		return nil, fmt.Errorf("could not write our version: %w", err)
 	}
 	// exchange headers
-	if err := readHeader(conn, ourHeader, &p.Addr); err != nil {
+	if err := readHeader(conn, ourHeader, &p.Addr, &p.UniqueID); err != nil {
 		return nil, fmt.Errorf("could not read peer's header: %w", err)
 	} else if err := writeHeader(conn, ourHeader); err != nil {
 		return nil, fmt.Errorf("could not write our header: %w", err)

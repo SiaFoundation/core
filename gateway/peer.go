@@ -16,6 +16,7 @@ import (
 
 // A Peer is a connected gateway peer.
 type Peer struct {
+	UniqueID UniqueID
 	Version  string
 	Addr     string
 	ConnAddr string
