@@ -134,12 +134,16 @@ func (m *Manager) Tip() types.ChainIndex {
 // SyncCheckpoint returns the block at the specified index, along with its
 // parent state.
 func (m *Manager) SyncCheckpoint(index types.ChainIndex) (types.Block, consensus.State, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	b, _, cs, ok := blockAndParent(m.store, index.ID)
 	return b, cs, ok
 }
 
 // Block returns the block with the specified ID.
 func (m *Manager) Block(id types.BlockID) (types.Block, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	b, _, ok := m.store.Block(id)
 	return b, ok
 }
@@ -147,6 +151,8 @@ func (m *Manager) Block(id types.BlockID) (types.Block, bool) {
 // BestIndex returns the index of the block at the specified height within the
 // best chain.
 func (m *Manager) BestIndex(height uint64) (types.ChainIndex, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.store.BestIndex(height)
 }
 

@@ -10,12 +10,12 @@ import (
 )
 
 func findBlockNonce(cs consensus.State, b *types.Block) {
-	// ensure nonce meets factor requirement
-	for b.Nonce%cs.NonceFactor() != 0 {
-		b.Nonce++
-	}
 	for b.ID().CmpWork(cs.ChildTarget) < 0 {
 		b.Nonce += cs.NonceFactor()
+		// ensure nonce meets factor requirement
+		for b.Nonce%cs.NonceFactor() != 0 {
+			b.Nonce++
+		}
 	}
 }
 
