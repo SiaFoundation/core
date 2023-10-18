@@ -423,8 +423,27 @@ func (r *RPCRelayV2TransactionSet) maxRequestLen() int { return 5e6 }
 
 type v1RPCID types.Specifier
 
-func (id *v1RPCID) encodeTo(e *types.Encoder)   { e.Write(id[:8]) }
-func (id *v1RPCID) decodeFrom(d *types.Decoder) { d.Read(id[:8]) }
+func (id *v1RPCID) encodeTo(e *types.Encoder) { e.Write(id[:8]) }
+func (id *v1RPCID) decodeFrom(d *types.Decoder) {
+	var shortID [8]byte
+	d.Read(shortID[:])
+	switch string(shortID[:]) {
+	case "ShareNod":
+		*id = v1RPCID(idShareNodes)
+	case "Discover":
+		*id = v1RPCID(idDiscoverIP)
+	case "SendBloc":
+		*id = v1RPCID(idSendBlocks)
+	case "SendBlk\x00":
+		*id = v1RPCID(idSendBlk)
+	case "RelayHea":
+		*id = v1RPCID(idRelayHeader)
+	case "RelayTra":
+		*id = v1RPCID(idRelayTransactionSet)
+	default:
+		copy(id[:], shortID[:])
+	}
+}
 
 var (
 	// v1
