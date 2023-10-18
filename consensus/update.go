@@ -315,21 +315,22 @@ func ApplyOrphan(s State, b types.Block, targetTimestamp time.Time) State {
 		panic("consensus: cannot apply non-child block")
 	}
 
+	next := s
 	if b.ParentID == (types.BlockID{}) {
 		// special handling for genesis block
-		s.OakTime = updateOakTime(s, b.Timestamp, b.Timestamp)
-		s.OakWork, s.OakTarget = updateOakWork(s)
-		s.Index = types.ChainIndex{Height: 0, ID: b.ID()}
+		next.OakTime = updateOakTime(s, b.Timestamp, b.Timestamp)
+		next.OakWork, next.OakTarget = updateOakWork(s)
+		next.Index = types.ChainIndex{Height: 0, ID: b.ID()}
 	} else {
-		s.TotalWork, s.Depth = updateTotalWork(s)
-		s.Difficulty, s.ChildTarget = adjustDifficulty(s, b.Timestamp, targetTimestamp)
-		s.OakTime = updateOakTime(s, b.Timestamp, s.PrevTimestamps[0])
-		s.OakWork, s.OakTarget = updateOakWork(s)
-		s.Index = types.ChainIndex{Height: s.Index.Height + 1, ID: b.ID()}
+		next.TotalWork, next.Depth = updateTotalWork(s)
+		next.Difficulty, next.ChildTarget = adjustDifficulty(s, b.Timestamp, targetTimestamp)
+		next.OakTime = updateOakTime(s, b.Timestamp, s.PrevTimestamps[0])
+		next.OakWork, next.OakTarget = updateOakWork(s)
+		next.Index = types.ChainIndex{Height: s.Index.Height + 1, ID: b.ID()}
 	}
-	copy(s.PrevTimestamps[1:], s.PrevTimestamps[:])
-	s.PrevTimestamps[0] = b.Timestamp
-	return s
+	next.PrevTimestamps[0] = b.Timestamp
+	copy(next.PrevTimestamps[1:], s.PrevTimestamps[:])
+	return next
 }
 
 func (ms *MidState) addSiacoinElement(sce types.SiacoinElement) {
