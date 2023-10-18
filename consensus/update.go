@@ -179,8 +179,8 @@ func updateOakWork(s State) (Work, types.BlockID) {
 	// prior to the hardfork, we compute the work from the target; after the
 	// hardfork, we do the opposite
 	if s.childHeight() < s.Network.HardforkV2.AllowHeight {
-		target := invTarget(updateOakTarget(s))
-		return Work{target}, target
+		target := updateOakTarget(s)
+		return Work{invTarget(target)}, target
 	}
 	work := s.OakWork.sub(s.OakWork.div64(200)).add(s.Difficulty)
 	return work, invTarget(work.n)

@@ -558,8 +558,12 @@ func TestValidateV2Block(t *testing.T) {
 	hostPublicKey := hostPrivateKey.PublicKey()
 
 	signTxn := func(cs consensus.State, txn *types.V2Transaction) {
-		// file contract signing must be first because state.InputSigHash
-		// is different without renter/host signatures
+		for i := range txn.SiacoinInputs {
+			txn.SiacoinInputs[i].SatisfiedPolicy.Signatures = []types.Signature{giftPrivateKey.SignHash(cs.InputSigHash(*txn))}
+		}
+		for i := range txn.SiafundInputs {
+			txn.SiafundInputs[i].SatisfiedPolicy.Signatures = []types.Signature{giftPrivateKey.SignHash(cs.InputSigHash(*txn))}
+		}
 		for i := range txn.FileContracts {
 			txn.FileContracts[i].RenterSignature = renterPrivateKey.SignHash(cs.ContractSigHash(txn.FileContracts[i]))
 			txn.FileContracts[i].HostSignature = hostPrivateKey.SignHash(cs.ContractSigHash(txn.FileContracts[i]))
@@ -575,22 +579,12 @@ func TestValidateV2Block(t *testing.T) {
 				r.InitialRevision.HostSignature = hostPrivateKey.SignHash(cs.ContractSigHash(r.InitialRevision))
 				r.FinalRevision.RenterSignature = renterPrivateKey.SignHash(cs.ContractSigHash(r.FinalRevision))
 				r.FinalRevision.HostSignature = hostPrivateKey.SignHash(cs.ContractSigHash(r.FinalRevision))
-
 				r.RenterSignature = renterPrivateKey.SignHash(cs.RenewalSigHash(*r))
 				r.HostSignature = hostPrivateKey.SignHash(cs.RenewalSigHash(*r))
-				break
 			case *types.V2FileContractFinalization:
-				sigHash := cs.ContractSigHash(types.V2FileContract(*r))
-				r.RenterSignature = renterPrivateKey.SignHash(sigHash)
-				r.HostSignature = hostPrivateKey.SignHash(sigHash)
-				break
+				r.RenterSignature = renterPrivateKey.SignHash(cs.ContractSigHash(types.V2FileContract(*r)))
+				r.HostSignature = hostPrivateKey.SignHash(cs.ContractSigHash(types.V2FileContract(*r)))
 			}
-		}
-		for i := range txn.SiacoinInputs {
-			txn.SiacoinInputs[i].SatisfiedPolicy.Signatures = []types.Signature{giftPrivateKey.SignHash(cs.InputSigHash(*txn))}
-		}
-		for i := range txn.SiafundInputs {
-			txn.SiafundInputs[i].SatisfiedPolicy.Signatures = []types.Signature{giftPrivateKey.SignHash(cs.InputSigHash(*txn))}
 		}
 	}
 
