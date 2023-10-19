@@ -734,6 +734,12 @@ type V2TransactionSemantics V2Transaction
 
 // EncodeTo implements types.EncoderTo.
 func (txn V2TransactionSemantics) EncodeTo(e *Encoder) {
+	nilSigs := func(sigs ...*Signature) {
+		for i := range sigs {
+			*sigs[i] = Signature{}
+		}
+	}
+
 	e.WritePrefix(len(txn.SiacoinInputs))
 	for _, in := range txn.SiacoinInputs {
 		in.Parent.ID.EncodeTo(e)
@@ -752,13 +758,13 @@ func (txn V2TransactionSemantics) EncodeTo(e *Encoder) {
 	}
 	e.WritePrefix(len(txn.FileContracts))
 	for _, fc := range txn.FileContracts {
-		fc.RenterSignature, fc.HostSignature = Signature{}, Signature{}
+		nilSigs(&fc.RenterSignature, &fc.HostSignature)
 		fc.EncodeTo(e)
 	}
 	e.WritePrefix(len(txn.FileContractRevisions))
 	for _, fcr := range txn.FileContractRevisions {
-		fcr.Revision.RenterSignature, fcr.Revision.HostSignature = Signature{}, Signature{}
 		fcr.Parent.ID.EncodeTo(e)
+		nilSigs(&fcr.Revision.RenterSignature, &fcr.Revision.HostSignature)
 		fcr.Revision.EncodeTo(e)
 	}
 	e.WritePrefix(len(txn.FileContractResolutions))
@@ -768,13 +774,15 @@ func (txn V2TransactionSemantics) EncodeTo(e *Encoder) {
 		switch res := fcr.Resolution.(type) {
 		case *V2FileContractFinalization:
 			fc := *res
-			fc.RenterSignature, fc.HostSignature = Signature{}, Signature{}
+			nilSigs(&fc.RenterSignature, &fc.HostSignature)
 			fcr.Resolution = &fc
 		case *V2FileContractRenewal:
 			renewal := *res
-			renewal.InitialRevision.RenterSignature, renewal.InitialRevision.HostSignature = Signature{}, Signature{}
-			renewal.FinalRevision.RenterSignature, renewal.FinalRevision.HostSignature = Signature{}, Signature{}
-			renewal.RenterSignature, renewal.HostSignature = Signature{}, Signature{}
+			nilSigs(
+				&renewal.InitialRevision.RenterSignature, &renewal.InitialRevision.HostSignature,
+				&renewal.FinalRevision.RenterSignature, &renewal.FinalRevision.HostSignature,
+				&renewal.RenterSignature, &renewal.HostSignature,
+			)
 			fcr.Resolution = &renewal
 		case *V2StorageProof:
 			sp := *res

@@ -526,23 +526,31 @@ func (s State) InputSigHash(txn types.V2Transaction) types.Hash256 {
 	return hashAll("sig/input", s.v2ReplayPrefix(), types.V2TransactionSemantics(txn))
 }
 
+func nilSigs(sigs ...*types.Signature) {
+	for i := range sigs {
+		*sigs[i] = types.Signature{}
+	}
+}
+
 // ContractSigHash returns the hash that must be signed for a v2 contract revision.
 func (s State) ContractSigHash(fc types.V2FileContract) types.Hash256 {
-	fc.RenterSignature, fc.HostSignature = types.Signature{}, types.Signature{}
+	nilSigs(&fc.RenterSignature, &fc.HostSignature)
 	return hashAll("sig/filecontract", s.v2ReplayPrefix(), fc)
 }
 
 // RenewalSigHash returns the hash that must be signed for a file contract renewal.
 func (s State) RenewalSigHash(fcr types.V2FileContractRenewal) types.Hash256 {
-	fcr.InitialRevision.RenterSignature, fcr.InitialRevision.HostSignature = types.Signature{}, types.Signature{}
-	fcr.FinalRevision.RenterSignature, fcr.FinalRevision.HostSignature = types.Signature{}, types.Signature{}
-	fcr.RenterSignature, fcr.HostSignature = types.Signature{}, types.Signature{}
+	nilSigs(
+		&fcr.InitialRevision.RenterSignature, &fcr.InitialRevision.HostSignature,
+		&fcr.FinalRevision.RenterSignature, &fcr.FinalRevision.HostSignature,
+		&fcr.RenterSignature, &fcr.HostSignature,
+	)
 	return hashAll("sig/filecontractrenewal", s.v2ReplayPrefix(), fcr)
 }
 
 // AttestationSigHash returns the hash that must be signed for an attestation.
 func (s State) AttestationSigHash(a types.Attestation) types.Hash256 {
-	a.Signature = types.Signature{}
+	nilSigs(&a.Signature)
 	return hashAll("sig/attestation", s.v2ReplayPrefix(), a)
 }
 
