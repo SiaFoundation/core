@@ -575,10 +575,6 @@ func TestValidateV2Block(t *testing.T) {
 		for i := range txn.FileContractResolutions {
 			switch r := txn.FileContractResolutions[i].Resolution.(type) {
 			case *types.V2FileContractRenewal:
-				r.InitialRevision.RenterSignature = renterPrivateKey.SignHash(cs.ContractSigHash(r.InitialRevision))
-				r.InitialRevision.HostSignature = hostPrivateKey.SignHash(cs.ContractSigHash(r.InitialRevision))
-				r.FinalRevision.RenterSignature = renterPrivateKey.SignHash(cs.ContractSigHash(r.FinalRevision))
-				r.FinalRevision.HostSignature = hostPrivateKey.SignHash(cs.ContractSigHash(r.FinalRevision))
 				r.RenterSignature = renterPrivateKey.SignHash(cs.RenewalSigHash(*r))
 				r.HostSignature = hostPrivateKey.SignHash(cs.RenewalSigHash(*r))
 			case *types.V2FileContractFinalization:
