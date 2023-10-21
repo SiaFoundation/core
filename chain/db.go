@@ -301,36 +301,13 @@ func (db *DBStore) putBlock(b types.Block, bs *consensus.V1BlockSupplement) {
 	db.bucket(bBlocks).put(id[:], supplementedBlock{b, bs})
 }
 
-func (db *DBStore) encLeaf(index uint64, height int) []byte {
-	// For a given leaf index and height, we want to compute a key corresponding
-	// to the tree node at the given height within the leaf's proof path. For
-	// example, if height is 3, then we should return the same key for indices
-	// 0, 1, 2, and 3 (since all of these leaves share a parent at that height),
-	// and a different key for indices 4, 5, 6, and 7.
-	//
-	// This is easily achieved by masking the least significant height bits of
-	// index and prepending the height (to avoid collisions with lower levels).
-	// We can assume that the total number of elements is less than 2^32 (and
-	// thus the height will be less than 2^8), so the resulting key is 5 bytes.
-	//
-	// Can we do better? Yes -- we can fit it in 4 bytes, if we assume that the
-	// total number of elements is less than 2^31. This gives us 2^31 values for
-	// storing leaves, and 2^31 values for storing all the other nodes. We
-	// distinguish them by setting the top bit. Going up a level, we see that at
-	// most 2^30 values are needed, leaving 2^30 for the remaining levels; we
-	// distinguish these by setting the penultimate bit. Each time we ascend a
-	// level, we have one fewer bit to work with; but since each level requires
-	// half as many nodes as the previous, it balances out and we always have
-	// enough space. Below, we implement this trick with a bitwise rotation to
-	// demonstrate that these high bits are not "clobbering" any other bits.
+func (db *DBStore) treeKey(row, col uint64) []byte {
+	// If we assume that the total number of elements is less than 2^32, we can
+	// pack row and col into one uint32 key. We do this by setting the top 'row'
+	// bits of 'col' to 1. Since each successive row has half as many columns,
+	// we never have to worry about clobbering any bits of 'col'.
 	var buf [4]byte
-	return binary.BigEndian.AppendUint32(buf[:0], bits.RotateLeft32(uint32(index)|((1<<height)-1), -height))
-}
-
-func (db *DBStore) putElementProof(e types.StateElement) {
-	for i, p := range e.MerkleProof {
-		db.bucket(bTree).put(db.encLeaf(e.LeafIndex, i), p)
-	}
+	return binary.BigEndian.AppendUint32(buf[:0], uint32(((1<<row)-1)<<(32-row)|col))
 }
 
 func (db *DBStore) getElementProof(leafIndex, numLeaves uint64) (proof []types.Hash256) {
@@ -339,9 +316,12 @@ func (db *DBStore) getElementProof(leafIndex, numLeaves uint64) (proof []types.H
 	// numLeaves-1 within the same subtree; the height at which the paths to
 	// those leaves diverge must be the size of the subtree containing leafIndex
 	// in the actual tree.
-	proof = make([]types.Hash256, bits.Len64(leafIndex^(numLeaves-1)))
+	proof = make([]types.Hash256, bits.Len64(leafIndex^(numLeaves-1))-1)
 	for i := range proof {
-		db.bucket(bTree).get(db.encLeaf(leafIndex, i), &proof[i])
+		row, col := uint64(i), (leafIndex>>i)^1
+		if !db.bucket(bTree).get(db.treeKey(row, col), &proof[i]) {
+			panic(fmt.Sprintf("missing proof element %v for leaf %v", i, leafIndex))
+		}
 	}
 	return
 }
@@ -424,6 +404,10 @@ func (db *DBStore) revertState(prev consensus.State) {
 }
 
 func (db *DBStore) applyElements(cau consensus.ApplyUpdate) {
+	cau.ForEachTreeNode(func(row, col uint64, h types.Hash256) {
+		db.bucket(bTree).put(db.treeKey(row, col), h)
+	})
+
 	cau.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
 		if sce.LeafIndex == types.EphemeralLeafIndex {
 			return
@@ -432,7 +416,6 @@ func (db *DBStore) applyElements(cau consensus.ApplyUpdate) {
 		} else {
 			db.putSiacoinElement(sce)
 		}
-		db.putElementProof(sce.StateElement)
 	})
 	cau.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
 		if sfe.LeafIndex == types.EphemeralLeafIndex {
@@ -442,7 +425,6 @@ func (db *DBStore) applyElements(cau consensus.ApplyUpdate) {
 		} else {
 			db.putSiafundElement(sfe)
 		}
-		db.putElementProof(sfe.StateElement)
 	})
 	cau.ForEachFileContractElement(func(fce types.FileContractElement, rev *types.FileContractElement, resolved, valid bool) {
 		if resolved {
@@ -458,7 +440,6 @@ func (db *DBStore) applyElements(cau consensus.ApplyUpdate) {
 			db.putFileContractElement(fce)
 			db.putFileContractExpiration(types.FileContractID(fce.ID), fce.FileContract.WindowEnd)
 		}
-		db.putElementProof(fce.StateElement)
 	})
 }
 
@@ -468,7 +449,6 @@ func (db *DBStore) revertElements(cru consensus.RevertUpdate) {
 			// contract no longer resolved; restore it
 			db.putFileContractElement(fce)
 			db.putFileContractExpiration(types.FileContractID(fce.ID), fce.FileContract.WindowEnd)
-			db.putElementProof(fce.StateElement)
 		} else if rev != nil {
 			// contract no longer revised; restore prior revision
 			db.putFileContractElement(fce)
@@ -476,7 +456,6 @@ func (db *DBStore) revertElements(cru consensus.RevertUpdate) {
 				db.deleteFileContractExpiration(types.FileContractID(fce.ID), fce.FileContract.WindowEnd)
 				db.putFileContractExpiration(types.FileContractID(fce.ID), rev.FileContract.WindowEnd)
 			}
-			db.putElementProof(fce.StateElement)
 		} else {
 			// contract no longer exists; delete it
 			db.deleteFileContractElement(types.FileContractID(fce.ID))
@@ -489,7 +468,6 @@ func (db *DBStore) revertElements(cru consensus.RevertUpdate) {
 		} else if spent {
 			// output no longer spent; restore it
 			db.putSiafundElement(sfe)
-			db.putElementProof(sfe.StateElement)
 		} else {
 			// output no longer exists; delete it
 			db.deleteSiafundElement(types.SiafundOutputID(sfe.ID))
@@ -501,11 +479,14 @@ func (db *DBStore) revertElements(cru consensus.RevertUpdate) {
 		} else if spent {
 			// output no longer spent; restore it
 			db.putSiacoinElement(sce)
-			db.putElementProof(sce.StateElement)
 		} else {
 			// output no longer exists; delete it
 			db.deleteSiacoinElement(types.SiacoinOutputID(sce.ID))
 		}
+	})
+
+	cru.ForEachTreeNode(func(row, col uint64, h types.Hash256) {
+		db.bucket(bTree).put(db.treeKey(row, col), h)
 	})
 
 	// NOTE: Although the element tree has shrunk, we do not need to explicitly

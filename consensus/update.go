@@ -633,6 +633,11 @@ func (ms *MidState) forEachElementLeaf(fn func(elementLeaf)) {
 		} else {
 			fn(v2FileContractLeaf(&ms.v2fces[i], ms.isSpent(ms.v2fces[i].ID)))
 		}
+		// NOTE: Although it is an element, we do not process the ProofIndex
+		// field of V2StorageProofs. These are a special case, as they are not
+		// being updated (like e.g. siacoin inputs), nor are they being created
+		// (like e.g. attestations). In other words, they have no effect on the
+		// accumulator, and thus including them would only cause confusion.
 	}
 	for i := range ms.aes {
 		fn(attestationLeaf(&ms.aes[i]))
@@ -681,6 +686,32 @@ func (au ApplyUpdate) ForEachFileContractElement(fn func(fce types.FileContractE
 func (au ApplyUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileContractElement, rev *types.V2FileContractElement, res types.V2FileContractResolutionType)) {
 	for _, fce := range au.ms.v2fces {
 		fn(fce, au.ms.v2revs[fce.ID], au.ms.v2res[fce.ID])
+	}
+}
+
+// ForEachTreeNode calls fn on each node in the accumulator affected by au.
+func (au ApplyUpdate) ForEachTreeNode(fn func(row, col uint64, h types.Hash256)) {
+	seen := make(map[[2]uint64]bool)
+	au.ms.forEachElementLeaf(func(el elementLeaf) {
+		for i, h := range el.MerkleProof {
+			row, col := uint64(i), (el.LeafIndex>>i)^1
+			if seen[[2]uint64{row, col}] {
+				break // already seen everything above this
+			}
+			seen[[2]uint64{row, col}] = true
+			fn(row, col, h)
+		}
+	})
+	for height, growth := range au.eau.treeGrowth {
+		initCol := clearBits(au.eau.oldNumLeaves, height+1)
+		for i, h := range growth {
+			row, col := uint64(height+i), (initCol>>(height+i))^1
+			if seen[[2]uint64{row, col}] {
+				break // already seen everything above this
+			}
+			seen[[2]uint64{row, col}] = true
+			fn(row, col, h)
+		}
 	}
 }
 
@@ -764,6 +795,21 @@ func (ru RevertUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileCont
 		fce := ru.ms.v2fces[len(ru.ms.fces)-i-1]
 		fn(fce, ru.ms.v2revs[fce.ID], ru.ms.v2res[fce.ID])
 	}
+}
+
+// ForEachTreeNode calls fn on each node in the accumulator affected by ru.
+func (ru RevertUpdate) ForEachTreeNode(fn func(row, col uint64, h types.Hash256)) {
+	seen := make(map[[2]uint64]bool)
+	ru.ms.forEachElementLeaf(func(el elementLeaf) {
+		for i, h := range el.MerkleProof {
+			row, col := uint64(i), (el.LeafIndex>>i)^1
+			if seen[[2]uint64{row, col}] {
+				break
+			}
+			seen[[2]uint64{row, col}] = true
+			fn(row, col, h)
+		}
+	})
 }
 
 // RevertBlock reverts b, producing the effects undone by the block.
