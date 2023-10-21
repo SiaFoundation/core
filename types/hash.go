@@ -64,6 +64,8 @@ func hashAll(elems ...interface{}) [32]byte {
 				h.WriteDistinguisher(e)
 			case int:
 				h.E.WriteUint64(uint64(e))
+			case uint64:
+				h.E.WriteUint64(e)
 			case bool:
 				h.E.WriteBool(e)
 			default:

@@ -24,45 +24,24 @@ func (l elementLeaf) hash() Hash256 {
 	return HashBytes(buf)
 }
 
+func chainIndexLeaf(e *ChainIndexElement) elementLeaf {
+	elemHash := hashAll("leaf/chainindex", e.ID, e.ChainIndex)
+	return elementLeaf{&e.StateElement, elemHash}
+}
+
 func siacoinLeaf(e *SiacoinElement) elementLeaf {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	h.WriteDistinguisher("leaf/siacoin")
-	e.ID.EncodeTo(h.E)
-	e.SiacoinOutput.EncodeTo(h.E)
-	h.E.WriteUint64(e.MaturityHeight)
-	return elementLeaf{
-		StateElement: &e.StateElement,
-		ElementHash:  h.Sum(),
-	}
+	elemHash := hashAll("leaf/siacoin", e.ID, e.SiacoinOutput, e.MaturityHeight)
+	return elementLeaf{&e.StateElement, elemHash}
 }
 
 func siafundLeaf(e *SiafundElement) elementLeaf {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	h.WriteDistinguisher("leaf/siafund")
-	e.ID.EncodeTo(h.E)
-	e.SiafundOutput.EncodeTo(h.E)
-	e.ClaimStart.EncodeTo(h.E)
-	return elementLeaf{
-		StateElement: &e.StateElement,
-		ElementHash:  h.Sum(),
-	}
+	elemHash := hashAll("leaf/siafund", e.ID, e.SiafundOutput, e.ClaimStart)
+	return elementLeaf{&e.StateElement, elemHash}
 }
 
 func v2FileContractLeaf(e *V2FileContractElement) elementLeaf {
-	h := hasherPool.Get().(*Hasher)
-	defer hasherPool.Put(h)
-	h.Reset()
-	h.WriteDistinguisher("leaf/v2filecontract")
-	e.ID.EncodeTo(h.E)
-	e.V2FileContract.EncodeTo(h.E)
-	return elementLeaf{
-		StateElement: &e.StateElement,
-		ElementHash:  h.Sum(),
-	}
+	elemHash := hashAll("leaf/v2filecontract", e.ID, e.V2FileContract)
+	return elementLeaf{&e.StateElement, elemHash}
 }
 
 func splitLeaves(ls []elementLeaf, mid uint64) (left, right []elementLeaf) {
@@ -83,6 +62,9 @@ func forEachStateElement(txns []V2Transaction, fn func(*StateElement)) {
 		}
 		for i := range txn.FileContractResolutions {
 			fn(&txn.FileContractResolutions[i].Parent.StateElement)
+			if sp, ok := txn.FileContractResolutions[i].Resolution.(*V2StorageProof); ok {
+				fn(&sp.ProofIndex.StateElement)
+			}
 		}
 	}
 }
@@ -108,6 +90,9 @@ func forEachTree(txns []V2Transaction, fn func(i, j uint64, leaves []elementLeaf
 		}
 		for i := range txn.FileContractResolutions {
 			addLeaf(v2FileContractLeaf(&txn.FileContractResolutions[i].Parent))
+			if r, ok := txn.FileContractResolutions[i].Resolution.(*V2StorageProof); ok {
+				addLeaf(chainIndexLeaf(&r.ProofIndex))
+			}
 		}
 	}
 	for height, leaves := range &trees {
