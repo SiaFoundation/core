@@ -239,3 +239,161 @@ func TestApplyBlock(t *testing.T) {
 	dbStore.RevertBlock(cs, ru)
 	checkRevertElements(ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 }
+
+/*
+func TestWork_UnmarshalText(t *testing.T) {
+	type fields struct {
+		n [32]byte
+	}
+	type args struct {
+		b []byte
+	}
+
+	negTen := big.NewInt(-111111)
+
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		wantErr bool
+	}{
+			{
+				name:    "failure math/big: cannot unmarshal \"\" into a *big.Int",
+				fields:  fields{},
+				args:    args{},
+				wantErr: true,
+			},
+		{
+			name: "failure value cannot be negative",
+			fields: fields{
+				n: types.HashBytes(negTen.Bytes()),
+			},
+			args: args{
+				b: negTen.Bytes(),
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := consensus.NewWork(tt.fields.n)
+			if err := w.UnmarshalText(tt.args.b); (err != nil) != tt.wantErr {
+				t.Log("!!!", tt.args.b, "!@", "@@@", string(tt.fields.n[:]))
+				t.Errorf("Work.UnmarshalText() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+*/
+
+func TestWorkMarshalText(t *testing.T) {
+	type fields struct {
+		n [32]byte
+	}
+	one := [32]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}
+	tests := []struct {
+		name    string
+		fields  fields
+		want    []byte
+		wantErr bool
+	}{
+		{
+			name: "success",
+			fields: fields{
+				n: one,
+			},
+			want:    []byte{49},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := consensus.NewWork(tt.fields.n)
+			got, err := w.MarshalText()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Work.MarshalText() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Log(string(got), "!!!", string(tt.want))
+				t.Errorf("Work.MarshalText() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWork_MarshalJSON(t *testing.T) {
+	type fields struct {
+		n [32]byte
+	}
+	one := [32]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}
+
+	tests := []struct {
+		name    string
+		fields  fields
+		want    []byte
+		wantErr bool
+	}{
+		{
+			name: "success",
+			fields: fields{
+				n: one,
+			},
+			want:    []byte(`"1"`),
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := consensus.NewWork(tt.fields.n)
+			got, err := w.MarshalJSON()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Work.MarshalJSON() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Work.MarshalJSON() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRevertBlock(t *testing.T) {
+	type args struct {
+		s  consensus.State
+		b  types.Block
+		bs consensus.V1BlockSupplement
+	}
+	tests := []struct {
+		name string
+		args args
+		want consensus.RevertUpdate
+	}{
+		{
+			name: "panic",
+			args: args{
+				s: consensus.State{
+					Index: types.ChainIndex{
+						ID: types.BlockID{1},
+					},
+				},
+				b: types.Block{
+					ParentID: types.BlockID{10},
+				},
+			},
+			want: consensus.RevertUpdate{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r == nil {
+					t.Error("should have panicked")
+				}
+			}()
+			if got := consensus.RevertBlock(tt.args.s, tt.args.b, tt.args.bs); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("RevertBlock() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
