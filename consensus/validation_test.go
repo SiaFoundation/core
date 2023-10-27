@@ -512,6 +512,26 @@ func TestValidateBlock(t *testing.T) {
 					txn.Signatures = append(txn.Signatures, txn.Signatures[0])
 				},
 			},
+			{
+				"invalid partial signature",
+				func(b *types.Block) {
+					txn := &b.Transactions[0]
+					txn.Signatures[0].CoveredFields.WholeTransaction = false
+				},
+			},
+			{
+				"invalid partial signature",
+				func(b *types.Block) {
+					txn := &b.Transactions[0]
+					txn.Signatures[0].CoveredFields.WholeTransaction = false
+					txn.Signatures[0].CoveredFields.SiacoinInputs = []uint64{0}
+					txn.Signatures[0].CoveredFields.SiacoinOutputs = []uint64{0}
+					txn.Signatures[0].CoveredFields.SiafundInputs = []uint64{0}
+					txn.Signatures[0].CoveredFields.SiafundOutputs = []uint64{0}
+					txn.Signatures[0].CoveredFields.FileContracts = []uint64{0}
+					txn.Signatures[0].CoveredFields.FileContractRevisions = []uint64{0}
+				},
+			},
 		}
 		for _, test := range tests {
 			corruptBlock := deepCopyBlock(validBlock)
