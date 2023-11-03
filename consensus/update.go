@@ -50,15 +50,15 @@ func (w *Work) UnmarshalText(b []byte) error {
 	return nil
 }
 
+// MarshalJSON implements json.Marshaler.
+func (w Work) MarshalJSON() ([]byte, error) {
+	s, err := w.MarshalText()
+	return []byte(`"` + string(s) + `"`), err
+}
+
 // UnmarshalJSON implements json.Unmarshaler.
 func (w *Work) UnmarshalJSON(b []byte) error {
 	return w.UnmarshalText(bytes.Trim(b, `"`))
-}
-
-// MarshalJSON implements json.Marshaler.
-func (w Work) MarshalJSON() ([]byte, error) {
-	js, err := new(big.Int).SetBytes(w.n[:]).MarshalJSON()
-	return []byte(`"` + string(js) + `"`), err
 }
 
 func (w Work) add(v Work) Work {

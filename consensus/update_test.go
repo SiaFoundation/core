@@ -3,6 +3,7 @@ package consensus_test
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -238,4 +239,92 @@ func TestApplyBlock(t *testing.T) {
 	ru := consensus.RevertBlock(prev, b2, bs)
 	dbStore.RevertBlock(cs, ru)
 	checkRevertElements(ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+
+	// reverting a non-child block should trigger a panic
+	func() {
+		defer func() { recover() }()
+		consensus.RevertBlock(cs, b2, bs)
+		t.Error("did not panic on reverting non-child block")
+	}()
+}
+
+func TestWorkEncoding(t *testing.T) {
+	for _, test := range []struct {
+		val       string
+		err       bool
+		roundtrip string
+	}{
+		{val: "0"},
+		{val: "12345"},
+		{val: "115792089237316195423570985008687907853269984665640564039457584007913129639935"}, // 1<<256 - 1
+		{val: "01", roundtrip: "1"},
+		{val: "-0", roundtrip: "0"},
+		{err: true, val: ""},
+		{err: true, val: "-1"},
+		{err: true, val: " 1"},
+		{err: true, val: "1 "},
+		{err: true, val: "1157920892373161954235709850086879078532699846656405640394575840079131296399366"},
+		{err: true, val: "not a number"},
+	} {
+		for _, codec := range []struct {
+			name string
+			enc  func(consensus.Work) (string, error)
+			dec  func(string) (consensus.Work, error)
+		}{
+			{
+				name: "String",
+				enc: func(w consensus.Work) (string, error) {
+					return w.String(), nil
+				},
+				dec: func(s string) (w consensus.Work, err error) {
+					err = w.UnmarshalText([]byte(s))
+					return
+				},
+			},
+			{
+				name: "MarshalText",
+				enc: func(w consensus.Work) (string, error) {
+					v, err := w.MarshalText()
+					return string(v), err
+				},
+				dec: func(s string) (w consensus.Work, err error) {
+					err = w.UnmarshalText([]byte(s))
+					return
+				},
+			},
+			{
+				name: "MarshalJSON",
+				enc: func(w consensus.Work) (string, error) {
+					v, err := w.MarshalJSON()
+					return strings.Trim(string(v), `"`), err
+				},
+				dec: func(s string) (w consensus.Work, err error) {
+					err = w.UnmarshalJSON([]byte(strings.Trim(s, `"`)))
+					return
+				},
+			},
+		} {
+			w, err := codec.dec(test.val)
+			if err != nil {
+				if !test.err {
+					t.Errorf("%v: unexpected error for %v: %v", codec.name, test.val, err)
+				}
+				continue
+			} else if test.err {
+				t.Errorf("%v: expected error for %v, got nil", codec.name, test.val)
+				continue
+			}
+			exp := test.roundtrip
+			if exp == "" {
+				exp = test.val
+			}
+			got, err := codec.enc(w)
+			if err != nil {
+				t.Fatal(err)
+			} else if string(got) != exp {
+				t.Errorf("%v: %q failed roundtrip (got %q)", codec.name, test.val, got)
+				continue
+			}
+		}
+	}
 }
