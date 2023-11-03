@@ -2,6 +2,7 @@ package consensus_test
 
 import (
 	"bytes"
+	"errors"
 	"math"
 	"testing"
 	"time"
@@ -510,6 +511,26 @@ func TestValidateBlock(t *testing.T) {
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.Signatures = append(txn.Signatures, txn.Signatures[0])
+				},
+			},
+			{
+				"invalid partial signature",
+				func(b *types.Block) {
+					txn := &b.Transactions[0]
+					txn.Signatures[0].CoveredFields.WholeTransaction = false
+				},
+			},
+			{
+				"invalid partial signature",
+				func(b *types.Block) {
+					txn := &b.Transactions[0]
+					txn.Signatures[0].CoveredFields.WholeTransaction = false
+					txn.Signatures[0].CoveredFields.SiacoinInputs = []uint64{0}
+					txn.Signatures[0].CoveredFields.SiacoinOutputs = []uint64{0}
+					txn.Signatures[0].CoveredFields.SiafundInputs = []uint64{0}
+					txn.Signatures[0].CoveredFields.SiafundOutputs = []uint64{0}
+					txn.Signatures[0].CoveredFields.FileContracts = []uint64{0}
+					txn.Signatures[0].CoveredFields.FileContractRevisions = []uint64{0}
 				},
 			},
 		}
@@ -1248,5 +1269,43 @@ func TestValidateV2Block(t *testing.T) {
 				t.Fatalf("accepted block with %v", test.desc)
 			}
 		}
+	}
+}
+
+func TestValidateV2Transaction(t *testing.T) {
+	type args struct {
+		ms  *consensus.MidState
+		txn types.V2Transaction
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr error
+	}{
+		{
+			name: "failure - v2 transactions are not allowed",
+			args: args{
+				ms: consensus.NewMidState(consensus.State{
+					Index: types.ChainIndex{Height: uint64(0)},
+					Network: &consensus.Network{
+						HardforkV2: struct {
+							AllowHeight   uint64 "json:\"allowHeight\""
+							RequireHeight uint64 "json:\"requireHeight\""
+						}{
+							AllowHeight: uint64(2),
+						},
+					},
+				}),
+				txn: types.V2Transaction{},
+			},
+			wantErr: errors.New("v2 transactions are not allowed until v2 hardfork begins"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := consensus.ValidateV2Transaction(tt.args.ms, tt.args.txn); (err != nil) && err.Error() != tt.wantErr.Error() {
+				t.Errorf("ValidateV2Transaction() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
 	}
 }
