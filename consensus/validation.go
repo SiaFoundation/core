@@ -95,8 +95,6 @@ func ValidateOrphan(s State, b types.Block) error {
 	if b.V2 != nil {
 		if b.V2.Height != s.Index.Height+1 {
 			return errors.New("block height does not increment parent height")
-		} else if b.V2.Commitment != s.Commitment(s.TransactionsCommitment(b.Transactions, b.V2Transactions()), b.MinerPayouts[0].Address) {
-			return errors.New("commitment hash mismatch")
 		}
 	}
 	return nil
@@ -904,6 +902,11 @@ func ValidateV2Transaction(ms *MidState, txn types.V2Transaction) error {
 func ValidateBlock(s State, b types.Block, bs V1BlockSupplement) error {
 	if err := ValidateOrphan(s, b); err != nil {
 		return err
+	}
+	if b.V2 != nil {
+		if b.V2.Commitment != s.Commitment(s.TransactionsCommitment(b.Transactions, b.V2Transactions()), b.MinerPayouts[0].Address) {
+			return errors.New("commitment hash mismatch")
+		}
 	}
 	ms := NewMidState(s)
 	for i, txn := range b.Transactions {
