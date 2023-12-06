@@ -1135,7 +1135,7 @@ func TestValidateV2Block(t *testing.T) {
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					rev := testFces[0].V2FileContract
-					rev.RevisionNumber += 1
+					rev.RevisionNumber++
 					txn.FileContractRevisions = []types.V2FileContractRevision{{
 						Parent:   testFces[0],
 						Revision: rev,

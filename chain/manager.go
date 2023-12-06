@@ -858,7 +858,7 @@ func (m *Manager) RecommendedFee() types.Currency {
 		Mul64(estPoolWeight).Div64(targetWeight).Mul64(estPoolWeight).
 		Div64(targetWeight).Mul64(estPoolWeight).Div64(targetWeight)
 
-	// finally, an absolute minumum fee: 1 SC / 100 KB
+	// finally, an absolute minimum fee: 1 SC / 100 KB
 	minFee := types.Siacoins(1).Div64(100e3)
 
 	// use the largest of all calculated fees
