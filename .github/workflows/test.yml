@@ -19,6 +19,10 @@ jobs:
       - uses: actions/setup-go@v3
         with:
           go-version: ${{ matrix.go-version }}
+      - name: Lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          skip-cache: true
       - name: test
         uses: n8maninger/action-golang-test@v1
         with:
