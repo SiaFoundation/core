@@ -100,6 +100,12 @@ type EncoderTo interface {
 	EncodeTo(e *Encoder)
 }
 
+// EncoderFunc implements types.EncoderTo with a function.
+type EncoderFunc func(*Encoder)
+
+// EncodeTo implements types.EncoderTo.
+func (fn EncoderFunc) EncodeTo(e *Encoder) { fn(e) }
+
 // A Decoder reads values from an underlying stream. Callers MUST check
 // (*Decoder).Err before using any decoded values.
 type Decoder struct {
@@ -201,6 +207,12 @@ func NewDecoder(lr io.LimitedReader) *Decoder {
 type DecoderFrom interface {
 	DecodeFrom(d *Decoder)
 }
+
+// DecoderFunc implements types.DecoderTo with a function.
+type DecoderFunc func(*Decoder)
+
+// DecodeFrom implements types.DecoderTo.
+func (fn DecoderFunc) DecodeFrom(d *Decoder) { fn(d) }
 
 // NewBufDecoder returns a Decoder for the provided byte slice.
 func NewBufDecoder(buf []byte) *Decoder {
