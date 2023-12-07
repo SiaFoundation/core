@@ -235,6 +235,7 @@ var (
 	bFileContractElements = []byte("FileContracts")
 	bSiacoinElements      = []byte("SiacoinElements")
 	bSiafundElements      = []byte("SiafundElements")
+	bAncestorTimestamps   = []byte("AncestorTimestamps")
 	bTree                 = []byte("Tree")
 
 	keyHeight = []byte("Height")
@@ -293,6 +294,29 @@ func (db *DBStore) getBlock(id types.BlockID) (b types.Block, bs *consensus.V1Bl
 	var sb supplementedBlock
 	ok := db.bucket(bBlocks).get(id[:], &sb)
 	return sb.Block, sb.Supplement, ok
+}
+
+func (db *DBStore) ancestorTimestamp(id types.BlockID) (time.Time, bool) {
+	getBestID := func(height uint64) (id types.BlockID) {
+		db.bucket(bMainChain).get(db.encHeight(height), &id)
+		return
+	}
+	cs, _ := db.State(id)
+	ancestorID := id
+	for i := uint64(0); i < cs.AncestorDepth() && i < cs.Index.Height; i++ {
+		// if we're on the best path, we can jump to the n'th block directly
+		if ancestorID == getBestID(cs.Index.Height-i) {
+			ancestorID = getBestID(cs.Index.Height - cs.AncestorDepth())
+			if cs.Index.Height < cs.AncestorDepth() {
+				ancestorID = getBestID(0)
+			}
+			break
+		}
+		b, _, _ := db.Block(ancestorID)
+		ancestorID = b.ParentID
+	}
+	b, _, ok := db.Block(ancestorID)
+	return b.Timestamp, ok
 }
 
 func (db *DBStore) putBlock(b types.Block, bs *consensus.V1BlockSupplement) {
@@ -560,6 +584,22 @@ func (db *DBStore) SupplementTipBlock(b types.Block) (bs consensus.V1BlockSupple
 	return bs
 }
 
+// AncestorTimestamp implements Store.
+func (db *DBStore) AncestorTimestamp(id types.BlockID) (t time.Time, ok bool) {
+	ok = db.bucket(bAncestorTimestamps).get(id[:], types.DecoderFunc(func(d *types.Decoder) {
+		t = d.ReadTime()
+	}))
+	if !ok {
+		t, ok = db.ancestorTimestamp(id)
+		if ok {
+			db.bucket(bAncestorTimestamps).put(id[:], types.EncoderFunc(func(e *types.Encoder) {
+				e.WriteTime(t)
+			}))
+		}
+	}
+	return
+}
+
 // State implements Store.
 func (db *DBStore) State(id types.BlockID) (consensus.State, bool) {
 	return db.getState(id)
@@ -653,6 +693,7 @@ func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (_ *DBSto
 			bFileContractElements,
 			bSiacoinElements,
 			bSiafundElements,
+			bAncestorTimestamps,
 			bTree,
 		} {
 			if _, err := db.CreateBucket(bucket); err != nil {
@@ -679,6 +720,11 @@ func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (_ *DBSto
 			return nil, consensus.State{}, errors.New("cannot use mainnet database on Zen testnet")
 		} else {
 			return nil, consensus.State{}, errors.New("database previously initialized with different genesis block")
+		}
+	}
+	if db.Bucket(bAncestorTimestamps) == nil {
+		if _, err := db.CreateBucket(bAncestorTimestamps); err != nil {
+			panic(err)
 		}
 	}
 
