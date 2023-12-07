@@ -101,11 +101,16 @@ func (ot *OutlineTransaction) decodeFrom(d *types.Decoder) {
 	case 0:
 		ot.Transaction = new(types.Transaction)
 		ot.Transaction.DecodeFrom(d)
-		ot.Hash = ot.Transaction.FullHash()
+		// FullHash chokes on invalid input
+		if d.Err() != nil {
+			ot.Hash = ot.Transaction.FullHash()
+		}
 	case 1:
 		ot.V2Transaction = new(types.V2Transaction)
 		ot.V2Transaction.DecodeFrom(d)
-		ot.Hash = ot.V2Transaction.FullHash()
+		if d.Err() != nil {
+			ot.Hash = ot.V2Transaction.FullHash()
+		}
 	case 2:
 		ot.Hash.DecodeFrom(d)
 	default:
