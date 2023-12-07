@@ -72,7 +72,7 @@ type Network struct {
 		Height    uint64        `json:"height"`
 		OakTime   time.Duration `json:"oakTime"`
 		OakTarget types.BlockID `json:"oakTarget"`
-	} `json:"hardforkAsic"`
+	} `json:"hardforkASIC"`
 	HardforkFoundation struct {
 		Height          uint64        `json:"height"`
 		PrimaryAddress  types.Address `json:"primaryAddress"`
