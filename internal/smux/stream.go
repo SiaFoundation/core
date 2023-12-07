@@ -147,10 +147,7 @@ func (s *Stream) SetDeadline(t time.Time) error {
 	if err := s.SetReadDeadline(t); err != nil {
 		return err
 	}
-	if err := s.SetWriteDeadline(t); err != nil {
-		return err
-	}
-	return nil
+	return s.SetWriteDeadline(t)
 }
 
 // session closes the stream
