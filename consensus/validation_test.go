@@ -1030,7 +1030,7 @@ func TestValidateV2Block(t *testing.T) {
 	}
 
 	cs, testCau := consensus.ApplyBlock(cs, validBlock, dbStore.SupplementTipBlock(validBlock), time.Now())
-	if dbStore.ApplyBlock(cs, testCau, true) != true {
+	if !dbStore.ApplyBlock(cs, testCau, true) {
 		t.Fatal("didn't commit block")
 	}
 	updateProofs(testCau, sces, sfes, fces)
@@ -1070,7 +1070,7 @@ func TestValidateV2Block(t *testing.T) {
 			t.Fatal(err)
 		}
 		cs, cau = consensus.ApplyBlock(cs, b, dbStore.SupplementTipBlock(validBlock), time.Now())
-		if dbStore.ApplyBlock(cs, cau, true) != true {
+		if !dbStore.ApplyBlock(cs, cau, true) {
 			t.Fatal("didn't commit block")
 		}
 
@@ -1289,8 +1289,8 @@ func TestValidateV2Transaction(t *testing.T) {
 					Index: types.ChainIndex{Height: uint64(0)},
 					Network: &consensus.Network{
 						HardforkV2: struct {
-							AllowHeight   uint64 "json:\"allowHeight\""
-							RequireHeight uint64 "json:\"requireHeight\""
+							AllowHeight   uint64 `json:"allowHeight"`
+							RequireHeight uint64 `json:"requireHeight"`
 						}{
 							AllowHeight: uint64(2),
 						},

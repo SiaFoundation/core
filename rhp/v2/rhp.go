@@ -303,6 +303,7 @@ type (
 	}
 )
 
+// RPCCost represents the cost of an RPC based on a hosts settings.
 type RPCCost struct {
 	Base       types.Currency
 	Storage    types.Currency
@@ -311,6 +312,7 @@ type RPCCost struct {
 	Collateral types.Currency
 }
 
+// Add adds two RPCCosts by adding each of the constituent costs together.
 func (c RPCCost) Add(o RPCCost) RPCCost {
 	return RPCCost{
 		Base:       c.Base.Add(o.Base),
@@ -321,6 +323,7 @@ func (c RPCCost) Add(o RPCCost) RPCCost {
 	}
 }
 
+// Total returns the total cost and collateral required for an RPC call.
 func (c RPCCost) Total() (cost, collateral types.Currency) {
 	return c.Base.Add(c.Storage).Add(c.Ingress).Add(c.Egress), c.Collateral
 }
