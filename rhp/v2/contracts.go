@@ -85,29 +85,27 @@ func ContractRenewalCollateral(fc types.FileContract, expectedNewStorage uint64,
 	if endHeight < blockHeight {
 		panic("current blockHeight should be lower than the endHeight")
 	}
-	duration := endHeight - blockHeight
 
-	// calculate the base collateral - if it exceeds MaxCollateral we can't add more collateral
+	// calculate the base collateral
 	baseCollateral := host.Collateral.Mul64(fc.Filesize).Mul64(extension)
+
+	// if it exceeds MaxCollateral we can't add more
 	if baseCollateral.Cmp(host.MaxCollateral) >= 0 {
 		return types.ZeroCurrency
 	}
 
-	// calculate the new collateral
-	newCollateral := host.Collateral.Mul64(expectedNewStorage).Mul64(duration)
+	// calculate the renewal collateral
+	duration := endHeight - blockHeight
+	renewalCollateral := host.Collateral.Mul64(expectedNewStorage).Mul64(duration)
 
-	// if the total collateral is more than the MaxCollateral subtract the
-	// delta.
-	totalCollateral := baseCollateral.Add(newCollateral)
-	if totalCollateral.Cmp(host.MaxCollateral) > 0 {
-		delta := totalCollateral.Sub(host.MaxCollateral)
-		if delta.Cmp(newCollateral) > 0 {
-			newCollateral = types.ZeroCurrency
-		} else {
-			newCollateral = newCollateral.Sub(delta)
-		}
+	// if the new total exceeds MaxCollateral, the renewal collateral must equal
+	// the delta to ensure we don't exceed it
+	totalCollateral := baseCollateral.Add(renewalCollateral)
+	if totalCollateral.Cmp(host.MaxCollateral) >= 0 {
+		renewalCollateral = host.MaxCollateral.Sub(baseCollateral)
 	}
-	return newCollateral
+
+	return renewalCollateral
 }
 
 // PrepareContractRenewal constructs a contract renewal transaction.
