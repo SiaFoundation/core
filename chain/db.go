@@ -44,7 +44,6 @@ type versionedState struct {
 func (vs versionedState) EncodeTo(e *types.Encoder) {
 	e.WriteUint8(2)
 	vs.State.EncodeTo(e)
-
 }
 
 func (vs *versionedState) DecodeFrom(d *types.Decoder) {

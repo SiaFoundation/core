@@ -94,7 +94,7 @@ func RegistryHostID(pk types.PublicKey) types.Hash256 {
 func ValidateRegistryEntry(re RegistryEntry) (err error) {
 	switch re.Type {
 	case EntryTypeArbitrary:
-		break // no extra validation required
+		// no extra validation required
 	case EntryTypePubKey:
 		// pub key entries have the first 20 bytes of the host's pub key hash
 		// prefixed to the data.

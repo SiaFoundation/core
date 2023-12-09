@@ -179,7 +179,7 @@ type TransactionID Hash256
 // A ChainIndex pairs a block's height with its ID.
 type ChainIndex struct {
 	Height uint64  `json:"height"`
-	ID     BlockID `json:"ID"`
+	ID     BlockID `json:"id"`
 }
 
 // A SiacoinOutput is the recipient of some of the siacoins spent in a

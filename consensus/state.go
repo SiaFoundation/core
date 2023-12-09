@@ -67,6 +67,7 @@ type Network struct {
 		FixHeight        uint64    `json:"fixHeight"`
 		GenesisTimestamp time.Time `json:"genesisTimestamp"`
 	} `json:"hardforkOak"`
+	//nolint:tagliatelle
 	HardforkASIC struct {
 		Height    uint64        `json:"height"`
 		OakTime   time.Duration `json:"oakTime"`

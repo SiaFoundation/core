@@ -15,10 +15,17 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
+      - name: Configure git # required for golangci-lint on Windows
+        shell: bash
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v3
         with:
           go-version: ${{ matrix.go-version }}
+      - name: Lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          skip-cache: true
       - name: test
         uses: n8maninger/action-golang-test@v1
         with:
