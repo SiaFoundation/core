@@ -334,12 +334,12 @@ func (db *DBStore) treeKey(row, col uint64) []byte {
 }
 
 func (db *DBStore) getElementProof(leafIndex, numLeaves uint64) (proof []types.Hash256) {
-	// The size of the proof is the mergeHeight of leafIndex and numLeaves-1. To
+	// The size of the proof is the mergeHeight of leafIndex and numLeaves. To
 	// see why, imagine a tree large enough to contain both leafIndex and
-	// numLeaves-1 within the same subtree; the height at which the paths to
-	// those leaves diverge must be the size of the subtree containing leafIndex
-	// in the actual tree.
-	proof = make([]types.Hash256, bits.Len64(leafIndex^(numLeaves-1))-1)
+	// numLeaves within the same subtree; the height at which the paths to those
+	// leaves diverge must be the size of the subtree containing leafIndex in
+	// the actual tree.
+	proof = make([]types.Hash256, bits.Len64(leafIndex^numLeaves)-1)
 	for i := range proof {
 		row, col := uint64(i), (leafIndex>>i)^1
 		if !db.bucket(bTree).get(db.treeKey(row, col), &proof[i]) {

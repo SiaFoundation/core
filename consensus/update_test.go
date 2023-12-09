@@ -84,11 +84,10 @@ func TestApplyBlock(t *testing.T) {
 		if err = consensus.ValidateBlock(cs, b, bs); err != nil {
 			return
 		}
-		prev := cs
-		cs, au = consensus.ApplyBlock(prev, b, bs, ancestorTimestamp(dbStore, b.ParentID, cs.AncestorDepth()))
-		dbStore.ApplyBlock(prev, au, true)
-		dbStore.AddBlock(b, &bs)
+		cs, au = consensus.ApplyBlock(cs, b, bs, ancestorTimestamp(dbStore, b.ParentID, cs.AncestorDepth()))
 		dbStore.AddState(cs)
+		dbStore.AddBlock(b, &bs)
+		dbStore.ApplyBlock(cs, au, true)
 		return
 	}
 	checkUpdateElements := func(au consensus.ApplyUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {
