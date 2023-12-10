@@ -8,6 +8,7 @@ import (
 	"math/bits"
 	"time"
 
+	"go.sia.tech/core/internal/blake2b"
 	"go.sia.tech/core/types"
 )
 
@@ -693,26 +694,24 @@ func (au ApplyUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileContr
 func (au ApplyUpdate) ForEachTreeNode(fn func(row, col uint64, h types.Hash256)) {
 	seen := make(map[[2]uint64]bool)
 	au.ms.forEachElementLeaf(func(el elementLeaf) {
-		for i, h := range el.MerkleProof {
-			row, col := uint64(i), (el.LeafIndex>>i)^1
+		row, col := uint64(0), el.LeafIndex
+		h := el.hash()
+		fn(row, col, h)
+		for i, sibling := range el.MerkleProof {
+			if el.LeafIndex&(1<<i) == 0 {
+				h = blake2b.SumPair(h, sibling)
+			} else {
+				h = blake2b.SumPair(sibling, h)
+			}
+			row++
+			col >>= 1
+			fn(row, col, h)
 			if seen[[2]uint64{row, col}] {
-				break // already seen everything above this
+				return // already seen everything above this
 			}
 			seen[[2]uint64{row, col}] = true
-			fn(row, col, h)
 		}
 	})
-	for height, growth := range au.eau.treeGrowth {
-		initCol := clearBits(au.eau.oldNumLeaves, height+1)
-		for i, h := range growth {
-			row, col := uint64(height+i), (initCol>>(height+i))^1
-			if seen[[2]uint64{row, col}] {
-				break // already seen everything above this
-			}
-			seen[[2]uint64{row, col}] = true
-			fn(row, col, h)
-		}
-	}
 }
 
 // ChainIndexElement returns the chain index element for the applied block.
