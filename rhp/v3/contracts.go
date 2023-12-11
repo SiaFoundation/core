@@ -1,6 +1,7 @@
 package rhp
 
 import (
+	"errors"
 	"math/bits"
 
 	"go.sia.tech/core/consensus"
@@ -15,8 +16,11 @@ func ContractRenewalCost(cs consensus.State, pt HostPriceTable, fc types.FileCon
 }
 
 // PrepareContractRenewal constructs a contract renewal transaction.
-func PrepareContractRenewal(currentRevision types.FileContractRevision, hostAddress, renterAddress types.Address, renterPayout, newCollateral types.Currency, pt HostPriceTable, endHeight uint64) (types.FileContract, types.Currency) {
-	hostValidPayout, hostMissedPayout, voidMissedPayout, basePrice := CalculateHostPayouts(currentRevision.FileContract, newCollateral, pt, endHeight)
+func PrepareContractRenewal(currentRevision types.FileContractRevision, hostAddress, renterAddress types.Address, renterPayout, minNewCollateral types.Currency, pt HostPriceTable, expectedNewStorage, endHeight uint64) (types.FileContract, types.Currency, error) {
+	hostValidPayout, hostMissedPayout, voidMissedPayout, basePrice, err := CalculateHostPayouts(currentRevision.FileContract, minNewCollateral, pt, expectedNewStorage, endHeight)
+	if err != nil {
+		return types.FileContract{}, types.ZeroCurrency, err
+	}
 
 	return types.FileContract{
 		Filesize:       currentRevision.Filesize,
@@ -35,13 +39,42 @@ func PrepareContractRenewal(currentRevision types.FileContractRevision, hostAddr
 			{Value: hostMissedPayout, Address: hostAddress},
 			{Value: voidMissedPayout, Address: types.Address{}},
 		},
-	}, basePrice
+	}, basePrice, nil
 }
 
 // CalculateHostPayouts calculates the contract payouts for the host.
-func CalculateHostPayouts(fc types.FileContract, newCollateral types.Currency, pt HostPriceTable, endHeight uint64) (types.Currency, types.Currency, types.Currency, types.Currency) {
-	// Calculate the base price and base collateral. The price always includes
-	// the fee for renewing the contract.
+func CalculateHostPayouts(fc types.FileContract, minNewCollateral types.Currency, pt HostPriceTable, expectedNewStorage, endHeight uint64) (types.Currency, types.Currency, types.Currency, types.Currency, error) {
+	// sanity check the inputs
+	if endHeight < fc.EndHeight() {
+		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("endHeight should be at least the current end height of the contract")
+	} else if endHeight < pt.HostBlockHeight {
+		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("current blockHeight should be lower than the endHeight")
+	}
+
+	// calculate the base costs
+	basePrice, baseCollateral, newCollateral := RenewalCosts(fc, pt, expectedNewStorage, endHeight)
+
+	// make sure the minimum amount of new collateral is added
+	if newCollateral.Cmp(minNewCollateral) < 0 {
+		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("new collateral is too low")
+	}
+
+	// calculate payouts
+	hostValidPayout := pt.ContractPrice.Add(basePrice).Add(baseCollateral).Add(newCollateral)
+	voidMissedPayout := basePrice.Add(baseCollateral)
+	if hostValidPayout.Cmp(voidMissedPayout) < 0 {
+		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("host's settings are unsatisfiable")
+	}
+	hostMissedPayout := hostValidPayout.Sub(voidMissedPayout)
+	return hostValidPayout, hostMissedPayout, voidMissedPayout, basePrice, nil
+}
+
+// RenewalCosts calculates the base price, base collateral and new collateral
+// for a contract renewal taking into account the host's MaxCollateral setting
+// and contract price.
+func RenewalCosts(fc types.FileContract, pt HostPriceTable, expectedNewStorage, endHeight uint64) (_, _, _ types.Currency) {
+	// calculate the base price and base collateral. The price always includes
+	// the fee for renewing the contract
 	basePrice := pt.RenewContractCost
 	var baseCollateral types.Currency
 
@@ -52,15 +85,17 @@ func CalculateHostPayouts(fc types.FileContract, newCollateral types.Currency, p
 		baseCollateral = baseCollateral.Add(pt.CollateralCost.Mul64(fc.Filesize).Mul64(timeExtension))
 	}
 
-	// calculate payouts
-	hostValidPayout := pt.ContractPrice.Add(basePrice).Add(baseCollateral).Add(newCollateral)
-	voidMissedPayout := basePrice.Add(baseCollateral)
-	if hostValidPayout.Cmp(voidMissedPayout) < 0 {
-		// TODO: detect this elsewhere
-		panic("host's settings are unsatisfiable")
+	// calculate the new collateral
+	newCollateral := pt.CollateralCost.Mul64(expectedNewStorage).Mul64(endHeight + pt.WindowSize - pt.HostBlockHeight)
+
+	// cap collateral
+	if baseCollateral.Cmp(pt.MaxCollateral) > 0 {
+		baseCollateral = pt.MaxCollateral
+		newCollateral = types.ZeroCurrency
+	} else if baseCollateral.Add(newCollateral).Cmp(pt.MaxCollateral) > 0 {
+		newCollateral = pt.MaxCollateral.Sub(baseCollateral)
 	}
-	hostMissedPayout := hostValidPayout.Sub(voidMissedPayout)
-	return hostValidPayout, hostMissedPayout, voidMissedPayout, basePrice
+	return basePrice, baseCollateral, newCollateral
 }
 
 // NOTE: due to a bug in the transaction validation code, calculating payouts

@@ -81,7 +81,7 @@ func ContractRenewalCollateral(fc types.FileContract, expectedNewStorage uint64,
 	if endHeight < fc.EndHeight() {
 		panic("endHeight should be at least the current end height of the contract")
 	}
-	extension := endHeight - fc.EndHeight()
+	extension := endHeight - fc.WindowEnd
 	if endHeight < blockHeight {
 		panic("current blockHeight should be lower than the endHeight")
 	}
