@@ -155,7 +155,7 @@ func CalculateHostPayouts(fc types.FileContract, newCollateral types.Currency, s
 
 	// if the contract height did not increase both prices are zero
 	if contractEnd := uint64(endHeight + settings.WindowSize); contractEnd > fc.WindowEnd {
-		timeExtension := uint64(contractEnd - fc.WindowEnd)
+		timeExtension := uint64(contractEnd - fc.EndHeight())
 		basePrice = settings.StoragePrice.Mul64(fc.Filesize).Mul64(timeExtension)
 		baseCollateral = settings.Collateral.Mul64(fc.Filesize).Mul64(timeExtension)
 	}
