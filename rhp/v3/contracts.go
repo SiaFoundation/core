@@ -80,13 +80,13 @@ func RenewalCosts(fc types.FileContract, pt HostPriceTable, expectedNewStorage, 
 
 	// if the contract height did not increase both prices are zero
 	if contractEnd := uint64(endHeight + pt.WindowSize); contractEnd > fc.WindowEnd {
-		timeExtension := uint64(contractEnd - fc.EndHeight())
+		timeExtension := uint64(contractEnd - fc.WindowEnd)
 		basePrice = basePrice.Add(pt.WriteStoreCost.Mul64(fc.Filesize).Mul64(timeExtension))
 		baseCollateral = baseCollateral.Add(pt.CollateralCost.Mul64(fc.Filesize).Mul64(timeExtension))
 	}
 
 	// calculate the new collateral
-	newCollateral := pt.CollateralCost.Mul64(expectedNewStorage).Mul64(endHeight - pt.HostBlockHeight)
+	newCollateral := pt.CollateralCost.Mul64(expectedNewStorage).Mul64(endHeight + pt.WindowSize - pt.HostBlockHeight)
 
 	// cap collateral
 	if baseCollateral.Cmp(pt.MaxCollateral) > 0 {
