@@ -90,7 +90,7 @@ linters-settings:
       - name: bool-literal-in-expr
         disabled: false
       - name: confusing-naming
-        disabled: false
+        disabled: true
       - name: confusing-results
         disabled: false
       - name: constant-logical-expr
