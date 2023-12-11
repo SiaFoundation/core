@@ -5,32 +5,11 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"go.sia.tech/core/chain"
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
 )
-
-func ancestorTimestamp(s chain.Store, id types.BlockID, n uint64) time.Time {
-	b, _, _ := s.Block(id)
-	cs, _ := s.State(id)
-	for i := uint64(1); i < n; i++ {
-		// if we're on the best path, we can jump to the n'th block directly
-		if index, _ := s.BestIndex(cs.Index.Height); index.ID == id {
-			height := cs.Index.Height - (n - i)
-			if cs.Index.Height < (n - i) {
-				height = 0
-			}
-			ancestorIndex, _ := s.BestIndex(height)
-			b, _, _ = s.Block(ancestorIndex.ID)
-			break
-		}
-		b, _, _ = s.Block(b.ParentID)
-		cs, _ = s.State(b.ParentID)
-	}
-	return b.Timestamp
-}
 
 func TestApplyBlock(t *testing.T) {
 	n, genesisBlock := chain.TestnetZen()
@@ -84,7 +63,8 @@ func TestApplyBlock(t *testing.T) {
 		if err = consensus.ValidateBlock(cs, b, bs); err != nil {
 			return
 		}
-		cs, au = consensus.ApplyBlock(cs, b, bs, ancestorTimestamp(dbStore, b.ParentID, cs.AncestorDepth()))
+		ancestorTimestamp, _ := dbStore.AncestorTimestamp(b.ParentID)
+		cs, au = consensus.ApplyBlock(cs, b, bs, ancestorTimestamp)
 		dbStore.AddState(cs)
 		dbStore.AddBlock(b, &bs)
 		dbStore.ApplyBlock(cs, au, true)
