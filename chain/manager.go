@@ -509,7 +509,7 @@ func (m *Manager) revalidatePool() {
 		sort.Slice(txnFees, func(i, j int) bool {
 			return txnFees[i].fees.Div64(txnFees[i].weight).Cmp(txnFees[j].fees.Div64(txnFees[j].weight)) < 0
 		})
-		for m.txpool.weight >= (txpoolMaxWeight*3)/4 {
+		for m.txpool.weight >= (txpoolMaxWeight*3)/4 && len(txnFees) > 0 {
 			m.txpool.weight -= txnFees[0].weight
 			txnFees = txnFees[1:]
 		}
@@ -530,6 +530,7 @@ func (m *Manager) revalidatePool() {
 	m.txpool.ms = consensus.NewMidState(m.tipState)
 	txns := append(m.txpool.txns, m.txpool.lastReverted...)
 	m.txpool.txns = m.txpool.txns[:0]
+	m.txpool.weight = 0
 	for _, txn := range txns {
 		ts := m.store.SupplementTipTransaction(txn)
 		if consensus.ValidateTransaction(m.txpool.ms, txn, ts) == nil {
