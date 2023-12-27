@@ -278,7 +278,7 @@ func (m *Manager) revertTip() error {
 		}
 	}
 
-	m.revertPoolUpdate(cru)
+	m.revertPoolUpdate(&update)
 	m.tipState = cs
 	return nil
 }
@@ -329,7 +329,7 @@ func (m *Manager) applyTip(index types.ChainIndex) error {
 		}
 	}
 
-	m.applyPoolUpdate(cau)
+	m.applyPoolUpdate(update)
 	m.tipState = cs
 	return nil
 }
@@ -624,14 +624,14 @@ func (m *Manager) computeParentMap() map[types.Hash256]int {
 	return m.txpool.parentMap
 }
 
-func (m *Manager) applyPoolUpdate(cau consensus.ApplyUpdate) {
+func (m *Manager) applyPoolUpdate(cau *ApplyUpdate) {
 	// replace ephemeral elements, if necessary
 	var newElements map[types.Hash256]types.StateElement
 	replaceEphemeral := func(e *types.StateElement) {
 		if e.LeafIndex != types.EphemeralLeafIndex {
 			return
 		} else if newElements == nil {
-			newElements := make(map[types.Hash256]types.StateElement)
+			newElements = make(map[types.Hash256]types.StateElement)
 			cau.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
 				if !spent {
 					newElements[sce.ID] = sce.StateElement
@@ -670,52 +670,59 @@ func (m *Manager) applyPoolUpdate(cau consensus.ApplyUpdate) {
 		}
 	}
 
-	// update proofs
+	// update proofs, noop-ing instead of panicking on un-updateable elements;
+	// they will be removed later by revalidatePool
+	updateProof := func(e *types.StateElement) {
+		if e.LeafIndex == types.EphemeralLeafIndex || e.LeafIndex >= cau.State.Elements.NumLeaves {
+			return
+		}
+		cau.UpdateElementProof(e)
+	}
 	for _, txn := range m.txpool.v2txns {
 		for i := range txn.SiacoinInputs {
-			cau.UpdateElementProof(&txn.SiacoinInputs[i].Parent.StateElement)
+			updateProof(&txn.SiacoinInputs[i].Parent.StateElement)
 		}
 		for i := range txn.SiafundInputs {
-			cau.UpdateElementProof(&txn.SiafundInputs[i].Parent.StateElement)
+			updateProof(&txn.SiafundInputs[i].Parent.StateElement)
 		}
 		for i := range txn.FileContractRevisions {
-			cau.UpdateElementProof(&txn.FileContractRevisions[i].Parent.StateElement)
+			updateProof(&txn.FileContractRevisions[i].Parent.StateElement)
 		}
 		for i := range txn.FileContractResolutions {
-			cau.UpdateElementProof(&txn.FileContractResolutions[i].Parent.StateElement)
+			updateProof(&txn.FileContractResolutions[i].Parent.StateElement)
 			if sp, ok := txn.FileContractResolutions[i].Resolution.(*types.V2StorageProof); ok {
-				cau.UpdateElementProof(&sp.ProofIndex.StateElement)
+				updateProof(&sp.ProofIndex.StateElement)
 			}
 		}
 	}
 }
 
-func (m *Manager) revertPoolUpdate(cru consensus.RevertUpdate) {
+func (m *Manager) revertPoolUpdate(cru *RevertUpdate) {
 	// restore ephemeral elements, if necessary
 	var uncreated map[types.Hash256]bool
 	replaceEphemeral := func(e *types.StateElement) {
 		if e.LeafIndex != types.EphemeralLeafIndex {
 			return
 		} else if uncreated == nil {
-			uncreated := make(map[types.Hash256]types.StateElement)
+			uncreated = make(map[types.Hash256]bool)
 			cru.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
 				if !spent {
-					uncreated[sce.ID] = sce.StateElement
+					uncreated[sce.ID] = true
 				}
 			})
 			cru.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
 				if !spent {
-					uncreated[sfe.ID] = sfe.StateElement
+					uncreated[sfe.ID] = true
 				}
 			})
 			cru.ForEachFileContractElement(func(fce types.FileContractElement, rev *types.FileContractElement, resolved, valid bool) {
 				if !resolved {
-					uncreated[fce.ID] = fce.StateElement
+					uncreated[fce.ID] = true
 				}
 			})
 			cru.ForEachV2FileContractElement(func(fce types.V2FileContractElement, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
 				if res != nil {
-					uncreated[fce.ID] = fce.StateElement
+					uncreated[fce.ID] = true
 				}
 			})
 		}
@@ -738,21 +745,28 @@ func (m *Manager) revertPoolUpdate(cru consensus.RevertUpdate) {
 		}
 	}
 
-	// update proofs
+	// update proofs, noop-ing instead of panicking on un-updateable elements;
+	// they will be removed later by revalidatePool
+	updateProof := func(e *types.StateElement) {
+		if e.LeafIndex == types.EphemeralLeafIndex || e.LeafIndex >= cru.State.Elements.NumLeaves {
+			return
+		}
+		cru.UpdateElementProof(e)
+	}
 	for _, txn := range m.txpool.v2txns {
 		for i := range txn.SiacoinInputs {
-			cru.UpdateElementProof(&txn.SiacoinInputs[i].Parent.StateElement)
+			updateProof(&txn.SiacoinInputs[i].Parent.StateElement)
 		}
 		for i := range txn.SiafundInputs {
-			cru.UpdateElementProof(&txn.SiafundInputs[i].Parent.StateElement)
+			updateProof(&txn.SiafundInputs[i].Parent.StateElement)
 		}
 		for i := range txn.FileContractRevisions {
-			cru.UpdateElementProof(&txn.FileContractRevisions[i].Parent.StateElement)
+			updateProof(&txn.FileContractRevisions[i].Parent.StateElement)
 		}
 		for i := range txn.FileContractResolutions {
-			cru.UpdateElementProof(&txn.FileContractResolutions[i].Parent.StateElement)
+			updateProof(&txn.FileContractResolutions[i].Parent.StateElement)
 			if sp, ok := txn.FileContractResolutions[i].Resolution.(*types.V2StorageProof); ok {
-				cru.UpdateElementProof(&sp.ProofIndex.StateElement)
+				updateProof(&sp.ProofIndex.StateElement)
 			}
 		}
 	}
