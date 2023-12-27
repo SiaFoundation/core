@@ -829,13 +829,14 @@ func RevertBlock(s State, b types.Block, bs V1BlockSupplement) RevertUpdate {
 	ms.ApplyBlock(b, bs)
 
 	// compute updated elements
-	var updated []elementLeaf
+	var updated, added []elementLeaf
 	ms.forEachElementLeaf(func(el elementLeaf) {
 		if el.MerkleProof != nil {
-			el.Spent = false // reverting a block can never cause an element to become spent
 			updated = append(updated, el)
+		} else {
+			added = append(added, el)
 		}
 	})
-	eru := s.Elements.revertBlock(updated)
+	eru := s.Elements.revertBlock(updated, added)
 	return RevertUpdate{ms, eru}
 }
