@@ -241,7 +241,11 @@ func (m *Manager) AddBlocks(blocks []types.Block) error {
 	//
 	// TODO: SurpassThreshold?
 	if cs.Depth.CmpWork(m.tipState.Depth) > 0 {
+		oldTip := m.tipState.Index
 		if err := m.reorgTo(cs.Index); err != nil {
+			if err := m.reorgTo(oldTip); err != nil {
+				return fmt.Errorf("failed to revert failed reorg: %w", err)
+			}
 			return fmt.Errorf("reorg failed: %w", err)
 		}
 	}
