@@ -800,6 +800,7 @@ func (ru RevertUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileCont
 func (ru RevertUpdate) ForEachTreeNode(fn func(row, col uint64, h types.Hash256)) {
 	seen := make(map[[2]uint64]bool)
 	ru.ms.forEachElementLeaf(func(el elementLeaf) {
+		el.Spent = false // reverting a block can never cause an element to become spent
 		row, col := uint64(0), el.LeafIndex
 		h := el.hash()
 		fn(row, col, h)
@@ -831,6 +832,7 @@ func RevertBlock(s State, b types.Block, bs V1BlockSupplement) RevertUpdate {
 	// compute updated elements
 	var updated, added []elementLeaf
 	ms.forEachElementLeaf(func(el elementLeaf) {
+		el.Spent = false // reverting a block can never cause an element to become spent
 		if el.MerkleProof != nil {
 			updated = append(updated, el)
 		} else {

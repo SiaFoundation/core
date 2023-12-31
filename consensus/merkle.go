@@ -359,9 +359,6 @@ func (acc *ElementAccumulator) applyBlock(updated, added []elementLeaf) (eau ele
 // elements. All of the elements will be marked unspent. The accumulator itself
 // is not modified.
 func (acc *ElementAccumulator) revertBlock(updated, added []elementLeaf) (eru elementRevertUpdate) {
-	for i := range updated {
-		updated[i].Spent = false // reverting a block can never cause an element to become spent
-	}
 	eru.updated = updateLeaves(updated)
 	eru.numLeaves = acc.NumLeaves
 	for i := range added {
