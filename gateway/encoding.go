@@ -102,13 +102,13 @@ func (ot *OutlineTransaction) decodeFrom(d *types.Decoder) {
 		ot.Transaction = new(types.Transaction)
 		ot.Transaction.DecodeFrom(d)
 		// FullHash chokes on invalid input
-		if d.Err() != nil {
+		if d.Err() == nil {
 			ot.Hash = ot.Transaction.FullHash()
 		}
 	case 1:
 		ot.V2Transaction = new(types.V2Transaction)
 		ot.V2Transaction.DecodeFrom(d)
-		if d.Err() != nil {
+		if d.Err() == nil {
 			ot.Hash = ot.V2Transaction.FullHash()
 		}
 	case 2:
