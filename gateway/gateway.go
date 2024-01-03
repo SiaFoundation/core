@@ -162,32 +162,13 @@ func (bo V2BlockOutline) Missing() (missing []types.Hash256) {
 // transactions. If the block cannot be fully reconstructed, it returns the
 // hashes of the missing transactions.
 func (bo *V2BlockOutline) Complete(cs consensus.State, txns []types.Transaction, v2txns []types.V2Transaction) (types.Block, []types.Hash256) {
-	var v1hashes map[types.Hash256]types.Transaction
-	var v2hashes map[types.Hash256]types.V2Transaction
-	completeTxn := func(ptxn *OutlineTransaction) {
-		if ptxn.Transaction != nil || ptxn.V2Transaction != nil {
-			return
-		}
-		if v1hashes == nil {
-			v1hashes = make(map[types.Hash256]types.Transaction, len(txns))
-			for _, txn := range txns {
-				v1hashes[txn.FullHash()] = txn
-			}
-		}
-		if txn, ok := v1hashes[ptxn.Hash]; ok {
-			ptxn.Transaction = &txn
-			return
-		}
-		if v2hashes == nil {
-			v2hashes = make(map[types.Hash256]types.V2Transaction, len(txns))
-			for _, txn := range v2txns {
-				v2hashes[txn.FullHash()] = txn
-			}
-		}
-		if txn, ok := v2hashes[ptxn.Hash]; ok {
-			ptxn.V2Transaction = &txn
-			return
-		}
+	v1hashes := make(map[types.Hash256]*types.Transaction, len(txns))
+	for i := range txns {
+		v1hashes[txns[i].FullHash()] = &txns[i]
+	}
+	v2hashes := make(map[types.Hash256]*types.V2Transaction, len(v2txns))
+	for i := range v2txns {
+		v2hashes[v2txns[i].FullHash()] = &v2txns[i]
 	}
 
 	b := types.Block{
@@ -202,12 +183,12 @@ func (bo *V2BlockOutline) Complete(cs consensus.State, txns []types.Transaction,
 	}
 	for i := range bo.Transactions {
 		ptxn := &bo.Transactions[i]
-		completeTxn(ptxn)
+		if ptxn.Transaction == nil && ptxn.V2Transaction == nil {
+			ptxn.Transaction, ptxn.V2Transaction = v1hashes[ptxn.Hash], v2hashes[ptxn.Hash]
+		}
 		if ptxn.Transaction != nil {
 			b.Transactions = append(b.Transactions, *ptxn.Transaction)
-			for _, fee := range ptxn.Transaction.MinerFees {
-				b.MinerPayouts[0].Value = b.MinerPayouts[0].Value.Add(fee)
-			}
+			b.MinerPayouts[0].Value = b.MinerPayouts[0].Value.Add(ptxn.Transaction.TotalFees())
 		} else if ptxn.V2Transaction != nil {
 			b.V2.Transactions = append(b.V2.Transactions, *ptxn.V2Transaction)
 			b.MinerPayouts[0].Value = b.MinerPayouts[0].Value.Add(ptxn.V2Transaction.MinerFee)
@@ -237,16 +218,16 @@ func (bo *V2BlockOutline) RemoveTransactions(txns []types.Transaction, v2txns []
 // transactions.
 func OutlineBlock(b types.Block, txns []types.Transaction, v2txns []types.V2Transaction) V2BlockOutline {
 	var otxns []OutlineTransaction
-	for _, txn := range b.Transactions {
+	for i := range b.Transactions {
 		otxns = append(otxns, OutlineTransaction{
-			Hash:        txn.FullHash(),
-			Transaction: &txn,
+			Hash:        b.Transactions[i].FullHash(),
+			Transaction: &b.Transactions[i],
 		})
 	}
-	for _, txn := range b.V2Transactions() {
+	for i := range b.V2Transactions() {
 		otxns = append(otxns, OutlineTransaction{
-			Hash:          txn.FullHash(),
-			V2Transaction: &txn,
+			Hash:          b.V2.Transactions[i].FullHash(),
+			V2Transaction: &b.V2.Transactions[i],
 		})
 	}
 	bo := V2BlockOutline{
