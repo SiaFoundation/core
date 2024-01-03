@@ -83,62 +83,90 @@ func (h *V2BlockHeader) decodeFrom(d *types.Decoder) {
 	h.MinerAddress.DecodeFrom(d)
 }
 
-func (ot *OutlineTransaction) encodeTo(e *types.Encoder) {
-	if ot.Transaction != nil {
-		e.WriteUint8(0)
-		ot.Transaction.EncodeTo(e)
-	} else if ot.V2Transaction != nil {
-		e.WriteUint8(1)
-		ot.V2Transaction.EncodeTo(e)
-	} else {
-		e.WriteUint8(2)
-		ot.Hash.EncodeTo(e)
+func (ob *V2BlockOutline) encodeTo(e *types.Encoder) {
+	e.WriteUint64(ob.Height)
+	ob.ParentID.EncodeTo(e)
+	e.WriteUint64(ob.Nonce)
+	e.WriteTime(ob.Timestamp)
+	ob.MinerAddress.EncodeTo(e)
+
+	var txns []types.Transaction
+	var v2txns []types.V2Transaction
+	var hashes []types.Hash256
+	var kinds []uint8
+	for _, ot := range ob.Transactions {
+		switch {
+		case ot.Transaction != nil:
+			txns = append(txns, *ot.Transaction)
+			kinds = append(kinds, 0)
+		case ot.V2Transaction != nil:
+			v2txns = append(v2txns, *ot.V2Transaction)
+			kinds = append(kinds, 1)
+		default:
+			hashes = append(hashes, ot.Hash)
+			kinds = append(kinds, 2)
+		}
+	}
+	e.WritePrefix(len(txns))
+	for i := range txns {
+		txns[i].EncodeTo(e)
+	}
+	types.V2TransactionsMultiproof(v2txns).EncodeTo(e)
+	e.WritePrefix(len(hashes))
+	for i := range hashes {
+		hashes[i].EncodeTo(e)
+	}
+	for i := range kinds {
+		e.WriteUint8(kinds[i])
 	}
 }
 
-func (ot *OutlineTransaction) decodeFrom(d *types.Decoder) {
-	switch t := d.ReadUint8(); t {
-	case 0:
-		ot.Transaction = new(types.Transaction)
-		ot.Transaction.DecodeFrom(d)
-		// FullHash chokes on invalid input
-		if d.Err() == nil {
+func (ob *V2BlockOutline) decodeFrom(d *types.Decoder) {
+	ob.Height = d.ReadUint64()
+	ob.ParentID.DecodeFrom(d)
+	ob.Nonce = d.ReadUint64()
+	ob.Timestamp = d.ReadTime()
+	ob.MinerAddress.DecodeFrom(d)
+
+	txns := make([]types.Transaction, d.ReadPrefix())
+	for i := range txns {
+		txns[i].DecodeFrom(d)
+	}
+	var v2txns types.V2TransactionsMultiproof
+	v2txns.DecodeFrom(d)
+	hashes := make([]types.Hash256, d.ReadPrefix())
+	for i := range hashes {
+		hashes[i].DecodeFrom(d)
+	}
+	kinds := make([]uint8, len(txns)+len(v2txns)+len(hashes))
+	var counts [3]int
+	for i := range kinds {
+		kinds[i] = d.ReadUint8()
+		if kinds[i] > 2 {
+			d.SetErr(fmt.Errorf("invalid outline transaction type (%d)", kinds[i]))
+			return
+		}
+		counts[kinds[i]]++
+	}
+	if counts[0] != len(txns) || counts[1] != len(v2txns) || counts[2] != len(hashes) {
+		d.SetErr(fmt.Errorf("outline kinds (%v %v %v) do not match received kinds (%v %v %v)", counts[0], counts[1], counts[2], len(txns), len(v2txns), len(hashes)))
+		return
+	} else if d.Err() != nil {
+		return // FullHash chokes on invalid input
+	}
+	ob.Transactions = make([]OutlineTransaction, len(kinds))
+	for i := range ob.Transactions {
+		ot := &ob.Transactions[i]
+		switch kinds[i] {
+		case 0:
+			ot.Transaction, txns = &txns[0], txns[1:]
 			ot.Hash = ot.Transaction.FullHash()
-		}
-	case 1:
-		ot.V2Transaction = new(types.V2Transaction)
-		ot.V2Transaction.DecodeFrom(d)
-		if d.Err() == nil {
+		case 1:
+			ot.V2Transaction, v2txns = &v2txns[0], v2txns[1:]
 			ot.Hash = ot.V2Transaction.FullHash()
+		case 2:
+			ot.Hash, hashes = hashes[0], hashes[1:]
 		}
-	case 2:
-		ot.Hash.DecodeFrom(d)
-	default:
-		d.SetErr(fmt.Errorf("invalid outline transaction type (%d)", t))
-	}
-}
-
-func (pb *V2BlockOutline) encodeTo(e *types.Encoder) {
-	e.WriteUint64(pb.Height)
-	pb.ParentID.EncodeTo(e)
-	e.WriteUint64(pb.Nonce)
-	e.WriteTime(pb.Timestamp)
-	pb.MinerAddress.EncodeTo(e)
-	e.WritePrefix(len(pb.Transactions))
-	for i := range pb.Transactions {
-		pb.Transactions[i].encodeTo(e)
-	}
-}
-
-func (pb *V2BlockOutline) decodeFrom(d *types.Decoder) {
-	pb.Height = d.ReadUint64()
-	pb.ParentID.DecodeFrom(d)
-	pb.Nonce = d.ReadUint64()
-	pb.Timestamp = d.ReadTime()
-	pb.MinerAddress.DecodeFrom(d)
-	pb.Transactions = make([]OutlineTransaction, d.ReadPrefix())
-	for i := range pb.Transactions {
-		pb.Transactions[i].decodeFrom(d)
 	}
 }
 
