@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/binary"
+	"errors"
 	"math/bits"
 	"sort"
 
@@ -224,6 +225,9 @@ func (txns *V2TransactionsMultiproof) DecodeFrom(d *Decoder) {
 	}
 	forEachStateElement(*txns, func(se *StateElement) {
 		se.MerkleProof = make([]Hash256, d.ReadUint8())
+		if len(se.MerkleProof) >= 64 {
+			d.SetErr(errors.New("invalid Merkle proof size"))
+		}
 	})
 	// NOTE: an adversarial input could cause us to allocate at most 1 Hash256
 	// per StateElement in the block -- not enough to cause OOM on its own.
