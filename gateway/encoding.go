@@ -436,17 +436,20 @@ func (r *RPCRelayV2BlockOutline) maxRequestLen() int             { return 5e6 }
 
 // RPCRelayV2TransactionSet relays a v2 transaction set.
 type RPCRelayV2TransactionSet struct {
+	Index        types.ChainIndex
 	Transactions []types.V2Transaction
 	emptyResponse
 }
 
 func (r *RPCRelayV2TransactionSet) encodeRequest(e *types.Encoder) {
+	r.Index.EncodeTo(e)
 	e.WritePrefix(len(r.Transactions))
 	for i := range r.Transactions {
 		r.Transactions[i].EncodeTo(e)
 	}
 }
 func (r *RPCRelayV2TransactionSet) decodeRequest(d *types.Decoder) {
+	r.Index.DecodeFrom(d)
 	r.Transactions = make([]types.V2Transaction, d.ReadPrefix())
 	for i := range r.Transactions {
 		r.Transactions[i].DecodeFrom(d)

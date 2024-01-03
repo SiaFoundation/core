@@ -107,7 +107,7 @@ type RPCHandler interface {
 	Checkpoint(index types.ChainIndex) (types.Block, consensus.State, error)
 	RelayV2Header(h V2BlockHeader, origin *Peer)
 	RelayV2BlockOutline(b V2BlockOutline, origin *Peer)
-	RelayV2TransactionSet(txns []types.V2Transaction, origin *Peer)
+	RelayV2TransactionSet(index types.ChainIndex, txns []types.V2Transaction, origin *Peer)
 }
 
 // HandleRPC handles an RPC received from the peer.
@@ -209,7 +209,7 @@ func (p *Peer) HandleRPC(id types.Specifier, stream net.Conn, h RPCHandler) erro
 		if err := p.withDecoder(stream, r.maxRequestLen(), r.decodeRequest); err != nil {
 			return err
 		}
-		h.RelayV2TransactionSet(r.Transactions, p)
+		h.RelayV2TransactionSet(r.Index, r.Transactions, p)
 		return nil
 	case *RPCSendV2Blocks:
 		err := p.withDecoder(stream, r.maxRequestLen(), r.decodeRequest)
@@ -359,8 +359,8 @@ func (p *Peer) RelayV2BlockOutline(b V2BlockOutline, timeout time.Duration) erro
 }
 
 // RelayV2TransactionSet relays a v2 transaction set to the peer.
-func (p *Peer) RelayV2TransactionSet(txns []types.V2Transaction, timeout time.Duration) error {
-	return p.callRPC(&RPCRelayV2TransactionSet{Transactions: txns}, timeout)
+func (p *Peer) RelayV2TransactionSet(index types.ChainIndex, txns []types.V2Transaction, timeout time.Duration) error {
+	return p.callRPC(&RPCRelayV2TransactionSet{Index: index, Transactions: txns}, timeout)
 }
 
 // SendV2Blocks requests up to n blocks from p, starting from the most recent

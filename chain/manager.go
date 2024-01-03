@@ -628,77 +628,31 @@ func (m *Manager) computeParentMap() map[types.Hash256]int {
 	return m.txpool.parentMap
 }
 
-func (m *Manager) applyPoolUpdate(cau *ApplyUpdate) {
-	// replace ephemeral elements, if necessary
-	var newElements map[types.Hash256]types.StateElement
-	replaceEphemeral := func(e *types.StateElement) {
-		if e.LeafIndex != types.EphemeralLeafIndex {
-			return
-		} else if newElements == nil {
-			newElements = make(map[types.Hash256]types.StateElement)
-			cau.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
-				if !spent {
-					newElements[sce.ID] = sce.StateElement
-				}
-			})
-			cau.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
-				if !spent {
-					newElements[sfe.ID] = sfe.StateElement
-				}
-			})
-			cau.ForEachFileContractElement(func(fce types.FileContractElement, rev *types.FileContractElement, resolved, valid bool) {
-				if !resolved {
-					newElements[fce.ID] = fce.StateElement
-				}
-			})
-			cau.ForEachV2FileContractElement(func(fce types.V2FileContractElement, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
-				if res != nil {
-					newElements[fce.ID] = fce.StateElement
-				}
-			})
-		}
-		*e = newElements[e.ID]
-	}
-	for _, txn := range m.txpool.v2txns {
-		for i := range txn.SiacoinInputs {
-			replaceEphemeral(&txn.SiacoinInputs[i].Parent.StateElement)
-		}
-		for i := range txn.SiafundInputs {
-			replaceEphemeral(&txn.SiafundInputs[i].Parent.StateElement)
-		}
-		for i := range txn.FileContractRevisions {
-			replaceEphemeral(&txn.FileContractRevisions[i].Parent.StateElement)
-		}
-		for i := range txn.FileContractResolutions {
-			replaceEphemeral(&txn.FileContractResolutions[i].Parent.StateElement)
-		}
-	}
-
-	// update proofs, noop-ing instead of panicking on un-updateable elements;
-	// they will be removed later by revalidatePool
+func updateTxnProofs(txn *types.V2Transaction, updateElementProof func(*types.StateElement), numLeaves uint64) (valid bool) {
+	valid = true
 	updateProof := func(e *types.StateElement) {
-		if e.LeafIndex == types.EphemeralLeafIndex || e.LeafIndex >= cau.State.Elements.NumLeaves {
+		valid = valid && e.LeafIndex < numLeaves
+		if !valid || e.LeafIndex == types.EphemeralLeafIndex {
 			return
 		}
-		cau.UpdateElementProof(e)
+		updateElementProof(e)
 	}
-	for _, txn := range m.txpool.v2txns {
-		for i := range txn.SiacoinInputs {
-			updateProof(&txn.SiacoinInputs[i].Parent.StateElement)
-		}
-		for i := range txn.SiafundInputs {
-			updateProof(&txn.SiafundInputs[i].Parent.StateElement)
-		}
-		for i := range txn.FileContractRevisions {
-			updateProof(&txn.FileContractRevisions[i].Parent.StateElement)
-		}
-		for i := range txn.FileContractResolutions {
-			updateProof(&txn.FileContractResolutions[i].Parent.StateElement)
-			if sp, ok := txn.FileContractResolutions[i].Resolution.(*types.V2StorageProof); ok {
-				updateProof(&sp.ProofIndex.StateElement)
-			}
+	for i := range txn.SiacoinInputs {
+		updateProof(&txn.SiacoinInputs[i].Parent.StateElement)
+	}
+	for i := range txn.SiafundInputs {
+		updateProof(&txn.SiafundInputs[i].Parent.StateElement)
+	}
+	for i := range txn.FileContractRevisions {
+		updateProof(&txn.FileContractRevisions[i].Parent.StateElement)
+	}
+	for i := range txn.FileContractResolutions {
+		updateProof(&txn.FileContractResolutions[i].Parent.StateElement)
+		if sp, ok := txn.FileContractResolutions[i].Resolution.(*types.V2StorageProof); ok {
+			updateProof(&sp.ProofIndex.StateElement)
 		}
 	}
+	return
 }
 
 func (m *Manager) revertPoolUpdate(cru *RevertUpdate) {
@@ -749,31 +703,68 @@ func (m *Manager) revertPoolUpdate(cru *RevertUpdate) {
 		}
 	}
 
-	// update proofs, noop-ing instead of panicking on un-updateable elements;
-	// they will be removed later by revalidatePool
-	updateProof := func(e *types.StateElement) {
-		if e.LeafIndex == types.EphemeralLeafIndex || e.LeafIndex >= cru.State.Elements.NumLeaves {
-			return
+	rem := m.txpool.v2txns[:0]
+	for _, txn := range m.txpool.v2txns {
+		if updateTxnProofs(&txn, cru.UpdateElementProof, cru.State.Elements.NumLeaves) {
+			rem = append(rem, txn)
 		}
-		cru.UpdateElementProof(e)
+	}
+	m.txpool.v2txns = rem
+}
+
+func (m *Manager) applyPoolUpdate(cau *ApplyUpdate) {
+	// replace ephemeral elements, if necessary
+	var newElements map[types.Hash256]types.StateElement
+	replaceEphemeral := func(e *types.StateElement) {
+		if e.LeafIndex != types.EphemeralLeafIndex {
+			return
+		} else if newElements == nil {
+			newElements = make(map[types.Hash256]types.StateElement)
+			cau.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
+				if !spent {
+					newElements[sce.ID] = sce.StateElement
+				}
+			})
+			cau.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
+				if !spent {
+					newElements[sfe.ID] = sfe.StateElement
+				}
+			})
+			cau.ForEachFileContractElement(func(fce types.FileContractElement, rev *types.FileContractElement, resolved, valid bool) {
+				if !resolved {
+					newElements[fce.ID] = fce.StateElement
+				}
+			})
+			cau.ForEachV2FileContractElement(func(fce types.V2FileContractElement, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
+				if res != nil {
+					newElements[fce.ID] = fce.StateElement
+				}
+			})
+		}
+		*e = newElements[e.ID]
 	}
 	for _, txn := range m.txpool.v2txns {
 		for i := range txn.SiacoinInputs {
-			updateProof(&txn.SiacoinInputs[i].Parent.StateElement)
+			replaceEphemeral(&txn.SiacoinInputs[i].Parent.StateElement)
 		}
 		for i := range txn.SiafundInputs {
-			updateProof(&txn.SiafundInputs[i].Parent.StateElement)
+			replaceEphemeral(&txn.SiafundInputs[i].Parent.StateElement)
 		}
 		for i := range txn.FileContractRevisions {
-			updateProof(&txn.FileContractRevisions[i].Parent.StateElement)
+			replaceEphemeral(&txn.FileContractRevisions[i].Parent.StateElement)
 		}
 		for i := range txn.FileContractResolutions {
-			updateProof(&txn.FileContractResolutions[i].Parent.StateElement)
-			if sp, ok := txn.FileContractResolutions[i].Resolution.(*types.V2StorageProof); ok {
-				updateProof(&sp.ProofIndex.StateElement)
-			}
+			replaceEphemeral(&txn.FileContractResolutions[i].Parent.StateElement)
 		}
 	}
+
+	rem := m.txpool.v2txns[:0]
+	for _, txn := range m.txpool.v2txns {
+		if updateTxnProofs(&txn, cau.UpdateElementProof, cau.State.Elements.NumLeaves) {
+			rem = append(rem, txn)
+		}
+	}
+	m.txpool.v2txns = rem
 }
 
 // PoolTransaction returns the transaction with the specified ID, if it is
@@ -979,10 +970,62 @@ func (m *Manager) AddPoolTransactions(txns []types.Transaction) error {
 //
 // If any transaction in the set is invalid, the entire set is rejected and none
 // of the transactions are added to the pool.
-func (m *Manager) AddV2PoolTransactions(txns []types.V2Transaction) error {
+//
+// Since v2 transactions include Merkle proofs, AddV2PoolTransactions takes an
+// index specifying the accumulator state for which those proofs are assumed to
+// be valid. If that index differs from the Manager's current tip, the Merkle
+// proofs will be updated accordingly. The original transactions are not
+// modified.
+func (m *Manager) AddV2PoolTransactions(index types.ChainIndex, txns []types.V2Transaction) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.revalidatePool()
+
+	if index != m.tipState.Index {
+		// bring txns up-to-date, preserving the originals
+		txns = append([]types.V2Transaction(nil), txns...)
+		for i := range txns {
+			txns[i] = txns[i].DeepCopy()
+		}
+		revert, apply, err := m.reorgPath(index, m.tipState.Index)
+		if err != nil {
+			return fmt.Errorf("couldn't determine reorg path from %v to %v: %w", index, m.tipState.Index, err)
+		} else if len(revert)+len(apply) > 144 {
+			return fmt.Errorf("reorg path from %v to %v is too long (-%v +%v)", index, m.tipState.Index, len(revert), len(apply))
+		}
+		for _, index := range revert {
+			b, bs, cs, ok := blockAndParent(m.store, index.ID)
+			if !ok {
+				return fmt.Errorf("missing reverted block at index %v", index)
+			} else if bs == nil {
+				panic("missing supplement for reverted block")
+			}
+			cru := consensus.RevertBlock(cs, b, *bs)
+			for i := range txns {
+				if !updateTxnProofs(&txns[i], cru.UpdateElementProof, cs.Elements.NumLeaves) {
+					return fmt.Errorf("transaction %v references element that does not exist in our chain", txns[i].ID())
+				}
+			}
+		}
+		for _, index := range apply {
+			b, bs, cs, ok := blockAndParent(m.store, index.ID)
+			if !ok {
+				return fmt.Errorf("missing applied block at index %v", index)
+			} else if bs == nil {
+				panic("missing supplement for applied block")
+			}
+			ancestorTimestamp, ok := m.store.AncestorTimestamp(b.ParentID)
+			if !ok && index.Height != 0 {
+				return fmt.Errorf("missing ancestor timestamp for block %v", b.ParentID)
+			}
+			cs, cau := consensus.ApplyBlock(cs, b, *bs, ancestorTimestamp)
+			for i := range txns {
+				if !updateTxnProofs(&txns[i], cau.UpdateElementProof, cs.Elements.NumLeaves) {
+					return fmt.Errorf("transaction %v references element that does not exist in our chain", txns[i].ID())
+				}
+			}
+		}
+	}
 
 	// validate as a standalone set
 	ms := consensus.NewMidState(m.tipState)
