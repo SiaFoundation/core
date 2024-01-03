@@ -1154,6 +1154,11 @@ func (p *SpendPolicy) DecodeFrom(d *Decoder) {
 // DecodeFrom implements types.DecoderFrom.
 func (sp *SatisfiedPolicy) DecodeFrom(d *Decoder) {
 	sp.Policy.DecodeFrom(d)
+	// if policy decoding fails, the code below (namely the array cast) may
+	// panic, so abort early
+	if d.Err() != nil {
+		return
+	}
 
 	var rec func(SpendPolicy)
 	rec = func(p SpendPolicy) {
