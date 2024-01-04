@@ -229,16 +229,14 @@ func (txns *V2TransactionsMultiproof) DecodeFrom(d *Decoder) {
 			d.SetErr(errors.New("invalid Merkle proof size"))
 		}
 	})
-	// NOTE: an adversarial input could cause us to allocate at most 1 Hash256
-	// per StateElement in the block -- not enough to cause OOM on its own.
+	// multiproofSize and/or expandMultiproof will panic if the the transactions
+	// are invalid, so bail out early if we've encountered an error
+	if d.Err() != nil {
+		return
+	}
 	multiproof := make([]Hash256, multiproofSize(*txns))
 	for i := range multiproof {
 		multiproof[i].DecodeFrom(d)
-	}
-	// expandMultiproof will panic if the multiproof is invalid, so bail out if
-	// we've encountered an error
-	if d.Err() != nil {
-		return
 	}
 	expandMultiproof(*txns, multiproof)
 }

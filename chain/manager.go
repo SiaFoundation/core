@@ -976,29 +976,29 @@ func (m *Manager) AddPoolTransactions(txns []types.Transaction) error {
 // be valid. If that index differs from the Manager's current tip, the Merkle
 // proofs will be updated accordingly. The original transactions are not
 // modified.
-func (m *Manager) AddV2PoolTransactions(index types.ChainIndex, txns []types.V2Transaction) error {
+func (m *Manager) AddV2PoolTransactions(basis types.ChainIndex, txns []types.V2Transaction) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.revalidatePool()
 
-	if index != m.tipState.Index {
+	if basis != m.tipState.Index {
 		// bring txns up-to-date, preserving the originals
 		txns = append([]types.V2Transaction(nil), txns...)
 		for i := range txns {
 			txns[i] = txns[i].DeepCopy()
 		}
-		revert, apply, err := m.reorgPath(index, m.tipState.Index)
+		revert, apply, err := m.reorgPath(basis, m.tipState.Index)
 		if err != nil {
-			return fmt.Errorf("couldn't determine reorg path from %v to %v: %w", index, m.tipState.Index, err)
+			return fmt.Errorf("couldn't determine reorg path from %v to %v: %w", basis, m.tipState.Index, err)
 		} else if len(revert)+len(apply) > 144 {
-			return fmt.Errorf("reorg path from %v to %v is too long (-%v +%v)", index, m.tipState.Index, len(revert), len(apply))
+			return fmt.Errorf("reorg path from %v to %v is too long (-%v +%v)", basis, m.tipState.Index, len(revert), len(apply))
 		}
-		for _, rindex := range revert {
-			b, _, cs, ok := blockAndParent(m.store, rindex.ID)
+		for _, index := range revert {
+			b, _, cs, ok := blockAndParent(m.store, index.ID)
 			if !ok {
-				return fmt.Errorf("missing reverted block at index %v", rindex)
+				return fmt.Errorf("missing reverted block at index %v", index)
 			} else if b.V2 == nil {
-				return fmt.Errorf("reorg path from %v to %v contains a non-v2 block (%v)", index, m.tipState.Index, rindex)
+				return fmt.Errorf("reorg path from %v to %v contains a non-v2 block (%v)", basis, m.tipState.Index, index)
 			}
 			// NOTE: since we are post-hardfork, we don't need a v1 supplement
 			cru := consensus.RevertBlock(cs, b, consensus.V1BlockSupplement{})
@@ -1008,10 +1008,10 @@ func (m *Manager) AddV2PoolTransactions(index types.ChainIndex, txns []types.V2T
 				}
 			}
 		}
-		for _, aindex := range apply {
-			b, _, cs, ok := blockAndParent(m.store, aindex.ID)
+		for _, index := range apply {
+			b, _, cs, ok := blockAndParent(m.store, index.ID)
 			if !ok {
-				return fmt.Errorf("missing applied block at index %v", aindex)
+				return fmt.Errorf("missing applied block at index %v", index)
 			}
 			// NOTE: since we are post-hardfork, we don't need a v1 supplement or ancestorTimestamp
 			cs, cau := consensus.ApplyBlock(cs, b, consensus.V1BlockSupplement{}, time.Time{})
