@@ -993,32 +993,28 @@ func (m *Manager) AddV2PoolTransactions(index types.ChainIndex, txns []types.V2T
 		} else if len(revert)+len(apply) > 144 {
 			return fmt.Errorf("reorg path from %v to %v is too long (-%v +%v)", index, m.tipState.Index, len(revert), len(apply))
 		}
-		for _, index := range revert {
-			b, bs, cs, ok := blockAndParent(m.store, index.ID)
+		for _, rindex := range revert {
+			b, _, cs, ok := blockAndParent(m.store, rindex.ID)
 			if !ok {
-				return fmt.Errorf("missing reverted block at index %v", index)
-			} else if bs == nil {
-				panic("missing supplement for reverted block")
+				return fmt.Errorf("missing reverted block at index %v", rindex)
+			} else if b.V2 == nil {
+				return fmt.Errorf("reorg path from %v to %v contains a non-v2 block (%v)", index, m.tipState.Index, rindex)
 			}
-			cru := consensus.RevertBlock(cs, b, *bs)
+			// NOTE: since we are post-hardfork, we don't need a v1 supplement
+			cru := consensus.RevertBlock(cs, b, consensus.V1BlockSupplement{})
 			for i := range txns {
 				if !updateTxnProofs(&txns[i], cru.UpdateElementProof, cs.Elements.NumLeaves) {
 					return fmt.Errorf("transaction %v references element that does not exist in our chain", txns[i].ID())
 				}
 			}
 		}
-		for _, index := range apply {
-			b, bs, cs, ok := blockAndParent(m.store, index.ID)
+		for _, aindex := range apply {
+			b, _, cs, ok := blockAndParent(m.store, aindex.ID)
 			if !ok {
-				return fmt.Errorf("missing applied block at index %v", index)
-			} else if bs == nil {
-				panic("missing supplement for applied block")
+				return fmt.Errorf("missing applied block at index %v", aindex)
 			}
-			ancestorTimestamp, ok := m.store.AncestorTimestamp(b.ParentID)
-			if !ok && index.Height != 0 {
-				return fmt.Errorf("missing ancestor timestamp for block %v", b.ParentID)
-			}
-			cs, cau := consensus.ApplyBlock(cs, b, *bs, ancestorTimestamp)
+			// NOTE: since we are post-hardfork, we don't need a v1 supplement or ancestorTimestamp
+			cs, cau := consensus.ApplyBlock(cs, b, consensus.V1BlockSupplement{}, time.Time{})
 			for i := range txns {
 				if !updateTxnProofs(&txns[i], cau.UpdateElementProof, cs.Elements.NumLeaves) {
 					return fmt.Errorf("transaction %v references element that does not exist in our chain", txns[i].ID())
