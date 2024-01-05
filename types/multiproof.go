@@ -26,23 +26,19 @@ func (l elementLeaf) hash() Hash256 {
 }
 
 func chainIndexLeaf(e *ChainIndexElement) elementLeaf {
-	elemHash := hashAll("leaf/chainindex", e.ID, e.ChainIndex)
-	return elementLeaf{&e.StateElement, elemHash}
+	return elementLeaf{&e.StateElement, hashAll("leaf/chainindex", e.ID, e.ChainIndex)}
 }
 
 func siacoinLeaf(e *SiacoinElement) elementLeaf {
-	elemHash := hashAll("leaf/siacoin", e.ID, e.SiacoinOutput, e.MaturityHeight)
-	return elementLeaf{&e.StateElement, elemHash}
+	return elementLeaf{&e.StateElement, hashAll("leaf/siacoin", e.ID, e.SiacoinOutput, e.MaturityHeight)}
 }
 
 func siafundLeaf(e *SiafundElement) elementLeaf {
-	elemHash := hashAll("leaf/siafund", e.ID, e.SiafundOutput, e.ClaimStart)
-	return elementLeaf{&e.StateElement, elemHash}
+	return elementLeaf{&e.StateElement, hashAll("leaf/siafund", e.ID, e.SiafundOutput, e.ClaimStart)}
 }
 
 func v2FileContractLeaf(e *V2FileContractElement) elementLeaf {
-	elemHash := hashAll("leaf/v2filecontract", e.ID, e.V2FileContract)
-	return elementLeaf{&e.StateElement, elemHash}
+	return elementLeaf{&e.StateElement, hashAll("leaf/v2filecontract", e.ID, e.V2FileContract)}
 }
 
 func splitLeaves(ls []elementLeaf, mid uint64) (left, right []elementLeaf) {
@@ -50,21 +46,26 @@ func splitLeaves(ls []elementLeaf, mid uint64) (left, right []elementLeaf) {
 	return ls[:split], ls[split:]
 }
 
-func forEachStateElement(txns []V2Transaction, fn func(*StateElement)) {
+func forEachElementLeaf(txns []V2Transaction, fn func(l elementLeaf)) {
+	visit := func(l elementLeaf) {
+		if l.LeafIndex != EphemeralLeafIndex {
+			fn(l)
+		}
+	}
 	for _, txn := range txns {
 		for i := range txn.SiacoinInputs {
-			fn(&txn.SiacoinInputs[i].Parent.StateElement)
+			visit(siacoinLeaf(&txn.SiacoinInputs[i].Parent))
 		}
 		for i := range txn.SiafundInputs {
-			fn(&txn.SiafundInputs[i].Parent.StateElement)
+			visit(siafundLeaf(&txn.SiafundInputs[i].Parent))
 		}
 		for i := range txn.FileContractRevisions {
-			fn(&txn.FileContractRevisions[i].Parent.StateElement)
+			visit(v2FileContractLeaf(&txn.FileContractRevisions[i].Parent))
 		}
 		for i := range txn.FileContractResolutions {
-			fn(&txn.FileContractResolutions[i].Parent.StateElement)
-			if sp, ok := txn.FileContractResolutions[i].Resolution.(*V2StorageProof); ok {
-				fn(&sp.ProofIndex.StateElement)
+			visit(v2FileContractLeaf(&txn.FileContractResolutions[i].Parent))
+			if r, ok := txn.FileContractResolutions[i].Resolution.(*V2StorageProof); ok {
+				visit(chainIndexLeaf(&r.ProofIndex))
 			}
 		}
 	}
@@ -74,28 +75,9 @@ func forEachTree(txns []V2Transaction, fn func(i, j uint64, leaves []elementLeaf
 	clearBits := func(x uint64, n int) uint64 { return x &^ (1<<n - 1) }
 
 	var trees [64][]elementLeaf
-	addLeaf := func(l elementLeaf) {
-		if l.LeafIndex != EphemeralLeafIndex {
-			trees[len(l.MerkleProof)] = append(trees[len(l.MerkleProof)], l)
-		}
-	}
-	for _, txn := range txns {
-		for i := range txn.SiacoinInputs {
-			addLeaf(siacoinLeaf(&txn.SiacoinInputs[i].Parent))
-		}
-		for i := range txn.SiafundInputs {
-			addLeaf(siafundLeaf(&txn.SiafundInputs[i].Parent))
-		}
-		for i := range txn.FileContractRevisions {
-			addLeaf(v2FileContractLeaf(&txn.FileContractRevisions[i].Parent))
-		}
-		for i := range txn.FileContractResolutions {
-			addLeaf(v2FileContractLeaf(&txn.FileContractResolutions[i].Parent))
-			if r, ok := txn.FileContractResolutions[i].Resolution.(*V2StorageProof); ok {
-				addLeaf(chainIndexLeaf(&r.ProofIndex))
-			}
-		}
-	}
+	forEachElementLeaf(txns, func(l elementLeaf) {
+		trees[len(l.MerkleProof)] = append(trees[len(l.MerkleProof)], l)
+	})
 	for height, leaves := range &trees {
 		if len(leaves) == 0 {
 			continue
@@ -197,19 +179,24 @@ type V2TransactionsMultiproof []V2Transaction
 
 // EncodeTo implements types.EncoderTo.
 func (txns V2TransactionsMultiproof) EncodeTo(e *Encoder) {
+	var numLeaves uint64
 	var proofs [][]Hash256
-	forEachStateElement(txns, func(se *StateElement) {
-		proofs = append(proofs, se.MerkleProof)
-		se.MerkleProof = nil
+	forEachElementLeaf(txns, func(l elementLeaf) {
+		// infer numLeaves from the supplied leaves; this might not always
+		// produce the actual number of leaves in the accumulator, but it will
+		// be correct enough for the decoder to recover the proof lengths, which
+		// is all we care about
+		n := uint64(1) << len(l.MerkleProof)
+		numLeaves |= l.LeafIndex&^(n-1) | n
+		l.MerkleProof, proofs = nil, append(proofs, l.MerkleProof)
 	})
 	e.WritePrefix(len(txns))
 	for i := range txns {
 		txns[i].EncodeTo(e)
 	}
-	forEachStateElement(txns, func(se *StateElement) {
-		se.MerkleProof = proofs[0]
-		proofs = proofs[1:]
-		e.WriteUint8(uint8(len(se.MerkleProof)))
+	e.WriteUint64(numLeaves)
+	forEachElementLeaf(txns, func(l elementLeaf) {
+		l.MerkleProof, proofs = proofs[0], proofs[1:]
 	})
 	multiproof := computeMultiproof(txns)
 	for _, p := range multiproof {
@@ -223,11 +210,13 @@ func (txns *V2TransactionsMultiproof) DecodeFrom(d *Decoder) {
 	for i := range *txns {
 		(*txns)[i].DecodeFrom(d)
 	}
-	forEachStateElement(*txns, func(se *StateElement) {
-		se.MerkleProof = make([]Hash256, d.ReadUint8())
-		if len(se.MerkleProof) >= 64 {
-			d.SetErr(errors.New("invalid Merkle proof size"))
+	numLeaves := d.ReadUint64()
+	forEachElementLeaf(*txns, func(l elementLeaf) {
+		if l.LeafIndex >= numLeaves {
+			d.SetErr(errors.New("invalid leaf index"))
+			return
 		}
+		l.MerkleProof = make([]Hash256, bits.Len64(l.LeafIndex^numLeaves)-1)
 	})
 	// multiproofSize and/or expandMultiproof will panic if the the transactions
 	// are invalid, so bail out early if we've encountered an error

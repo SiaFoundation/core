@@ -58,33 +58,36 @@ func multiproofTxns(numTxns int, numElems int) []types.V2Transaction {
 		for j := 0; j < numElems; j++ {
 			switch j % 4 {
 			case 0:
-				sce := sces[0]
-				sces = sces[1:]
-				txn.SiacoinInputs = append(txn.SiacoinInputs, types.V2SiacoinInput{
-					Parent:          sce,
+				txn.SiacoinInputs, sces = append(txn.SiacoinInputs, types.V2SiacoinInput{
+					Parent:          sces[0],
 					SatisfiedPolicy: sp,
-				})
+				}), sces[1:]
 			case 1:
-				sfe := sfes[0]
-				sfes = sfes[1:]
-				txn.SiafundInputs = append(txn.SiafundInputs, types.V2SiafundInput{
-					Parent:          sfe,
+				txn.SiafundInputs, sfes = append(txn.SiafundInputs, types.V2SiafundInput{
+					Parent:          sfes[0],
 					SatisfiedPolicy: sp,
-				})
+				}), sfes[1:]
 			case 2:
-				fce := fces[0]
-				fces = fces[1:]
-				txn.FileContractRevisions = append(txn.FileContractRevisions, types.V2FileContractRevision{
-					Parent: fce,
-				})
+				txn.FileContractRevisions, fces = append(txn.FileContractRevisions, types.V2FileContractRevision{
+					Parent: fces[0],
+				}), fces[1:]
 			case 3:
-				fce := fces[0]
-				fces = fces[1:]
-				txn.FileContractResolutions = append(txn.FileContractResolutions, types.V2FileContractResolution{
-					Parent:     fce,
+				txn.FileContractResolutions, fces = append(txn.FileContractResolutions, types.V2FileContractResolution{
+					Parent:     fces[0],
 					Resolution: &types.V2FileContractExpiration{},
-				})
+				}), fces[1:]
 			}
+		}
+	}
+	// make every 5th siacoin input ephemeral
+	n := 0
+	for i := range txns {
+		for j := range txns[i].SiacoinInputs {
+			if (n+1)%5 == 0 {
+				txns[i].SiacoinInputs[j].Parent.LeafIndex = types.EphemeralLeafIndex
+				txns[i].SiacoinInputs[j].Parent.MerkleProof = nil
+			}
+			n++
 		}
 	}
 	return txns
@@ -147,24 +150,21 @@ func TestBlockCompression(t *testing.T) {
 	}
 
 	tests := []struct {
-		desc  string
-		txns  []types.V2Transaction
-		exp   float64
-		exact bool
+		desc string
+		txns []types.V2Transaction
+		exp  float64
 	}{
-		{"nil", nil, 1, true},
-		{"0 elements", make([]types.V2Transaction, 10), 1, true},
-		{"1 element", multiproofTxns(1, 1), 1.01, false},
-		{"4 elements", multiproofTxns(2, 2), 0.90, false},
-		{"10 elements", multiproofTxns(2, 5), 0.85, false},
-		{"25 elements", multiproofTxns(5, 5), 0.75, false},
-		{"100 elements", multiproofTxns(10, 10), 0.70, false},
+		{"nil", nil, 1.071},
+		{"0 elements", make([]types.V2Transaction, 10), 1.04},
+		{"1 element", multiproofTxns(1, 1), 1.025},
+		{"4 elements", multiproofTxns(2, 2), 0.90},
+		{"10 elements", multiproofTxns(2, 5), 0.85},
+		{"25 elements", multiproofTxns(5, 5), 0.75},
+		{"100 elements", multiproofTxns(10, 10), 0.70},
 	}
 	for _, test := range tests {
-		if r := ratio(test.txns); test.exact && r != test.exp {
-			t.Errorf("%s compression ratio: expected %.3g, got %.3g", test.desc, test.exp, r)
-		} else if !test.exact && r >= test.exp {
-			t.Errorf("%s compression ratio: expected <%.3g, got %.3g", test.desc, test.exp, r)
+		if r := ratio(test.txns); r >= test.exp {
+			t.Errorf("%s compression ratio: expected <%g, got %g", test.desc, test.exp, r)
 		}
 	}
 }
