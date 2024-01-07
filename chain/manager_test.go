@@ -146,7 +146,7 @@ func TestTxPool(t *testing.T) {
 		}},
 	}
 	signTxn(&parentTxn)
-	if err := cm.AddPoolTransactions([]types.Transaction{parentTxn}); err != nil {
+	if added, err := cm.AddPoolTransactions([]types.Transaction{parentTxn}); !added || err != nil {
 		t.Fatal(err)
 	} else if _, ok := cm.PoolTransaction(parentTxn.ID()); !ok {
 		t.Fatal("pool should contain parent transaction")
@@ -162,7 +162,7 @@ func TestTxPool(t *testing.T) {
 	}
 	signTxn(&childTxn)
 	// submitted alone, it should be rejected
-	if err := cm.AddPoolTransactions([]types.Transaction{childTxn}); err == nil {
+	if added, err := cm.AddPoolTransactions([]types.Transaction{childTxn}); added || err == nil {
 		t.Fatal("child transaction without parent should be rejected")
 	} else if _, ok := cm.PoolTransaction(childTxn.ID()); ok {
 		t.Fatal("pool should not contain child transaction")
@@ -172,7 +172,7 @@ func TestTxPool(t *testing.T) {
 		t.Fatal("pool should identify parent of child transaction")
 	}
 	// submitted together, the set should be accepted
-	if err := cm.AddPoolTransactions([]types.Transaction{parentTxn, childTxn}); err != nil {
+	if added, err := cm.AddPoolTransactions([]types.Transaction{parentTxn, childTxn}); !added || err != nil {
 		t.Fatal(err)
 	} else if _, ok := cm.PoolTransaction(childTxn.ID()); !ok {
 		t.Fatal("pool should contain child transaction")
