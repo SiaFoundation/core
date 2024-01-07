@@ -179,25 +179,29 @@ type V2TransactionsMultiproof []V2Transaction
 
 // EncodeTo implements types.EncoderTo.
 func (txns V2TransactionsMultiproof) EncodeTo(e *Encoder) {
+	// We want to reuse the (V2Transaction).EncodeTo method, but we don't want
+	// to encode all the individual Merkle proofs. To work around this, make a
+	// copy of the transactions (to prevent a data race) and nil out all of its
+	// proofs before encoding.
+	prooflessTxns := make(V2TransactionsMultiproof, len(txns))
+	for i := range prooflessTxns {
+		prooflessTxns[i] = txns[i].DeepCopy()
+	}
 	var numLeaves uint64
-	var proofs [][]Hash256
-	forEachElementLeaf(txns, func(l elementLeaf) {
+	forEachElementLeaf(prooflessTxns, func(l elementLeaf) {
 		// infer numLeaves from the supplied leaves; this might not always
 		// produce the actual number of leaves in the accumulator, but it will
 		// be correct enough for the decoder to recover the proof lengths, which
 		// is all we care about
 		n := uint64(1) << len(l.MerkleProof)
 		numLeaves |= l.LeafIndex&^(n-1) | n
-		l.MerkleProof, proofs = nil, append(proofs, l.MerkleProof)
+		l.MerkleProof = nil
 	})
-	e.WritePrefix(len(txns))
-	for i := range txns {
-		txns[i].EncodeTo(e)
+	e.WritePrefix(len(prooflessTxns))
+	for i := range prooflessTxns {
+		prooflessTxns[i].EncodeTo(e)
 	}
 	e.WriteUint64(numLeaves)
-	forEachElementLeaf(txns, func(l elementLeaf) {
-		l.MerkleProof, proofs = proofs[0], proofs[1:]
-	})
 	multiproof := computeMultiproof(txns)
 	for _, p := range multiproof {
 		p.EncodeTo(e)
