@@ -302,6 +302,9 @@ func (db *DBStore) ancestorTimestamp(id types.BlockID) (time.Time, bool) {
 		return
 	}
 	cs, _ := db.State(id)
+	if cs.Index.Height > db.n.HardforkOak.Height {
+		return time.Time{}, true
+	}
 	ancestorID := id
 	for i := uint64(0); i < cs.AncestorDepth() && i < cs.Index.Height; i++ {
 		// if we're on the best path, we can jump to the n'th block directly
@@ -639,7 +642,9 @@ func (db *DBStore) flush() {
 // ApplyBlock implements Store.
 func (db *DBStore) ApplyBlock(s consensus.State, cau consensus.ApplyUpdate, mustCommit bool) (committed bool) {
 	db.applyState(s)
-	db.applyElements(cau)
+	if s.Index.Height <= db.n.HardforkV2.RequireHeight {
+		db.applyElements(cau)
+	}
 	committed = mustCommit || db.shouldFlush()
 	if committed {
 		db.flush()
@@ -649,7 +654,9 @@ func (db *DBStore) ApplyBlock(s consensus.State, cau consensus.ApplyUpdate, must
 
 // RevertBlock implements Store.
 func (db *DBStore) RevertBlock(s consensus.State, cru consensus.RevertUpdate) {
-	db.revertElements(cru)
+	if s.Index.Height <= db.n.HardforkV2.RequireHeight {
+		db.revertElements(cru)
+	}
 	db.revertState(s)
 	if db.shouldFlush() {
 		db.flush()
