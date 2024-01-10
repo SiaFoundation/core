@@ -729,11 +729,6 @@ func NewDBStore(db DB, n *consensus.Network, genesisBlock types.Block) (_ *DBSto
 			return nil, consensus.State{}, errors.New("database previously initialized with different genesis block")
 		}
 	}
-	if db.Bucket(bAncestorTimestamps) == nil {
-		if _, err := db.CreateBucket(bAncestorTimestamps); err != nil {
-			panic(err)
-		}
-	}
 
 	// load tip state
 	index, _ := dbs.BestIndex(dbs.getHeight())
