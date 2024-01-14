@@ -276,6 +276,13 @@ func (c Currency) String() string {
 	return s
 }
 
+// Siacoins converts the value of c from Hastings to Siacoins (SC) and returns
+// it as a float64.
+func (c Currency) Siacoins() float64 {
+	f, _ := new(big.Rat).SetFrac(c.Big(), HastingsPerSiacoin.Big()).Float64()
+	return f
+}
+
 // Format implements fmt.Formatter. It accepts the following formats:
 //
 //	d: raw integer (equivalent to ExactString())
