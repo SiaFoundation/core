@@ -167,7 +167,7 @@ func TestValidateBlock(t *testing.T) {
 			{
 				"wrong timestamp",
 				func(b *types.Block) {
-					b.Timestamp = b.Timestamp.AddDate(-1, 0, 0)
+					b.Timestamp = cs.PrevTimestamps[0].AddDate(-1, 0, 0)
 				},
 			},
 			{
@@ -745,7 +745,7 @@ func TestValidateV2Block(t *testing.T) {
 			{
 				"wrong timestamp",
 				func(b *types.Block) {
-					b.Timestamp = b.Timestamp.AddDate(-1, 0, 0)
+					b.Timestamp = cs.PrevTimestamps[0].AddDate(-1, 0, 0)
 				},
 			},
 			{
