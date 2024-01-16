@@ -1,20 +1,15 @@
-package consensus_test
+package consensus
 
 import (
-	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
 
-	"go.sia.tech/core/chain"
-	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
 )
 
 func TestApplyBlock(t *testing.T) {
-	n, genesisBlock := chain.TestnetZen()
-
-	n.InitialTarget = types.BlockID{0xFF}
+	n, genesisBlock := testnet()
 
 	giftPrivateKey := types.GeneratePrivateKey()
 	giftPublicKey := giftPrivateKey.PublicKey()
@@ -30,13 +25,7 @@ func TestApplyBlock(t *testing.T) {
 		},
 	}
 	genesisBlock.Transactions = []types.Transaction{giftTxn}
-
-	dbStore, tipState, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer dbStore.Close()
-	cs := tipState
+	db, cs := newConsensusDB(n, genesisBlock)
 
 	signTxn := func(txn *types.Transaction) {
 		appendSig := func(parentID types.Hash256) {
@@ -58,19 +47,16 @@ func TestApplyBlock(t *testing.T) {
 			appendSig(types.Hash256(txn.FileContractRevisions[i].ParentID))
 		}
 	}
-	addBlock := func(b types.Block) (au consensus.ApplyUpdate, err error) {
-		bs := dbStore.SupplementTipBlock(b)
-		if err = consensus.ValidateBlock(cs, b, bs); err != nil {
+	addBlock := func(b types.Block) (au ApplyUpdate, err error) {
+		bs := db.supplementTipBlock(b)
+		if err = ValidateBlock(cs, b, bs); err != nil {
 			return
 		}
-		ancestorTimestamp, _ := dbStore.AncestorTimestamp(b.ParentID)
-		cs, au = consensus.ApplyBlock(cs, b, bs, ancestorTimestamp)
-		dbStore.AddState(cs)
-		dbStore.AddBlock(b, &bs)
-		dbStore.ApplyBlock(cs, au, true)
+		cs, au = ApplyBlock(cs, b, bs, db.ancestorTimestamp(b.ParentID))
+		db.applyBlock(au)
 		return
 	}
-	checkUpdateElements := func(au consensus.ApplyUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {
+	checkUpdateElements := func(au ApplyUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {
 		au.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
 			sces := &addedSCEs
 			if spent {
@@ -81,9 +67,7 @@ func TestApplyBlock(t *testing.T) {
 			}
 			sce.StateElement = types.StateElement{}
 			if !reflect.DeepEqual(sce, (*sces)[0]) {
-				js1, _ := json.MarshalIndent(sce, "", "  ")
-				js2, _ := json.MarshalIndent((*sces)[0], "", "  ")
-				t.Fatalf("siacoin element doesn't match:\n%s\nvs\n%s\n", js1, js2)
+				t.Fatalf("siacoin element doesn't match:\n%v\nvs\n%v\n", sce, (*sces)[0])
 			}
 			*sces = (*sces)[1:]
 		})
@@ -97,9 +81,7 @@ func TestApplyBlock(t *testing.T) {
 			}
 			sfe.StateElement = types.StateElement{}
 			if !reflect.DeepEqual(sfe, (*sfes)[0]) {
-				js1, _ := json.MarshalIndent(sfe, "", "  ")
-				js2, _ := json.MarshalIndent((*sfes)[0], "", "  ")
-				t.Fatalf("siafund element doesn't match:\n%s\nvs\n%s\n", js1, js2)
+				t.Fatalf("siafund element doesn't match:\n%v\nvs\n%v\n", sfe, (*sfes)[0])
 			}
 			*sfes = (*sfes)[1:]
 		})
@@ -107,7 +89,7 @@ func TestApplyBlock(t *testing.T) {
 			t.Fatal("extraneous elements")
 		}
 	}
-	checkRevertElements := func(ru consensus.RevertUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {
+	checkRevertElements := func(ru RevertUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {
 		ru.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
 			sces := &addedSCEs
 			if spent {
@@ -118,9 +100,7 @@ func TestApplyBlock(t *testing.T) {
 			}
 			sce.StateElement = types.StateElement{}
 			if !reflect.DeepEqual(sce, (*sces)[len(*sces)-1]) {
-				js1, _ := json.MarshalIndent(sce, "", "  ")
-				js2, _ := json.MarshalIndent((*sces)[len(*sces)-1], "", "  ")
-				t.Fatalf("siacoin element doesn't match:\n%s\nvs\n%s\n", js1, js2)
+				t.Fatalf("siacoin element doesn't match:\n%v\nvs\n%v\n", sce, (*sces)[len(*sces)-1])
 			}
 			*sces = (*sces)[:len(*sces)-1]
 		})
@@ -134,9 +114,7 @@ func TestApplyBlock(t *testing.T) {
 			}
 			sfe.StateElement = types.StateElement{}
 			if !reflect.DeepEqual(sfe, (*sfes)[len(*sfes)-1]) {
-				js1, _ := json.MarshalIndent(sfe, "", "  ")
-				js2, _ := json.MarshalIndent((*sfes)[len(*sfes)-1], "", "  ")
-				t.Fatalf("siafund element doesn't match:\n%s\nvs\n%s\n", js1, js2)
+				t.Fatalf("siafund element doesn't match:\n%v\nvs\n%v\n", sfe, (*sfes)[len(*sfes)-1])
 			}
 			*sfes = (*sfes)[:len(*sfes)-1]
 		})
@@ -208,21 +186,20 @@ func TestApplyBlock(t *testing.T) {
 	}
 
 	prev := cs
-	bs := dbStore.SupplementTipBlock(b2)
+	bs := db.supplementTipBlock(b2)
 	if au, err := addBlock(b2); err != nil {
 		t.Fatal(err)
 	} else {
 		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 
-	ru := consensus.RevertBlock(prev, b2, bs)
-	dbStore.RevertBlock(cs, ru)
+	ru := RevertBlock(prev, b2, bs)
 	checkRevertElements(ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 
 	// reverting a non-child block should trigger a panic
 	func() {
 		defer func() { recover() }()
-		consensus.RevertBlock(cs, b2, bs)
+		RevertBlock(cs, b2, bs)
 		t.Error("did not panic on reverting non-child block")
 	}()
 }
@@ -247,37 +224,37 @@ func TestWorkEncoding(t *testing.T) {
 	} {
 		for _, codec := range []struct {
 			name string
-			enc  func(consensus.Work) (string, error)
-			dec  func(string) (consensus.Work, error)
+			enc  func(Work) (string, error)
+			dec  func(string) (Work, error)
 		}{
 			{
 				name: "String",
-				enc: func(w consensus.Work) (string, error) {
+				enc: func(w Work) (string, error) {
 					return w.String(), nil
 				},
-				dec: func(s string) (w consensus.Work, err error) {
+				dec: func(s string) (w Work, err error) {
 					err = w.UnmarshalText([]byte(s))
 					return
 				},
 			},
 			{
 				name: "MarshalText",
-				enc: func(w consensus.Work) (string, error) {
+				enc: func(w Work) (string, error) {
 					v, err := w.MarshalText()
 					return string(v), err
 				},
-				dec: func(s string) (w consensus.Work, err error) {
+				dec: func(s string) (w Work, err error) {
 					err = w.UnmarshalText([]byte(s))
 					return
 				},
 			},
 			{
 				name: "MarshalJSON",
-				enc: func(w consensus.Work) (string, error) {
+				enc: func(w Work) (string, error) {
 					v, err := w.MarshalJSON()
 					return strings.Trim(string(v), `"`), err
 				},
-				dec: func(s string) (w consensus.Work, err error) {
+				dec: func(s string) (w Work, err error) {
 					err = w.UnmarshalJSON([]byte(strings.Trim(s, `"`)))
 					return
 				},

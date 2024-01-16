@@ -1,19 +1,112 @@
-package consensus_test
+package consensus
 
 import (
 	"bytes"
 	"errors"
 	"math"
+	"math/bits"
 	"testing"
 	"time"
 
-	"go.sia.tech/core/chain"
-	"go.sia.tech/core/consensus"
-	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 )
 
-func findBlockNonce(cs consensus.State, b *types.Block) {
+func testnet() (*Network, types.Block) {
+	n := &Network{
+		Name:            "testnet",
+		InitialCoinbase: types.Siacoins(300000),
+		MinimumCoinbase: types.Siacoins(300000),
+		InitialTarget:   types.BlockID{0xFF},
+	}
+	n.HardforkDevAddr.Height = 1
+	n.HardforkTax.Height = 2
+	n.HardforkStorageProof.Height = 3
+	n.HardforkOak.Height = 4
+	n.HardforkOak.FixHeight = 5
+	n.HardforkOak.GenesisTimestamp = time.Unix(1618033988, 0) // φ
+	n.HardforkASIC.Height = 6
+	n.HardforkASIC.OakTime = 10000 * time.Second
+	n.HardforkASIC.OakTarget = n.InitialTarget
+	n.HardforkFoundation.Height = 7
+	n.HardforkFoundation.PrimaryAddress = types.AnyoneCanSpend().Address()
+	n.HardforkFoundation.FailsafeAddress = types.VoidAddress
+	n.HardforkV2.AllowHeight = 1000
+	n.HardforkV2.RequireHeight = 2000
+	b := types.Block{Timestamp: n.HardforkOak.GenesisTimestamp}
+	return n, b
+}
+
+type consensusDB struct {
+	sces map[types.SiacoinOutputID]types.SiacoinElement
+	sfes map[types.SiafundOutputID]types.SiafundElement
+	fces map[types.FileContractID]types.FileContractElement
+}
+
+func (db *consensusDB) applyBlock(au ApplyUpdate) {
+	au.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
+		if spent {
+			delete(db.sces, types.SiacoinOutputID(sce.ID))
+		} else {
+			db.sces[types.SiacoinOutputID(sce.ID)] = sce
+		}
+	})
+	au.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
+		if spent {
+			delete(db.sfes, types.SiafundOutputID(sfe.ID))
+		} else {
+			db.sfes[types.SiafundOutputID(sfe.ID)] = sfe
+		}
+	})
+	au.ForEachFileContractElement(func(fce types.FileContractElement, rev *types.FileContractElement, resolved, valid bool) {
+		if resolved {
+			delete(db.fces, types.FileContractID(fce.ID))
+		} else {
+			db.fces[types.FileContractID(fce.ID)] = fce
+		}
+	})
+}
+
+func (db *consensusDB) supplementTipBlock(b types.Block) (bs V1BlockSupplement) {
+	bs = V1BlockSupplement{
+		Transactions: make([]V1TransactionSupplement, len(b.Transactions)),
+	}
+	for i, txn := range b.Transactions {
+		ts := &bs.Transactions[i]
+		for _, sci := range txn.SiacoinInputs {
+			if sce, ok := db.sces[sci.ParentID]; ok {
+				ts.SiacoinInputs = append(ts.SiacoinInputs, sce)
+			}
+		}
+		for _, sfi := range txn.SiafundInputs {
+			if sfe, ok := db.sfes[sfi.ParentID]; ok {
+				ts.SiafundInputs = append(ts.SiafundInputs, sfe)
+			}
+		}
+		for _, fcr := range txn.FileContractRevisions {
+			if fce, ok := db.fces[fcr.ParentID]; ok {
+				ts.RevisedFileContracts = append(ts.RevisedFileContracts, fce)
+			}
+		}
+	}
+	return bs
+}
+
+func (db *consensusDB) ancestorTimestamp(id types.BlockID) time.Time {
+	return time.Time{}
+}
+
+func newConsensusDB(n *Network, genesisBlock types.Block) (*consensusDB, State) {
+	db := &consensusDB{
+		sces: make(map[types.SiacoinOutputID]types.SiacoinElement),
+		sfes: make(map[types.SiafundOutputID]types.SiafundElement),
+		fces: make(map[types.FileContractID]types.FileContractElement),
+	}
+	cs, au := ApplyBlock(n.GenesisState(), genesisBlock, db.supplementTipBlock(genesisBlock), time.Time{})
+	db.applyBlock(au)
+	return db, cs
+}
+
+func findBlockNonce(cs State, b *types.Block) {
 	// ensure nonce meets factor requirement
 	for b.Nonce%cs.NonceFactor() != 0 {
 		b.Nonce++
@@ -33,8 +126,59 @@ func deepCopyBlock(b types.Block) (b2 types.Block) {
 	return
 }
 
+// copied from rhp/v2 to avoid import cycle
+func prepareContractFormation(renterPubKey types.PublicKey, hostKey types.PublicKey, renterPayout, hostCollateral types.Currency, endHeight uint64, windowSize uint64, refundAddr types.Address) types.FileContract {
+	taxAdjustedPayout := func(target types.Currency) types.Currency {
+		guess := target.Mul64(1000).Div64(961)
+		mod64 := func(c types.Currency, v uint64) types.Currency {
+			var r uint64
+			if c.Hi < v {
+				_, r = bits.Div64(c.Hi, c.Lo, v)
+			} else {
+				_, r = bits.Div64(0, c.Hi, v)
+				_, r = bits.Div64(r, c.Lo, v)
+			}
+			return types.NewCurrency64(r)
+		}
+		sfc := (State{}).SiafundCount()
+		tm := mod64(target, sfc)
+		gm := mod64(guess, sfc)
+		if gm.Cmp(tm) < 0 {
+			guess = guess.Sub(types.NewCurrency64(sfc))
+		}
+		return guess.Add(tm).Sub(gm)
+	}
+	uc := types.UnlockConditions{
+		PublicKeys: []types.UnlockKey{
+			{Algorithm: types.SpecifierEd25519, Key: renterPubKey[:]},
+			{Algorithm: types.SpecifierEd25519, Key: hostKey[:]},
+		},
+		SignaturesRequired: 2,
+	}
+	hostPayout := hostCollateral
+	payout := taxAdjustedPayout(renterPayout.Add(hostPayout))
+	return types.FileContract{
+		Filesize:       0,
+		FileMerkleRoot: types.Hash256{},
+		WindowStart:    endHeight,
+		WindowEnd:      endHeight + windowSize,
+		Payout:         payout,
+		UnlockHash:     types.Hash256(uc.UnlockHash()),
+		RevisionNumber: 0,
+		ValidProofOutputs: []types.SiacoinOutput{
+			{Value: renterPayout, Address: refundAddr},
+			{Value: hostPayout, Address: types.VoidAddress},
+		},
+		MissedProofOutputs: []types.SiacoinOutput{
+			{Value: renterPayout, Address: refundAddr},
+			{Value: hostPayout, Address: types.VoidAddress},
+			{Value: types.ZeroCurrency, Address: types.VoidAddress},
+		},
+	}
+}
+
 func TestValidateBlock(t *testing.T) {
-	n, genesisBlock := chain.TestnetZen()
+	n, genesisBlock := testnet()
 
 	n.HardforkTax.Height = 0
 	n.HardforkFoundation.Height = 0
@@ -49,7 +193,7 @@ func TestValidateBlock(t *testing.T) {
 	giftAddress := types.StandardUnlockHash(giftPublicKey)
 	giftAmountSC := types.Siacoins(100)
 	giftAmountSF := uint64(100)
-	giftFC := rhpv2.PrepareContractFormation(renterPublicKey, hostPublicKey, types.Siacoins(1), types.Siacoins(1), 100, rhpv2.HostSettings{}, types.VoidAddress)
+	giftFC := prepareContractFormation(renterPublicKey, hostPublicKey, types.Siacoins(1), types.Siacoins(1), 100, 100, types.VoidAddress)
 	giftTxn := types.Transaction{
 		SiacoinOutputs: []types.SiacoinOutput{
 			{Address: giftAddress, Value: giftAmountSC},
@@ -60,12 +204,7 @@ func TestValidateBlock(t *testing.T) {
 		FileContracts: []types.FileContract{giftFC},
 	}
 	genesisBlock.Transactions = []types.Transaction{giftTxn}
-
-	dbStore, tipState, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cs := tipState
+	db, cs := newConsensusDB(n, genesisBlock)
 
 	signTxn := func(txn *types.Transaction) {
 		appendSig := func(key types.PrivateKey, pubkeyIndex uint64, parentID types.Hash256) {
@@ -90,7 +229,7 @@ func TestValidateBlock(t *testing.T) {
 	}
 
 	// construct a block that can be used to test all aspects of validation
-	fc := rhpv2.PrepareContractFormation(renterPublicKey, hostPublicKey, types.Siacoins(1), types.Siacoins(1), cs.Index.Height+1, rhpv2.HostSettings{WindowSize: 100}, types.VoidAddress)
+	fc := prepareContractFormation(renterPublicKey, hostPublicKey, types.Siacoins(1), types.Siacoins(1), cs.Index.Height+1, 100, types.VoidAddress)
 
 	revision := giftFC
 	revision.RevisionNumber++
@@ -139,7 +278,7 @@ func TestValidateBlock(t *testing.T) {
 	validBlock := deepCopyBlock(b)
 	signTxn(&validBlock.Transactions[0])
 	findBlockNonce(cs, &validBlock)
-	if err := consensus.ValidateBlock(cs, validBlock, dbStore.SupplementTipBlock(validBlock)); err != nil {
+	if err := ValidateBlock(cs, validBlock, db.supplementTipBlock(validBlock)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -466,7 +605,7 @@ func TestValidateBlock(t *testing.T) {
 			signTxn(&corruptBlock.Transactions[0])
 			findBlockNonce(cs, &corruptBlock)
 
-			if err := consensus.ValidateBlock(cs, corruptBlock, dbStore.SupplementTipBlock(corruptBlock)); err == nil {
+			if err := ValidateBlock(cs, corruptBlock, db.supplementTipBlock(corruptBlock)); err == nil {
 				t.Fatalf("accepted block with %v", test.desc)
 			}
 		}
@@ -539,27 +678,27 @@ func TestValidateBlock(t *testing.T) {
 			test.corrupt(&corruptBlock)
 			findBlockNonce(cs, &corruptBlock)
 
-			if err := consensus.ValidateBlock(cs, corruptBlock, dbStore.SupplementTipBlock(corruptBlock)); err == nil {
+			if err := ValidateBlock(cs, corruptBlock, db.supplementTipBlock(corruptBlock)); err == nil {
 				t.Fatalf("accepted block with %v", test.desc)
 			}
 		}
 	}
 }
 
-func updateProofs(cau consensus.ApplyUpdate, sces []types.SiacoinElement, sfes []types.SiafundElement, fces []types.V2FileContractElement) {
+func updateProofs(au ApplyUpdate, sces []types.SiacoinElement, sfes []types.SiafundElement, fces []types.V2FileContractElement) {
 	for i := range sces {
-		cau.UpdateElementProof(&sces[i].StateElement)
+		au.UpdateElementProof(&sces[i].StateElement)
 	}
 	for i := range sfes {
-		cau.UpdateElementProof(&sfes[i].StateElement)
+		au.UpdateElementProof(&sfes[i].StateElement)
 	}
 	for i := range fces {
-		cau.UpdateElementProof(&fces[i].StateElement)
+		au.UpdateElementProof(&fces[i].StateElement)
 	}
 }
 
 func TestValidateV2Block(t *testing.T) {
-	n, genesisBlock := chain.TestnetZen()
+	n, genesisBlock := testnet()
 
 	n.HardforkOak.Height = 0
 	n.HardforkTax.Height = 0
@@ -578,7 +717,7 @@ func TestValidateV2Block(t *testing.T) {
 	hostPrivateKey := types.GeneratePrivateKey()
 	hostPublicKey := hostPrivateKey.PublicKey()
 
-	signTxn := func(cs consensus.State, txn *types.V2Transaction) {
+	signTxn := func(cs State, txn *types.V2Transaction) {
 		for i := range txn.SiacoinInputs {
 			txn.SiacoinInputs[i].SatisfiedPolicy.Signatures = []types.Signature{giftPrivateKey.SignHash(cs.InputSigHash(*txn))}
 		}
@@ -607,7 +746,7 @@ func TestValidateV2Block(t *testing.T) {
 
 	giftAmountSC := types.Siacoins(100)
 	giftAmountSF := uint64(100)
-	v1GiftFC := rhpv2.PrepareContractFormation(renterPublicKey, hostPublicKey, types.Siacoins(1), types.Siacoins(1), 100, rhpv2.HostSettings{}, types.VoidAddress)
+	v1GiftFC := prepareContractFormation(renterPublicKey, hostPublicKey, types.Siacoins(1), types.Siacoins(1), 100, 100, types.VoidAddress)
 	v2GiftFC := types.V2FileContract{
 		Filesize:         v1GiftFC.Filesize,
 		ProofHeight:      20,
@@ -637,28 +776,23 @@ func TestValidateV2Block(t *testing.T) {
 		Transactions: []types.V2Transaction{giftTxn},
 	}
 
-	_, cau := consensus.ApplyBlock(n.GenesisState(), genesisBlock, consensus.V1BlockSupplement{}, time.Time{})
-
+	_, au := ApplyBlock(n.GenesisState(), genesisBlock, V1BlockSupplement{}, time.Time{})
 	var sces []types.SiacoinElement
-	cau.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
+	au.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
 		sces = append(sces, sce)
 	})
 	var sfes []types.SiafundElement
-	cau.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
+	au.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
 		sfes = append(sfes, sfe)
 	})
 	var fces []types.V2FileContractElement
-	cau.ForEachV2FileContractElement(func(fce types.V2FileContractElement, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
+	au.ForEachV2FileContractElement(func(fce types.V2FileContractElement, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
 		fces = append(fces, fce)
 	})
 	var cies []types.ChainIndexElement
-	cies = append(cies, cau.ChainIndexElement())
+	cies = append(cies, au.ChainIndexElement())
 
-	dbStore, tipState, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cs := tipState
+	db, cs := newConsensusDB(n, genesisBlock)
 
 	fc := v2GiftFC
 	fc.TotalCollateral = fc.HostOutput.Value
@@ -706,7 +840,7 @@ func TestValidateV2Block(t *testing.T) {
 
 	// initial block should be valid
 	validBlock := deepCopyBlock(b)
-	if err := consensus.ValidateBlock(cs, validBlock, dbStore.SupplementTipBlock(validBlock)); err != nil {
+	if err := ValidateBlock(cs, validBlock, db.supplementTipBlock(validBlock)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1023,31 +1157,29 @@ func TestValidateV2Block(t *testing.T) {
 			}
 			findBlockNonce(cs, &corruptBlock)
 
-			if err := consensus.ValidateBlock(cs, corruptBlock, dbStore.SupplementTipBlock(corruptBlock)); err == nil {
+			if err := ValidateBlock(cs, corruptBlock, db.supplementTipBlock(corruptBlock)); err == nil {
 				t.Fatalf("accepted block with %v", test.desc)
 			}
 		}
 	}
 
-	cs, testCau := consensus.ApplyBlock(cs, validBlock, dbStore.SupplementTipBlock(validBlock), time.Now())
-	if !dbStore.ApplyBlock(cs, testCau, true) {
-		t.Fatal("didn't commit block")
-	}
-	updateProofs(testCau, sces, sfes, fces)
+	cs, testAU := ApplyBlock(cs, validBlock, db.supplementTipBlock(validBlock), time.Now())
+	db.applyBlock(testAU)
+	updateProofs(testAU, sces, sfes, fces)
 
 	var testSces []types.SiacoinElement
-	testCau.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
+	testAU.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
 		testSces = append(testSces, sce)
 	})
 	var testSfes []types.SiafundElement
-	testCau.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
+	testAU.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
 		testSfes = append(testSfes, sfe)
 	})
 	var testFces []types.V2FileContractElement
-	testCau.ForEachV2FileContractElement(func(fce types.V2FileContractElement, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
+	testAU.ForEachV2FileContractElement(func(fce types.V2FileContractElement, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
 		testFces = append(testFces, fce)
 	})
-	cies = append(cies, testCau.ChainIndexElement())
+	cies = append(cies, testAU.ChainIndexElement())
 
 	// mine empty blocks
 	blockID := validBlock.ID()
@@ -1066,17 +1198,14 @@ func TestValidateV2Block(t *testing.T) {
 		b.V2.Commitment = cs.Commitment(cs.TransactionsCommitment(b.Transactions, b.V2Transactions()), b.MinerPayouts[0].Address)
 
 		findBlockNonce(cs, &b)
-		if err := consensus.ValidateBlock(cs, b, dbStore.SupplementTipBlock(b)); err != nil {
+		if err := ValidateBlock(cs, b, db.supplementTipBlock(b)); err != nil {
 			t.Fatal(err)
 		}
-		cs, cau = consensus.ApplyBlock(cs, b, dbStore.SupplementTipBlock(validBlock), time.Now())
-		if !dbStore.ApplyBlock(cs, cau, true) {
-			t.Fatal("didn't commit block")
-		}
-
-		updateProofs(cau, sces, sfes, fces)
-		updateProofs(cau, testSces, testSfes, testFces)
-		cies = append(cies, cau.ChainIndexElement())
+		cs, au = ApplyBlock(cs, b, db.supplementTipBlock(validBlock), time.Now())
+		db.applyBlock(au)
+		updateProofs(au, sces, sfes, fces)
+		updateProofs(au, testSces, testSfes, testFces)
+		cies = append(cies, au.ChainIndexElement())
 
 		blockID = b.ID()
 	}
@@ -1101,7 +1230,7 @@ func TestValidateV2Block(t *testing.T) {
 
 	// initial block should be valid
 	validBlock = deepCopyBlock(b)
-	if err := consensus.ValidateBlock(cs, validBlock, dbStore.SupplementTipBlock(validBlock)); err != nil {
+	if err := ValidateBlock(cs, validBlock, db.supplementTipBlock(validBlock)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1265,47 +1394,18 @@ func TestValidateV2Block(t *testing.T) {
 			}
 			findBlockNonce(cs, &corruptBlock)
 
-			if err := consensus.ValidateBlock(cs, corruptBlock, dbStore.SupplementTipBlock(corruptBlock)); err == nil {
+			if err := ValidateBlock(cs, corruptBlock, db.supplementTipBlock(corruptBlock)); err == nil {
 				t.Fatalf("accepted block with %v", test.desc)
 			}
 		}
 	}
 }
 
-func TestValidateV2Transaction(t *testing.T) {
-	type args struct {
-		ms  *consensus.MidState
-		txn types.V2Transaction
-	}
-	tests := []struct {
-		name    string
-		args    args
-		wantErr error
-	}{
-		{
-			name: "failure - v2 transactions are not allowed",
-			args: args{
-				ms: consensus.NewMidState(consensus.State{
-					Index: types.ChainIndex{Height: uint64(0)},
-					Network: &consensus.Network{
-						HardforkV2: struct {
-							AllowHeight   uint64 `json:"allowHeight"`
-							RequireHeight uint64 `json:"requireHeight"`
-						}{
-							AllowHeight: uint64(2),
-						},
-					},
-				}),
-				txn: types.V2Transaction{},
-			},
-			wantErr: errors.New("v2 transactions are not allowed until v2 hardfork begins"),
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := consensus.ValidateV2Transaction(tt.args.ms, tt.args.txn); (err != nil) && err.Error() != tt.wantErr.Error() {
-				t.Errorf("ValidateV2Transaction() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
+func TestEarlyV2Transaction(t *testing.T) {
+	n := &Network{InitialTarget: types.BlockID{0xFF}}
+	n.HardforkV2.AllowHeight = 1
+	exp := errors.New("v2 transactions are not allowed until v2 hardfork begins")
+	if err := ValidateV2Transaction(NewMidState(n.GenesisState()), types.V2Transaction{}); err == nil || err.Error() != exp.Error() {
+		t.Fatalf("expected %q, got %q", exp, err)
 	}
 }
