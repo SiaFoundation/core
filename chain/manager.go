@@ -1025,7 +1025,7 @@ func (m *Manager) AddPoolTransactions(txns []types.Transaction) (known bool, err
 // index specifying the accumulator state for which those proofs are assumed to
 // be valid. If that index differs from the Manager's current tip, the Merkle
 // proofs will be updated accordingly. The original transactions are not
-// modified.
+// modified and none of their memory is retained.
 func (m *Manager) AddV2PoolTransactions(basis types.ChainIndex, txns []types.V2Transaction) (known bool, _ error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1036,12 +1036,14 @@ func (m *Manager) AddV2PoolTransactions(basis types.ChainIndex, txns []types.V2T
 		return true, m.txpool.invalidTxnSets[setID]
 	}
 
+	// take ownership
+	txns = append([]types.V2Transaction(nil), txns...)
+	for i := range txns {
+		txns[i] = txns[i].DeepCopy()
+	}
+
 	if basis != m.tipState.Index {
-		// bring txns up-to-date, preserving the originals
-		txns = append([]types.V2Transaction(nil), txns...)
-		for i := range txns {
-			txns[i] = txns[i].DeepCopy()
-		}
+		// bring txns up-to-date
 		revert, apply, err := m.reorgPath(basis, m.tipState.Index)
 		if err != nil {
 			return false, fmt.Errorf("couldn't determine reorg path from %v to %v: %w", basis, m.tipState.Index, err)
