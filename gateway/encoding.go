@@ -170,7 +170,8 @@ func (ob *V2BlockOutline) decodeFrom(d *types.Decoder) {
 	}
 }
 
-type object interface {
+// An Object can be sent or received via RPC.
+type Object interface {
 	encodeRequest(e *types.Encoder)
 	decodeRequest(d *types.Decoder)
 	maxRequestLen() int
@@ -223,10 +224,8 @@ func (r *RPCDiscoverIP) maxResponseLen() int             { return 128 }
 
 // RPCSendBlocks requests a set of blocks.
 type RPCSendBlocks struct {
-	History       [32]types.BlockID
-	Blocks        []types.Block
-	MoreAvailable bool
-	emptyResponse // SendBlocks is special
+	History [32]types.BlockID
+	Blocks  []types.Block
 }
 
 func (r *RPCSendBlocks) encodeRequest(e *types.Encoder) {
@@ -241,26 +240,33 @@ func (r *RPCSendBlocks) decodeRequest(d *types.Decoder) {
 }
 func (r *RPCSendBlocks) maxRequestLen() int { return 32 * 32 }
 
-func (r *RPCSendBlocks) encodeBlocksResponse(e *types.Encoder) {
+func (r *RPCSendBlocks) encodeResponse(e *types.Encoder) {
 	e.WritePrefix(len(r.Blocks))
 	for i := range r.Blocks {
 		types.V1Block(r.Blocks[i]).EncodeTo(e)
 	}
 }
-func (r *RPCSendBlocks) decodeBlocksResponse(d *types.Decoder) {
+func (r *RPCSendBlocks) decodeResponse(d *types.Decoder) {
 	r.Blocks = make([]types.Block, d.ReadPrefix())
 	for i := range r.Blocks {
 		(*types.V1Block)(&r.Blocks[i]).DecodeFrom(d)
 	}
 }
-func (r *RPCSendBlocks) maxBlocksResponseLen() int { return 10 * 5e6 }
-func (r *RPCSendBlocks) encodeMoreAvailableResponse(e *types.Encoder) {
+func (r *RPCSendBlocks) maxResponseLen() int { return 10 * 5e6 }
+
+// RPCSendBlocksMoreAvailable indicates whether more blocks are available.
+type RPCSendBlocksMoreAvailable struct {
+	emptyRequest
+	MoreAvailable bool
+}
+
+func (r *RPCSendBlocksMoreAvailable) encodeResponse(e *types.Encoder) {
 	e.WriteBool(r.MoreAvailable)
 }
-func (r *RPCSendBlocks) decodeMoreAvailableResponse(d *types.Decoder) {
+func (r *RPCSendBlocksMoreAvailable) decodeResponse(d *types.Decoder) {
 	r.MoreAvailable = d.ReadBool()
 }
-func (r *RPCSendBlocks) maxMoreAvailableResponseLen() int { return 1 }
+func (r *RPCSendBlocksMoreAvailable) maxResponseLen() int { return 1 }
 
 // RPCSendBlk requests a single block.
 type RPCSendBlk struct {
@@ -498,7 +504,7 @@ var (
 	idRelayV2TransactionSet = types.NewSpecifier("RelayV2TransactionSet")
 )
 
-func idForObject(o object) types.Specifier {
+func idForObject(o Object) types.Specifier {
 	switch o.(type) {
 	case *RPCShareNodes:
 		return idShareNodes
@@ -529,7 +535,8 @@ func idForObject(o object) types.Specifier {
 	}
 }
 
-func objectForID(id types.Specifier) object {
+// ObjectForID returns the object type corresponding to the given RPC ID.
+func ObjectForID(id types.Specifier) Object {
 	switch id {
 	case idShareNodes:
 		return new(RPCShareNodes)

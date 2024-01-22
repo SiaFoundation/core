@@ -2,78 +2,12 @@ package gateway
 
 import (
 	"encoding/binary"
-	"errors"
-	"fmt"
-	"net"
-	"strings"
 	"time"
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/internal/blake2b"
-	"go.sia.tech/core/internal/smux"
 	"go.sia.tech/core/types"
-	"go.sia.tech/mux"
-	"lukechampine.com/frand"
 )
-
-// A UniqueID is a randomly-generated nonce that helps prevent self-connections
-// and double-connections.
-type UniqueID [8]byte
-
-// GenerateUniqueID returns a random UniqueID.
-func GenerateUniqueID() (id UniqueID) {
-	frand.Read(id[:])
-	return
-}
-
-// A Header contains various peer metadata which is exchanged during the gateway
-// handshake.
-type Header struct {
-	GenesisID  types.BlockID
-	UniqueID   UniqueID
-	NetAddress string
-}
-
-func validateHeader(ours, theirs Header) error {
-	if theirs.GenesisID != ours.GenesisID {
-		return errors.New("peer has different genesis block")
-	} else if theirs.UniqueID == ours.UniqueID {
-		return errors.New("peer has same unique ID as us")
-	}
-	return nil
-}
-
-func writeHeader(conn net.Conn, ourHeader Header) error {
-	var accept string
-	if err := withV1Encoder(conn, ourHeader.encodeTo); err != nil {
-		return fmt.Errorf("could not write our header: %w", err)
-	} else if err := withV1Decoder(conn, 128, func(d *types.Decoder) { accept = d.ReadString() }); err != nil {
-		return fmt.Errorf("could not read peer header acceptance: %w", err)
-	} else if accept != "accept" {
-		return fmt.Errorf("peer rejected our header: %v", accept)
-	}
-	return nil
-}
-
-func readHeader(conn net.Conn, ourHeader Header, dialAddr *string, uniqueID *UniqueID) error {
-	var peerHeader Header
-	if err := withV1Decoder(conn, 32+8+128, peerHeader.decodeFrom); err != nil {
-		return fmt.Errorf("could not read peer's header: %w", err)
-	} else if err := validateHeader(ourHeader, peerHeader); err != nil {
-		withV1Encoder(conn, func(e *types.Encoder) { e.WriteString(err.Error()) })
-		return fmt.Errorf("unacceptable header: %w", err)
-	} else if err := withV1Encoder(conn, func(e *types.Encoder) { e.WriteString("accept") }); err != nil {
-		return fmt.Errorf("could not write accept: %w", err)
-	} else if host, _, err := net.SplitHostPort(conn.RemoteAddr().String()); err != nil {
-		return fmt.Errorf("invalid remote addr (%q): %w", conn.RemoteAddr(), err)
-	} else if _, port, err := net.SplitHostPort(peerHeader.NetAddress); err != nil {
-		return fmt.Errorf("peer provided invalid net address (%q): %w", peerHeader.NetAddress, err)
-	} else {
-		*dialAddr = net.JoinHostPort(host, port)
-		*uniqueID = peerHeader.UniqueID
-	}
-	return nil
-}
 
 // A BlockHeader contains a Block's non-transaction data.
 type BlockHeader struct {
@@ -240,64 +174,4 @@ func OutlineBlock(b types.Block, txns []types.Transaction, v2txns []types.V2Tran
 	}
 	bo.RemoveTransactions(txns, v2txns)
 	return bo
-}
-
-// Dial initiates the gateway handshake with a peer.
-func Dial(conn net.Conn, ourHeader Header) (*Peer, error) {
-	p := &Peer{
-		ConnAddr: conn.RemoteAddr().String(),
-		Inbound:  false,
-	}
-
-	// exchange versions
-	const ourVersion = "2.0.0"
-	if err := withV1Encoder(conn, func(e *types.Encoder) { e.WriteString(ourVersion) }); err != nil {
-		return nil, fmt.Errorf("could not write our version: %w", err)
-	} else if err := withV1Decoder(conn, 128, func(d *types.Decoder) { p.Version = d.ReadString() }); err != nil {
-		return nil, fmt.Errorf("could not read peer version: %w", err)
-	}
-	// exchange headers
-	if err := writeHeader(conn, ourHeader); err != nil {
-		return nil, fmt.Errorf("could not write our header: %w", err)
-	} else if err := readHeader(conn, ourHeader, &p.Addr, &p.UniqueID); err != nil {
-		return nil, fmt.Errorf("could not read peer's header: %w", err)
-	}
-	// establish mux
-	var err error
-	if strings.HasPrefix(p.Version, "1.") {
-		p.smux, err = smux.Client(conn, nil)
-	} else {
-		p.mux, err = mux.DialAnonymous(conn)
-	}
-	return p, err
-}
-
-// Accept reciprocates the gateway handshake with a peer.
-func Accept(conn net.Conn, ourHeader Header) (*Peer, error) {
-	p := &Peer{
-		ConnAddr: conn.RemoteAddr().String(),
-		Inbound:  true,
-	}
-
-	// exchange versions
-	const ourVersion = "2.0.0"
-	if err := withV1Decoder(conn, 128, func(d *types.Decoder) { p.Version = d.ReadString() }); err != nil {
-		return nil, fmt.Errorf("could not read peer version: %w", err)
-	} else if err := withV1Encoder(conn, func(e *types.Encoder) { e.WriteString(ourVersion) }); err != nil {
-		return nil, fmt.Errorf("could not write our version: %w", err)
-	}
-	// exchange headers
-	if err := readHeader(conn, ourHeader, &p.Addr, &p.UniqueID); err != nil {
-		return nil, fmt.Errorf("could not read peer's header: %w", err)
-	} else if err := writeHeader(conn, ourHeader); err != nil {
-		return nil, fmt.Errorf("could not write our header: %w", err)
-	}
-	// establish mux
-	var err error
-	if strings.HasPrefix(p.Version, "1.") {
-		p.smux, err = smux.Server(conn, nil)
-	} else {
-		p.mux, err = mux.AcceptAnonymous(conn)
-	}
-	return p, err
 }
