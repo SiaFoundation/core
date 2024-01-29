@@ -111,7 +111,7 @@ func (r *RPCFormContractAdditions) EncodeTo(e *types.Encoder) {
 	}
 	e.WritePrefix(len(r.Outputs))
 	for i := range r.Outputs {
-		r.Outputs[i].EncodeTo(e)
+		types.V1SiacoinOutput(r.Outputs[i]).EncodeTo(e)
 	}
 }
 
@@ -127,7 +127,7 @@ func (r *RPCFormContractAdditions) DecodeFrom(d *types.Decoder) {
 	}
 	r.Outputs = make([]types.SiacoinOutput, d.ReadPrefix())
 	for i := range r.Outputs {
-		r.Outputs[i].DecodeFrom(d)
+		(*types.V1SiacoinOutput)(&r.Outputs[i]).DecodeFrom(d)
 	}
 }
 
@@ -160,11 +160,11 @@ func (r *RPCRenewAndClearContractRequest) EncodeTo(e *types.Encoder) {
 	r.RenterKey.EncodeTo(e)
 	e.WritePrefix(len(r.FinalValidProofValues))
 	for i := range r.FinalValidProofValues {
-		r.FinalValidProofValues[i].EncodeTo(e)
+		types.V1Currency(r.FinalValidProofValues[i]).EncodeTo(e)
 	}
 	e.WritePrefix(len(r.FinalMissedProofValues))
 	for i := range r.FinalMissedProofValues {
-		r.FinalMissedProofValues[i].EncodeTo(e)
+		types.V1Currency(r.FinalMissedProofValues[i]).EncodeTo(e)
 	}
 }
 
@@ -177,11 +177,11 @@ func (r *RPCRenewAndClearContractRequest) DecodeFrom(d *types.Decoder) {
 	r.RenterKey.DecodeFrom(d)
 	r.FinalValidProofValues = make([]types.Currency, d.ReadPrefix())
 	for i := range r.FinalValidProofValues {
-		r.FinalValidProofValues[i].DecodeFrom(d)
+		(*types.V1Currency)(&r.FinalValidProofValues[i]).DecodeFrom(d)
 	}
 	r.FinalMissedProofValues = make([]types.Currency, d.ReadPrefix())
 	for i := range r.FinalMissedProofValues {
-		r.FinalMissedProofValues[i].DecodeFrom(d)
+		(*types.V1Currency)(&r.FinalMissedProofValues[i]).DecodeFrom(d)
 	}
 }
 
@@ -257,11 +257,11 @@ func (r *RPCReadRequest) EncodeTo(e *types.Encoder) {
 	e.WriteUint64(r.RevisionNumber)
 	e.WritePrefix(len(r.ValidProofValues))
 	for i := range r.ValidProofValues {
-		r.ValidProofValues[i].EncodeTo(e)
+		types.V1Currency(r.ValidProofValues[i]).EncodeTo(e)
 	}
 	e.WritePrefix(len(r.MissedProofValues))
 	for i := range r.MissedProofValues {
-		r.MissedProofValues[i].EncodeTo(e)
+		types.V1Currency(r.MissedProofValues[i]).EncodeTo(e)
 	}
 	e.WriteBytes(r.Signature[:])
 }
@@ -278,11 +278,11 @@ func (r *RPCReadRequest) DecodeFrom(d *types.Decoder) {
 	r.RevisionNumber = d.ReadUint64()
 	r.ValidProofValues = make([]types.Currency, d.ReadPrefix())
 	for i := range r.ValidProofValues {
-		r.ValidProofValues[i].DecodeFrom(d)
+		(*types.V1Currency)(&r.ValidProofValues[i]).DecodeFrom(d)
 	}
 	r.MissedProofValues = make([]types.Currency, d.ReadPrefix())
 	for i := range r.MissedProofValues {
-		r.MissedProofValues[i].DecodeFrom(d)
+		(*types.V1Currency)(&r.MissedProofValues[i]).DecodeFrom(d)
 	}
 	copy(r.Signature[:], d.ReadBytes())
 }
@@ -328,11 +328,11 @@ func (r *RPCSectorRootsRequest) EncodeTo(e *types.Encoder) {
 	e.WriteUint64(r.RevisionNumber)
 	e.WritePrefix(len(r.ValidProofValues))
 	for i := range r.ValidProofValues {
-		r.ValidProofValues[i].EncodeTo(e)
+		types.V1Currency(r.ValidProofValues[i]).EncodeTo(e)
 	}
 	e.WritePrefix(len(r.MissedProofValues))
 	for i := range r.MissedProofValues {
-		r.MissedProofValues[i].EncodeTo(e)
+		types.V1Currency(r.MissedProofValues[i]).EncodeTo(e)
 	}
 	e.WriteBytes(r.Signature[:])
 }
@@ -344,11 +344,11 @@ func (r *RPCSectorRootsRequest) DecodeFrom(d *types.Decoder) {
 	r.RevisionNumber = d.ReadUint64()
 	r.ValidProofValues = make([]types.Currency, d.ReadPrefix())
 	for i := range r.ValidProofValues {
-		r.ValidProofValues[i].DecodeFrom(d)
+		(*types.V1Currency)(&r.ValidProofValues[i]).DecodeFrom(d)
 	}
 	r.MissedProofValues = make([]types.Currency, d.ReadPrefix())
 	for i := range r.MissedProofValues {
-		r.MissedProofValues[i].DecodeFrom(d)
+		(*types.V1Currency)(&r.MissedProofValues[i]).DecodeFrom(d)
 	}
 	copy(r.Signature[:], d.ReadBytes())
 }
@@ -406,11 +406,11 @@ func (r *RPCWriteRequest) EncodeTo(e *types.Encoder) {
 	e.WriteUint64(r.RevisionNumber)
 	e.WritePrefix(len(r.ValidProofValues))
 	for i := range r.ValidProofValues {
-		r.ValidProofValues[i].EncodeTo(e)
+		types.V1Currency(r.ValidProofValues[i]).EncodeTo(e)
 	}
 	e.WritePrefix(len(r.MissedProofValues))
 	for i := range r.MissedProofValues {
-		r.MissedProofValues[i].EncodeTo(e)
+		types.V1Currency(r.MissedProofValues[i]).EncodeTo(e)
 	}
 }
 
@@ -427,11 +427,11 @@ func (r *RPCWriteRequest) DecodeFrom(d *types.Decoder) {
 	r.RevisionNumber = d.ReadUint64()
 	r.ValidProofValues = make([]types.Currency, d.ReadPrefix())
 	for i := range r.ValidProofValues {
-		r.ValidProofValues[i].DecodeFrom(d)
+		(*types.V1Currency)(&r.ValidProofValues[i]).DecodeFrom(d)
 	}
 	r.MissedProofValues = make([]types.Currency, d.ReadPrefix())
 	for i := range r.MissedProofValues {
-		r.MissedProofValues[i].DecodeFrom(d)
+		(*types.V1Currency)(&r.MissedProofValues[i]).DecodeFrom(d)
 	}
 }
 
