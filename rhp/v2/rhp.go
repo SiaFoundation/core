@@ -80,42 +80,42 @@ type HostSettings struct {
 
 // MarshalJSON encodes the HostSettings as JSON. The Address field is overridden
 // for compatibility with siad renters.
-func (s HostSettings) MarshalJSON() ([]byte, error) {
+func (hs HostSettings) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]interface{}{
-		"acceptingcontracts":         s.AcceptingContracts,
-		"maxdownloadbatchsize":       s.MaxDownloadBatchSize,
-		"maxduration":                s.MaxDuration,
-		"maxrevisebatchsize":         s.MaxReviseBatchSize,
-		"netaddress":                 s.NetAddress,
-		"remainingstorage":           s.RemainingStorage,
-		"sectorsize":                 s.SectorSize,
-		"totalstorage":               s.TotalStorage,
-		"unlockhash":                 strings.TrimPrefix(s.Address.String(), "addr:"), // trim the "addr:" prefix for compatibility with siad
-		"windowsize":                 s.WindowSize,
-		"collateral":                 s.Collateral,
-		"maxcollateral":              s.MaxCollateral,
-		"baserpcprice":               s.BaseRPCPrice,
-		"contractprice":              s.ContractPrice,
-		"downloadbandwidthprice":     s.DownloadBandwidthPrice,
-		"sectoraccessprice":          s.SectorAccessPrice,
-		"storageprice":               s.StoragePrice,
-		"uploadbandwidthprice":       s.UploadBandwidthPrice,
-		"ephemeralaccountexpiry":     s.EphemeralAccountExpiry,
-		"maxephemeralaccountbalance": s.MaxEphemeralAccountBalance,
-		"revisionnumber":             s.RevisionNumber,
-		"version":                    s.Version,
-		"siamuxport":                 s.SiaMuxPort,
+		"acceptingcontracts":         hs.AcceptingContracts,
+		"maxdownloadbatchsize":       hs.MaxDownloadBatchSize,
+		"maxduration":                hs.MaxDuration,
+		"maxrevisebatchsize":         hs.MaxReviseBatchSize,
+		"netaddress":                 hs.NetAddress,
+		"remainingstorage":           hs.RemainingStorage,
+		"sectorsize":                 hs.SectorSize,
+		"totalstorage":               hs.TotalStorage,
+		"unlockhash":                 strings.TrimPrefix(hs.Address.String(), "addr:"), // trim the "addr:" prefix for compatibility with siad
+		"windowsize":                 hs.WindowSize,
+		"collateral":                 hs.Collateral,
+		"maxcollateral":              hs.MaxCollateral,
+		"baserpcprice":               hs.BaseRPCPrice,
+		"contractprice":              hs.ContractPrice,
+		"downloadbandwidthprice":     hs.DownloadBandwidthPrice,
+		"sectoraccessprice":          hs.SectorAccessPrice,
+		"storageprice":               hs.StoragePrice,
+		"uploadbandwidthprice":       hs.UploadBandwidthPrice,
+		"ephemeralaccountexpiry":     hs.EphemeralAccountExpiry,
+		"maxephemeralaccountbalance": hs.MaxEphemeralAccountBalance,
+		"revisionnumber":             hs.RevisionNumber,
+		"version":                    hs.Version,
+		"siamuxport":                 hs.SiaMuxPort,
 	})
 }
 
 // SiamuxAddr is a helper which returns an address that can be used to connect
 // to the host's siamux.
-func (s HostSettings) SiamuxAddr() string {
-	host, _, err := net.SplitHostPort(s.NetAddress)
+func (hs HostSettings) SiamuxAddr() string {
+	host, _, err := net.SplitHostPort(hs.NetAddress)
 	if err != nil || host == "" {
 		return ""
 	}
-	return net.JoinHostPort(host, s.SiaMuxPort)
+	return net.JoinHostPort(host, hs.SiaMuxPort)
 }
 
 // RPC IDs
