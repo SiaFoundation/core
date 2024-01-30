@@ -81,13 +81,13 @@ func chainIndexLeaf(e *types.ChainIndexElement) elementLeaf {
 
 // siacoinLeaf returns the elementLeaf for a SiacoinElement.
 func siacoinLeaf(e *types.SiacoinElement, spent bool) elementLeaf {
-	elemHash := hashAll("leaf/siacoin", e.ID, e.SiacoinOutput, e.MaturityHeight)
+	elemHash := hashAll("leaf/siacoin", e.ID, types.V2SiacoinOutput(e.SiacoinOutput), e.MaturityHeight)
 	return elementLeaf{&e.StateElement, elemHash, spent}
 }
 
 // siafundLeaf returns the elementLeaf for a SiafundElement.
 func siafundLeaf(e *types.SiafundElement, spent bool) elementLeaf {
-	elemHash := hashAll("leaf/siafund", e.ID, e.SiafundOutput, e.ClaimStart)
+	elemHash := hashAll("leaf/siafund", e.ID, types.V2SiafundOutput(e.SiafundOutput), types.V2Currency(e.ClaimStart))
 	return elementLeaf{&e.StateElement, elemHash, spent}
 }
 

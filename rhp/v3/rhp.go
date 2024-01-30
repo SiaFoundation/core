@@ -35,7 +35,7 @@ func (p PayByEphemeralAccountRequest) SigHash() types.Hash256 {
 	h := types.NewHasher()
 	p.Account.EncodeTo(h.E)
 	h.E.WriteUint64(p.Expiry)
-	p.Amount.EncodeTo(h.E)
+	types.V1Currency(p.Amount).EncodeTo(h.E)
 	h.E.Write(p.Nonce[:])
 	return h.Sum()
 }

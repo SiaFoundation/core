@@ -118,7 +118,7 @@ func (a Account) String() string { return types.PublicKey(a).String() }
 func (r *PayByEphemeralAccountRequest) EncodeTo(e *types.Encoder) {
 	r.Account.EncodeTo(e)
 	e.WriteUint64(r.Expiry)
-	r.Amount.EncodeTo(e)
+	types.V1Currency(r.Amount).EncodeTo(e)
 	e.Write(r.Nonce[:])
 	r.Signature.EncodeTo(e)
 	e.WriteUint64(uint64(r.Priority))
@@ -128,7 +128,7 @@ func (r *PayByEphemeralAccountRequest) EncodeTo(e *types.Encoder) {
 func (r *PayByEphemeralAccountRequest) DecodeFrom(d *types.Decoder) {
 	r.Account.DecodeFrom(d)
 	r.Expiry = d.ReadUint64()
-	r.Amount.DecodeFrom(d)
+	(*types.V1Currency)(&r.Amount).DecodeFrom(d)
 	d.Read(r.Nonce[:])
 	r.Signature.DecodeFrom(d)
 	r.Priority = int64(d.ReadUint64())
@@ -140,11 +140,11 @@ func (r *PayByContractRequest) EncodeTo(e *types.Encoder) {
 	e.WriteUint64(r.RevisionNumber)
 	e.WritePrefix(len(r.ValidProofValues))
 	for i := range r.ValidProofValues {
-		r.ValidProofValues[i].EncodeTo(e)
+		types.V1Currency(r.ValidProofValues[i]).EncodeTo(e)
 	}
 	e.WritePrefix(len(r.MissedProofValues))
 	for i := range r.MissedProofValues {
-		r.MissedProofValues[i].EncodeTo(e)
+		types.V1Currency(r.MissedProofValues[i]).EncodeTo(e)
 	}
 	r.RefundAccount.EncodeTo(e)
 	e.WriteBytes(r.Signature[:])
@@ -156,11 +156,11 @@ func (r *PayByContractRequest) DecodeFrom(d *types.Decoder) {
 	r.RevisionNumber = d.ReadUint64()
 	r.ValidProofValues = make([]types.Currency, d.ReadPrefix())
 	for i := range r.ValidProofValues {
-		r.ValidProofValues[i].DecodeFrom(d)
+		(*types.V1Currency)(&r.ValidProofValues[i]).DecodeFrom(d)
 	}
 	r.MissedProofValues = make([]types.Currency, d.ReadPrefix())
 	for i := range r.MissedProofValues {
-		r.MissedProofValues[i].DecodeFrom(d)
+		(*types.V1Currency)(&r.MissedProofValues[i]).DecodeFrom(d)
 	}
 	r.RefundAccount.DecodeFrom(d)
 	copy(r.Signature[:], d.ReadBytes())
@@ -206,7 +206,7 @@ func (r *RPCFundAccountRequest) DecodeFrom(d *types.Decoder) {
 func (r *FundAccountReceipt) EncodeTo(e *types.Encoder) {
 	r.Host.EncodeTo(e)
 	r.Account.EncodeTo(e)
-	r.Amount.EncodeTo(e)
+	types.V1Currency(r.Amount).EncodeTo(e)
 	e.WriteTime(r.Timestamp)
 }
 
@@ -214,20 +214,20 @@ func (r *FundAccountReceipt) EncodeTo(e *types.Encoder) {
 func (r *FundAccountReceipt) DecodeFrom(d *types.Decoder) {
 	r.Host.DecodeFrom(d)
 	r.Account.DecodeFrom(d)
-	r.Amount.DecodeFrom(d)
+	(*types.V1Currency)(&r.Amount).DecodeFrom(d)
 	r.Timestamp = d.ReadTime()
 }
 
 // EncodeTo implements ProtocolObject.
 func (r *RPCFundAccountResponse) EncodeTo(e *types.Encoder) {
-	r.Balance.EncodeTo(e)
+	types.V1Currency(r.Balance).EncodeTo(e)
 	r.Receipt.EncodeTo(e)
 	r.Signature.EncodeTo(e)
 }
 
 // DecodeFrom implements ProtocolObject.
 func (r *RPCFundAccountResponse) DecodeFrom(d *types.Decoder) {
-	r.Balance.DecodeFrom(d)
+	(*types.V1Currency)(&r.Balance).DecodeFrom(d)
 	r.Receipt.DecodeFrom(d)
 	r.Signature.DecodeFrom(d)
 }
@@ -244,12 +244,12 @@ func (r *RPCAccountBalanceRequest) DecodeFrom(d *types.Decoder) {
 
 // EncodeTo implements ProtocolObject.
 func (r *RPCAccountBalanceResponse) EncodeTo(e *types.Encoder) {
-	r.Balance.EncodeTo(e)
+	types.V1Currency(r.Balance).EncodeTo(e)
 }
 
 // DecodeFrom implements ProtocolObject.
 func (r *RPCAccountBalanceResponse) DecodeFrom(d *types.Decoder) {
-	r.Balance.DecodeFrom(d)
+	(*types.V1Currency)(&r.Balance).DecodeFrom(d)
 }
 
 // EncodeTo implements ProtocolObject.
@@ -290,7 +290,7 @@ func (r *RPCExecuteProgramRequest) DecodeFrom(d *types.Decoder) {
 
 // EncodeTo implements ProtocolObject.
 func (r *RPCExecuteProgramResponse) EncodeTo(e *types.Encoder) {
-	r.AdditionalCollateral.EncodeTo(e)
+	types.V1Currency(r.AdditionalCollateral).EncodeTo(e)
 	e.WriteUint64(r.OutputLength)
 	r.NewMerkleRoot.EncodeTo(e)
 	e.WriteUint64(r.NewSize)
@@ -303,14 +303,14 @@ func (r *RPCExecuteProgramResponse) EncodeTo(e *types.Encoder) {
 		errString = r.Error.Error()
 	}
 	e.WriteString(errString)
-	r.TotalCost.EncodeTo(e)
-	r.FailureRefund.EncodeTo(e)
+	types.V1Currency(r.TotalCost).EncodeTo(e)
+	types.V1Currency(r.FailureRefund).EncodeTo(e)
 	e.Write(r.Output)
 }
 
 // DecodeFrom implements ProtocolObject.
 func (r *RPCExecuteProgramResponse) DecodeFrom(d *types.Decoder) {
-	r.AdditionalCollateral.DecodeFrom(d)
+	(*types.V1Currency)(&r.AdditionalCollateral).DecodeFrom(d)
 	r.OutputLength = d.ReadUint64()
 	r.NewMerkleRoot.DecodeFrom(d)
 	r.NewSize = d.ReadUint64()
@@ -321,8 +321,8 @@ func (r *RPCExecuteProgramResponse) DecodeFrom(d *types.Decoder) {
 	if s := d.ReadString(); s != "" {
 		r.Error = errors.New(s)
 	}
-	r.TotalCost.DecodeFrom(d)
-	r.FailureRefund.DecodeFrom(d)
+	(*types.V1Currency)(&r.TotalCost).DecodeFrom(d)
+	(*types.V1Currency)(&r.FailureRefund).DecodeFrom(d)
 	r.Output = make([]byte, r.OutputLength)
 	d.Read(r.Output)
 }
@@ -333,11 +333,11 @@ func (r *RPCFinalizeProgramRequest) EncodeTo(e *types.Encoder) {
 	e.WriteUint64(r.RevisionNumber)
 	e.WritePrefix(len(r.ValidProofValues))
 	for _, v := range r.ValidProofValues {
-		v.EncodeTo(e)
+		types.V1Currency(v).EncodeTo(e)
 	}
 	e.WritePrefix(len(r.MissedProofValues))
 	for _, v := range r.MissedProofValues {
-		v.EncodeTo(e)
+		types.V1Currency(v).EncodeTo(e)
 	}
 }
 
@@ -347,11 +347,11 @@ func (r *RPCFinalizeProgramRequest) DecodeFrom(d *types.Decoder) {
 	r.RevisionNumber = d.ReadUint64()
 	r.ValidProofValues = make([]types.Currency, d.ReadPrefix())
 	for i := range r.ValidProofValues {
-		r.ValidProofValues[i].DecodeFrom(d)
+		(*types.V1Currency)(&r.ValidProofValues[i]).DecodeFrom(d)
 	}
 	r.MissedProofValues = make([]types.Currency, d.ReadPrefix())
 	for i := range r.MissedProofValues {
-		r.MissedProofValues[i].DecodeFrom(d)
+		(*types.V1Currency)(&r.MissedProofValues[i]).DecodeFrom(d)
 	}
 }
 
@@ -417,7 +417,7 @@ func (r *RPCRenewContractHostAdditions) EncodeTo(e *types.Encoder) {
 	}
 	e.WritePrefix(len(r.SiacoinOutputs))
 	for i := range r.SiacoinOutputs {
-		r.SiacoinOutputs[i].EncodeTo(e)
+		types.V1SiacoinOutput(r.SiacoinOutputs[i]).EncodeTo(e)
 	}
 	r.FinalRevisionSignature.EncodeTo(e)
 }
@@ -434,7 +434,7 @@ func (r *RPCRenewContractHostAdditions) DecodeFrom(d *types.Decoder) {
 	}
 	r.SiacoinOutputs = make([]types.SiacoinOutput, d.ReadPrefix())
 	for i := range r.SiacoinOutputs {
-		r.SiacoinOutputs[i].DecodeFrom(d)
+		(*types.V1SiacoinOutput)(&r.SiacoinOutputs[i]).DecodeFrom(d)
 	}
 	r.FinalRevisionSignature.DecodeFrom(d)
 }

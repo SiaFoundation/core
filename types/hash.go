@@ -158,7 +158,7 @@ func blockMerkleRoot(minerPayouts []SiacoinOutput, txns []Transaction) Hash256 {
 	for _, mp := range minerPayouts {
 		h.Reset()
 		h.E.WriteUint8(leafHashPrefix)
-		mp.EncodeTo(h.E)
+		V1SiacoinOutput(mp).EncodeTo(h.E)
 		acc.AddLeaf(h.Sum())
 	}
 	for _, txn := range txns {

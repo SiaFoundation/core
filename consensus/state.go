@@ -137,7 +137,7 @@ func (s State) EncodeTo(e *types.Encoder) {
 	}
 	s.Depth.EncodeTo(e)
 	s.ChildTarget.EncodeTo(e)
-	s.SiafundPool.EncodeTo(e)
+	types.V2Currency(s.SiafundPool).EncodeTo(e)
 
 	e.WriteUint64(uint64(s.OakTime))
 	s.OakTarget.EncodeTo(e)
@@ -158,7 +158,7 @@ func (s *State) DecodeFrom(d *types.Decoder) {
 	}
 	s.Depth.DecodeFrom(d)
 	s.ChildTarget.DecodeFrom(d)
-	s.SiafundPool.DecodeFrom(d)
+	(*types.V2Currency)(&s.SiafundPool).DecodeFrom(d)
 
 	s.OakTime = time.Duration(d.ReadUint64())
 	s.OakTarget.DecodeFrom(d)
@@ -284,14 +284,14 @@ func (s State) V2TransactionWeight(txn types.V2Transaction) uint64 {
 		sci.EncodeTo(e)
 	}
 	for _, sco := range txn.SiacoinOutputs {
-		sco.EncodeTo(e)
+		types.V2SiacoinOutput(sco).EncodeTo(e)
 	}
 	for _, sfi := range txn.SiafundInputs {
 		sfi.Parent.MerkleProof = nil
 		sfi.EncodeTo(e)
 	}
 	for _, sfo := range txn.SiafundOutputs {
-		sfo.EncodeTo(e)
+		types.V2SiafundOutput(sfo).EncodeTo(e)
 	}
 	for _, fc := range txn.FileContracts {
 		fc.EncodeTo(e)
@@ -414,7 +414,7 @@ func (s State) WholeSigHash(txn types.Transaction, parentID types.Hash256, pubke
 	}
 	h.E.WritePrefix(len((txn.SiacoinOutputs)))
 	for i := range txn.SiacoinOutputs {
-		txn.SiacoinOutputs[i].EncodeTo(h.E)
+		types.V1SiacoinOutput(txn.SiacoinOutputs[i]).EncodeTo(h.E)
 	}
 	h.E.WritePrefix(len((txn.FileContracts)))
 	for i := range txn.FileContracts {
@@ -435,11 +435,11 @@ func (s State) WholeSigHash(txn types.Transaction, parentID types.Hash256, pubke
 	}
 	h.E.WritePrefix(len((txn.SiafundOutputs)))
 	for i := range txn.SiafundOutputs {
-		txn.SiafundOutputs[i].EncodeTo(h.E)
+		types.V1SiafundOutput(txn.SiafundOutputs[i]).EncodeTo(h.E)
 	}
 	h.E.WritePrefix(len((txn.MinerFees)))
 	for i := range txn.MinerFees {
-		txn.MinerFees[i].EncodeTo(h.E)
+		types.V1Currency(txn.MinerFees[i]).EncodeTo(h.E)
 	}
 	h.E.WritePrefix(len((txn.ArbitraryData)))
 	for i := range txn.ArbitraryData {
@@ -469,7 +469,7 @@ func (s State) PartialSigHash(txn types.Transaction, cf types.CoveredFields) typ
 		txn.SiacoinInputs[i].EncodeTo(h.E)
 	}
 	for _, i := range cf.SiacoinOutputs {
-		txn.SiacoinOutputs[i].EncodeTo(h.E)
+		types.V1SiacoinOutput(txn.SiacoinOutputs[i]).EncodeTo(h.E)
 	}
 	for _, i := range cf.FileContracts {
 		txn.FileContracts[i].EncodeTo(h.E)
@@ -485,10 +485,10 @@ func (s State) PartialSigHash(txn types.Transaction, cf types.CoveredFields) typ
 		txn.SiafundInputs[i].EncodeTo(h.E)
 	}
 	for _, i := range cf.SiafundOutputs {
-		txn.SiafundOutputs[i].EncodeTo(h.E)
+		types.V1SiafundOutput(txn.SiafundOutputs[i]).EncodeTo(h.E)
 	}
 	for _, i := range cf.MinerFees {
-		txn.MinerFees[i].EncodeTo(h.E)
+		types.V1Currency(txn.MinerFees[i]).EncodeTo(h.E)
 	}
 	for _, i := range cf.ArbitraryData {
 		h.E.WriteBytes(txn.ArbitraryData[i])

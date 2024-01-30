@@ -30,11 +30,11 @@ func chainIndexLeaf(e *ChainIndexElement) elementLeaf {
 }
 
 func siacoinLeaf(e *SiacoinElement) elementLeaf {
-	return elementLeaf{&e.StateElement, hashAll("leaf/siacoin", e.ID, e.SiacoinOutput, e.MaturityHeight)}
+	return elementLeaf{&e.StateElement, hashAll("leaf/siacoin", e.ID, V2SiacoinOutput(e.SiacoinOutput), e.MaturityHeight)}
 }
 
 func siafundLeaf(e *SiafundElement) elementLeaf {
-	return elementLeaf{&e.StateElement, hashAll("leaf/siafund", e.ID, e.SiafundOutput, e.ClaimStart)}
+	return elementLeaf{&e.StateElement, hashAll("leaf/siafund", e.ID, V2SiafundOutput(e.SiafundOutput), V2Currency(e.ClaimStart))}
 }
 
 func v2FileContractLeaf(e *V2FileContractElement) elementLeaf {
