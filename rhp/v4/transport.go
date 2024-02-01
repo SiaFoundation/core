@@ -53,11 +53,6 @@ func (s *Stream) withDecoder(maxLen int, fn func(*types.Decoder)) error {
 	return d.Err()
 }
 
-// WriteID writes the RPC ID of r to the stream.
-func (s *Stream) WriteID(r RPC) error {
-	return s.withEncoder(r.id().EncodeTo)
-}
-
 // ReadID reads an RPC ID from the stream.
 func (s *Stream) ReadID() (id types.Specifier, err error) {
 	err = s.withDecoder(16, id.DecodeFrom)
@@ -65,8 +60,11 @@ func (s *Stream) ReadID() (id types.Specifier, err error) {
 }
 
 // WriteRequest writes a request to the stream.
-func (s *Stream) WriteRequest(r Object) error {
-	return s.withEncoder(r.encodeTo)
+func (s *Stream) WriteRequest(r Request) error {
+	return s.withEncoder(func(e *types.Encoder) {
+		r.id().EncodeTo(e)
+		r.encodeTo(e)
+	})
 }
 
 // ReadRequest reads a request from the stream.
