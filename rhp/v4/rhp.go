@@ -74,7 +74,7 @@ const (
 )
 
 type (
-	// RPCSettingsRequest implements Object.
+	// RPCSettingsRequest implements Request.
 	RPCSettingsRequest struct{}
 
 	// RPCSettingsResponse implements Object.
@@ -82,59 +82,53 @@ type (
 		Settings HostSettings
 	}
 
-	// RPCSettings contains the request and response fields of the Settings
-	// RPC.
-	RPCSettings struct {
-		Request  RPCSettingsRequest
-		Response RPCSettingsResponse
-	}
-
-	// RPCFormContractRequest implements Object.
+	// RPCFormContractRequest implements Request.
 	RPCFormContractRequest struct {
-		Prices       HostPrices
-		Contract     types.V2FileContract
-		RenterInputs []types.V2SiacoinInput
+		Prices        HostPrices
+		Contract      types.V2FileContract
+		RenterInputs  []types.V2SiacoinInput
+		RenterParents []types.V2Transaction
 	}
 	// RPCFormContractResponse implements Object.
 	RPCFormContractResponse struct {
-		HostInputs []types.V2SiacoinInput
+		HostInputs  []types.V2SiacoinInput
+		HostParents []types.V2Transaction
+	}
+	// RPCFormContractSecondResponse implements Object.
+	RPCFormContractSecondResponse struct {
+		RenterContractSignature types.Signature
+		RenterInputSignature    types.Signature
+	}
+	// RPCFormContractThirdResponse implements Object.
+	RPCFormContractThirdResponse struct {
+		HostContractSignature types.Signature
+		HostInputSignature    types.Signature
 	}
 
-	// SignatureResponse implements Object.
-	SignatureResponse types.Signature
-
-	// RPCFormContract contains the request and response fields of the
-	// FormContract RPC.
-	RPCFormContract struct {
-		Request  RPCFormContractRequest
-		Response RPCFormContractResponse
-		// second roundtrip
-		RenterSignature SignatureResponse
-		HostSignature   SignatureResponse
-	}
-
-	// RPCRenewContractRequest implements Object.
+	// RPCRenewContractRequest implements Request.
 	RPCRenewContractRequest struct {
-		Prices       HostPrices
-		Renewal      types.V2FileContractRenewal
-		RenterInputs []types.V2SiacoinInput
+		Prices        HostPrices
+		Renewal       types.V2FileContractRenewal
+		RenterInputs  []types.V2SiacoinInput
+		RenterParents []types.V2Transaction
 	}
 	// RPCRenewContractResponse implements Object.
 	RPCRenewContractResponse struct {
-		HostInputs []types.V2SiacoinInput
+		HostInputs  []types.V2SiacoinInput
+		HostParents []types.V2Transaction
+	}
+	// RPCRenewContractSecondResponse implements Object.
+	RPCRenewContractSecondResponse struct {
+		RenterContractSignature types.Signature
+		RenterInputSignature    types.Signature
+	}
+	// RPCRenewContractThirdResponse implements Object.
+	RPCRenewContractThirdResponse struct {
+		HostContractSignature types.Signature
+		HostInputSignature    types.Signature
 	}
 
-	// RPCRenewContract contains the request and response fields of the
-	// RenewContract RPC.
-	RPCRenewContract struct {
-		Request  RPCRenewContractRequest
-		Response RPCRenewContractResponse
-		// second roundtrip
-		RenterSignature SignatureResponse
-		HostSignature   SignatureResponse
-	}
-
-	// RPCModifySectorsRequest implements Object.
+	// RPCModifySectorsRequest implements Request.
 	RPCModifySectorsRequest struct {
 		Prices  HostPrices
 		Actions []WriteAction
@@ -143,18 +137,16 @@ type (
 	RPCModifySectorsResponse struct {
 		Proof []types.Hash256
 	}
-
-	// RPCModifySectors contains the request and response fields of the
-	// ModifySectors RPC.
-	RPCModifySectors struct {
-		Request  RPCModifySectorsRequest
-		Response RPCModifySectorsResponse
-		// second roundtrip
+	// RPCModifySectorsSecondResponse implements Object.
+	RPCModifySectorsSecondResponse struct {
 		RenterSignature types.Signature
-		HostSignature   types.Signature
+	}
+	// RPCModifySectorsThirdResponse implements Object.
+	RPCModifySectorsThirdResponse struct {
+		HostSignature types.Signature
 	}
 
-	// RPCLatestRevisionRequest implements Object.
+	// RPCLatestRevisionRequest implements Request.
 	RPCLatestRevisionRequest struct {
 		ContractID types.FileContractID
 	}
@@ -163,14 +155,7 @@ type (
 		Contract types.V2FileContract
 	}
 
-	// RPCLatestRevision contains the request and response fields of the
-	// LatestRevision RPC.
-	RPCLatestRevision struct {
-		Request  RPCLatestRevisionRequest
-		Response RPCLatestRevisionResponse
-	}
-
-	// RPCReadSectorRequest implements Object.
+	// RPCReadSectorRequest implements Request.
 	RPCReadSectorRequest struct {
 		Prices HostPrices
 		Root   types.Hash256
@@ -183,14 +168,7 @@ type (
 		Sector []byte
 	}
 
-	// RPCReadSector contains the request and response fields of the ReadSector
-	// RPC.
-	RPCReadSector struct {
-		Request  RPCReadSectorRequest
-		Response RPCReadSectorResponse
-	}
-
-	// RPCWriteSectorRequest implements Object.
+	// RPCWriteSectorRequest implements Request.
 	RPCWriteSectorRequest struct {
 		Prices HostPrices
 		Sector []byte // extended to SectorSize by host
@@ -200,14 +178,7 @@ type (
 		Root types.Hash256
 	}
 
-	// RPCWriteSector contains the request and response fields of the
-	// WriteSector RPC.
-	RPCWriteSector struct {
-		Request  RPCWriteSectorRequest
-		Response RPCWriteSectorResponse
-	}
-
-	// RPCSectorRootsRequest implements Object.
+	// RPCSectorRootsRequest implements Request.
 	RPCSectorRootsRequest struct {
 		Prices HostPrices
 		Offset uint64
@@ -218,14 +189,7 @@ type (
 		Roots []types.Hash256
 	}
 
-	// RPCSectorRoots contains the request and response fields of the
-	// SectorRoots RPC.
-	RPCSectorRoots struct {
-		Request  RPCSectorRootsRequest
-		Response RPCSectorRootsResponse
-	}
-
-	// RPCAccountBalanceRequest implements Object.
+	// RPCAccountBalanceRequest implements Request.
 	RPCAccountBalanceRequest struct {
 		Account types.PublicKey
 	}
@@ -234,14 +198,7 @@ type (
 		Balance types.Currency
 	}
 
-	// RPCAccountBalance contains the request and response fields of the
-	// AccountBalance RPC.
-	RPCAccountBalance struct {
-		Request  RPCAccountBalanceRequest
-		Response RPCAccountBalanceResponse
-	}
-
-	// RPCFundAccountRequest implements Object.
+	// RPCFundAccountRequest implements Request.
 	RPCFundAccountRequest struct {
 		Account         types.PublicKey
 		ContractID      types.FileContractID
@@ -253,45 +210,39 @@ type (
 		NewBalance    types.Currency
 		HostSignature types.Signature
 	}
-
-	// RPCFundAccount contains the request and response fields of the
-	// FundAccount RPC.
-	RPCFundAccount struct {
-		Request  RPCFundAccountRequest
-		Response RPCFundAccountResponse
-	}
 )
 
-// An RPC can be sent or received via a Transport.
-type RPC interface {
+// A Request is the initial request object for an RPC.
+type Request interface {
+	Object
 	id() types.Specifier
 }
 
-func (RPCAccountBalance) id() types.Specifier { return types.NewSpecifier("AccountBalance") }
-func (RPCFormContract) id() types.Specifier   { return types.NewSpecifier("FormContract") }
-func (RPCFundAccount) id() types.Specifier    { return types.NewSpecifier("FundAccount") }
-func (RPCLatestRevision) id() types.Specifier { return types.NewSpecifier("LatestRevision") }
-func (RPCModifySectors) id() types.Specifier  { return types.NewSpecifier("ModifySectors") }
-func (RPCReadSector) id() types.Specifier     { return types.NewSpecifier("ReadSector") }
-func (RPCRenewContract) id() types.Specifier  { return types.NewSpecifier("RenewContract") }
-func (RPCSectorRoots) id() types.Specifier    { return types.NewSpecifier("SectorRoots") }
-func (RPCSettings) id() types.Specifier       { return types.NewSpecifier("Settings") }
-func (RPCWriteSector) id() types.Specifier    { return types.NewSpecifier("WriteSector") }
+func (RPCAccountBalanceRequest) id() types.Specifier { return types.NewSpecifier("AccountBalance") }
+func (RPCFormContractRequest) id() types.Specifier   { return types.NewSpecifier("FormContract") }
+func (RPCFundAccountRequest) id() types.Specifier    { return types.NewSpecifier("FundAccount") }
+func (RPCLatestRevisionRequest) id() types.Specifier { return types.NewSpecifier("LatestRevision") }
+func (RPCModifySectorsRequest) id() types.Specifier  { return types.NewSpecifier("ModifySectors") }
+func (RPCReadSectorRequest) id() types.Specifier     { return types.NewSpecifier("ReadSector") }
+func (RPCRenewContractRequest) id() types.Specifier  { return types.NewSpecifier("RenewContract") }
+func (RPCSectorRootsRequest) id() types.Specifier    { return types.NewSpecifier("SectorRoots") }
+func (RPCSettingsRequest) id() types.Specifier       { return types.NewSpecifier("Settings") }
+func (RPCWriteSectorRequest) id() types.Specifier    { return types.NewSpecifier("WriteSector") }
 
-var idMap = map[types.Specifier]func() RPC{
-	(RPCAccountBalance{}).id(): func() RPC { return new(RPCAccountBalance) },
-	(RPCFormContract{}).id():   func() RPC { return new(RPCFormContract) },
-	(RPCFundAccount{}).id():    func() RPC { return new(RPCFundAccount) },
-	(RPCLatestRevision{}).id(): func() RPC { return new(RPCLatestRevision) },
-	(RPCModifySectors{}).id():  func() RPC { return new(RPCModifySectors) },
-	(RPCReadSector{}).id():     func() RPC { return new(RPCReadSector) },
-	(RPCRenewContract{}).id():  func() RPC { return new(RPCRenewContract) },
-	(RPCSectorRoots{}).id():    func() RPC { return new(RPCSectorRoots) },
-	(RPCSettings{}).id():       func() RPC { return new(RPCSettings) },
-	(RPCWriteSector{}).id():    func() RPC { return new(RPCWriteSector) },
+var idMap = map[types.Specifier]func() Request{
+	(RPCAccountBalanceRequest{}).id(): func() Request { return new(RPCAccountBalanceRequest) },
+	(RPCFormContractRequest{}).id():   func() Request { return new(RPCFormContractRequest) },
+	(RPCFundAccountRequest{}).id():    func() Request { return new(RPCFundAccountRequest) },
+	(RPCLatestRevisionRequest{}).id(): func() Request { return new(RPCLatestRevisionRequest) },
+	(RPCModifySectorsRequest{}).id():  func() Request { return new(RPCModifySectorsRequest) },
+	(RPCReadSectorRequest{}).id():     func() Request { return new(RPCReadSectorRequest) },
+	(RPCRenewContractRequest{}).id():  func() Request { return new(RPCRenewContractRequest) },
+	(RPCSectorRootsRequest{}).id():    func() Request { return new(RPCSectorRootsRequest) },
+	(RPCSettingsRequest{}).id():       func() Request { return new(RPCSettingsRequest) },
+	(RPCWriteSectorRequest{}).id():    func() Request { return new(RPCWriteSectorRequest) },
 }
 
-// RPCforID returns the RPC type corresponding to the given ID.
-func RPCforID(id types.Specifier) RPC {
+// RequestforID returns the intial request object for a given ID.
+func RequestforID(id types.Specifier) Request {
 	return idMap[id]()
 }
