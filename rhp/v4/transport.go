@@ -1,19 +1,16 @@
 package rhp
 
 import (
-	"crypto/ed25519"
 	"fmt"
 	"io"
 	"net"
-	"time"
 
 	"go.sia.tech/core/types"
-	"go.sia.tech/mux"
 )
 
 // Error codes.
 const (
-	ErrorCodeInvalid = iota
+	ErrorCodeTransport = iota
 )
 
 // An RPCError pairs a human-readable error description with a status code.
@@ -28,56 +25,51 @@ func (e *RPCError) Error() string {
 }
 
 // ErrorCode returns the code of err. If err is not an RPCError, ErrorCode
-// returns ErrorCodeInvalid.
+// returns ErrorCodeTransport.
 func ErrorCode(err error) uint8 {
 	if rpcErr, ok := err.(*RPCError); ok {
 		return rpcErr.Code
 	}
-	return ErrorCodeInvalid
+	return ErrorCodeTransport
 }
 
-// A Stream provides a multiplexed stream for the RHPv4 protocol.
-type Stream struct {
-	mux *mux.Stream
-}
-
-func (s *Stream) withEncoder(fn func(*types.Encoder)) error {
-	e := types.NewEncoder(s.mux)
+func withEncoder(s net.Conn, fn func(*types.Encoder)) error {
+	e := types.NewEncoder(s)
 	fn(e)
 	return e.Flush()
 }
 
-func (s *Stream) withDecoder(maxLen int, fn func(*types.Decoder)) error {
-	d := types.NewDecoder(io.LimitedReader{R: s.mux, N: int64(maxLen)})
+func withDecoder(s net.Conn, maxLen int, fn func(*types.Decoder)) error {
+	d := types.NewDecoder(io.LimitedReader{R: s, N: int64(maxLen)})
 	fn(d)
 	return d.Err()
 }
 
 // WriteID writes a request's ID to the stream.
-func (s *Stream) WriteID(r Request) error {
-	return s.withEncoder(r.id().EncodeTo)
+func WriteID(s net.Conn, r Request) error {
+	return withEncoder(s, r.id().EncodeTo)
 }
 
 // ReadID reads an RPC ID from the stream.
-func (s *Stream) ReadID() (id types.Specifier, err error) {
-	err = s.withDecoder(16, id.DecodeFrom)
+func ReadID(s net.Conn) (id types.Specifier, err error) {
+	err = withDecoder(s, 16, id.DecodeFrom)
 	return
 }
 
 // WriteRequest writes a request to the stream.
-func (s *Stream) WriteRequest(r Request) error {
-	return s.withEncoder(r.encodeTo)
+func WriteRequest(s net.Conn, r Request) error {
+	return withEncoder(s, r.encodeTo)
 }
 
 // ReadRequest reads a request from the stream.
-func (s *Stream) ReadRequest(r Object) error {
-	return s.withDecoder(r.maxLen(), r.decodeFrom)
+func ReadRequest(s net.Conn, r Object) error {
+	return withDecoder(s, r.maxLen(), r.decodeFrom)
 }
 
 // WriteResponse writes a response to the stream. Note that RPCError implements
 // Object, and may be used as a response to any RPC.
-func (s *Stream) WriteResponse(r Object) error {
-	return s.withEncoder(func(e *types.Encoder) {
+func WriteResponse(s net.Conn, r Object) error {
+	return withEncoder(s, func(e *types.Encoder) {
 		_, isErr := r.(*RPCError)
 		e.WriteBool(isErr)
 		r.encodeTo(e)
@@ -85,8 +77,8 @@ func (s *Stream) WriteResponse(r Object) error {
 }
 
 // ReadResponse reads a response from the stream into r.
-func (s *Stream) ReadResponse(r Object) error {
-	return s.withDecoder((*RPCError)(nil).maxLen()+r.maxLen(), func(d *types.Decoder) {
+func ReadResponse(s net.Conn, r Object) error {
+	return withDecoder(s, (*RPCError)(nil).maxLen()+r.maxLen(), func(d *types.Decoder) {
 		if d.ReadBool() {
 			r := new(RPCError)
 			r.decodeFrom(d)
@@ -95,47 +87,4 @@ func (s *Stream) ReadResponse(r Object) error {
 		}
 		r.decodeFrom(d)
 	})
-}
-
-// SetDeadline implements net.Conn.
-func (s *Stream) SetDeadline(t time.Time) error {
-	return s.mux.SetDeadline(t)
-}
-
-// Close closes the stream.
-func (s *Stream) Close() error {
-	return s.mux.Close()
-}
-
-// Transport provides a multiplexing transport for the RHPv4 protocol.
-type Transport struct {
-	mux *mux.Mux
-}
-
-// DialStream opens a new multiplexed stream.
-func (t *Transport) DialStream() (*Stream, error) {
-	return &Stream{mux: t.mux.DialStream()}, nil
-}
-
-// AcceptStream accepts an incoming multiplexed stream.
-func (t *Transport) AcceptStream() (*Stream, error) {
-	s, err := t.mux.AcceptStream()
-	return &Stream{mux: s}, err
-}
-
-// Close closes the underlying connection.
-func (t *Transport) Close() error {
-	return t.mux.Close()
-}
-
-// Dial establishes a new RHPv4 session over the supplied connection.
-func Dial(conn net.Conn, hostKey types.PublicKey) (*Transport, error) {
-	m, err := mux.Dial(conn, hostKey[:])
-	return &Transport{mux: m}, err
-}
-
-// Accept accepts a new RHPv4 session over the supplied connection.
-func Accept(conn net.Conn, hostKey types.PrivateKey) (*Transport, error) {
-	m, err := mux.Accept(conn, ed25519.PrivateKey(hostKey))
-	return &Transport{mux: m}, err
 }
