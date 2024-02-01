@@ -47,7 +47,7 @@ func withDecoder(s net.Conn, maxLen int, fn func(*types.Decoder)) error {
 
 // WriteID writes a request's ID to the stream.
 func WriteID(s net.Conn, r Request) error {
-	return withEncoder(s, r.id().EncodeTo)
+	return withEncoder(s, r.ID().EncodeTo)
 }
 
 // ReadID reads an RPC ID from the stream.
