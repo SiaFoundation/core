@@ -34,10 +34,10 @@ func (hp *HostPrices) DecodeFrom(d *types.Decoder) {
 // EncodeTo implements types.EncoderTo.
 func (hs HostSettings) EncodeTo(e *types.Encoder) {
 	e.Write(hs.Version[:])
-	e.WritePrefix(len(hs.Protocols))
-	for i := range hs.Protocols {
-		e.WriteString(hs.Protocols[i].Name)
-		e.WriteString(hs.Protocols[i].Address)
+	e.WritePrefix(len(hs.NetAddresses))
+	for i := range hs.NetAddresses {
+		e.WriteString(hs.NetAddresses[i].Protocol)
+		e.WriteString(hs.NetAddresses[i].Address)
 	}
 	hs.WalletAddress.EncodeTo(e)
 	e.WriteBool(hs.AcceptingContracts)
@@ -51,10 +51,10 @@ func (hs HostSettings) EncodeTo(e *types.Encoder) {
 // DecodeFrom implements types.DecoderFrom.
 func (hs *HostSettings) DecodeFrom(d *types.Decoder) {
 	d.Read(hs.Version[:])
-	hs.Protocols = make([]Protocol, d.ReadPrefix())
-	for i := range hs.Protocols {
-		hs.Protocols[i].Name = d.ReadString()
-		hs.Protocols[i].Address = d.ReadString()
+	hs.NetAddresses = make([]NetAddress, d.ReadPrefix())
+	for i := range hs.NetAddresses {
+		hs.NetAddresses[i].Protocol = d.ReadString()
+		hs.NetAddresses[i].Address = d.ReadString()
 	}
 	hs.WalletAddress.DecodeFrom(d)
 	hs.AcceptingContracts = d.ReadBool()
