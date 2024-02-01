@@ -2,7 +2,7 @@ package rhp
 
 import (
 	"crypto/ed25519"
-	"errors"
+	"fmt"
 	"io"
 	"net"
 	"time"
@@ -10,6 +10,31 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/mux"
 )
+
+// Error codes.
+const (
+	ErrorCodeInvalid = iota
+)
+
+// An RPCError pairs a human-readable error description with a status code.
+type RPCError struct {
+	Code        uint8
+	Description string
+}
+
+// Error implements error.
+func (e *RPCError) Error() string {
+	return fmt.Sprintf("%v %v", e.Code, e.Description)
+}
+
+// ErrorCode returns the code of err. If err is not an RPCError, ErrorCode
+// returns ErrorCodeInvalid.
+func ErrorCode(err error) uint8 {
+	if rpcErr, ok := err.(*RPCError); ok {
+		return rpcErr.Code
+	}
+	return ErrorCodeInvalid
+}
 
 // A Stream provides a multiplexed stream for the RHPv4 protocol.
 type Stream struct {
@@ -30,8 +55,7 @@ func (s *Stream) withDecoder(maxLen int, fn func(*types.Decoder)) error {
 
 // WriteID writes the RPC ID of r to the stream.
 func (s *Stream) WriteID(r RPC) error {
-	id := idForRPC(r)
-	return s.withEncoder(id.EncodeTo)
+	return s.withEncoder(r.id().EncodeTo)
 }
 
 // ReadID reads an RPC ID from the stream.
@@ -40,40 +64,36 @@ func (s *Stream) ReadID() (id types.Specifier, err error) {
 	return
 }
 
-// WriteRequest writes the request fields of r to the stream.
-func (s *Stream) WriteRequest(r RPC) error {
-	return s.withEncoder(r.encodeRequest)
+// WriteRequest writes a request to the stream.
+func (s *Stream) WriteRequest(r Object) error {
+	return s.withEncoder(r.encodeTo)
 }
 
-// ReadRequest reads a request from the stream into r.
-func (s *Stream) ReadRequest(r RPC) error {
-	return s.withDecoder(r.maxRequestLen(), r.decodeRequest)
+// ReadRequest reads a request from the stream.
+func (s *Stream) ReadRequest(r Object) error {
+	return s.withDecoder(r.maxLen(), r.decodeFrom)
 }
 
-// WriteResponse writes the response fields of r to the stream.
-func (s *Stream) WriteResponse(r RPC) error {
+// WriteResponse writes a response to the stream. Note that RPCError implements
+// Object, and may be used as a response to any RPC.
+func (s *Stream) WriteResponse(r Object) error {
 	return s.withEncoder(func(e *types.Encoder) {
-		e.WriteBool(false)
-		r.encodeResponse(e)
-	})
-}
-
-// WriteResponseErr writes err to the stream.
-func (s *Stream) WriteResponseErr(err error) error {
-	return s.withEncoder(func(e *types.Encoder) {
-		e.WriteBool(true)
-		e.WriteString(err.Error())
+		_, isErr := r.(*RPCError)
+		e.WriteBool(isErr)
+		r.encodeTo(e)
 	})
 }
 
 // ReadResponse reads a response from the stream into r.
-func (s *Stream) ReadResponse(r RPC) error {
-	return s.withDecoder(1+256+r.maxResponseLen(), func(d *types.Decoder) {
+func (s *Stream) ReadResponse(r Object) error {
+	return s.withDecoder((*RPCError)(nil).maxLen()+r.maxLen(), func(d *types.Decoder) {
 		if d.ReadBool() {
-			d.SetErr(errors.New(d.ReadString()))
+			r := new(RPCError)
+			r.decodeFrom(d)
+			d.SetErr(r)
 			return
 		}
-		r.decodeResponse(d)
+		r.decodeFrom(d)
 	})
 }
 
