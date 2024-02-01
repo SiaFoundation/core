@@ -6,13 +6,17 @@ import (
 	"go.sia.tech/core/types"
 )
 
-// SectorSize is the size of one sector in bytes.
-const SectorSize = 1 << 22 // 4 MiB
+const (
+	// SectorSize is the size of one sector in bytes.
+	SectorSize = 1 << 22 // 4 MiB
+	// SegmentSize is the size of one segment in bytes.
+	SegmentSize = 64
+)
 
-// A Protocol is a protocol supported by a host.
-type Protocol struct {
-	Name    string
-	Address string
+// A NetAddress is a pair of protocol and address that a host may be reached on.
+type NetAddress struct {
+	Protocol string
+	Address  string
 }
 
 // HostPrices specify a time-bound set of parameters used to calculate the cost
@@ -33,7 +37,7 @@ type HostPrices struct {
 // HostSettings specify the settings of a host.
 type HostSettings struct {
 	Version            [3]uint8
-	Protocols          []Protocol
+	NetAddresses       []NetAddress
 	WalletAddress      types.Address
 	AcceptingContracts bool
 	MaxCollateral      types.Currency
@@ -41,6 +45,16 @@ type HostSettings struct {
 	RemainingStorage   uint64
 	TotalStorage       uint64
 	Prices             HostPrices
+}
+
+// Sign signs the host prices with the given key.
+func (hs *HostSettings) Sign(sk types.PrivateKey) {
+	// NOTE: this is a method on HostSettings (rather than HostPrices itself)
+	// because that gives us access to the protocol version.
+	h := types.NewHasher()
+	hs.Prices.Signature = types.Signature{}
+	hs.Prices.EncodeTo(h.E)
+	hs.Prices.Signature = sk.SignHash(h.Sum())
 }
 
 // A WriteAction adds or modifies sectors within a contract.
@@ -56,7 +70,7 @@ const (
 	ActionAppend = iota + 1
 	ActionSwap
 	ActionTrim
-	ActionUpdate
+	ActionUpdate // TODO: implement
 )
 
 type (
