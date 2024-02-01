@@ -215,31 +215,31 @@ type (
 // A Request is the initial request object for an RPC.
 type Request interface {
 	Object
-	id() types.Specifier
+	ID() types.Specifier
 }
 
-func (RPCAccountBalanceRequest) id() types.Specifier { return types.NewSpecifier("AccountBalance") }
-func (RPCFormContractRequest) id() types.Specifier   { return types.NewSpecifier("FormContract") }
-func (RPCFundAccountRequest) id() types.Specifier    { return types.NewSpecifier("FundAccount") }
-func (RPCLatestRevisionRequest) id() types.Specifier { return types.NewSpecifier("LatestRevision") }
-func (RPCModifySectorsRequest) id() types.Specifier  { return types.NewSpecifier("ModifySectors") }
-func (RPCReadSectorRequest) id() types.Specifier     { return types.NewSpecifier("ReadSector") }
-func (RPCRenewContractRequest) id() types.Specifier  { return types.NewSpecifier("RenewContract") }
-func (RPCSectorRootsRequest) id() types.Specifier    { return types.NewSpecifier("SectorRoots") }
-func (RPCSettingsRequest) id() types.Specifier       { return types.NewSpecifier("Settings") }
-func (RPCWriteSectorRequest) id() types.Specifier    { return types.NewSpecifier("WriteSector") }
+func (RPCAccountBalanceRequest) ID() types.Specifier { return types.NewSpecifier("AccountBalance") }
+func (RPCFormContractRequest) ID() types.Specifier   { return types.NewSpecifier("FormContract") }
+func (RPCFundAccountRequest) ID() types.Specifier    { return types.NewSpecifier("FundAccount") }
+func (RPCLatestRevisionRequest) ID() types.Specifier { return types.NewSpecifier("LatestRevision") }
+func (RPCModifySectorsRequest) ID() types.Specifier  { return types.NewSpecifier("ModifySectors") }
+func (RPCReadSectorRequest) ID() types.Specifier     { return types.NewSpecifier("ReadSector") }
+func (RPCRenewContractRequest) ID() types.Specifier  { return types.NewSpecifier("RenewContract") }
+func (RPCSectorRootsRequest) ID() types.Specifier    { return types.NewSpecifier("SectorRoots") }
+func (RPCSettingsRequest) ID() types.Specifier       { return types.NewSpecifier("Settings") }
+func (RPCWriteSectorRequest) ID() types.Specifier    { return types.NewSpecifier("WriteSector") }
 
 var idMap = map[types.Specifier]func() Request{
-	(RPCAccountBalanceRequest{}).id(): func() Request { return new(RPCAccountBalanceRequest) },
-	(RPCFormContractRequest{}).id():   func() Request { return new(RPCFormContractRequest) },
-	(RPCFundAccountRequest{}).id():    func() Request { return new(RPCFundAccountRequest) },
-	(RPCLatestRevisionRequest{}).id(): func() Request { return new(RPCLatestRevisionRequest) },
-	(RPCModifySectorsRequest{}).id():  func() Request { return new(RPCModifySectorsRequest) },
-	(RPCReadSectorRequest{}).id():     func() Request { return new(RPCReadSectorRequest) },
-	(RPCRenewContractRequest{}).id():  func() Request { return new(RPCRenewContractRequest) },
-	(RPCSectorRootsRequest{}).id():    func() Request { return new(RPCSectorRootsRequest) },
-	(RPCSettingsRequest{}).id():       func() Request { return new(RPCSettingsRequest) },
-	(RPCWriteSectorRequest{}).id():    func() Request { return new(RPCWriteSectorRequest) },
+	(RPCAccountBalanceRequest{}).ID(): func() Request { return new(RPCAccountBalanceRequest) },
+	(RPCFormContractRequest{}).ID():   func() Request { return new(RPCFormContractRequest) },
+	(RPCFundAccountRequest{}).ID():    func() Request { return new(RPCFundAccountRequest) },
+	(RPCLatestRevisionRequest{}).ID(): func() Request { return new(RPCLatestRevisionRequest) },
+	(RPCModifySectorsRequest{}).ID():  func() Request { return new(RPCModifySectorsRequest) },
+	(RPCReadSectorRequest{}).ID():     func() Request { return new(RPCReadSectorRequest) },
+	(RPCRenewContractRequest{}).ID():  func() Request { return new(RPCRenewContractRequest) },
+	(RPCSectorRootsRequest{}).ID():    func() Request { return new(RPCSectorRootsRequest) },
+	(RPCSettingsRequest{}).ID():       func() Request { return new(RPCSettingsRequest) },
+	(RPCWriteSectorRequest{}).ID():    func() Request { return new(RPCWriteSectorRequest) },
 }
 
 // RequestforID returns the intial request object for a given ID.
