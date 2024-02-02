@@ -127,12 +127,12 @@ type (
 	// RPCFormContractSecondResponse implements Object.
 	RPCFormContractSecondResponse struct {
 		RenterContractSignature types.Signature
-		RenterInputSignature    types.Signature
+		RenterSatisfiedPolicies []types.SatisfiedPolicy
 	}
 	// RPCFormContractThirdResponse implements Object.
 	RPCFormContractThirdResponse struct {
 		HostContractSignature types.Signature
-		HostInputSignature    types.Signature
+		HostSatisfiedPolicies []types.SatisfiedPolicy
 	}
 
 	// RPCRenewContractRequest implements Request.
@@ -150,12 +150,12 @@ type (
 	// RPCRenewContractSecondResponse implements Object.
 	RPCRenewContractSecondResponse struct {
 		RenterContractSignature types.Signature
-		RenterInputSignatures   []types.Signature
+		RenterSatisfiedPolicies []types.SatisfiedPolicy
 	}
 	// RPCRenewContractThirdResponse implements Object.
 	RPCRenewContractThirdResponse struct {
 		HostContractSignature types.Signature
-		HostInputSignatures   []types.Signature
+		HostSatisfiedPolicies []types.SatisfiedPolicy
 	}
 
 	// RPCModifySectorsRequest implements Request.

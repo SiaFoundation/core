@@ -197,26 +197,38 @@ func (r *RPCFormContractResponse) maxLen() int {
 
 func (r *RPCFormContractSecondResponse) encodeTo(e *types.Encoder) {
 	r.RenterContractSignature.EncodeTo(e)
-	r.RenterInputSignature.EncodeTo(e)
+	e.WritePrefix(len(r.RenterSatisfiedPolicies))
+	for i := range r.RenterSatisfiedPolicies {
+		r.RenterSatisfiedPolicies[i].EncodeTo(e)
+	}
 }
 func (r *RPCFormContractSecondResponse) decodeFrom(d *types.Decoder) {
 	r.RenterContractSignature.DecodeFrom(d)
-	r.RenterInputSignature.DecodeFrom(d)
+	r.RenterSatisfiedPolicies = make([]types.SatisfiedPolicy, d.ReadPrefix())
+	for i := range r.RenterSatisfiedPolicies {
+		r.RenterSatisfiedPolicies[i].DecodeFrom(d)
+	}
 }
 func (r *RPCFormContractSecondResponse) maxLen() int {
-	return sizeofSignature + sizeofSignature
+	return reasonableObjectSize
 }
 
 func (r *RPCFormContractThirdResponse) encodeTo(e *types.Encoder) {
 	r.HostContractSignature.EncodeTo(e)
-	r.HostInputSignature.EncodeTo(e)
+	e.WritePrefix(len(r.HostSatisfiedPolicies))
+	for i := range r.HostSatisfiedPolicies {
+		r.HostSatisfiedPolicies[i].EncodeTo(e)
+	}
 }
 func (r *RPCFormContractThirdResponse) decodeFrom(d *types.Decoder) {
 	r.HostContractSignature.DecodeFrom(d)
-	r.HostInputSignature.DecodeFrom(d)
+	r.HostSatisfiedPolicies = make([]types.SatisfiedPolicy, d.ReadPrefix())
+	for i := range r.HostSatisfiedPolicies {
+		r.HostSatisfiedPolicies[i].DecodeFrom(d)
+	}
 }
 func (r *RPCFormContractThirdResponse) maxLen() int {
-	return sizeofSignature + sizeofSignature
+	return reasonableObjectSize
 }
 
 func (r *RPCRenewContractRequest) encodeTo(e *types.Encoder) {
@@ -273,38 +285,38 @@ func (r *RPCRenewContractResponse) maxLen() int {
 
 func (r *RPCRenewContractSecondResponse) encodeTo(e *types.Encoder) {
 	r.RenterContractSignature.EncodeTo(e)
-	e.WritePrefix(len(r.RenterInputSignatures))
-	for i := range r.RenterInputSignatures {
-		r.RenterInputSignatures[i].EncodeTo(e)
+	e.WritePrefix(len(r.RenterSatisfiedPolicies))
+	for i := range r.RenterSatisfiedPolicies {
+		r.RenterSatisfiedPolicies[i].EncodeTo(e)
 	}
 }
 func (r *RPCRenewContractSecondResponse) decodeFrom(d *types.Decoder) {
 	r.RenterContractSignature.DecodeFrom(d)
-	r.RenterInputSignatures = make([]types.Signature, d.ReadPrefix())
-	for i := range r.RenterInputSignatures {
-		r.RenterInputSignatures[i].DecodeFrom(d)
+	r.RenterSatisfiedPolicies = make([]types.SatisfiedPolicy, d.ReadPrefix())
+	for i := range r.RenterSatisfiedPolicies {
+		r.RenterSatisfiedPolicies[i].DecodeFrom(d)
 	}
 }
 func (r *RPCRenewContractSecondResponse) maxLen() int {
-	return sizeofSignature + sizeofSignature
+	return reasonableObjectSize
 }
 
 func (r *RPCRenewContractThirdResponse) encodeTo(e *types.Encoder) {
 	r.HostContractSignature.EncodeTo(e)
-	e.WritePrefix(len(r.HostInputSignatures))
-	for i := range r.HostInputSignatures {
-		r.HostInputSignatures[i].EncodeTo(e)
+	e.WritePrefix(len(r.HostSatisfiedPolicies))
+	for i := range r.HostSatisfiedPolicies {
+		r.HostSatisfiedPolicies[i].EncodeTo(e)
 	}
 }
 func (r *RPCRenewContractThirdResponse) decodeFrom(d *types.Decoder) {
 	r.HostContractSignature.DecodeFrom(d)
-	r.HostInputSignatures = make([]types.Signature, d.ReadPrefix())
-	for i := range r.HostInputSignatures {
-		r.HostInputSignatures[i].DecodeFrom(d)
+	r.HostSatisfiedPolicies = make([]types.SatisfiedPolicy, d.ReadPrefix())
+	for i := range r.HostSatisfiedPolicies {
+		r.HostSatisfiedPolicies[i].DecodeFrom(d)
 	}
 }
 func (r *RPCRenewContractThirdResponse) maxLen() int {
-	return sizeofSignature + sizeofSignature
+	return reasonableObjectSize
 }
 
 func (r *RPCModifySectorsRequest) encodeTo(e *types.Encoder) {
