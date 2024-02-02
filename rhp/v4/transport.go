@@ -1,6 +1,7 @@
 package rhp
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -27,8 +28,8 @@ func (e *RPCError) Error() string {
 // ErrorCode returns the code of err. If err is not an RPCError, ErrorCode
 // returns ErrorCodeTransport.
 func ErrorCode(err error) uint8 {
-	if rpcErr, ok := err.(*RPCError); ok {
-		return rpcErr.Code
+	if re := new(RPCError); errors.As(err, &re) {
+		return re.Code
 	}
 	return ErrorCodeTransport
 }

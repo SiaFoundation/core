@@ -1,9 +1,14 @@
 package rhp
 
 import (
+	"bytes"
+	"encoding/hex"
+	"fmt"
+	"io"
 	"time"
 
 	"go.sia.tech/core/types"
+	"lukechampine.com/frand"
 )
 
 const (
@@ -73,6 +78,31 @@ const (
 	ActionUpdate // TODO: implement
 )
 
+// An AccountID represents a unique account identifier.
+type AccountID [16]byte
+
+// String implements fmt.Stringer.
+func (id AccountID) String() string { return fmt.Sprintf("aid:%x", id[:]) }
+
+// MarshalText implements encoding.TextMarshaler.
+func (id AccountID) MarshalText() []byte { return []byte(id.String()) }
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (id *AccountID) UnmarshalText(b []byte) error {
+	n, err := hex.Decode(id[:], bytes.TrimPrefix(b, []byte("aid:")))
+	if err != nil {
+		return fmt.Errorf("decoding aid:<hex> failed: %w", err)
+	} else if n < len(id) {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+
+// GenerateAccountID generates a new AccountID from a secure entropy source.
+func GenerateAccountID() AccountID {
+	return frand.Entropy128()
+}
+
 type (
 	// RPCSettingsRequest implements Request.
 	RPCSettingsRequest struct{}
@@ -120,12 +150,12 @@ type (
 	// RPCRenewContractSecondResponse implements Object.
 	RPCRenewContractSecondResponse struct {
 		RenterContractSignature types.Signature
-		RenterInputSignature    types.Signature
+		RenterInputSignatures   []types.Signature
 	}
 	// RPCRenewContractThirdResponse implements Object.
 	RPCRenewContractThirdResponse struct {
 		HostContractSignature types.Signature
-		HostInputSignature    types.Signature
+		HostInputSignatures   []types.Signature
 	}
 
 	// RPCModifySectorsRequest implements Request.
@@ -157,10 +187,11 @@ type (
 
 	// RPCReadSectorRequest implements Request.
 	RPCReadSectorRequest struct {
-		Prices HostPrices
-		Root   types.Hash256
-		Offset uint64
-		Length uint64
+		Prices    HostPrices
+		AccountID AccountID
+		Root      types.Hash256
+		Offset    uint64
+		Length    uint64
 	}
 	// RPCReadSectorResponse implements Object.
 	RPCReadSectorResponse struct {
@@ -170,8 +201,9 @@ type (
 
 	// RPCWriteSectorRequest implements Request.
 	RPCWriteSectorRequest struct {
-		Prices HostPrices
-		Sector []byte // extended to SectorSize by host
+		Prices    HostPrices
+		AccountID AccountID
+		Sector    []byte // extended to SectorSize by host
 	}
 	// RPCWriteSectorResponse implements Object.
 	RPCWriteSectorResponse struct {
@@ -180,34 +212,41 @@ type (
 
 	// RPCSectorRootsRequest implements Request.
 	RPCSectorRootsRequest struct {
-		Prices HostPrices
-		Offset uint64
-		Length uint64
+		Prices          HostPrices
+		RenterSignature types.Signature
+		Offset          uint64
+		Length          uint64
 	}
 	// RPCSectorRootsResponse implements Object.
 	RPCSectorRootsResponse struct {
-		Roots []types.Hash256
+		Roots         []types.Hash256
+		HostSignature types.Signature
 	}
 
 	// RPCAccountBalanceRequest implements Request.
 	RPCAccountBalanceRequest struct {
-		Account types.PublicKey
+		AccountID AccountID
 	}
 	// RPCAccountBalanceResponse implements Object.
 	RPCAccountBalanceResponse struct {
 		Balance types.Currency
 	}
 
+	// An AccountDeposit represents a transfer into an account.
+	AccountDeposit struct {
+		AccountID AccountID
+		Amount    types.Currency
+	}
+
 	// RPCFundAccountRequest implements Request.
 	RPCFundAccountRequest struct {
-		Account         types.PublicKey
 		ContractID      types.FileContractID
-		Amount          types.Currency
+		Deposits        []AccountDeposit
 		RenterSignature types.Signature
 	}
 	// RPCFundAccountResponse implements Object.
 	RPCFundAccountResponse struct {
-		NewBalance    types.Currency
+		Balances      []types.Currency
 		HostSignature types.Signature
 	}
 )
