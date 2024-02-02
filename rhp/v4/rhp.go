@@ -219,6 +219,7 @@ type (
 	}
 	// RPCSectorRootsResponse implements Object.
 	RPCSectorRootsResponse struct {
+		Proof         []types.Hash256
 		Roots         []types.Hash256
 		HostSignature types.Signature
 	}
