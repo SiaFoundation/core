@@ -470,6 +470,10 @@ func (r *RPCSectorRootsRequest) maxLen() int {
 }
 
 func (r *RPCSectorRootsResponse) encodeTo(e *types.Encoder) {
+	e.WritePrefix(len(r.Proof))
+	for i := range r.Proof {
+		r.Proof[i].EncodeTo(e)
+	}
 	e.WritePrefix(len(r.Roots))
 	for i := range r.Roots {
 		r.Roots[i].EncodeTo(e)
@@ -477,6 +481,10 @@ func (r *RPCSectorRootsResponse) encodeTo(e *types.Encoder) {
 	r.HostSignature.EncodeTo(e)
 }
 func (r *RPCSectorRootsResponse) decodeFrom(d *types.Decoder) {
+	r.Proof = make([]types.Hash256, d.ReadPrefix())
+	for i := range r.Proof {
+		r.Proof[i].DecodeFrom(d)
+	}
 	r.Roots = make([]types.Hash256, d.ReadPrefix())
 	for i := range r.Roots {
 		r.Roots[i].DecodeFrom(d)
