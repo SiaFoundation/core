@@ -102,10 +102,22 @@ func (a *WriteAction) DecodeFrom(d *types.Decoder) {
 }
 
 // EncodeTo implements types.EncoderTo.
-func (id AccountID) EncodeTo(e *types.Encoder) { e.Write(id[:]) }
+func (a Account) EncodeTo(e *types.Encoder) { e.Write(a[:]) }
 
 // DecodeFrom implements types.DecoderFrom.
-func (id *AccountID) DecodeFrom(d *types.Decoder) { d.Read(id[:]) }
+func (a *Account) DecodeFrom(d *types.Decoder) { d.Read(a[:]) }
+
+func (at AccountToken) encodeTo(e *types.Encoder) {
+	at.Account.EncodeTo(e)
+	e.WriteTime(at.ValidUntil)
+	at.Signature.EncodeTo(e)
+}
+
+func (at *AccountToken) decodeFrom(d *types.Decoder) {
+	at.Account.DecodeFrom(d)
+	at.ValidUntil = d.ReadTime()
+	at.Signature.DecodeFrom(d)
+}
 
 func (r *RPCError) encodeTo(e *types.Encoder) {
 	e.WriteUint8(r.Code)
@@ -130,12 +142,13 @@ func sizeof(v types.EncoderTo) int {
 }
 
 var (
-	sizeofCurrency  = sizeof(types.V2Currency{})
-	sizeofHash      = sizeof(types.Hash256{})
-	sizeofSignature = sizeof(types.Signature{})
-	sizeofContract  = sizeof(types.V2FileContract{})
-	sizeofPrices    = sizeof(HostPrices{})
-	sizeofAccountID = sizeof(AccountID{})
+	sizeofCurrency     = sizeof(types.V2Currency{})
+	sizeofHash         = sizeof(types.Hash256{})
+	sizeofSignature    = sizeof(types.Signature{})
+	sizeofContract     = sizeof(types.V2FileContract{})
+	sizeofPrices       = sizeof(HostPrices{})
+	sizeofAccount      = sizeof(Account{})
+	sizeofAccountToken = sizeof(types.EncoderFunc(AccountToken{}.encodeTo))
 )
 
 // An Object can be sent or received via a Transport.
@@ -395,20 +408,20 @@ func (r *RPCLatestRevisionResponse) maxLen() int {
 
 func (r *RPCReadSectorRequest) encodeTo(e *types.Encoder) {
 	r.Prices.EncodeTo(e)
-	r.AccountID.EncodeTo(e)
+	r.Token.encodeTo(e)
 	r.Root.EncodeTo(e)
 	e.WriteUint64(r.Offset)
 	e.WriteUint64(r.Length)
 }
 func (r *RPCReadSectorRequest) decodeFrom(d *types.Decoder) {
 	r.Prices.DecodeFrom(d)
-	r.AccountID.DecodeFrom(d)
+	r.Token.decodeFrom(d)
 	r.Root.DecodeFrom(d)
 	r.Offset = d.ReadUint64()
 	r.Length = d.ReadUint64()
 }
 func (r *RPCReadSectorRequest) maxLen() int {
-	return sizeofPrices + sizeofAccountID + sizeofHash + 8 + 8
+	return sizeofPrices + sizeofAccountToken + sizeofHash + 8 + 8
 }
 
 func (r *RPCReadSectorResponse) encodeTo(e *types.Encoder) {
@@ -431,16 +444,16 @@ func (r *RPCReadSectorResponse) maxLen() int {
 
 func (r *RPCWriteSectorRequest) encodeTo(e *types.Encoder) {
 	r.Prices.EncodeTo(e)
-	r.AccountID.EncodeTo(e)
+	r.Token.encodeTo(e)
 	e.WriteBytes(r.Sector)
 }
 func (r *RPCWriteSectorRequest) decodeFrom(d *types.Decoder) {
 	r.Prices.DecodeFrom(d)
-	r.AccountID.DecodeFrom(d)
+	r.Token.decodeFrom(d)
 	r.Sector = d.ReadBytes()
 }
 func (r *RPCWriteSectorRequest) maxLen() int {
-	return sizeofPrices + sizeofAccountID + 8 + SectorSize
+	return sizeofPrices + sizeofAccountToken + 8 + SectorSize
 }
 
 func (r *RPCWriteSectorResponse) encodeTo(e *types.Encoder) {
@@ -455,12 +468,14 @@ func (r *RPCWriteSectorResponse) maxLen() int {
 
 func (r *RPCSectorRootsRequest) encodeTo(e *types.Encoder) {
 	r.Prices.EncodeTo(e)
+	r.ContractID.EncodeTo(e)
 	r.RenterSignature.EncodeTo(e)
 	e.WriteUint64(r.Offset)
 	e.WriteUint64(r.Length)
 }
 func (r *RPCSectorRootsRequest) decodeFrom(d *types.Decoder) {
 	r.Prices.DecodeFrom(d)
+	r.ContractID.DecodeFrom(d)
 	r.RenterSignature.DecodeFrom(d)
 	r.Offset = d.ReadUint64()
 	r.Length = d.ReadUint64()
@@ -496,13 +511,13 @@ func (r *RPCSectorRootsResponse) maxLen() int {
 }
 
 func (r *RPCAccountBalanceRequest) encodeTo(e *types.Encoder) {
-	r.AccountID.EncodeTo(e)
+	r.Account.EncodeTo(e)
 }
 func (r *RPCAccountBalanceRequest) decodeFrom(d *types.Decoder) {
-	r.AccountID.DecodeFrom(d)
+	r.Account.DecodeFrom(d)
 }
 func (r *RPCAccountBalanceRequest) maxLen() int {
-	return sizeofHash
+	return sizeofAccount
 }
 
 func (r *RPCAccountBalanceResponse) encodeTo(e *types.Encoder) {
@@ -519,7 +534,7 @@ func (r *RPCFundAccountRequest) encodeTo(e *types.Encoder) {
 	r.ContractID.EncodeTo(e)
 	e.WritePrefix(len(r.Deposits))
 	for i := range r.Deposits {
-		r.Deposits[i].AccountID.EncodeTo(e)
+		r.Deposits[i].Account.EncodeTo(e)
 		types.V2Currency(r.Deposits[i].Amount).EncodeTo(e)
 	}
 	r.RenterSignature.EncodeTo(e)
@@ -528,7 +543,7 @@ func (r *RPCFundAccountRequest) decodeFrom(d *types.Decoder) {
 	r.ContractID.DecodeFrom(d)
 	r.Deposits = make([]AccountDeposit, d.ReadPrefix())
 	for i := range r.Deposits {
-		r.Deposits[i].AccountID.DecodeFrom(d)
+		r.Deposits[i].Account.DecodeFrom(d)
 		(*types.V2Currency)(&r.Deposits[i].Amount).DecodeFrom(d)
 	}
 	r.RenterSignature.DecodeFrom(d)

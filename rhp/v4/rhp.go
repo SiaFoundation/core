@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
-	"lukechampine.com/frand"
 )
 
 const (
@@ -78,29 +77,56 @@ const (
 	ActionUpdate // TODO: implement
 )
 
-// An AccountID represents a unique account identifier.
-type AccountID [16]byte
+// An Account represents an ephemeral balance that can be funded via contract
+// revision and spent to pay for RPCs.
+type Account types.PublicKey
 
 // String implements fmt.Stringer.
-func (id AccountID) String() string { return fmt.Sprintf("aid:%x", id[:]) }
+func (a Account) String() string { return fmt.Sprintf("acct:%x", a[:]) }
 
 // MarshalText implements encoding.TextMarshaler.
-func (id AccountID) MarshalText() []byte { return []byte(id.String()) }
+func (a Account) MarshalText() []byte { return []byte(a.String()) }
 
 // UnmarshalText implements encoding.TextUnmarshaler.
-func (id *AccountID) UnmarshalText(b []byte) error {
-	n, err := hex.Decode(id[:], bytes.TrimPrefix(b, []byte("aid:")))
+func (a *Account) UnmarshalText(b []byte) error {
+	n, err := hex.Decode(a[:], bytes.TrimPrefix(b, []byte("acct:")))
 	if err != nil {
-		return fmt.Errorf("decoding aid:<hex> failed: %w", err)
-	} else if n < len(id) {
+		return fmt.Errorf("decoding acct:<hex> failed: %w", err)
+	} else if n < len(a) {
 		return io.ErrUnexpectedEOF
 	}
 	return nil
 }
 
-// GenerateAccountID generates a new AccountID from a secure entropy source.
-func GenerateAccountID() AccountID {
-	return frand.Entropy128()
+// An AccountToken authorizes an account action.
+type AccountToken struct {
+	Account    Account
+	ValidUntil time.Time
+	Signature  types.Signature
+}
+
+func (at *AccountToken) sigHash() types.Hash256 {
+	h := types.NewHasher()
+	at.Account.EncodeTo(h.E)
+	h.E.WriteTime(at.ValidUntil)
+	return h.Sum()
+}
+
+// Sign signs the account token with the given key.
+func (at *AccountToken) Sign(sk types.PrivateKey) {
+	at.Signature = sk.SignHash(at.sigHash())
+}
+
+// Verify verifies the account token.
+func (at AccountToken) Verify() bool {
+	return types.PublicKey(at.Account).VerifyHash(at.sigHash(), at.Signature)
+}
+
+// GenerateAccount generates a pair of private key and Account from a secure
+// entropy source.
+func GenerateAccount() (types.PrivateKey, Account) {
+	sk := types.GeneratePrivateKey()
+	return sk, Account(sk.PublicKey())
 }
 
 type (
@@ -187,11 +213,11 @@ type (
 
 	// RPCReadSectorRequest implements Request.
 	RPCReadSectorRequest struct {
-		Prices    HostPrices
-		AccountID AccountID
-		Root      types.Hash256
-		Offset    uint64
-		Length    uint64
+		Prices HostPrices
+		Token  AccountToken
+		Root   types.Hash256
+		Offset uint64
+		Length uint64
 	}
 	// RPCReadSectorResponse implements Object.
 	RPCReadSectorResponse struct {
@@ -201,9 +227,9 @@ type (
 
 	// RPCWriteSectorRequest implements Request.
 	RPCWriteSectorRequest struct {
-		Prices    HostPrices
-		AccountID AccountID
-		Sector    []byte // extended to SectorSize by host
+		Prices HostPrices
+		Token  AccountToken
+		Sector []byte // extended to SectorSize by host
 	}
 	// RPCWriteSectorResponse implements Object.
 	RPCWriteSectorResponse struct {
@@ -213,6 +239,7 @@ type (
 	// RPCSectorRootsRequest implements Request.
 	RPCSectorRootsRequest struct {
 		Prices          HostPrices
+		ContractID      types.FileContractID
 		RenterSignature types.Signature
 		Offset          uint64
 		Length          uint64
@@ -226,7 +253,7 @@ type (
 
 	// RPCAccountBalanceRequest implements Request.
 	RPCAccountBalanceRequest struct {
-		AccountID AccountID
+		Account Account
 	}
 	// RPCAccountBalanceResponse implements Object.
 	RPCAccountBalanceResponse struct {
@@ -235,8 +262,8 @@ type (
 
 	// An AccountDeposit represents a transfer into an account.
 	AccountDeposit struct {
-		AccountID AccountID
-		Amount    types.Currency
+		Account Account
+		Amount  types.Currency
 	}
 
 	// RPCFundAccountRequest implements Request.
@@ -258,16 +285,35 @@ type Request interface {
 	ID() types.Specifier
 }
 
+// ID implements Request.
 func (RPCAccountBalanceRequest) ID() types.Specifier { return types.NewSpecifier("AccountBalance") }
-func (RPCFormContractRequest) ID() types.Specifier   { return types.NewSpecifier("FormContract") }
-func (RPCFundAccountRequest) ID() types.Specifier    { return types.NewSpecifier("FundAccount") }
+
+// ID implements Request.
+func (RPCFormContractRequest) ID() types.Specifier { return types.NewSpecifier("FormContract") }
+
+// ID implements Request.
+func (RPCFundAccountRequest) ID() types.Specifier { return types.NewSpecifier("FundAccount") }
+
+// ID implements Request.
 func (RPCLatestRevisionRequest) ID() types.Specifier { return types.NewSpecifier("LatestRevision") }
-func (RPCModifySectorsRequest) ID() types.Specifier  { return types.NewSpecifier("ModifySectors") }
-func (RPCReadSectorRequest) ID() types.Specifier     { return types.NewSpecifier("ReadSector") }
-func (RPCRenewContractRequest) ID() types.Specifier  { return types.NewSpecifier("RenewContract") }
-func (RPCSectorRootsRequest) ID() types.Specifier    { return types.NewSpecifier("SectorRoots") }
-func (RPCSettingsRequest) ID() types.Specifier       { return types.NewSpecifier("Settings") }
-func (RPCWriteSectorRequest) ID() types.Specifier    { return types.NewSpecifier("WriteSector") }
+
+// ID implements Request.
+func (RPCModifySectorsRequest) ID() types.Specifier { return types.NewSpecifier("ModifySectors") }
+
+// ID implements Request.
+func (RPCReadSectorRequest) ID() types.Specifier { return types.NewSpecifier("ReadSector") }
+
+// ID implements Request.
+func (RPCRenewContractRequest) ID() types.Specifier { return types.NewSpecifier("RenewContract") }
+
+// ID implements Request.
+func (RPCSectorRootsRequest) ID() types.Specifier { return types.NewSpecifier("SectorRoots") }
+
+// ID implements Request.
+func (RPCSettingsRequest) ID() types.Specifier { return types.NewSpecifier("Settings") }
+
+// ID implements Request.
+func (RPCWriteSectorRequest) ID() types.Specifier { return types.NewSpecifier("WriteSector") }
 
 var idMap = map[types.Specifier]func() Request{
 	(RPCAccountBalanceRequest{}).ID(): func() Request { return new(RPCAccountBalanceRequest) },
