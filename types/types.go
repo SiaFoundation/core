@@ -443,7 +443,6 @@ type V2FileContract struct {
 	RenterOutput     SiacoinOutput `json:"renterOutput"`
 	HostOutput       SiacoinOutput `json:"hostOutput"`
 	MissedHostValue  Currency      `json:"missedHostValue"`
-	TotalCollateral  Currency      `json:"totalCollateral"`
 	RenterPublicKey  PublicKey     `json:"renterPublicKey"`
 	HostPublicKey    PublicKey     `json:"hostPublicKey"`
 	RevisionNumber   uint64        `json:"revisionNumber"`
