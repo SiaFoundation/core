@@ -525,7 +525,6 @@ func validateV2CurrencyValues(ms *MidState, txn types.V2Transaction) error {
 		add(fc.RenterOutput.Value)
 		add(fc.HostOutput.Value)
 		add(fc.MissedHostValue)
-		add(fc.TotalCollateral)
 		add(ms.base.V2FileContractTax(fc))
 	}
 
@@ -740,8 +739,6 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 			return fmt.Errorf("leaves no time between proof height (%v) and expiration height (%v)", fc.ProofHeight, fc.ExpirationHeight)
 		case fc.MissedHostValue.Cmp(fc.HostOutput.Value) > 0:
 			return fmt.Errorf("has missed host value (%d H) exceeding valid host value (%d H)", fc.MissedHostValue, fc.HostOutput.Value)
-		case fc.TotalCollateral.Cmp(fc.HostOutput.Value) > 0:
-			return fmt.Errorf("has total collateral (%d H) exceeding valid host value (%d H)", fc.TotalCollateral, fc.HostOutput.Value)
 		}
 		return validateSignatures(fc, fc.RenterPublicKey, fc.HostPublicKey, renewal)
 	}
@@ -754,8 +751,6 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 			return fmt.Errorf("does not increase revision number (%v -> %v)", cur.RevisionNumber, rev.RevisionNumber)
 		case !revOutputSum.Equals(curOutputSum):
 			return fmt.Errorf("modifies output sum (%d H -> %d H)", curOutputSum, revOutputSum)
-		case rev.TotalCollateral != cur.TotalCollateral:
-			return errors.New("modifies total collateral")
 		case rev.ProofHeight < ms.base.childHeight():
 			return fmt.Errorf("has proof height (%v) that has already passed", rev.ProofHeight)
 		case rev.ExpirationHeight <= rev.ProofHeight:
