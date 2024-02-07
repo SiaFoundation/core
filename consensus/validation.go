@@ -553,10 +553,10 @@ func validateV2CurrencyValues(ms *MidState, txn types.V2Transaction) error {
 	for i, fcr := range txn.FileContractResolutions {
 		switch r := fcr.Resolution.(type) {
 		case *types.V2FileContractRenewal:
-			if r.InitialRevision.RenterOutput.Value.IsZero() && r.InitialRevision.HostOutput.Value.IsZero() {
+			if r.NewContract.RenterOutput.Value.IsZero() && r.NewContract.HostOutput.Value.IsZero() {
 				return fmt.Errorf("file contract renewal %v creates contract with zero value", i)
 			}
-			addContract(r.InitialRevision)
+			addContract(r.NewContract)
 			add(r.RenterRollover)
 			add(r.HostRollover)
 		case *types.V2FileContractFinalization:
@@ -619,7 +619,7 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 			inputSum = inputSum.Add(r.RenterRollover)
 			inputSum = inputSum.Add(r.HostRollover)
 
-			rev := r.InitialRevision
+			rev := r.NewContract
 			outputSum = outputSum.Add(rev.RenterOutput.Value).Add(rev.HostOutput.Value).Add(ms.base.V2FileContractTax(rev))
 		}
 	}
@@ -715,16 +715,16 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 			// finalization of the old contract, allowing them to successfully
 			// resolve the contract without a storage proof.
 			if fc.RenterSignature != (types.Signature{}) {
-				return fmt.Errorf("has non-empty renter signature")
+				return errors.New("has non-empty renter signature")
 			} else if fc.HostSignature != (types.Signature{}) {
-				return fmt.Errorf("has non-empty host signature")
+				return errors.New("has non-empty host signature")
 			}
 		} else {
 			contractHash := ms.base.ContractSigHash(fc)
 			if !renter.VerifyHash(contractHash, fc.RenterSignature) {
-				return fmt.Errorf("has invalid renter signature")
+				return errors.New("has invalid renter signature")
 			} else if !host.VerifyHash(contractHash, fc.HostSignature) {
-				return fmt.Errorf("has invalid host signature")
+				return errors.New("has invalid host signature")
 			}
 		}
 		return nil
@@ -753,7 +753,7 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 		case !revOutputSum.Equals(curOutputSum):
 			return fmt.Errorf("modifies output sum (%d H -> %d H)", curOutputSum, revOutputSum)
 		case rev.TotalCollateral != cur.TotalCollateral:
-			return fmt.Errorf("modifies total collateral")
+			return errors.New("modifies total collateral")
 		case rev.ProofHeight < ms.base.childHeight():
 			return fmt.Errorf("has proof height (%v) that has already passed", rev.ProofHeight)
 		case rev.ExpirationHeight <= rev.ProofHeight:
@@ -793,7 +793,7 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 		switch r := fcr.Resolution.(type) {
 		case *types.V2FileContractRenewal:
 			renewal := *r
-			old, renewed := renewal.FinalRevision, renewal.InitialRevision
+			old, renewed := renewal.FinalRevision, renewal.NewContract
 			if old.RevisionNumber != types.MaxRevisionNumber {
 				return fmt.Errorf("file contract renewal %v does not finalize old contract", i)
 			} else if err := validateRevision(fc, old, true); err != nil {

@@ -1330,8 +1330,8 @@ func TestValidateV2Block(t *testing.T) {
 
 					rev := testFces[0].V2FileContract
 					resolution := types.V2FileContractRenewal{
-						FinalRevision:   rev,
-						InitialRevision: testFces[0].V2FileContract,
+						FinalRevision: rev,
+						NewContract:   testFces[0].V2FileContract,
 					}
 					txn.FileContractResolutions = []types.V2FileContractResolution{{
 						Parent:     testFces[0],
@@ -1352,8 +1352,8 @@ func TestValidateV2Block(t *testing.T) {
 					rev.RevisionNumber = types.MaxRevisionNumber
 					rev.TotalCollateral = types.ZeroCurrency
 					resolution := types.V2FileContractRenewal{
-						FinalRevision:   rev,
-						InitialRevision: testFces[0].V2FileContract,
+						FinalRevision: rev,
+						NewContract:   testFces[0].V2FileContract,
 					}
 					txn.FileContractResolutions = []types.V2FileContractResolution{{
 						Parent:     testFces[0],
@@ -1375,8 +1375,8 @@ func TestValidateV2Block(t *testing.T) {
 					finalRev := testFces[0].V2FileContract
 					finalRev.RevisionNumber = types.MaxRevisionNumber
 					resolution := types.V2FileContractRenewal{
-						FinalRevision:   finalRev,
-						InitialRevision: rev,
+						FinalRevision: finalRev,
+						NewContract:   rev,
 					}
 					txn.FileContractResolutions = []types.V2FileContractResolution{{
 						Parent:     testFces[0],

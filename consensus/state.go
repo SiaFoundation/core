@@ -542,7 +542,7 @@ func (s State) ContractSigHash(fc types.V2FileContract) types.Hash256 {
 // RenewalSigHash returns the hash that must be signed for a file contract renewal.
 func (s State) RenewalSigHash(fcr types.V2FileContractRenewal) types.Hash256 {
 	nilSigs(
-		&fcr.InitialRevision.RenterSignature, &fcr.InitialRevision.HostSignature,
+		&fcr.NewContract.RenterSignature, &fcr.NewContract.HostSignature,
 		&fcr.FinalRevision.RenterSignature, &fcr.FinalRevision.HostSignature,
 		&fcr.RenterSignature, &fcr.HostSignature,
 	)

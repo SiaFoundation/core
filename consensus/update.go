@@ -539,7 +539,7 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 			host.Value = host.Value.Sub(r.HostRollover)
 			ms.addV2FileContractElement(types.V2FileContractElement{
 				StateElement:   types.StateElement{ID: types.Hash256(types.FileContractID(fce.ID).V2RenewalID())},
-				V2FileContract: r.InitialRevision,
+				V2FileContract: r.NewContract,
 			})
 		case *types.V2StorageProof:
 			renter, host = fc.RenterOutput, fc.HostOutput

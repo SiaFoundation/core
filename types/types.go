@@ -537,10 +537,10 @@ type V2FileContractFinalization V2FileContract
 
 // A V2FileContractRenewal renews a file contract.
 type V2FileContractRenewal struct {
-	FinalRevision   V2FileContract `json:"finalRevision"`
-	InitialRevision V2FileContract `json:"initialRevision"`
-	RenterRollover  Currency       `json:"renterRollover"`
-	HostRollover    Currency       `json:"hostRollover"`
+	FinalRevision  V2FileContract `json:"finalRevision"`
+	NewContract    V2FileContract `json:"newContract"`
+	RenterRollover Currency       `json:"renterRollover"`
+	HostRollover   Currency       `json:"hostRollover"`
 
 	// signatures cover above fields
 	RenterSignature Signature `json:"renterSignature"`
@@ -847,7 +847,7 @@ func (ci ChainIndex) MarshalText() ([]byte, error) {
 func (ci *ChainIndex) UnmarshalText(b []byte) (err error) {
 	parts := bytes.Split(b, []byte("::"))
 	if len(parts) != 2 {
-		return fmt.Errorf("decoding <height>::<id> failed: wrong number of separators")
+		return errors.New("decoding <height>::<id> failed: wrong number of separators")
 	} else if ci.Height, err = strconv.ParseUint(string(parts[0]), 10, 64); err != nil {
 		return fmt.Errorf("decoding <height>::<id> failed: %w", err)
 	} else if n, err := hex.Decode(ci.ID[:], parts[1]); err != nil {
@@ -904,7 +904,7 @@ func (uk UnlockKey) MarshalText() ([]byte, error) {
 func (uk *UnlockKey) UnmarshalText(b []byte) error {
 	parts := bytes.Split(b, []byte(":"))
 	if len(parts) != 2 {
-		return fmt.Errorf("decoding <algorithm>:<key> failed: wrong number of separators")
+		return errors.New("decoding <algorithm>:<key> failed: wrong number of separators")
 	} else if err := uk.Algorithm.UnmarshalText(parts[0]); err != nil {
 		return fmt.Errorf("decoding <algorithm>:<key> failed: %w", err)
 	} else if uk.Key, err = hex.DecodeString(string(parts[1])); err != nil {
