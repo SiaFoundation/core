@@ -11,6 +11,7 @@ import (
 func (hp HostPrices) EncodeTo(e *types.Encoder) {
 	types.V2Currency(hp.ContractPrice).EncodeTo(e)
 	types.V2Currency(hp.Collateral).EncodeTo(e)
+	types.V2Currency(hp.MaxCollateral).EncodeTo(e)
 	types.V2Currency(hp.StoragePrice).EncodeTo(e)
 	types.V2Currency(hp.IngressPrice).EncodeTo(e)
 	types.V2Currency(hp.EgressPrice).EncodeTo(e)
@@ -23,6 +24,7 @@ func (hp HostPrices) EncodeTo(e *types.Encoder) {
 func (hp *HostPrices) DecodeFrom(d *types.Decoder) {
 	(*types.V2Currency)(&hp.ContractPrice).DecodeFrom(d)
 	(*types.V2Currency)(&hp.Collateral).DecodeFrom(d)
+	(*types.V2Currency)(&hp.MaxCollateral).DecodeFrom(d)
 	(*types.V2Currency)(&hp.StoragePrice).DecodeFrom(d)
 	(*types.V2Currency)(&hp.IngressPrice).DecodeFrom(d)
 	(*types.V2Currency)(&hp.EgressPrice).DecodeFrom(d)
@@ -41,7 +43,6 @@ func (hs HostSettings) EncodeTo(e *types.Encoder) {
 	}
 	hs.WalletAddress.EncodeTo(e)
 	e.WriteBool(hs.AcceptingContracts)
-	types.V2Currency(hs.MaxCollateral).EncodeTo(e)
 	e.WriteUint64(hs.MaxDuration)
 	e.WriteUint64(hs.RemainingStorage)
 	e.WriteUint64(hs.TotalStorage)
@@ -58,7 +59,6 @@ func (hs *HostSettings) DecodeFrom(d *types.Decoder) {
 	}
 	hs.WalletAddress.DecodeFrom(d)
 	hs.AcceptingContracts = d.ReadBool()
-	(*types.V2Currency)(&hs.MaxCollateral).DecodeFrom(d)
 	hs.MaxDuration = d.ReadUint64()
 	hs.RemainingStorage = d.ReadUint64()
 	hs.TotalStorage = d.ReadUint64()

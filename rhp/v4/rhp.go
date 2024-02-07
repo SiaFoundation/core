@@ -28,6 +28,7 @@ type NetAddress struct {
 type HostPrices struct {
 	ContractPrice types.Currency
 	Collateral    types.Currency
+	MaxCollateral types.Currency
 	StoragePrice  types.Currency
 	IngressPrice  types.Currency
 	EgressPrice   types.Currency
@@ -44,7 +45,6 @@ type HostSettings struct {
 	NetAddresses       []NetAddress
 	WalletAddress      types.Address
 	AcceptingContracts bool
-	MaxCollateral      types.Currency
 	MaxDuration        uint64
 	RemainingStorage   uint64
 	TotalStorage       uint64
