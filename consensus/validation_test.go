@@ -870,7 +870,7 @@ func TestValidateV2Block(t *testing.T) {
 		ExpirationHeight: 30,
 		RenterOutput:     v1GiftFC.ValidProofOutputs[0],
 		HostOutput:       v1GiftFC.ValidProofOutputs[1],
-		MissedHostValue:  v1GiftFC.MissedProofOutputs[1].Value,
+		HostCollateral:   v1GiftFC.MissedProofOutputs[1].Value,
 		RenterPublicKey:  renterPublicKey,
 		HostPublicKey:    hostPublicKey,
 	}
@@ -1212,10 +1212,10 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			{
-				"missed host value exceeding valid host value",
+				"host collateral exceeding valid host value",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
-					txn.FileContracts[0].MissedHostValue = txn.FileContracts[0].HostOutput.Value.Add(types.Siacoins(1))
+					txn.FileContracts[0].HostCollateral = txn.FileContracts[0].HostOutput.Value.Add(types.Siacoins(1))
 				},
 			},
 			{
