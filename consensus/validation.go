@@ -524,7 +524,7 @@ func validateV2CurrencyValues(ms *MidState, txn types.V2Transaction) error {
 	addContract := func(fc types.V2FileContract) {
 		add(fc.RenterOutput.Value)
 		add(fc.HostOutput.Value)
-		add(fc.MissedHostValue)
+		add(fc.HostCollateral)
 		add(ms.base.V2FileContractTax(fc))
 	}
 
@@ -737,8 +737,8 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 			return fmt.Errorf("has proof height (%v) that has already passed", fc.ProofHeight)
 		case fc.ExpirationHeight <= fc.ProofHeight:
 			return fmt.Errorf("leaves no time between proof height (%v) and expiration height (%v)", fc.ProofHeight, fc.ExpirationHeight)
-		case fc.MissedHostValue.Cmp(fc.HostOutput.Value) > 0:
-			return fmt.Errorf("has missed host value (%d H) exceeding valid host value (%d H)", fc.MissedHostValue, fc.HostOutput.Value)
+		case fc.HostCollateral.Cmp(fc.HostOutput.Value) > 0:
+			return fmt.Errorf("has host collateral (%d H) exceeding valid host value (%d H)", fc.HostCollateral, fc.HostOutput.Value)
 		}
 		return validateSignatures(fc, fc.RenterPublicKey, fc.HostPublicKey, renewal)
 	}

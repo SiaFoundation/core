@@ -456,7 +456,7 @@ type V2FileContract struct {
 	ExpirationHeight uint64        `json:"expirationHeight"`
 	RenterOutput     SiacoinOutput `json:"renterOutput"`
 	HostOutput       SiacoinOutput `json:"hostOutput"`
-	MissedHostValue  Currency      `json:"missedHostValue"`
+	HostCollateral   Currency      `json:"hostCollateral"`
 	RenterPublicKey  PublicKey     `json:"renterPublicKey"`
 	HostPublicKey    PublicKey     `json:"hostPublicKey"`
 	RevisionNumber   uint64        `json:"revisionNumber"`
@@ -470,7 +470,7 @@ type V2FileContract struct {
 // resolves missed.
 func (fc V2FileContract) MissedHostOutput() SiacoinOutput {
 	return SiacoinOutput{
-		Value:   fc.MissedHostValue,
+		Value:   fc.HostCollateral,
 		Address: fc.HostOutput.Address,
 	}
 }
@@ -524,11 +524,10 @@ type V2FileContractRevision struct {
 // When a contract is resolved, its RenterOutput and HostOutput are created
 // immediately (though they will not be spendable until their timelock expires).
 // However, if the contract is resolved via an expiration, the HostOutput will
-// have value equal to MissedHostValue; in other words, the host forfeits its
-// collateral. This is considered a "missed" resolution; all other resolution
-// types are "valid." As a special case, the expiration of an empty contract is
-// considered valid, reflecting the fact that the host has not failed to perform
-// any duty.
+// have value equal to HostCollateral. This is considered a "missed" resolution;
+// all other resolution types are "valid." As a special case, the expiration of
+// an empty contract is considered valid, reflecting the fact that the host has
+// not failed to perform any duty.
 type V2FileContractResolution struct {
 	Parent     V2FileContractElement        `json:"parent"`
 	Resolution V2FileContractResolutionType `json:"resolution"`
