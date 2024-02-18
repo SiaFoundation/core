@@ -1,6 +1,11 @@
 package consensus
 
-import "testing"
+import (
+    "testing"
+    "bytes"
+
+    "go.sia.tech/core/types"
+)
 
 func TestElementAccumulatorEncoding(t *testing.T) {
 	for _, test := range []struct {
@@ -36,4 +41,100 @@ func TestElementAccumulatorEncoding(t *testing.T) {
 			t.Fatal("round trip failed: expected", acc, "got", acc2)
 		}
 	}
+}
+
+func TestStorageProofRoot(t *testing.T) {
+    leafHash := types.Hash256{0x01, 0x02, 0x03}
+    proof := []types.Hash256{
+        {0x04, 0x05, 0x06},
+        {0x07, 0x08, 0x09},
+    }
+
+    tests := []struct {
+        name       string
+        leafHash   types.Hash256
+        leafIndex  uint64
+        filesize   uint64
+        proof      []types.Hash256
+        wantRoot   types.Hash256
+        wantErr    bool
+    }{
+        {
+            name:      "ValidProof",
+            leafHash:  leafHash,
+            leafIndex: 0,
+            filesize:  1024,
+            proof:     proof,
+            wantRoot:  types.Hash256{},
+            wantErr:   false,
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            gotRoot := storageProofRoot(tt.leafHash, tt.leafIndex, tt.filesize, tt.proof)
+            if !bytes.Equal(gotRoot[:], tt.wantRoot[:]) && !tt.wantErr {
+                t.Errorf("storageProofRoot() = %v, want %v", gotRoot, tt.wantRoot)
+            }
+        })
+    }
+}
+
+func TestUpdateElementProof(t *testing.T) {
+    tests := []struct {
+        name          string
+        leafIndex     uint64
+        numLeaves     uint64
+        expectPanic   bool
+        expectProofLen int
+    }{
+        {
+            name:        "EphemeralLeafIndexPanic",
+            leafIndex:   types.EphemeralLeafIndex,
+            numLeaves:   5,
+            expectPanic: true,
+        },
+        {
+            name:        "LeafIndexOutOfRangePanic",
+            leafIndex:   10,
+            numLeaves:   5,
+            expectPanic: true,
+        },
+        {
+            name:          "ValidUpdate",
+            leafIndex:     3,
+            numLeaves:     5,
+            expectPanic:   false,
+            expectProofLen: 2,
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            e := &types.StateElement{
+                LeafIndex: tt.leafIndex,
+                MerkleProof: make([]types.Hash256, 3),
+            }
+            eru := &elementRevertUpdate{
+                numLeaves: tt.numLeaves,
+                updated:   [64][]elementLeaf{},
+            }
+
+            if tt.expectPanic {
+                defer func() {
+                    if r := recover(); r == nil {
+                        t.Errorf("The code did not panic for %s", tt.name)
+                    }
+                }()
+            }
+
+            eru.updateElementProof(e)
+
+            if !tt.expectPanic {
+                if len(e.MerkleProof) != tt.expectProofLen {
+                    t.Errorf("%s: expected MerkleProof length %d, got %d", tt.name, tt.expectProofLen, len(e.MerkleProof))
+                }
+            }
+        })
+    }
 }
