@@ -1,8 +1,8 @@
 package consensus
 
 import (
-    "testing"
     "bytes"
+    "testing"
 
     "go.sia.tech/core/types"
 )
@@ -55,7 +55,7 @@ func TestStorageProofRoot(t *testing.T) {
     shortProof := validProof[:2]
 
     var validWantRoot types.Hash256
-        validWantRoot.UnmarshalText([]byte(`h:a89dbbb545aa4b46696230d104076f06b57a6ab08b2341c3d012bdc13e23eb35`))
+    validWantRoot.UnmarshalText([]byte(`h:a89dbbb545aa4b46696230d104076f06b57a6ab08b2341c3d012bdc13e23eb35`))
 
     tests := []struct {
         name      string
@@ -113,37 +113,37 @@ func TestStorageProofRoot(t *testing.T) {
 
 func TestUpdateElementProof(t *testing.T) {
     tests := []struct {
-        name          string
-        leafIndex     uint64
-        numLeaves     uint64
-        expectPanic   bool
-        expectProofLen int
+        name            string
+        leafIndex       uint64
+        numLeaves       uint64
+        expectPanic     bool
+        expectProofLen  int
     }{
         {
-            name:        "EphemeralLeafIndexPanic",
-            leafIndex:   types.EphemeralLeafIndex,
-            numLeaves:   5,
-            expectPanic: true,
+            name:            "EphemeralLeafIndexPanic",
+            leafIndex:       types.EphemeralLeafIndex,
+            numLeaves:       5,
+            expectPanic:     true,
         },
         {
-            name:        "LeafIndexOutOfRangePanic",
-            leafIndex:   10,
-            numLeaves:   5,
-            expectPanic: true,
+            name:            "LeafIndexOutOfRangePanic",
+            leafIndex:       10,
+            numLeaves:       5,
+            expectPanic:     true,
         },
         {
-            name:          "ValidUpdate",
-            leafIndex:     3,
-            numLeaves:     5,
-            expectPanic:   false,
-            expectProofLen: 2,
+            name:            "ValidUpdate",
+            leafIndex:       3,
+            numLeaves:       5,
+            expectPanic:     false,
+            expectProofLen:  2,
         },
     }
 
     for _, tt := range tests {
         t.Run(tt.name, func(t *testing.T) {
             e := &types.StateElement{
-                LeafIndex: tt.leafIndex,
+                LeafIndex:   tt.leafIndex,
                 MerkleProof: make([]types.Hash256, 3),
             }
             eru := &elementRevertUpdate{
