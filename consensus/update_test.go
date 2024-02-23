@@ -49,6 +49,7 @@ func TestApplyBlock(t *testing.T) {
 	}
 	addBlock := func(b types.Block) (au ApplyUpdate, err error) {
 		bs := db.supplementTipBlock(b)
+		findBlockNonce(cs, &b)
 		if err = ValidateBlock(cs, b, bs); err != nil {
 			return
 		}
