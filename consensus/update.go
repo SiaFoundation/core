@@ -370,6 +370,7 @@ func (ms *MidState) reviseFileContractElement(fce types.FileContractElement, rev
 	rev.Payout = fce.FileContract.Payout
 	if i, ok := ms.ephemeral[fce.ID]; ok {
 		ms.fces[i].FileContract = rev
+		ms.revs[ms.fces[i].ID] = &ms.fces[i]
 	} else {
 		if r, ok := ms.revs[fce.ID]; ok {
 			r.FileContract = rev
@@ -377,8 +378,8 @@ func (ms *MidState) reviseFileContractElement(fce types.FileContractElement, rev
 			// store the original
 			fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
 			ms.fces = append(ms.fces, fce)
+
 			// store the revision
-			fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
 			fce.FileContract = rev
 			ms.revs[fce.ID] = &fce
 		}
