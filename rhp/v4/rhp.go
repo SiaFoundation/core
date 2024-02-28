@@ -24,23 +24,23 @@ func round4KiB(n uint64) uint64 {
 
 // A NetAddress is a pair of protocol and address that a host may be reached on.
 type NetAddress struct {
-	Protocol string
-	Address  string
+	Protocol string `json:"protocol"`
+	Address  string `json:"address"`
 }
 
 // HostPrices specify a time-bound set of parameters used to calculate the cost
 // of various RPCs.
 type HostPrices struct {
-	ContractPrice types.Currency
-	Collateral    types.Currency
-	StoragePrice  types.Currency
-	IngressPrice  types.Currency
-	EgressPrice   types.Currency
-	TipHeight     uint64
-	ValidUntil    time.Time
+	ContractPrice types.Currency `json:"contractPrice"`
+	Collateral    types.Currency `json:"collateral"`
+	StoragePrice  types.Currency `json:"storagePrice"`
+	IngressPrice  types.Currency `json:"ingressPrice"`
+	EgressPrice   types.Currency `json:"egressPrice"`
+	TipHeight     uint64         `json:"tipHeight"`
+	ValidUntil    time.Time      `json:"validUntil"`
 
 	// covers above fields
-	Signature types.Signature
+	Signature types.Signature `json:"signature"`
 }
 
 func (hp HostPrices) ReadSectorCost(length uint64) types.Currency {
@@ -53,15 +53,15 @@ func (hp HostPrices) WriteSectorCost(sector []byte) types.Currency {
 
 // HostSettings specify the settings of a host.
 type HostSettings struct {
-	Version            [3]uint8
-	NetAddresses       []NetAddress
-	WalletAddress      types.Address
-	AcceptingContracts bool
-	MaxCollateral      types.Currency
-	MaxDuration        uint64
-	RemainingStorage   uint64
-	TotalStorage       uint64
-	Prices             HostPrices
+	Version            [3]uint8       `json:"version"`
+	NetAddresses       []NetAddress   `json:"netAddresses"`
+	WalletAddress      types.Address  `json:"walletAddress"`
+	AcceptingContracts bool           `json:"acceptingContracts"`
+	MaxCollateral      types.Currency `json:"maxCollateral"`
+	MaxDuration        uint64         `json:"maxDuration"`
+	RemainingStorage   uint64         `json:"remainingStorage"`
+	TotalStorage       uint64         `json:"totalStorage"`
+	Prices             HostPrices     `json:"prices"`
 }
 
 // Sign signs the host prices with the given key.
@@ -76,10 +76,11 @@ func (hs *HostSettings) Sign(sk types.PrivateKey) {
 
 // A WriteAction adds or modifies sectors within a contract.
 type WriteAction struct {
-	Type uint8
-	Root types.Hash256 // Append
-	A, B uint64        // Swap
-	N    uint64        // Trim
+	Type uint8         `json:"type"`
+	Root types.Hash256 `json:"root,omitempty"` // Append
+	A    uint64        `json:"a,omitempty"`    // Swap
+	B    uint64        `json:"b,omitempty"`    // Swap
+	N    uint64        `json:"n,omitempty"`    // Trim
 }
 
 // WriteAction types.
@@ -113,9 +114,9 @@ func (a *Account) UnmarshalText(b []byte) error {
 
 // An AccountToken authorizes an account action.
 type AccountToken struct {
-	Account    Account
-	ValidUntil time.Time
-	Signature  types.Signature
+	Account    Account         `json:"account"`
+	ValidUntil time.Time       `json:"validUntil"`
+	Signature  types.Signature `json:"signature"`
 }
 
 func (at *AccountToken) sigHash() types.Hash256 {
@@ -148,147 +149,147 @@ type (
 
 	// RPCSettingsResponse implements Object.
 	RPCSettingsResponse struct {
-		Settings HostSettings
+		Settings HostSettings `json:"settings"`
 	}
 
 	// RPCFormContractRequest implements Request.
 	RPCFormContractRequest struct {
-		Prices        HostPrices
-		Contract      types.V2FileContract
-		RenterInputs  []types.V2SiacoinInput
-		RenterParents []types.V2Transaction
+		Prices        HostPrices             `json:"prices"`
+		Contract      types.V2FileContract   `json:"contract"`
+		RenterInputs  []types.V2SiacoinInput `json:"renterInputs"`
+		RenterParents []types.V2Transaction  `json:"renterParents"`
 	}
 	// RPCFormContractResponse implements Object.
 	RPCFormContractResponse struct {
-		HostInputs  []types.V2SiacoinInput
-		HostParents []types.V2Transaction
+		HostInputs  []types.V2SiacoinInput `json:"hostInputs"`
+		HostParents []types.V2Transaction  `json:"hostParents"`
 	}
 	// RPCFormContractSecondResponse implements Object.
 	RPCFormContractSecondResponse struct {
-		RenterContractSignature types.Signature
-		RenterSatisfiedPolicies []types.SatisfiedPolicy
+		RenterContractSignature types.Signature         `json:"renterContractSignature"`
+		RenterSatisfiedPolicies []types.SatisfiedPolicy `json:"renterSatisfiedPolicies"`
 	}
 	// RPCFormContractThirdResponse implements Object.
 	RPCFormContractThirdResponse struct {
-		HostContractSignature types.Signature
-		HostSatisfiedPolicies []types.SatisfiedPolicy
+		HostContractSignature types.Signature         `json:"hostContractSignature"`
+		HostSatisfiedPolicies []types.SatisfiedPolicy `json:"hostSatisfiedPolicies"`
 	}
 
 	// RPCRenewContractRequest implements Request.
 	RPCRenewContractRequest struct {
-		Prices        HostPrices
-		Renewal       types.V2FileContractResolution
-		RenterInputs  []types.V2SiacoinInput
-		RenterParents []types.V2Transaction
+		Prices        HostPrices                     `json:"prices"`
+		Renewal       types.V2FileContractResolution `json:"renewal"`
+		RenterInputs  []types.V2SiacoinInput         `json:"renterInputs"`
+		RenterParents []types.V2Transaction          `json:"renterParents"`
 	}
 	// RPCRenewContractResponse implements Object.
 	RPCRenewContractResponse struct {
-		HostInputs  []types.V2SiacoinInput
-		HostParents []types.V2Transaction
+		HostInputs  []types.V2SiacoinInput `json:"hostInputs"`
+		HostParents []types.V2Transaction  `json:"hostParents"`
 	}
 	// RPCRenewContractSecondResponse implements Object.
 	RPCRenewContractSecondResponse struct {
-		RenterContractSignature types.Signature
-		RenterSatisfiedPolicies []types.SatisfiedPolicy
+		RenterContractSignature types.Signature         `json:"renterContractSignature"`
+		RenterSatisfiedPolicies []types.SatisfiedPolicy `json:"renterSatisfiedPolicies"`
 	}
 	// RPCRenewContractThirdResponse implements Object.
 	RPCRenewContractThirdResponse struct {
-		HostContractSignature types.Signature
-		HostSatisfiedPolicies []types.SatisfiedPolicy
+		HostContractSignature types.Signature         `json:"hostContractSignature"`
+		HostSatisfiedPolicies []types.SatisfiedPolicy `json:"hostSatisfiedPolicies"`
 	}
 
 	// RPCModifySectorsRequest implements Request.
 	RPCModifySectorsRequest struct {
-		Prices  HostPrices
-		Actions []WriteAction
+		Prices  HostPrices    `json:"prices"`
+		Actions []WriteAction `json:"actions"`
 	}
 	// RPCModifySectorsResponse implements Object.
 	RPCModifySectorsResponse struct {
-		Proof []types.Hash256
+		Proof []types.Hash256 `json:"proof"`
 	}
 	// RPCModifySectorsSecondResponse implements Object.
 	RPCModifySectorsSecondResponse struct {
-		RenterSignature types.Signature
+		RenterSignature types.Signature `json:"renterSignature"`
 	}
 	// RPCModifySectorsThirdResponse implements Object.
 	RPCModifySectorsThirdResponse struct {
-		HostSignature types.Signature
+		HostSignature types.Signature `json:"hostSignature"`
 	}
 
 	// RPCLatestRevisionRequest implements Request.
 	RPCLatestRevisionRequest struct {
-		ContractID types.FileContractID
+		ContractID types.FileContractID `json:"contractID"`
 	}
 	// RPCLatestRevisionResponse implements Object.
 	RPCLatestRevisionResponse struct {
-		Contract types.V2FileContract
+		Contract types.V2FileContract `json:"contract"`
 	}
 
 	// RPCReadSectorRequest implements Request.
 	RPCReadSectorRequest struct {
-		Prices HostPrices
-		Token  AccountToken
-		Root   types.Hash256
-		Offset uint64
-		Length uint64
+		Prices HostPrices    `json:"prices"`
+		Token  AccountToken  `json:"token"`
+		Root   types.Hash256 `json:"root"`
+		Offset uint64        `json:"offset"`
+		Length uint64        `json:"length"`
 	}
 	// RPCReadSectorResponse implements Object.
 	RPCReadSectorResponse struct {
-		Proof  []types.Hash256
-		Sector []byte
+		Proof  []types.Hash256 `json:"proof"`
+		Sector []byte          `json:"sector"`
 	}
 
 	// RPCWriteSectorRequest implements Request.
 	RPCWriteSectorRequest struct {
-		Prices HostPrices
-		Token  AccountToken
-		Sector []byte // extended to SectorSize by host
+		Prices HostPrices   `json:"prices"`
+		Token  AccountToken `json:"token"`
+		Sector []byte       `json:"sector"` // extended to SectorSize by host
 	}
 	// RPCWriteSectorResponse implements Object.
 	RPCWriteSectorResponse struct {
-		Root types.Hash256
+		Root types.Hash256 `json:"root"`
 	}
 
 	// RPCSectorRootsRequest implements Request.
 	RPCSectorRootsRequest struct {
-		Prices          HostPrices
-		ContractID      types.FileContractID
-		RenterSignature types.Signature
-		Offset          uint64
-		Length          uint64
+		Prices          HostPrices           `json:"prices"`
+		ContractID      types.FileContractID `json:"contractID"`
+		RenterSignature types.Signature      `json:"renterSignature"`
+		Offset          uint64               `json:"offset"`
+		Length          uint64               `json:"length"`
 	}
 	// RPCSectorRootsResponse implements Object.
 	RPCSectorRootsResponse struct {
-		Proof         []types.Hash256
-		Roots         []types.Hash256
-		HostSignature types.Signature
+		Proof         []types.Hash256 `json:"proof"`
+		Roots         []types.Hash256 `json:"roots"`
+		HostSignature types.Signature `json:"hostSignature"`
 	}
 
 	// RPCAccountBalanceRequest implements Request.
 	RPCAccountBalanceRequest struct {
-		Account Account
+		Account Account `json:"account"`
 	}
 	// RPCAccountBalanceResponse implements Object.
 	RPCAccountBalanceResponse struct {
-		Balance types.Currency
+		Balance types.Currency `json:"balance"`
 	}
 
 	// An AccountDeposit represents a transfer into an account.
 	AccountDeposit struct {
-		Account Account
-		Amount  types.Currency
+		Account Account        `json:"account"`
+		Amount  types.Currency `json:"amount"`
 	}
 
 	// RPCFundAccountRequest implements Request.
 	RPCFundAccountRequest struct {
-		ContractID      types.FileContractID
-		Deposits        []AccountDeposit
-		RenterSignature types.Signature
+		ContractID      types.FileContractID `json:"contractID"`
+		Deposits        []AccountDeposit     `json:"deposits"`
+		RenterSignature types.Signature      `json:"renterSignature"`
 	}
 	// RPCFundAccountResponse implements Object.
 	RPCFundAccountResponse struct {
-		Balances      []types.Currency
-		HostSignature types.Signature
+		Balances      []types.Currency `json:"balances"`
+		HostSignature types.Signature  `json:"hostSignature"`
 	}
 )
 
