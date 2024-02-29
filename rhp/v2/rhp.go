@@ -75,6 +75,7 @@ type HostSettings struct {
 	MaxEphemeralAccountBalance types.Currency `json:"maxephemeralaccountbalance"`
 	RevisionNumber             uint64         `json:"revisionnumber"`
 	Version                    string         `json:"version"`
+	Release                    string         `json:"release"`
 	SiaMuxPort                 string         `json:"siamuxport"`
 }
 
@@ -104,6 +105,7 @@ func (hs HostSettings) MarshalJSON() ([]byte, error) {
 		"maxephemeralaccountbalance": hs.MaxEphemeralAccountBalance,
 		"revisionnumber":             hs.RevisionNumber,
 		"version":                    hs.Version,
+		"release":                    hs.Release,
 		"siamuxport":                 hs.SiaMuxPort,
 	})
 }
