@@ -22,8 +22,8 @@ func round4KiB(n uint64) uint64 {
 	return (n + (1<<12 - 1)) &^ (1<<12 - 1)
 }
 
-// A NetAddress is a pair of protocol and address that a host may be reached on.
-type NetAddress struct {
+// A Transport is a pair of protocol and address that a host may be reached on.
+type Transport struct {
 	Protocol string `json:"protocol"`
 	Address  string `json:"address"`
 }
@@ -53,8 +53,9 @@ func (hp HostPrices) WriteSectorCost(sector []byte) types.Currency {
 
 // HostSettings specify the settings of a host.
 type HostSettings struct {
-	Version            [3]uint8       `json:"version"`
-	NetAddresses       []NetAddress   `json:"netAddresses"`
+	ProtocolVersion    [3]uint8       `json:"protocolVersion"`
+	Release            string         `json:"release"`
+	Transports         []Transport    `json:"transports"`
 	WalletAddress      types.Address  `json:"walletAddress"`
 	AcceptingContracts bool           `json:"acceptingContracts"`
 	MaxCollateral      types.Currency `json:"maxCollateral"`
