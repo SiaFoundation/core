@@ -98,7 +98,7 @@ type Account types.PublicKey
 func (a Account) String() string { return fmt.Sprintf("acct:%x", a[:]) }
 
 // MarshalText implements encoding.TextMarshaler.
-func (a Account) MarshalText() []byte { return []byte(a.String()) }
+func (a Account) MarshalText() ([]byte, error) { return []byte(a.String()), nil }
 
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (a *Account) UnmarshalText(b []byte) error {
