@@ -228,56 +228,31 @@ func (c Currency) Big() *big.Int {
 
 // ExactString returns the base-10 representation of c as a string.
 func (c Currency) ExactString() string {
-	if c.IsZero() {
-		return "0"
-	}
-	buf := []byte("0000000000000000000000000000000000000000") // log10(2^128) < 40
-	for i := len(buf); ; i -= 19 {
-		q, r := c.quoRem64(1e19) // largest power of 10 that fits in a uint64
-		var n int
-		for ; r != 0; r /= 10 {
-			n++
-			buf[i-n] += byte(r % 10)
-		}
-		if q.IsZero() {
-			return string(buf[i-n:])
-		}
-		c = q
-	}
+	return fmt.Sprintf("%d", c)
 }
 
-// String returns base-10 representation of c with a unit suffix. The value may
-// be rounded. To avoid loss of precision, use ExactString.
+// String returns the base-10 representation of c with a unit suffix.
 func (c Currency) String() string {
-	pico := Siacoins(1).Div64(1e12)
-	if c.Cmp(pico) < 0 {
-		return c.ExactString() + " H"
+	if c.IsZero() {
+		return "0 SC"
 	}
-
-	// iterate until we find a unit greater than c
-	//
-	// NOTE: MaxCurrency is ~340.3 TS
-	mag := pico
-	unit := ""
-	for _, unit = range []string{"pS", "nS", "uS", "mS", "SC", "KS", "MS", "GS", "TS"} {
-		j, overflow := mag.Mul64WithOverflow(1000)
-		if overflow || c.Cmp(j) < 0 || unit == "TS" {
-			break
-		}
-		mag = j
+	s := c.Big().String()
+	u := (len(s) - 1) / 3
+	if u < 4 {
+		return s + " H"
+	} else if u > 12 {
+		u = 12
 	}
-
-	f, _ := new(big.Rat).SetFrac(c.Big(), mag.Big()).Float64()
-	s := fmt.Sprintf("%.4g %s", f, unit)
-	// test for exactness
-	if p, _ := ParseCurrency(s); !p.Equals(c) {
-		s = "~" + s
+	mant := s[:len(s)-u*3]
+	if frac := strings.TrimRight(s[len(s)-u*3:], "0"); len(frac) > 0 {
+		mant += "." + frac
 	}
-	return s
+	unit := []string{"pS", "nS", "uS", "mS", "SC", "KS", "MS", "GS", "TS"}[u-4]
+	return mant + " " + unit
 }
 
-// Siacoins converts the value of c from Hastings to Siacoins (SC) and returns
-// it as a float64.
+// Siacoins converts c to a floating-point number of siacoins. This may result
+// in a loss of precision.
 func (c Currency) Siacoins() float64 {
 	f, _ := new(big.Rat).SetFrac(c.Big(), HastingsPerSiacoin.Big()).Float64()
 	return f
@@ -285,13 +260,12 @@ func (c Currency) Siacoins() float64 {
 
 // Format implements fmt.Formatter. It accepts the following formats:
 //
-//	d: raw integer (equivalent to ExactString())
-//	s: rounded integer with unit suffix (equivalent to String())
-//	v: same as s
+//	s, v: decimal with unit suffix (equivalent to String())
+//	b, d, o, O, x, X: raw integer, formatted via c.Big().Format
 func (c Currency) Format(f fmt.State, v rune) {
 	switch v {
-	case 'd':
-		io.WriteString(f, c.ExactString())
+	case 'b', 'd', 'o', 'O', 'x', 'X':
+		c.Big().Format(f, v)
 	case 's', 'v':
 		io.WriteString(f, c.String())
 	default:
@@ -299,18 +273,18 @@ func (c Currency) Format(f fmt.State, v rune) {
 	}
 }
 
-// MarshalJSON implements json.Marshaler.
-func (c Currency) MarshalJSON() ([]byte, error) {
-	return []byte(`"` + c.ExactString() + `"`), nil
+// MarshalText implements encoding.TextMarshaler.
+func (c Currency) MarshalText() ([]byte, error) {
+	return c.Big().MarshalText()
 }
 
-// UnmarshalJSON implements json.Unmarshaler.
-func (c *Currency) UnmarshalJSON(b []byte) (err error) {
-	*c, err = parseExactCurrency(strings.Trim(string(b), `"`))
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (c *Currency) UnmarshalText(b []byte) (err error) {
+	*c, err = ParseCurrency(string(b))
 	return
 }
 
-func parseExactCurrency(s string) (Currency, error) {
+func parseHastings(s string) (Currency, error) {
 	i, ok := new(big.Int).SetString(s, 10)
 	if !ok {
 		return ZeroCurrency, errors.New("not an integer")
@@ -347,7 +321,7 @@ func ParseCurrency(s string) (Currency, error) {
 	}
 	n, unit := s[:i], strings.TrimSpace(s[i:])
 	if unit == "" || unit == "H" {
-		return parseExactCurrency(n)
+		return parseHastings(n)
 	}
 	// parse numeric part as a big.Rat
 	r, ok := new(big.Rat).SetString(n)
@@ -364,5 +338,5 @@ func ParseCurrency(s string) (Currency, error) {
 	if !r.IsInt() {
 		return ZeroCurrency, errors.New("not an integer")
 	}
-	return parseExactCurrency(r.RatString())
+	return parseHastings(r.RatString())
 }
