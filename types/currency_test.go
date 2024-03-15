@@ -747,5 +747,10 @@ func TestParseCurrency(t *testing.T) {
 		} else if !got.Equals(tt.want) {
 			t.Errorf("ParseCurrency(%v) = %d, want %d", tt.s, got, tt.want)
 		}
+		if err := got.UnmarshalText([]byte(tt.s)); (err != nil) != tt.wantErr {
+			t.Errorf("UnmarshalText(%v) error = %v, wantErr %v", tt.s, err, tt.wantErr)
+		} else if !got.Equals(tt.want) {
+			t.Errorf("UnmarshalText(%v) = %d, want %d", tt.s, got, tt.want)
+		}
 	}
 }
