@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/json"
 	"math"
 	"testing"
 )
@@ -531,39 +532,6 @@ func TestCurrencyDiv64(t *testing.T) {
 	}
 }
 
-func TestCurrencyExactString(t *testing.T) {
-	tests := []struct {
-		val  Currency
-		want string
-	}{
-		{
-			ZeroCurrency,
-			"0",
-		},
-		{
-			Siacoins(128),
-			"128000000000000000000000000",
-		},
-		{
-			NewCurrency64(math.MaxUint64),
-			"18446744073709551615",
-		},
-		{
-			NewCurrency(8262254095159001088, 2742357),
-			"50587566000000000000000000",
-		},
-		{
-			MaxCurrency,
-			"340282366920938463463374607431768211455",
-		},
-	}
-	for _, tt := range tests {
-		if got := tt.val.ExactString(); got != tt.want {
-			t.Errorf("Currency.ExactString() = %v, want %v", got, tt.want)
-		}
-	}
-}
-
 func TestCurrencyString(t *testing.T) {
 	tests := []struct {
 		val  Currency
@@ -571,11 +539,35 @@ func TestCurrencyString(t *testing.T) {
 	}{
 		{
 			ZeroCurrency,
-			"0 H",
+			"0 SC",
 		},
 		{
 			NewCurrency64(10000),
 			"10000 H",
+		},
+		{
+			Siacoins(1).Div64(1e12),
+			"1 pS",
+		},
+		{
+			Siacoins(1),
+			"1 SC",
+		},
+		{
+			Siacoins(10),
+			"10 SC",
+		},
+		{
+			Siacoins(100),
+			"100 SC",
+		},
+		{
+			Siacoins(1000),
+			"1 KS",
+		},
+		{
+			Siacoins(1).Mul64(1e12),
+			"1 TS",
 		},
 		{
 			Siacoins(10).Sub(Siacoins(1)),
@@ -595,24 +587,28 @@ func TestCurrencyString(t *testing.T) {
 		},
 		{
 			Siacoins(10).Sub(Siacoins(1).Div64(10000)),
-			"~10 SC",
+			"9.9999 SC",
 		},
 		{
 			Siacoins(10).Sub(NewCurrency64(1)),
-			"~10 SC",
+			"9.999999999999999999999999 SC",
 		},
 		{
 			NewCurrency(8262254095159001088, 2742357),
-			"~50.59 SC",
+			"50.587566 SC",
 		},
 		{
 			NewCurrency(2174395257947586975, 137),
-			"~2.529 mS",
+			"2.529378333356156158367 mS",
+		},
+		{
+			NewCurrency(math.MaxUint64, math.MaxUint64),
+			"340.282366920938463463374607431768211455 TS",
 		},
 	}
 	for _, tt := range tests {
 		if got := tt.val.String(); got != tt.want {
-			t.Errorf("Currency.String() = %v (%d), want %v", got, tt.val, tt.want)
+			t.Errorf("Currency.String() = %v (%d H), want %v", got, tt.val, tt.want)
 		}
 	}
 }
@@ -640,15 +636,11 @@ func TestCurrencyJSON(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		// MarshalJSON cannot error
-		buf, _ := tt.val.MarshalJSON()
+		var c Currency
+		buf, _ := json.Marshal(tt.val)
 		if string(buf) != tt.want {
 			t.Errorf("Currency.MarshalJSON(%d) = %s, want %s", tt.val, buf, tt.want)
-			continue
-		}
-
-		var c Currency
-		if err := c.UnmarshalJSON(buf); err != nil {
+		} else if err := json.Unmarshal(buf, &c); err != nil {
 			t.Errorf("Currency.UnmarshalJSON(%s) err = %v", buf, err)
 		} else if !c.Equals(tt.val) {
 			t.Errorf("Currency.UnmarshalJSON(%s) = %d, want %d", buf, c, tt.val)
@@ -754,6 +746,11 @@ func TestParseCurrency(t *testing.T) {
 			t.Errorf("ParseCurrency(%v) error = %v, wantErr %v", tt.s, err, tt.wantErr)
 		} else if !got.Equals(tt.want) {
 			t.Errorf("ParseCurrency(%v) = %d, want %d", tt.s, got, tt.want)
+		}
+		if err := got.UnmarshalText([]byte(tt.s)); (err != nil) != tt.wantErr {
+			t.Errorf("UnmarshalText(%v) error = %v, wantErr %v", tt.s, err, tt.wantErr)
+		} else if !got.Equals(tt.want) {
+			t.Errorf("UnmarshalText(%v) = %d, want %d", tt.s, got, tt.want)
 		}
 	}
 }
