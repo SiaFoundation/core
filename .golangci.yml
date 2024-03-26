@@ -82,6 +82,10 @@ linters-settings:
       - hexLiteral
       - underef
       - equalFold
+    # (Effectively) disable ifElseChain
+    settings:
+      ifElseChain:
+        minThreshold: 20
   revive:
     ignore-generated-header: true
     rules:
