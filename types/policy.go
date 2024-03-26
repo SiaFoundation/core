@@ -258,7 +258,7 @@ func (p SpendPolicy) String() string {
 			if i > 0 {
 				sb.WriteByte(',')
 			}
-			writeHex(pk.Key[:])
+			writeHex(pk.Key)
 		}
 		sb.WriteString("],")
 		sb.WriteString(strconv.FormatUint(uint64(p.SignaturesRequired), 10))
