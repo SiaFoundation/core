@@ -65,6 +65,7 @@ linters-settings:
     # See https://go-critic.github.io/overview#checks-overview
     # To check which checks are enabled run `GL_DEBUG=gocritic golangci-lint run`
     # By default list of stable checks is used.
+    disable-all: true
     enabled-checks:
       - argOrder # Diagnostic options
       - badCond

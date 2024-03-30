@@ -804,7 +804,7 @@ func (b *Block) ID() BlockID {
 // Implementations of fmt.Stringer, encoding.Text(Un)marshaler, and json.(Un)marshaler
 
 func stringerHex(prefix string, data []byte) string {
-	return prefix + ":" + hex.EncodeToString(data[:])
+	return prefix + ":" + hex.EncodeToString(data)
 }
 
 func marshalHex(prefix string, data []byte) ([]byte, error) {
@@ -897,7 +897,7 @@ func (s *Specifier) UnmarshalText(b []byte) error {
 
 // MarshalText implements encoding.TextMarshaler.
 func (uk UnlockKey) MarshalText() ([]byte, error) {
-	return marshalHex(uk.Algorithm.String(), uk.Key[:])
+	return marshalHex(uk.Algorithm.String(), uk.Key)
 }
 
 // UnmarshalText implements encoding.TextUnmarshaler.
