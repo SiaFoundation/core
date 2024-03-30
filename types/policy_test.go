@@ -2,11 +2,9 @@ package types
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"strconv"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -334,86 +332,50 @@ func TestPolicyRoundtrip(t *testing.T) {
 	}
 }
 
-func TestPolicyMarshaling(t *testing.T) {
-	privateKey := GeneratePrivateKey()
-	publicKey := privateKey.PublicKey()
-	publicKeyHex := hex.EncodeToString(publicKey[:])
-
-	// Generate a unique SHA256 hash from the current Unix time in nanoseconds for PolicyTypeHash test.
-	currentTime := time.Now().UnixNano()
-	currentTimeBytes := []byte(strconv.FormatInt(currentTime, 10))
-	hash := sha256.Sum256(currentTimeBytes)
-	hashHex := hex.EncodeToString(hash[:])
+func TestSpendPolicyMarshalJSON(t *testing.T) {
+	publicKey := NewPrivateKeyFromSeed(make([]byte, 32)).PublicKey()
+	hash := HashBytes(nil)
 
 	tests := []struct {
-		name        string
-		input       interface{}
-		output      string
-		marshalFunc func(interface{}) ([]byte, error)
+		sp  SpendPolicy
+		exp string
 	}{
 		{
-			name:   "MarshalText",
-			input:  SpendPolicy{Type: PolicyTypeAbove(100)},
-			output: "above(100)",
-			marshalFunc: func(v interface{}) ([]byte, error) {
-				return v.(SpendPolicy).MarshalText()
-			},
+			sp:  PolicyAbove(100),
+			exp: `"above(100)"`,
 		},
 		{
-			name:   "MarshalText with PolicyTypeAfter",
-			input:  SpendPolicy{Type: PolicyTypeAfter(time.Unix(1234567890, 0))},
-			output: "after(1234567890)",
-			marshalFunc: func(v interface{}) ([]byte, error) {
-				return v.(SpendPolicy).MarshalText()
-			},
+			sp:  PolicyAfter(time.Unix(1234567890, 0)),
+			exp: `"after(1234567890)"`,
 		},
 		{
-			name:   "MarshalText with PolicyTypePublicKey",
-			input:  SpendPolicy{Type: PolicyTypePublicKey(publicKey)},
-			output: "pk(0x" + publicKeyHex + ")",
-			marshalFunc: func(v interface{}) ([]byte, error) {
-				return v.(SpendPolicy).MarshalText()
-			},
+			sp:  PolicyPublicKey(publicKey),
+			exp: fmt.Sprintf(`"pk(0x%x)"`, publicKey[:]),
 		},
 		{
-			name:   "MarshalText with PolicyTypeHash",
-			input:  SpendPolicy{Type: PolicyTypeHash(hash)},
-			output: "h(0x" + hashHex + ")",
-			marshalFunc: func(v interface{}) ([]byte, error) {
-				return v.(SpendPolicy).MarshalText()
-			},
-		},
-		{
-			name: "MarshalJSON",
-			input: SatisfiedPolicy{
-				Preimages: [][]byte{{0xde, 0xad, 0xbe, 0xef}, {0xba, 0xad, 0xf0, 0x0d}},
-			},
-			output:      "preimages",
-			marshalFunc: json.Marshal,
+			sp:  PolicyHash(hash),
+			exp: fmt.Sprintf(`"h(0x%x)"`, hash[:]),
 		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			data, err := tt.marshalFunc(tt.input)
-			if err != nil {
-				t.Fatalf("Expected no error, but got %v", err)
-			}
+		data, err := json.Marshal(tt.sp)
+		if err != nil {
+			t.Fatalf("Expected no error, but got %v", err)
+		}
 
-			if !bytes.Contains(data, []byte(tt.output)) {
-				t.Fatalf("Expected %v in the output, but it was not found. Got: %s", tt.output, string(data))
-			}
-		})
+		if string(data) != tt.exp {
+			t.Fatalf("Expected %s, but got %s", tt.exp, string(data))
+		}
 	}
 }
 
-func TestPolicyUnmarshaling(t *testing.T) {
+func TestSatisfiedPolicyUnmarshaling(t *testing.T) {
 	tests := []struct {
-		name          string
-		jsonData      string
-		expectErr     bool
-		preimage      string
-		checkPreimage bool
+		name      string
+		jsonData  string
+		expectErr bool
+		preimages [][]byte
 	}{
 		{
 			name:      "InvalidHex",
@@ -426,30 +388,20 @@ func TestPolicyUnmarshaling(t *testing.T) {
 			expectErr: true,
 		},
 		{
-			name:          "ValidPreimage",
-			jsonData:      `{"Policy": null, "Signatures": null, "Preimages": ["68656c6c6f776f726c64"]}`,
-			expectErr:     false,
-			preimage:      "helloworld",
-			checkPreimage: true,
+			name:      "ValidPreimage",
+			jsonData:  `{"Policy": null, "Signatures": null, "Preimages": ["68656c6c6f776f726c64"]}`,
+			expectErr: false,
+			preimages: [][]byte{[]byte("helloworld")},
 		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var sp SatisfiedPolicy
-			if err := sp.UnmarshalJSON([]byte(tt.jsonData)); (err != nil) != tt.expectErr {
-				t.Fatalf("UnmarshalJSON() error = %v, expectErr %v", err, tt.expectErr)
-			}
-
-			if tt.checkPreimage {
-				expectedPreimage, err := hex.DecodeString("68656c6c6f776f726c64")
-				if err != nil {
-					t.Fatalf("hex.DecodeString error: %v", err)
-				}
-				if !bytes.Equal(sp.Preimages[0], expectedPreimage) {
-					t.Errorf("Preimage mismatch")
-				}
-			}
-		})
+		var sp SatisfiedPolicy
+		if err := sp.UnmarshalJSON([]byte(tt.jsonData)); (err != nil) != tt.expectErr {
+			t.Errorf("%s: UnmarshalJSON() error = %v, expectErr %v", tt.name, err, tt.expectErr)
+		}
+		if len(tt.preimages) != 0 && !reflect.DeepEqual(tt.preimages, sp.Preimages) {
+			t.Error("preimage mismatch")
+		}
 	}
 }
