@@ -1643,4 +1643,6 @@ TEXT ·hashBlocksAVX2(SB), NOSPLIT, $320-24
 	VMOVDQU     Y1, 32(CX)
 	VMOVDQU     Y2, 64(CX)
 	VMOVDQU     Y3, 96(CX)
+	// Clear the upper YMM registers to avoid performance penalties
+	VZEROUPPER
 	RET
