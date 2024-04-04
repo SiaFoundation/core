@@ -230,6 +230,8 @@ func genHashBlocksAVX2() {
 		}
 	}
 
+	Comment("Clear the upper YMM registers to avoid performance penalties")
+	VZEROUPPER()
 	RET()
 }
 
