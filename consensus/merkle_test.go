@@ -1,6 +1,8 @@
 package consensus
 
 import (
+	"bytes"
+	"encoding/binary"
 	"testing"
 
 	"go.sia.tech/core/types"
@@ -39,6 +41,30 @@ func TestElementAccumulatorEncoding(t *testing.T) {
 		if acc2 != acc {
 			t.Fatal("round trip failed: expected", acc, "got", acc2)
 		}
+	}
+}
+
+func TestElementAccumulatorDecodeFrom(t *testing.T) {
+	leafData := []byte{0x01, 0x02, 0x03}
+	leafHash := types.HashBytes(leafData)
+
+	var data bytes.Buffer
+
+	if err := binary.Write(&data, binary.LittleEndian, uint64(1)); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := data.Write(leafHash[:]); err != nil {
+		t.Fatal(err)
+	}
+
+	d := types.NewBufDecoder(data.Bytes())
+
+	var acc ElementAccumulator
+	acc.DecodeFrom(d)
+
+	if acc.NumLeaves != 1 {
+		t.Errorf("Expected 1 leaf, got %d", acc.NumLeaves)
 	}
 }
 
