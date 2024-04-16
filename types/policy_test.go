@@ -2,7 +2,9 @@ package types
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -327,5 +329,79 @@ func TestPolicyRoundtrip(t *testing.T) {
 	roundtrip(sp, &sp2)
 	if fmt.Sprint(sp) != fmt.Sprint(sp2) {
 		t.Fatal("satisfied policy did not survive roundtrip:", sp, sp2)
+	}
+}
+
+func TestSpendPolicyMarshalJSON(t *testing.T) {
+	publicKey := NewPrivateKeyFromSeed(make([]byte, 32)).PublicKey()
+	hash := HashBytes(nil)
+
+	tests := []struct {
+		sp  SpendPolicy
+		exp string
+	}{
+		{
+			sp:  PolicyAbove(100),
+			exp: `"above(100)"`,
+		},
+		{
+			sp:  PolicyAfter(time.Unix(1234567890, 0)),
+			exp: `"after(1234567890)"`,
+		},
+		{
+			sp:  PolicyPublicKey(publicKey),
+			exp: fmt.Sprintf(`"pk(0x%x)"`, publicKey[:]),
+		},
+		{
+			sp:  PolicyHash(hash),
+			exp: fmt.Sprintf(`"h(0x%x)"`, hash[:]),
+		},
+	}
+
+	for _, tt := range tests {
+		data, err := json.Marshal(tt.sp)
+		if err != nil {
+			t.Fatalf("Expected no error, but got %v", err)
+		}
+
+		if string(data) != tt.exp {
+			t.Fatalf("Expected %s, but got %s", tt.exp, string(data))
+		}
+	}
+}
+
+func TestSatisfiedPolicyUnmarshaling(t *testing.T) {
+	tests := []struct {
+		name      string
+		jsonData  string
+		expectErr bool
+		preimages [][]byte
+	}{
+		{
+			name:      "InvalidHex",
+			jsonData:  `{"Policy": null, "Signatures": null, "Preimages": ["InvalidHex"]}`,
+			expectErr: true,
+		},
+		{
+			name:      "InvalidPolicy",
+			jsonData:  `{"Policy": "ShouldBeAnObjectOrValidType", "Signatures": null, "Preimages": []}`,
+			expectErr: true,
+		},
+		{
+			name:      "ValidPreimage",
+			jsonData:  `{"Policy": null, "Signatures": null, "Preimages": ["68656c6c6f776f726c64"]}`,
+			expectErr: false,
+			preimages: [][]byte{[]byte("helloworld")},
+		},
+	}
+
+	for _, tt := range tests {
+		var sp SatisfiedPolicy
+		if err := sp.UnmarshalJSON([]byte(tt.jsonData)); (err != nil) != tt.expectErr {
+			t.Errorf("%s: UnmarshalJSON() error = %v, expectErr %v", tt.name, err, tt.expectErr)
+		}
+		if len(tt.preimages) != 0 && !reflect.DeepEqual(tt.preimages, sp.Preimages) {
+			t.Error("preimage mismatch")
+		}
 	}
 }
