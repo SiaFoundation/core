@@ -191,9 +191,36 @@ func (s State) medianTimestamp() time.Time {
 	return l.Add(r.Sub(l) / 2)
 }
 
-// MaxFutureTimestamp returns the maximum allowed timestamp for a block.
+// MaxFutureTimestamp returns a reasonable maximum value for a child block's
+// timestamp. Note that this is not a consensus rule.
 func (s State) MaxFutureTimestamp(currentTime time.Time) time.Time {
 	return currentTime.Add(3 * time.Hour)
+}
+
+// SufficientlyHeavierThan returns whether s is sufficiently heavier than t.
+// Nodes should use this method rather than directly comparing the Depth or
+// TotalWork fields. Note that this is not a consensus rule.
+func (s State) SufficientlyHeavierThan(t State) bool {
+	// The need for a "sufficiently heavier" threshold arises from Sia's use of
+	// a per-block difficulty adjustment algorithm. Imagine you are a miner who
+	// has just found a block. Unfortunately, another miner also found a block,
+	// and they broadcast theirs first. Normally, you would just eat the loss
+	// and switch to mining on their chain. This time, however, you notice that
+	// their block's timestamp is slightly later than yours. That means that the
+	// difficulty of their *next* block will be slightly lower than it would be
+	// for your block. So if you both mine one additional block, your chain will
+	// have more total work than theirs! Thus, the most rational thing to do is
+	// to keep mining on your own chain. Even better, you don't have to directly
+	// compete with other miners, because you haven't broadcast your block yet.
+	//
+	// There's a term for this: selfish mining. And it's not something we want
+	// to encourage! To prevent it, we require that a competing chain have
+	// substantially more work than the current chain before we reorg to it,
+	// where "substantially" means at least 20% of the current difficulty.
+	// That's high enough that you can't get there by merely manipulating
+	// timestamps, but low enough that an entire additional block will
+	// definitely qualify.
+	return s.TotalWork.Cmp(t.TotalWork.add(t.Difficulty.div64(5))) > 0
 }
 
 // BlockInterval is the expected wall clock time between consecutive blocks.
