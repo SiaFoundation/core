@@ -244,9 +244,9 @@ func RangeProofSize(n, start, end uint64) uint64 {
 // not overlap end.
 func nextSubtreeSize(start, end uint64) uint64 {
 	ideal := bits.TrailingZeros64(start)
-	max := bits.Len64(end-start) - 1
-	if ideal > max {
-		return 1 << max
+	maxSize := bits.Len64(end-start) - 1
+	if ideal > maxSize {
+		return 1 << maxSize
 	}
 	return 1 << ideal
 }
