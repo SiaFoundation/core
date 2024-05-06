@@ -228,10 +228,10 @@ func adjustTarget(s State, blockTimestamp time.Time, targetTimestamp time.Time) 
 	shift *= 10
 	shift /= 10000 * 10000
 	targetBlockTime := blockInterval + shift
-	if min := blockInterval / 3; targetBlockTime < min {
-		targetBlockTime = min
-	} else if max := blockInterval * 3; targetBlockTime > max {
-		targetBlockTime = max
+	if minTime := blockInterval / 3; targetBlockTime < minTime {
+		targetBlockTime = minTime
+	} else if maxTime := blockInterval * 3; targetBlockTime > maxTime {
+		targetBlockTime = maxTime
 	}
 	if oakTotalTime <= 0 {
 		oakTotalTime = 1
@@ -249,12 +249,12 @@ func adjustTarget(s State, blockTimestamp time.Time, targetTimestamp time.Time) 
 	if s.childHeight() == s.Network.HardforkASIC.Height {
 		return newTarget
 	}
-	min := mulTargetFrac(s.ChildTarget, 1004, 1000)
-	max := mulTargetFrac(s.ChildTarget, 1000, 1004)
-	if newTarget.CmpWork(min) < 0 {
-		newTarget = min
-	} else if newTarget.CmpWork(max) > 0 {
-		newTarget = max
+	minTarget := mulTargetFrac(s.ChildTarget, 1004, 1000)
+	maxTarget := mulTargetFrac(s.ChildTarget, 1000, 1004)
+	if newTarget.CmpWork(minTarget) < 0 {
+		newTarget = minTarget
+	} else if newTarget.CmpWork(maxTarget) > 0 {
+		newTarget = maxTarget
 	}
 	return newTarget
 }
@@ -280,10 +280,10 @@ func adjustDifficulty(s State, blockTimestamp time.Time, targetTimestamp time.Ti
 
 	// calculate the new target block time, clamped to a factor of 3
 	targetBlockTime := s.BlockInterval() + shift
-	if min := s.BlockInterval() / 3; targetBlockTime < min {
-		targetBlockTime = min
-	} else if max := s.BlockInterval() * 3; targetBlockTime > max {
-		targetBlockTime = max
+	if minTime := s.BlockInterval() / 3; targetBlockTime < minTime {
+		targetBlockTime = minTime
+	} else if maxTime := s.BlockInterval() * 3; targetBlockTime > maxTime {
+		targetBlockTime = maxTime
 	}
 
 	// estimate current hashrate
@@ -301,10 +301,10 @@ func adjustDifficulty(s State, blockTimestamp time.Time, targetTimestamp time.Ti
 
 	// clamp the adjustment to 0.4%
 	maxAdjust := s.Difficulty.div64(250)
-	if min := s.Difficulty.sub(maxAdjust); newDifficulty.Cmp(min) < 0 {
-		newDifficulty = min
-	} else if max := s.Difficulty.add(maxAdjust); newDifficulty.Cmp(max) > 0 {
-		newDifficulty = max
+	if minDifficulty := s.Difficulty.sub(maxAdjust); newDifficulty.Cmp(minDifficulty) < 0 {
+		newDifficulty = minDifficulty
+	} else if maxDifficulty := s.Difficulty.add(maxAdjust); newDifficulty.Cmp(maxDifficulty) > 0 {
+		newDifficulty = maxDifficulty
 	}
 	return newDifficulty, invTarget(newDifficulty.n)
 }
