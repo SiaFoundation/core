@@ -370,6 +370,73 @@ func TestSpendPolicyMarshalJSON(t *testing.T) {
 	}
 }
 
+func TestSatisfiedPolicyMarshalJSON(t *testing.T) {
+	publicKey := NewPrivateKeyFromSeed(make([]byte, 32)).PublicKey()
+	hash := HashBytes(nil)
+
+	privateKey := NewPrivateKeyFromSeed(make([]byte, 32))
+	signature := privateKey.SignHash(hash)
+
+	tests := []struct {
+		name       string
+		sp         SpendPolicy
+		signatures []Signature
+		preimages  [][]byte
+		exp        string
+	}{
+		{
+			name: "EmptyPolicy",
+			sp:   SpendPolicy{},
+			exp:  `{"policy":""}`,
+		},
+		{
+			name:       "PolicyWithSignature",
+			sp:         PolicyPublicKey(publicKey),
+			signatures: []Signature{signature},
+			exp:        fmt.Sprintf(`{"policy":"pk(0x%x)","signatures":["%s"]}`, publicKey[:], signature),
+		},
+		{
+			name:       "PolicyWithSignaturesAndPreimages",
+			sp:         PolicyThreshold(1, []SpendPolicy{PolicyPublicKey(publicKey), PolicyHash(hash)}),
+			signatures: []Signature{signature},
+			preimages:  [][]byte{{1, 2, 3}},
+			exp:        fmt.Sprintf(`{"policy":"thresh(1,[pk(0x%x),h(0x%x)])","signatures":["%s"],"preimages":["010203"]}`, publicKey[:], hash[:], signature),
+		},
+		{
+			name:      "PolicyWithPreimagesOnly",
+			sp:        PolicyHash(hash),
+			preimages: [][]byte{{4, 5, 6}},
+			exp:       fmt.Sprintf(`{"policy":"h(0x%x)","preimages":["040506"]}`, hash[:]),
+		},
+		{
+			name: "PolicyWithEmptySignatures",
+			sp:   PolicyPublicKey(publicKey),
+			exp:  fmt.Sprintf(`{"policy":"pk(0x%x)"}`, publicKey[:]),
+		},
+		{
+			name: "PolicyWithEmptyPreimages",
+			sp:   PolicyHash(hash),
+			exp:  fmt.Sprintf(`{"policy":"h(0x%x)"}`, hash[:]),
+		},
+	}
+
+	for _, tt := range tests {
+		satisfiedSP := SatisfiedPolicy{
+			Policy:     tt.sp,
+			Signatures: tt.signatures,
+			Preimages:  tt.preimages,
+		}
+
+		data, err := json.Marshal(satisfiedSP)
+		if err != nil {
+			t.Errorf("%s: Marshal() error = %v", tt.name, err)
+		}
+		if string(data) != tt.exp {
+			t.Errorf("%s: expected %s, got %s", tt.name, tt.exp, string(data))
+		}
+	}
+}
+
 func TestSatisfiedPolicyUnmarshaling(t *testing.T) {
 	tests := []struct {
 		name      string
