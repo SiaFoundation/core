@@ -1,6 +1,7 @@
 package consensus
 
 import (
+	"bytes"
 	"testing"
 
 	"go.sia.tech/core/types"
@@ -38,6 +39,44 @@ func TestElementAccumulatorEncoding(t *testing.T) {
 		}
 		if acc2 != acc {
 			t.Fatal("round trip failed: expected", acc, "got", acc2)
+		}
+	}
+}
+
+func TestElementAccumulatorRoundTrip(t *testing.T) {
+	leafData := []byte{0x01, 0x02, 0x03, 0x0A, 0x0B, 0x0C}
+	leafHash := types.HashBytes(leafData)
+
+	for _, numLeaves := range []uint64{0, 1, 2, 3, 10, 1 << 16, 1 << 32, 1 << 63} {
+		acc := ElementAccumulator{NumLeaves: numLeaves}
+
+		for i := 0; i < 64; i++ {
+			if acc.hasTreeAtHeight(i) {
+				acc.Trees[i] = leafHash
+			}
+		}
+
+		var buf bytes.Buffer
+		e := types.NewEncoder(&buf)
+		acc.EncodeTo(e)
+		if err := e.Flush(); err != nil {
+			t.Fatalf("Unexpected error during encoding: %v", err)
+		}
+
+		encodedData := buf.Bytes()
+
+		d := types.NewBufDecoder(encodedData)
+		var decodedAcc ElementAccumulator
+		decodedAcc.DecodeFrom(d)
+
+		if decodedAcc.NumLeaves != acc.NumLeaves {
+			t.Errorf("NumLeaves mismatch: got %d, expected %d", decodedAcc.NumLeaves, acc.NumLeaves)
+		}
+
+		for i, tree := range decodedAcc.Trees {
+			if tree != acc.Trees[i] {
+				t.Errorf("Tree mismatch at %d: got %v, expected %v", i, tree, acc.Trees[i])
+			}
 		}
 	}
 }
