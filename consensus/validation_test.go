@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"go.sia.tech/core/internal/blake2b"
 	"go.sia.tech/core/types"
 )
 
@@ -747,8 +748,11 @@ func TestValidateV2Block(t *testing.T) {
 	giftAmountSC := types.Siacoins(100)
 	giftAmountSF := uint64(100)
 	v1GiftFC := prepareContractFormation(renterPublicKey, hostPublicKey, types.Siacoins(1), types.Siacoins(1), 100, 100, types.VoidAddress)
+	v1GiftFC.Filesize = 65
+	v1GiftFC.FileMerkleRoot = blake2b.SumPair((State{}).StorageProofLeafHash([]byte{1}), (State{}).StorageProofLeafHash([]byte{2}))
 	v2GiftFC := types.V2FileContract{
 		Filesize:         v1GiftFC.Filesize,
+		FileMerkleRoot:   v1GiftFC.FileMerkleRoot,
 		ProofHeight:      20,
 		ExpirationHeight: 30,
 		RenterOutput:     v1GiftFC.ValidProofOutputs[0],
@@ -1216,13 +1220,29 @@ func TestValidateV2Block(t *testing.T) {
 		V2: &types.V2BlockData{
 			Height: cs.Index.Height + 1,
 			Transactions: []types.V2Transaction{
-				{},
+				{
+					FileContractResolutions: []types.V2FileContractResolution{{
+						Parent: testFces[0],
+						Resolution: &types.V2StorageProof{
+							ProofIndex: cies[len(cies)-2],
+							Leaf:       [64]byte{1},
+							Proof:      []types.Hash256{cs.StorageProofLeafHash([]byte{2})},
+						},
+					}},
+				},
 			},
 		},
 		MinerPayouts: []types.SiacoinOutput{{
 			Address: types.VoidAddress,
 			Value:   cs.BlockReward(),
 		}},
+	}
+	if cs.StorageProofLeafIndex(testFces[0].V2FileContract.Filesize, cies[len(cies)-2].ChainIndex.ID, types.FileContractID(testFces[0].ID)) == 1 {
+		b.V2.Transactions[0].FileContractResolutions[0].Resolution = &types.V2StorageProof{
+			ProofIndex: cies[len(cies)-2],
+			Leaf:       [64]byte{2},
+			Proof:      []types.Hash256{cs.StorageProofLeafHash([]byte{1})},
+		}
 	}
 	signTxn(cs, &b.V2.Transactions[0])
 	b.V2.Commitment = cs.Commitment(cs.TransactionsCommitment(b.Transactions, b.V2Transactions()), b.MinerPayouts[0].Address)

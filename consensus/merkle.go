@@ -44,7 +44,7 @@ func storageProofRoot(leafHash types.Hash256, leafIndex uint64, filesize uint64,
 	}
 	root := proofRoot(leafHash, leafIndex, proof[:subtreeHeight])
 	for _, h := range proof[subtreeHeight:] {
-		root = blake2b.SumPair(root, h)
+		root = blake2b.SumPair(h, root)
 	}
 	return root
 }

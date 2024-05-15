@@ -338,7 +338,7 @@ func validateFileContracts(ms *MidState, txn types.Transaction, ts V1Transaction
 		buf[0] = 0 // leaf hash prefix
 		copy(buf[1:], leaf)
 		root := types.HashBytes(buf)
-		subtreeHeight := bits.Len64(leafIndex ^ (lastLeafIndex(filesize)))
+		subtreeHeight := bits.Len64(leafIndex ^ lastLeafIndex(filesize))
 		for i, h := range proof {
 			if leafIndex&(1<<i) != 0 || i >= subtreeHeight {
 				root = blake2b.SumPair(h, root)
