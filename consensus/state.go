@@ -397,11 +397,12 @@ func (s State) StorageProofLeafIndex(filesize uint64, windowID types.BlockID, fc
 // StorageProofLeafHash computes the leaf hash of file contract data. If
 // len(leaf) < 64, it will be extended with zeros.
 func (s State) StorageProofLeafHash(leaf []byte) types.Hash256 {
-	const leafSize = len(types.StorageProof{}.Leaf)
-	buf := make([]byte, 1+leafSize)
-	buf[0] = leafHashPrefix
-	copy(buf[1:], leaf)
-	return types.HashBytes(buf)
+	if len(leaf) == 64 {
+		return blake2b.SumLeaf((*[64]byte)(leaf))
+	}
+	var buf [64]byte
+	copy(buf[:], leaf)
+	return blake2b.SumLeaf(&buf)
 }
 
 // replayPrefix returns the replay protection prefix at the current height.
