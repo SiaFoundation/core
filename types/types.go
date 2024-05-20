@@ -812,8 +812,12 @@ func marshalHex(prefix string, data []byte) ([]byte, error) {
 }
 
 func unmarshalHex(dst []byte, prefix string, data []byte) error {
-	n, err := hex.Decode(dst, bytes.TrimPrefix(data, []byte(prefix+":")))
-	if n < len(dst) {
+	data = bytes.TrimPrefix(data, []byte(prefix+":"))
+	if len(data) > len(dst)*2 {
+		return fmt.Errorf("decoding %v:<hex> failed: input too long", prefix)
+	}
+	n, err := hex.Decode(dst, data)
+	if err == nil && n < len(dst) {
 		err = io.ErrUnexpectedEOF
 	}
 	if err != nil {

@@ -3,6 +3,7 @@ package types
 import (
 	"encoding/json"
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -751,6 +752,34 @@ func TestParseCurrency(t *testing.T) {
 			t.Errorf("UnmarshalText(%v) error = %v, wantErr %v", tt.s, err, tt.wantErr)
 		} else if !got.Equals(tt.want) {
 			t.Errorf("UnmarshalText(%v) = %d, want %d", tt.s, got, tt.want)
+		}
+	}
+}
+
+func TestUnmarshalHex(t *testing.T) {
+	for _, test := range []struct {
+		prefix string
+		data   string
+		dstLen int
+		err    string
+	}{
+		{"", strings.Repeat("0", 2), 1, ""},
+		{"", strings.Repeat("_", 2), 1, "decoding :<hex> failed: encoding/hex: invalid byte: U+005F '_'"},
+		{"ed25519", strings.Repeat("0", 62), 32, "decoding ed25519:<hex> failed: unexpected EOF"},
+		{"ed25519", strings.Repeat("0", 63), 32, "decoding ed25519:<hex> failed: encoding/hex: odd length hex string"},
+		{"ed25519", strings.Repeat("0", 64), 32, ""},
+		{"ed25519", strings.Repeat("0", 65), 32, "decoding ed25519:<hex> failed: input too long"},
+	} {
+		dst := make([]byte, test.dstLen)
+		err := unmarshalHex(dst, test.prefix, []byte(test.data))
+		if err == nil {
+			if test.err != "" {
+				t.Errorf("unmarshalHex(%s, %s) expected error %q, got nil", test.prefix, test.data, test.err)
+			}
+		} else {
+			if err.Error() != test.err {
+				t.Errorf("unmarshalHex(%s, %s) expected error %q, got %q", test.prefix, test.data, test.err, err)
+			}
 		}
 	}
 }
