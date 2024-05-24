@@ -109,9 +109,14 @@ func (fn EncoderFunc) EncodeTo(e *Encoder) { fn(e) }
 // A Decoder reads values from an underlying stream. Callers MUST check
 // (*Decoder).Err before using any decoded values.
 type Decoder struct {
-	lr  io.LimitedReader
-	buf [64]byte
-	err error
+	unlockAlgo string
+	lr         io.LimitedReader
+	buf        [64]byte
+	err        error
+}
+
+func (d *Decoder) SetUnlockAlgo(algo string) {
+	d.unlockAlgo = algo
 }
 
 // SetErr sets the Decoder's error if it has not already been set. SetErr should
@@ -186,7 +191,13 @@ func (d *Decoder) ReadTime() time.Time { return time.Unix(int64(d.ReadUint64()),
 
 // ReadBytes reads a length-prefixed []byte from the underlying stream.
 func (d *Decoder) ReadBytes() []byte {
-	b := make([]byte, d.ReadPrefix())
+	prefix := d.ReadPrefix()
+	if d.unlockAlgo != "" && prefix > 128 {
+		panic(fmt.Sprintf("unexpected unlock key length %v algo %s", prefix, d.unlockAlgo))
+	} else if d.unlockAlgo != "" && prefix > 32 {
+		fmt.Printf("unexpected unlock key length %v algo %s\n", prefix, d.unlockAlgo)
+	}
+	b := make([]byte, prefix)
 	d.Read(b)
 	return b
 }
@@ -911,6 +922,7 @@ func (s *Specifier) DecodeFrom(d *Decoder) { d.Read(s[:]) }
 // DecodeFrom implements types.DecoderFrom.
 func (uk *UnlockKey) DecodeFrom(d *Decoder) {
 	uk.Algorithm.DecodeFrom(d)
+	d.SetUnlockAlgo(uk.Algorithm.String())
 	uk.Key = d.ReadBytes()
 }
 

@@ -126,6 +126,11 @@ func (s *Stream) withEncoder(fn func(*types.Encoder)) error {
 
 func (s *Stream) withDecoder(maxLen int, fn func(*types.Decoder)) error {
 	if s.smux != nil {
+		if maxLen < 0 {
+			panic("negative maxLen")
+		} else if maxLen > 1<<30 {
+			panic("maxLen way too large")
+		}
 		return withV1Decoder(s.smux, maxLen, fn)
 	}
 	return withV2Decoder(s.mux, maxLen, fn)
