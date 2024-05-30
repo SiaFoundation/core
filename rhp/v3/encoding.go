@@ -10,10 +10,6 @@ import (
 	"go.sia.tech/core/types"
 )
 
-const (
-	maxOutputLength = 10 * 1 << 20 // 10 MiB
-)
-
 // EncodeTo implements ProtocolObject.
 func (r *RPCError) EncodeTo(e *types.Encoder) {
 	r.Type.EncodeTo(e)
@@ -315,7 +311,7 @@ func (r *RPCExecuteProgramResponse) EncodeTo(e *types.Encoder) {
 // DecodeFrom implements ProtocolObject.
 func (r *RPCExecuteProgramResponse) DecodeFrom(d *types.Decoder) {
 	(*types.V1Currency)(&r.AdditionalCollateral).DecodeFrom(d)
-	r.OutputLength = d.ReadUint64()
+	r.OutputLength = uint64(d.ReadPrefix())
 	r.NewMerkleRoot.DecodeFrom(d)
 	r.NewSize = d.ReadUint64()
 	r.Proof = make([]types.Hash256, d.ReadPrefix())
@@ -327,9 +323,8 @@ func (r *RPCExecuteProgramResponse) DecodeFrom(d *types.Decoder) {
 	}
 	(*types.V1Currency)(&r.TotalCost).DecodeFrom(d)
 	(*types.V1Currency)(&r.FailureRefund).DecodeFrom(d)
-	if r.OutputLength > maxOutputLength {
-		d.SetErr(fmt.Errorf("output length %d exceeds maximum of 10 MiB", r.OutputLength))
-		return
+	if d.Err() != nil {
+		return // abort before reading output
 	}
 	r.Output = make([]byte, r.OutputLength)
 	d.Read(r.Output)
