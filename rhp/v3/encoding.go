@@ -323,9 +323,6 @@ func (r *RPCExecuteProgramResponse) DecodeFrom(d *types.Decoder) {
 	}
 	(*types.V1Currency)(&r.TotalCost).DecodeFrom(d)
 	(*types.V1Currency)(&r.FailureRefund).DecodeFrom(d)
-	if d.Err() != nil {
-		return // abort before reading output
-	}
 	r.Output = make([]byte, r.OutputLength)
 	d.Read(r.Output)
 }
