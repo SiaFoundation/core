@@ -311,7 +311,7 @@ func (r *RPCExecuteProgramResponse) EncodeTo(e *types.Encoder) {
 // DecodeFrom implements ProtocolObject.
 func (r *RPCExecuteProgramResponse) DecodeFrom(d *types.Decoder) {
 	(*types.V1Currency)(&r.AdditionalCollateral).DecodeFrom(d)
-	r.OutputLength = d.ReadUint64()
+	r.OutputLength = uint64(d.ReadPrefix())
 	r.NewMerkleRoot.DecodeFrom(d)
 	r.NewSize = d.ReadUint64()
 	r.Proof = make([]types.Hash256, d.ReadPrefix())
