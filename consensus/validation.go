@@ -578,6 +578,8 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 			return fmt.Errorf("siacoin input %v double-spends parent output (previously spent in %v)", i, txid)
 		} else if j, ok := spent[sci.Parent.ID]; ok {
 			return fmt.Errorf("siacoin input %v double-spends parent output (previously spent by input %v)", i, j)
+		} else if sci.Parent.MaturityHeight > ms.base.childHeight() {
+			return fmt.Errorf("siacoin input %v has immature parent", i)
 		}
 		spent[sci.Parent.ID] = i
 
