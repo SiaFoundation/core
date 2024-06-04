@@ -247,11 +247,7 @@ func (r *RPCSendBlocks) encodeResponse(e *types.Encoder) {
 	}
 }
 func (r *RPCSendBlocks) decodeResponse(d *types.Decoder) {
-	if n := d.ReadPrefix(); n <= cap(r.Blocks) {
-		r.Blocks = r.Blocks[:n]
-	} else {
-		r.Blocks = make([]types.Block, n)
-	}
+	r.Blocks = make([]types.Block, d.ReadPrefix())
 	for i := range r.Blocks {
 		(*types.V1Block)(&r.Blocks[i]).DecodeFrom(d)
 	}
