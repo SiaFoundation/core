@@ -94,7 +94,7 @@ func (db *consensusDB) supplementTipBlock(b types.Block) (bs V1BlockSupplement) 
 	return bs
 }
 
-func (db *consensusDB) ancestorTimestamp(id types.BlockID) time.Time {
+func (db *consensusDB) ancestorTimestamp(types.BlockID) time.Time {
 	return time.Time{}
 }
 

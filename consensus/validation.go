@@ -153,7 +153,7 @@ func validateCurrencyOverflow(ms *MidState, txn types.Transaction) error {
 	return nil
 }
 
-func validateMinimumValues(ms *MidState, txn types.Transaction) error {
+func validateMinimumValues(_ *MidState, txn types.Transaction) error {
 	zero := false
 	for _, sco := range txn.SiacoinOutputs {
 		zero = zero || sco.Value.IsZero()
