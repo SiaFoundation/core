@@ -45,7 +45,14 @@ func (s *Stream) Read(b []byte) (n int, err error) {
 	var deadline <-chan time.Time
 	if d, ok := s.readDeadline.Load().(time.Time); ok && !d.IsZero() {
 		timer := time.NewTimer(time.Until(d))
-		defer timer.Stop()
+		defer func() {
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+		}()
 		deadline = timer.C
 	}
 
