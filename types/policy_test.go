@@ -393,14 +393,14 @@ func TestSatisfiedPolicyMarshalJSON(t *testing.T) {
 			name:       "PolicyWithSignature",
 			sp:         PolicyPublicKey(publicKey),
 			signatures: []Signature{signature},
-			exp:        fmt.Sprintf(`{"policy":"pk(0x%x)","signatures":["%s"]}`, publicKey[:], signature),
+			exp:        fmt.Sprintf(`{"policy":"pk(0x%x)","signatures":[%q]}`, publicKey[:], signature),
 		},
 		{
 			name:       "PolicyWithSignaturesAndPreimages",
 			sp:         PolicyThreshold(1, []SpendPolicy{PolicyPublicKey(publicKey), PolicyHash(hash)}),
 			signatures: []Signature{signature},
 			preimages:  [][]byte{{1, 2, 3}},
-			exp:        fmt.Sprintf(`{"policy":"thresh(1,[pk(0x%x),h(0x%x)])","signatures":["%s"],"preimages":["010203"]}`, publicKey[:], hash[:], signature),
+			exp:        fmt.Sprintf(`{"policy":"thresh(1,[pk(0x%x),h(0x%x)])","signatures":[%q],"preimages":["010203"]}`, publicKey[:], hash[:], signature),
 		},
 		{
 			name:      "PolicyWithPreimagesOnly",

@@ -132,13 +132,9 @@ func (d *Decoder) Err() error { return d.err }
 func (d *Decoder) Read(p []byte) (int, error) {
 	n := 0
 	for len(p[n:]) > 0 && d.err == nil {
-		want := len(p[n:])
-		if want > len(d.buf) {
-			want = len(d.buf)
-		}
-		var read int
-		read, d.err = io.ReadFull(&d.lr, d.buf[:want])
+		read, err := io.ReadFull(&d.lr, d.buf[:min(len(p[n:]), len(d.buf))])
 		n += copy(p[n:], d.buf[:read])
+		d.SetErr(err)
 	}
 	return n, d.err
 }
