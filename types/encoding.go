@@ -132,20 +132,9 @@ func (d *Decoder) Err() error { return d.err }
 func (d *Decoder) Read(p []byte) (int, error) {
 	n := 0
 	for len(p[n:]) > 0 && d.err == nil {
-		want := len(p[n:])
-		if want > len(d.buf) {
-			want = len(d.buf)
-		}
-		read, err := io.ReadFull(&d.lr, d.buf[:want])
-		if err != nil {
-			// When the decoder encounters an error, it must clear its buffer and
-			// return empty values for the remaining decodes. Because the decoder uses
-			// sticky errors instead of immediately returning a bad decode can
-			// potentially cause a massive allocation.
-			d.SetErr(err)
-			return n, err
-		}
+		read, err := io.ReadFull(&d.lr, d.buf[:min(len(p[n:]), len(d.buf))])
 		n += copy(p[n:], d.buf[:read])
+		d.SetErr(err)
 	}
 	return n, d.err
 }
