@@ -29,7 +29,14 @@ func (tm *tryMutex) TryLock(t time.Duration) bool {
 	default:
 	}
 	timer := time.NewTimer(t)
-	defer timer.Stop()
+	defer func() {
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+	}()
 	select {
 	case <-tm.lock:
 		return true
@@ -149,7 +156,14 @@ func (s *Session) AcceptStream() (*Stream, error) {
 	var deadline <-chan time.Time
 	if d, ok := s.deadline.Load().(time.Time); ok && !d.IsZero() {
 		timer := time.NewTimer(time.Until(d))
-		defer timer.Stop()
+		defer func() {
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+		}()
 		deadline = timer.C
 	}
 	select {
