@@ -409,14 +409,14 @@ func TestValidateBlock(t *testing.T) {
 				"siafund outputs exceed inputs",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
-					txn.SiafundOutputs[0].Value = txn.SiafundOutputs[0].Value + 1
+					txn.SiafundOutputs[0].Value++
 				},
 			},
 			{
 				"siafund outputs less than inputs",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
-					txn.SiafundOutputs[0].Value = txn.SiafundOutputs[0].Value - 1
+					txn.SiafundOutputs[0].Value--
 				},
 			},
 			{
@@ -591,7 +591,7 @@ func TestValidateBlock(t *testing.T) {
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.SiafundInputs = append(txn.SiafundInputs, txn.SiafundInputs[0])
-					txn.SiafundOutputs[0].Value = txn.SiafundOutputs[0].Value + 100
+					txn.SiafundOutputs[0].Value += 100
 				},
 			},
 			{
@@ -965,14 +965,14 @@ func TestValidateV2Block(t *testing.T) {
 				"siafund outputs exceed inputs",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
-					txn.SiafundOutputs[0].Value = txn.SiafundOutputs[0].Value + 1
+					txn.SiafundOutputs[0].Value++
 				},
 			},
 			{
 				"siafund outputs less than inputs",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
-					txn.SiafundOutputs[0].Value = txn.SiafundOutputs[0].Value - 1
+					txn.SiafundOutputs[0].Value--
 				},
 			},
 			{
