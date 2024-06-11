@@ -13,7 +13,7 @@ import (
 func withV1Encoder(w io.Writer, fn func(*types.Encoder)) error {
 	var buf bytes.Buffer
 	e := types.NewEncoder(&buf)
-	e.WritePrefix(0) // placeholder
+	e.WriteUint64(0) // placeholder
 	fn(e)
 	e.Flush()
 	b := buf.Bytes()
@@ -24,7 +24,7 @@ func withV1Encoder(w io.Writer, fn func(*types.Encoder)) error {
 
 func withV1Decoder(r io.Reader, maxLen int, fn func(*types.Decoder)) error {
 	d := types.NewDecoder(io.LimitedReader{R: r, N: int64(8 + maxLen)})
-	d.ReadPrefix() // ignored
+	d.ReadUint64() // prefix, ignored
 	fn(d)
 	return d.Err()
 }
@@ -107,15 +107,9 @@ func (ob *V2BlockOutline) encodeTo(e *types.Encoder) {
 			kinds = append(kinds, 2)
 		}
 	}
-	e.WritePrefix(len(txns))
-	for i := range txns {
-		txns[i].EncodeTo(e)
-	}
+	types.EncodeSlice(e, txns)
 	types.V2TransactionsMultiproof(v2txns).EncodeTo(e)
-	e.WritePrefix(len(hashes))
-	for i := range hashes {
-		hashes[i].EncodeTo(e)
-	}
+	types.EncodeSlice(e, hashes)
 	for i := range kinds {
 		e.WriteUint8(kinds[i])
 	}
@@ -128,16 +122,12 @@ func (ob *V2BlockOutline) decodeFrom(d *types.Decoder) {
 	ob.Timestamp = d.ReadTime()
 	ob.MinerAddress.DecodeFrom(d)
 
-	txns := make([]types.Transaction, d.ReadPrefix())
-	for i := range txns {
-		txns[i].DecodeFrom(d)
-	}
+	var txns []types.Transaction
 	var v2txns types.V2TransactionsMultiproof
+	var hashes []types.Hash256
+	types.DecodeSlice(d, &txns)
 	v2txns.DecodeFrom(d)
-	hashes := make([]types.Hash256, d.ReadPrefix())
-	for i := range hashes {
-		hashes[i].DecodeFrom(d)
-	}
+	types.DecodeSlice(d, &hashes)
 	kinds := make([]uint8, len(txns)+len(v2txns)+len(hashes))
 	var counts [3]int
 	for i := range kinds {
@@ -199,16 +189,10 @@ type RPCShareNodes struct {
 }
 
 func (r *RPCShareNodes) encodeResponse(e *types.Encoder) {
-	e.WritePrefix(len(r.Peers))
-	for i := range r.Peers {
-		e.WriteString(r.Peers[i])
-	}
+	types.EncodeSliceFn(e, r.Peers, (*types.Encoder).WriteString)
 }
 func (r *RPCShareNodes) decodeResponse(d *types.Decoder) {
-	r.Peers = make([]string, d.ReadPrefix())
-	for i := range r.Peers {
-		r.Peers[i] = d.ReadString()
-	}
+	types.DecodeSliceFn(d, &r.Peers, (*types.Decoder).ReadString)
 }
 func (r *RPCShareNodes) maxResponseLen() int { return 100 * 128 }
 
@@ -241,16 +225,10 @@ func (r *RPCSendBlocks) decodeRequest(d *types.Decoder) {
 func (r *RPCSendBlocks) maxRequestLen() int { return 32 * 32 }
 
 func (r *RPCSendBlocks) encodeResponse(e *types.Encoder) {
-	e.WritePrefix(len(r.Blocks))
-	for i := range r.Blocks {
-		types.V1Block(r.Blocks[i]).EncodeTo(e)
-	}
+	types.EncodeSliceCast[types.V1Block](e, r.Blocks)
 }
 func (r *RPCSendBlocks) decodeResponse(d *types.Decoder) {
-	r.Blocks = make([]types.Block, d.ReadPrefix())
-	for i := range r.Blocks {
-		(*types.V1Block)(&r.Blocks[i]).DecodeFrom(d)
-	}
+	types.DecodeSliceCast[types.V1Block](d, &r.Blocks)
 }
 func (r *RPCSendBlocks) maxResponseLen() int { return 10 * 5e6 }
 
@@ -298,16 +276,10 @@ type RPCRelayTransactionSet struct {
 }
 
 func (r *RPCRelayTransactionSet) encodeRequest(e *types.Encoder) {
-	e.WritePrefix(len(r.Transactions))
-	for i := range r.Transactions {
-		r.Transactions[i].EncodeTo(e)
-	}
+	types.EncodeSlice(e, r.Transactions)
 }
 func (r *RPCRelayTransactionSet) decodeRequest(d *types.Decoder) {
-	r.Transactions = make([]types.Transaction, d.ReadPrefix())
-	for i := range r.Transactions {
-		r.Transactions[i].DecodeFrom(d)
-	}
+	types.DecodeSlice(d, &r.Transactions)
 }
 func (r *RPCRelayTransactionSet) maxRequestLen() int { return 5e6 }
 
@@ -320,33 +292,21 @@ type RPCSendV2Blocks struct {
 }
 
 func (r *RPCSendV2Blocks) encodeRequest(e *types.Encoder) {
-	e.WritePrefix(len(r.History))
-	for i := range r.History {
-		r.History[i].EncodeTo(e)
-	}
+	types.EncodeSlice(e, r.History)
 	e.WriteUint64(r.Max)
 }
 func (r *RPCSendV2Blocks) decodeRequest(d *types.Decoder) {
-	r.History = make([]types.BlockID, d.ReadPrefix())
-	for i := range r.History {
-		r.History[i].DecodeFrom(d)
-	}
+	types.DecodeSlice(d, &r.History)
 	r.Max = d.ReadUint64()
 }
 func (r *RPCSendV2Blocks) maxRequestLen() int { return 8 + 32*32 + 8 }
 
 func (r *RPCSendV2Blocks) encodeResponse(e *types.Encoder) {
-	e.WritePrefix(len(r.Blocks))
-	for i := range r.Blocks {
-		types.V2Block(r.Blocks[i]).EncodeTo(e)
-	}
+	types.EncodeSliceCast[types.V2Block](e, r.Blocks)
 	e.WriteUint64(r.Remaining)
 }
 func (r *RPCSendV2Blocks) decodeResponse(d *types.Decoder) {
-	r.Blocks = make([]types.Block, d.ReadPrefix())
-	for i := range r.Blocks {
-		(*types.V2Block)(&r.Blocks[i]).DecodeFrom(d)
-	}
+	types.DecodeSliceCast[types.V2Block](d, &r.Blocks)
 	r.Remaining = d.ReadUint64()
 }
 func (r *RPCSendV2Blocks) maxResponseLen() int { return int(r.Max) * 5e6 }
@@ -362,39 +322,21 @@ type RPCSendTransactions struct {
 
 func (r *RPCSendTransactions) encodeRequest(e *types.Encoder) {
 	r.Index.EncodeTo(e)
-	e.WritePrefix(len(r.Hashes))
-	for i := range r.Hashes {
-		r.Hashes[i].EncodeTo(e)
-	}
+	types.EncodeSlice(e, r.Hashes)
 }
 func (r *RPCSendTransactions) decodeRequest(d *types.Decoder) {
 	r.Index.DecodeFrom(d)
-	r.Hashes = make([]types.Hash256, d.ReadPrefix())
-	for i := range r.Hashes {
-		r.Hashes[i].DecodeFrom(d)
-	}
+	types.DecodeSlice(d, &r.Hashes)
 }
 func (r *RPCSendTransactions) maxRequestLen() int { return 8 + 32 + 8 + 100*32 }
 
 func (r *RPCSendTransactions) encodeResponse(e *types.Encoder) {
-	e.WritePrefix(len(r.Transactions))
-	for i := range r.Transactions {
-		r.Transactions[i].EncodeTo(e)
-	}
-	e.WritePrefix(len(r.V2Transactions))
-	for i := range r.V2Transactions {
-		r.V2Transactions[i].EncodeTo(e)
-	}
+	types.EncodeSlice(e, r.Transactions)
+	types.EncodeSlice(e, r.V2Transactions)
 }
 func (r *RPCSendTransactions) decodeResponse(d *types.Decoder) {
-	r.Transactions = make([]types.Transaction, d.ReadPrefix())
-	for i := range r.Transactions {
-		r.Transactions[i].DecodeFrom(d)
-	}
-	r.V2Transactions = make([]types.V2Transaction, d.ReadPrefix())
-	for i := range r.V2Transactions {
-		r.V2Transactions[i].DecodeFrom(d)
-	}
+	types.DecodeSlice(d, &r.Transactions)
+	types.DecodeSlice(d, &r.V2Transactions)
 }
 func (r *RPCSendTransactions) maxResponseLen() int { return 5e6 }
 
@@ -449,17 +391,11 @@ type RPCRelayV2TransactionSet struct {
 
 func (r *RPCRelayV2TransactionSet) encodeRequest(e *types.Encoder) {
 	r.Index.EncodeTo(e)
-	e.WritePrefix(len(r.Transactions))
-	for i := range r.Transactions {
-		r.Transactions[i].EncodeTo(e)
-	}
+	types.EncodeSlice(e, r.Transactions)
 }
 func (r *RPCRelayV2TransactionSet) decodeRequest(d *types.Decoder) {
 	r.Index.DecodeFrom(d)
-	r.Transactions = make([]types.V2Transaction, d.ReadPrefix())
-	for i := range r.Transactions {
-		r.Transactions[i].DecodeFrom(d)
-	}
+	types.DecodeSlice(d, &r.Transactions)
 }
 func (r *RPCRelayV2TransactionSet) maxRequestLen() int { return 5e6 }
 

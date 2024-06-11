@@ -138,14 +138,8 @@ func (r *PayByEphemeralAccountRequest) DecodeFrom(d *types.Decoder) {
 func (r *PayByContractRequest) EncodeTo(e *types.Encoder) {
 	r.ContractID.EncodeTo(e)
 	e.WriteUint64(r.RevisionNumber)
-	e.WritePrefix(len(r.ValidProofValues))
-	for i := range r.ValidProofValues {
-		types.V1Currency(r.ValidProofValues[i]).EncodeTo(e)
-	}
-	e.WritePrefix(len(r.MissedProofValues))
-	for i := range r.MissedProofValues {
-		types.V1Currency(r.MissedProofValues[i]).EncodeTo(e)
-	}
+	types.EncodeSliceCast[types.V1Currency](e, r.ValidProofValues)
+	types.EncodeSliceCast[types.V1Currency](e, r.MissedProofValues)
 	r.RefundAccount.EncodeTo(e)
 	e.WriteBytes(r.Signature[:])
 }
@@ -154,14 +148,8 @@ func (r *PayByContractRequest) EncodeTo(e *types.Encoder) {
 func (r *PayByContractRequest) DecodeFrom(d *types.Decoder) {
 	r.ContractID.DecodeFrom(d)
 	r.RevisionNumber = d.ReadUint64()
-	r.ValidProofValues = make([]types.Currency, d.ReadPrefix())
-	for i := range r.ValidProofValues {
-		(*types.V1Currency)(&r.ValidProofValues[i]).DecodeFrom(d)
-	}
-	r.MissedProofValues = make([]types.Currency, d.ReadPrefix())
-	for i := range r.MissedProofValues {
-		(*types.V1Currency)(&r.MissedProofValues[i]).DecodeFrom(d)
-	}
+	types.DecodeSliceCast[types.V1Currency](d, &r.ValidProofValues)
+	types.DecodeSliceCast[types.V1Currency](d, &r.MissedProofValues)
 	r.RefundAccount.DecodeFrom(d)
 	copy(r.Signature[:], d.ReadBytes())
 }
@@ -255,7 +243,7 @@ func (r *RPCAccountBalanceResponse) DecodeFrom(d *types.Decoder) {
 // EncodeTo implements ProtocolObject.
 func (r *RPCExecuteProgramRequest) EncodeTo(e *types.Encoder) {
 	r.FileContractID.EncodeTo(e)
-	e.WritePrefix(len(r.Program))
+	e.WriteUint64(uint64(len(r.Program)))
 
 	var buf bytes.Buffer
 	ie := types.NewEncoder(&buf)
@@ -272,7 +260,7 @@ func (r *RPCExecuteProgramRequest) EncodeTo(e *types.Encoder) {
 // DecodeFrom implements ProtocolObject.
 func (r *RPCExecuteProgramRequest) DecodeFrom(d *types.Decoder) {
 	r.FileContractID.DecodeFrom(d)
-	r.Program = make([]Instruction, d.ReadPrefix())
+	r.Program = make([]Instruction, d.ReadUint64())
 	for i := range r.Program {
 		var id types.Specifier
 		id.DecodeFrom(d)
@@ -294,10 +282,7 @@ func (r *RPCExecuteProgramResponse) EncodeTo(e *types.Encoder) {
 	e.WriteUint64(r.OutputLength)
 	r.NewMerkleRoot.EncodeTo(e)
 	e.WriteUint64(r.NewSize)
-	e.WritePrefix(len(r.Proof))
-	for i := range r.Proof {
-		r.Proof[i].EncodeTo(e)
-	}
+	types.EncodeSlice(e, r.Proof)
 	var errString string
 	if r.Error != nil {
 		errString = r.Error.Error()
@@ -311,13 +296,10 @@ func (r *RPCExecuteProgramResponse) EncodeTo(e *types.Encoder) {
 // DecodeFrom implements ProtocolObject.
 func (r *RPCExecuteProgramResponse) DecodeFrom(d *types.Decoder) {
 	(*types.V1Currency)(&r.AdditionalCollateral).DecodeFrom(d)
-	r.OutputLength = uint64(d.ReadPrefix())
+	r.OutputLength = d.ReadUint64()
 	r.NewMerkleRoot.DecodeFrom(d)
 	r.NewSize = d.ReadUint64()
-	r.Proof = make([]types.Hash256, d.ReadPrefix())
-	for i := range r.Proof {
-		r.Proof[i].DecodeFrom(d)
-	}
+	types.DecodeSlice(d, &r.Proof)
 	if s := d.ReadString(); s != "" {
 		r.Error = errors.New(s)
 	}
@@ -331,28 +313,16 @@ func (r *RPCExecuteProgramResponse) DecodeFrom(d *types.Decoder) {
 func (r *RPCFinalizeProgramRequest) EncodeTo(e *types.Encoder) {
 	e.WriteBytes(r.Signature[:])
 	e.WriteUint64(r.RevisionNumber)
-	e.WritePrefix(len(r.ValidProofValues))
-	for _, v := range r.ValidProofValues {
-		types.V1Currency(v).EncodeTo(e)
-	}
-	e.WritePrefix(len(r.MissedProofValues))
-	for _, v := range r.MissedProofValues {
-		types.V1Currency(v).EncodeTo(e)
-	}
+	types.EncodeSliceCast[types.V1Currency](e, r.ValidProofValues)
+	types.EncodeSliceCast[types.V1Currency](e, r.MissedProofValues)
 }
 
 // DecodeFrom implements ProtocolObject.
 func (r *RPCFinalizeProgramRequest) DecodeFrom(d *types.Decoder) {
 	copy(r.Signature[:], d.ReadBytes())
 	r.RevisionNumber = d.ReadUint64()
-	r.ValidProofValues = make([]types.Currency, d.ReadPrefix())
-	for i := range r.ValidProofValues {
-		(*types.V1Currency)(&r.ValidProofValues[i]).DecodeFrom(d)
-	}
-	r.MissedProofValues = make([]types.Currency, d.ReadPrefix())
-	for i := range r.MissedProofValues {
-		(*types.V1Currency)(&r.MissedProofValues[i]).DecodeFrom(d)
-	}
+	types.DecodeSliceCast[types.V1Currency](d, &r.ValidProofValues)
+	types.DecodeSliceCast[types.V1Currency](d, &r.MissedProofValues)
 }
 
 // EncodeTo implements ProtocolObject.
@@ -387,73 +357,43 @@ func (r *RPCLatestRevisionResponse) DecodeFrom(d *types.Decoder) {
 
 // EncodeTo implements ProtocolObject.
 func (r *RPCRenewContractRequest) EncodeTo(e *types.Encoder) {
-	e.WritePrefix(len(r.TransactionSet))
-	for i := range r.TransactionSet {
-		r.TransactionSet[i].EncodeTo(e)
-	}
+	types.EncodeSlice(e, r.TransactionSet)
 	r.RenterKey.EncodeTo(e)
 	r.FinalRevisionSignature.EncodeTo(e)
 }
 
 // DecodeFrom implements ProtocolObject
 func (r *RPCRenewContractRequest) DecodeFrom(d *types.Decoder) {
-	r.TransactionSet = make([]types.Transaction, d.ReadPrefix())
-	for i := range r.TransactionSet {
-		r.TransactionSet[i].DecodeFrom(d)
-	}
+	types.DecodeSlice(d, &r.TransactionSet)
 	r.RenterKey.DecodeFrom(d)
 	r.FinalRevisionSignature.DecodeFrom(d)
 }
 
 // EncodeTo implements ProtocolObject
 func (r *RPCRenewContractHostAdditions) EncodeTo(e *types.Encoder) {
-	e.WritePrefix(len(r.Parents))
-	for i := range r.Parents {
-		r.Parents[i].EncodeTo(e)
-	}
-	e.WritePrefix(len(r.SiacoinInputs))
-	for i := range r.SiacoinInputs {
-		r.SiacoinInputs[i].EncodeTo(e)
-	}
-	e.WritePrefix(len(r.SiacoinOutputs))
-	for i := range r.SiacoinOutputs {
-		types.V1SiacoinOutput(r.SiacoinOutputs[i]).EncodeTo(e)
-	}
+	types.EncodeSlice(e, r.Parents)
+	types.EncodeSlice(e, r.SiacoinInputs)
+	types.EncodeSliceCast[types.V1SiacoinOutput](e, r.SiacoinOutputs)
 	r.FinalRevisionSignature.EncodeTo(e)
 }
 
 // DecodeFrom implements ProtocolObject
 func (r *RPCRenewContractHostAdditions) DecodeFrom(d *types.Decoder) {
-	r.Parents = make([]types.Transaction, d.ReadPrefix())
-	for i := range r.Parents {
-		r.Parents[i].DecodeFrom(d)
-	}
-	r.SiacoinInputs = make([]types.SiacoinInput, d.ReadPrefix())
-	for i := range r.SiacoinInputs {
-		r.SiacoinInputs[i].DecodeFrom(d)
-	}
-	r.SiacoinOutputs = make([]types.SiacoinOutput, d.ReadPrefix())
-	for i := range r.SiacoinOutputs {
-		(*types.V1SiacoinOutput)(&r.SiacoinOutputs[i]).DecodeFrom(d)
-	}
+	types.DecodeSlice(d, &r.Parents)
+	types.DecodeSlice(d, &r.SiacoinInputs)
+	types.DecodeSliceCast[types.V1SiacoinOutput](d, &r.SiacoinOutputs)
 	r.FinalRevisionSignature.DecodeFrom(d)
 }
 
 // EncodeTo implements ProtocolObject
 func (r *RPCRenewSignatures) EncodeTo(e *types.Encoder) {
-	e.WritePrefix(len(r.TransactionSignatures))
-	for i := range r.TransactionSignatures {
-		r.TransactionSignatures[i].EncodeTo(e)
-	}
+	types.EncodeSlice(e, r.TransactionSignatures)
 	r.RevisionSignature.EncodeTo(e)
 }
 
 // DecodeFrom implements ProtocolObject
 func (r *RPCRenewSignatures) DecodeFrom(d *types.Decoder) {
-	r.TransactionSignatures = make([]types.TransactionSignature, d.ReadPrefix())
-	for i := range r.TransactionSignatures {
-		r.TransactionSignatures[i].DecodeFrom(d)
-	}
+	types.DecodeSlice(d, &r.TransactionSignatures)
 	r.RevisionSignature.DecodeFrom(d)
 }
 

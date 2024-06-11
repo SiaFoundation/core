@@ -203,7 +203,7 @@ func (t *Transport) writeMessage(obj ProtocolObject) error {
 	t.outbuf.Reset()
 	t.outbuf.Grow(minMessageSize)
 	e := types.NewEncoder(&t.outbuf)
-	e.WritePrefix(0) // placeholder
+	e.WriteUint64(0) // placeholder
 	e.Write(nonce)
 	obj.EncodeTo(e)
 	e.Flush()

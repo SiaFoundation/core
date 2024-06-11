@@ -197,10 +197,7 @@ func (txns V2TransactionsMultiproof) EncodeTo(e *Encoder) {
 		numLeaves |= l.LeafIndex&^(n-1) | n
 		l.MerkleProof = nil
 	})
-	e.WritePrefix(len(prooflessTxns))
-	for i := range prooflessTxns {
-		prooflessTxns[i].EncodeTo(e)
-	}
+	EncodeSlice(e, prooflessTxns)
 	e.WriteUint64(numLeaves)
 	multiproof := computeMultiproof(txns)
 	for _, p := range multiproof {
@@ -210,10 +207,7 @@ func (txns V2TransactionsMultiproof) EncodeTo(e *Encoder) {
 
 // DecodeFrom implements types.DecoderFrom.
 func (txns *V2TransactionsMultiproof) DecodeFrom(d *Decoder) {
-	*txns = make(V2TransactionsMultiproof, d.ReadPrefix())
-	for i := range *txns {
-		(*txns)[i].DecodeFrom(d)
-	}
+	DecodeSlice(d, (*[]V2Transaction)(txns))
 	numLeaves := d.ReadUint64()
 	forEachElementLeaf(*txns, func(l elementLeaf) {
 		if l.LeafIndex >= numLeaves {

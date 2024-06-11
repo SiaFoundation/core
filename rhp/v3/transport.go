@@ -64,7 +64,7 @@ type Stream struct {
 func (s *Stream) readObject(resp ProtocolObject, maxLen uint64) error {
 	if s.readSub {
 		d := types.NewDecoder(io.LimitedReader{R: s.s, N: minMessageSize})
-		d.ReadPrefix()
+		d.ReadUint64()
 		if errStr := d.ReadString(); errStr != "" {
 			return errors.New(errStr)
 		} else if d.Err() != nil {
@@ -75,7 +75,7 @@ func (s *Stream) readObject(resp ProtocolObject, maxLen uint64) error {
 
 	maxLen += minMessageSize // account for rpcResponse framing
 	d := types.NewDecoder(io.LimitedReader{R: s.s, N: int64(maxLen)})
-	if l := d.ReadPrefix(); uint64(l) > maxLen {
+	if l := d.ReadUint64(); uint64(l) > maxLen {
 		return fmt.Errorf("message too long: %v > %v", l, maxLen)
 	}
 	rr := rpcResponse{nil, resp}
@@ -91,7 +91,7 @@ func (s *Stream) readObject(resp ProtocolObject, maxLen uint64) error {
 func (s *Stream) writeObject(resp *rpcResponse) error {
 	var buf bytes.Buffer
 	e := types.NewEncoder(&buf)
-	e.WritePrefix(0) // placeholder
+	e.WriteUint64(0) // placeholder
 	resp.EncodeTo(e)
 	e.Flush()
 	b := buf.Bytes()
@@ -134,7 +134,7 @@ func (s *Stream) WriteResponseErr(resp error) (err error) {
 func (s *Stream) WriteRequest(rpcID types.Specifier, req ProtocolObject) error {
 	// write subscription
 	e := types.NewEncoder(s.s)
-	e.WritePrefix(8 + len("host"))
+	e.WriteUint64(uint64(8 + len("host")))
 	e.WriteString("host")
 	if err := e.Flush(); err != nil {
 		return fmt.Errorf("couldn't write subscription: %w", err)
@@ -159,7 +159,7 @@ func (s *Stream) ReadID() (rpcID types.Specifier, err error) {
 
 	// read subscription and write response
 	d := types.NewDecoder(io.LimitedReader{R: s.s, N: minMessageSize})
-	d.ReadPrefix()
+	d.ReadUint64()
 	sub := d.ReadString()
 	if d.Err() != nil {
 		return types.Specifier{}, d.Err()
@@ -169,7 +169,7 @@ func (s *Stream) ReadID() (rpcID types.Specifier, err error) {
 		errStr = "bad subscription"
 	}
 	e := types.NewEncoder(s.s)
-	e.WritePrefix(8 + len(errStr))
+	e.WriteUint64(uint64(8 + len(errStr)))
 	e.WriteString(errStr)
 	if err := e.Flush(); err != nil {
 		return types.Specifier{}, err
