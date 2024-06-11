@@ -107,10 +107,10 @@ type EncoderFunc func(*Encoder)
 func (fn EncoderFunc) EncodeTo(e *Encoder) { fn(e) }
 
 // EncodePtr encodes a pointer to an object that implements EncoderTo.
-func EncodePtr[T any, TP interface {
+func EncodePtr[T any, P interface {
 	*T
 	EncoderTo
-}](e *Encoder, p TP) {
+}](e *Encoder, p P) {
 	e.WriteBool(p != nil)
 	if p != nil {
 		p.EncodeTo(e)
@@ -130,11 +130,7 @@ func EncodeSliceCast[V interface {
 	Cast() T
 	EncoderTo
 }, T any](e *Encoder, s []T) {
-	var vs []V
-	if len(s) != 0 {
-		vs = unsafe.Slice((*V)(unsafe.Pointer(&s[0])), len(s))
-	}
-	EncodeSlice(e, vs)
+	EncodeSlice(e, unsafe.Slice((*V)(unsafe.Pointer(unsafe.SliceData(s))), len(s)))
 }
 
 // EncodeSliceFn encodes a slice of objects by calling an explicit function to
@@ -285,12 +281,7 @@ func DecodeSliceCast[V any, T any, VF interface {
 	Cast() T
 	DecoderFrom
 }](d *Decoder, s *[]T) {
-	var vs []V
-	DecodeSlice[V, VF](d, &vs)
-	if len(vs) == 0 {
-		return
-	}
-	*s = unsafe.Slice((*T)(unsafe.Pointer(&vs[0])), len(vs))
+	DecodeSlice[V, VF](d, (*[]V)(unsafe.Pointer(s)))
 }
 
 // DecodeSliceFn decodes a length-prefixed slice of type T, calling an explicit
