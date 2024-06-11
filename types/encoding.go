@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"time"
+	"unsafe"
 )
 
 // An Encoder writes Sia objects to an underlying stream.
@@ -63,15 +64,14 @@ func (e *Encoder) WriteUint64(u uint64) {
 	e.Write(buf[:])
 }
 
-// WritePrefix writes a length prefix to the underlying stream.
-func (e *Encoder) WritePrefix(i int) { e.WriteUint64(uint64(i)) }
-
 // WriteTime writes a time.Time value to the underlying stream.
-func (e *Encoder) WriteTime(t time.Time) { e.WriteUint64(uint64(t.Unix())) }
+func (e *Encoder) WriteTime(t time.Time) {
+	e.WriteUint64(uint64(t.Unix()))
+}
 
 // WriteBytes writes a length-prefixed []byte to the underlying stream.
 func (e *Encoder) WriteBytes(b []byte) {
-	e.WritePrefix(len(b))
+	e.WriteUint64(uint64(len(b)))
 	e.Write(b)
 }
 
@@ -105,6 +105,46 @@ type EncoderFunc func(*Encoder)
 
 // EncodeTo implements types.EncoderTo.
 func (fn EncoderFunc) EncodeTo(e *Encoder) { fn(e) }
+
+// EncodePtr encodes a pointer to an object that implements EncoderTo.
+func EncodePtr[T any, TP interface {
+	*T
+	EncoderTo
+}](e *Encoder, p TP) {
+	e.WriteBool(p != nil)
+	if p != nil {
+		p.EncodeTo(e)
+	}
+}
+
+// EncodeSlice encodes a slice of objects that implement EncoderTo.
+func EncodeSlice[T EncoderTo](e *Encoder, s []T) {
+	e.WriteUint64(uint64(len(s)))
+	for i := range s {
+		s[i].EncodeTo(e)
+	}
+}
+
+// EncodeSliceCast encodes a slice of objects by casting them to V.
+func EncodeSliceCast[V interface {
+	Cast() T
+	EncoderTo
+}, T any](e *Encoder, s []T) {
+	var vs []V
+	if len(s) != 0 {
+		vs = unsafe.Slice((*V)(unsafe.Pointer(&s[0])), len(s))
+	}
+	EncodeSlice(e, vs)
+}
+
+// EncodeSliceFn encodes a slice of objects by calling an explicit function to
+// encode each element.
+func EncodeSliceFn[T any](e *Encoder, s []T, fn func(*Encoder, T)) {
+	e.WriteUint64(uint64(len(s)))
+	for i := range s {
+		fn(e, s[i])
+	}
+}
 
 // A Decoder reads values from an underlying stream. Callers MUST check
 // (*Decoder).Err before using any decoded values.
@@ -165,24 +205,19 @@ func (d *Decoder) ReadUint64() uint64 {
 	return binary.LittleEndian.Uint64(d.buf[:8])
 }
 
-// ReadPrefix reads a length prefix from the underlying stream. If the length
-// exceeds the number of bytes remaining in the stream, ReadPrefix sets d.Err
-// and returns 0.
-func (d *Decoder) ReadPrefix() int {
-	n := d.ReadUint64()
-	if n > uint64(d.lr.N) {
-		d.SetErr(fmt.Errorf("encoded object contains invalid length prefix (%v elems > %v bytes left in stream)", n, d.lr.N))
-		return 0
-	}
-	return int(n)
-}
-
 // ReadTime reads a time.Time from the underlying stream.
-func (d *Decoder) ReadTime() time.Time { return time.Unix(int64(d.ReadUint64()), 0) }
+func (d *Decoder) ReadTime() time.Time {
+	return time.Unix(int64(d.ReadUint64()), 0)
+}
 
 // ReadBytes reads a length-prefixed []byte from the underlying stream.
 func (d *Decoder) ReadBytes() []byte {
-	b := make([]byte, d.ReadPrefix())
+	n := d.ReadUint64()
+	if n > uint64(d.lr.N) {
+		d.SetErr(fmt.Errorf("encoded object contains invalid length prefix (%v elems > %v bytes left in stream)", n, d.lr.N))
+		return nil
+	}
+	b := make([]byte, n)
 	d.Read(b)
 	return b
 }
@@ -209,6 +244,71 @@ type DecoderFunc func(*Decoder)
 
 // DecodeFrom implements types.DecoderTo.
 func (fn DecoderFunc) DecodeFrom(d *Decoder) { fn(d) }
+
+// DecodePtr decodes a pointer to an object that implements DecoderFrom.
+func DecodePtr[T any, TP interface {
+	*T
+	DecoderFrom
+}](d *Decoder, v **T) {
+	if d.ReadBool() {
+		*v = new(T)
+		TP(*v).DecodeFrom(d)
+	} else {
+		*v = nil
+	}
+}
+
+// DecodeSlice decodes a length-prefixed slice of type T, containing values read
+// from the decoder.
+func DecodeSlice[T any, DF interface {
+	*T
+	DecoderFrom
+}](d *Decoder, s *[]T) {
+	n := d.ReadUint64()
+	if n > uint64(d.lr.N) {
+		d.SetErr(fmt.Errorf("encoded object contains invalid length prefix (%v elems > %v bytes left in stream)", n, d.lr.N))
+		return
+	}
+	*s = make([]T, n)
+	for i := range *s {
+		DF(&(*s)[i]).DecodeFrom(d)
+		if d.Err() != nil {
+			break
+		}
+	}
+}
+
+// DecodeSliceCast decodes a length-prefixed slice of type T, casting through
+// type V.
+func DecodeSliceCast[V any, T any, VF interface {
+	*V
+	Cast() T
+	DecoderFrom
+}](d *Decoder, s *[]T) {
+	var vs []V
+	DecodeSlice[V, VF](d, &vs)
+	if len(vs) == 0 {
+		return
+	}
+	*s = unsafe.Slice((*T)(unsafe.Pointer(&vs[0])), len(vs))
+}
+
+// DecodeSliceFn decodes a length-prefixed slice of type T, calling an explicit
+// function to decode each element.
+func DecodeSliceFn[T any](d *Decoder, s *[]T, fn func(*Decoder) T) {
+	n := d.ReadUint64()
+	if n > uint64(d.lr.N) {
+		d.SetErr(fmt.Errorf("encoded object contains invalid length prefix (%v elems > %v bytes left in stream)", n, d.lr.N))
+		return
+	}
+	*s = make([]T, n)
+	for i := range *s {
+		(*s)[i] = fn(d)
+		if d.Err() != nil {
+			break
+		}
+	}
+}
 
 // NewBufDecoder returns a Decoder for the provided byte slice.
 func NewBufDecoder(buf []byte) *Decoder {
@@ -250,10 +350,7 @@ func (uk UnlockKey) EncodeTo(e *Encoder) {
 // EncodeTo implements types.EncoderTo.
 func (uc UnlockConditions) EncodeTo(e *Encoder) {
 	e.WriteUint64(uc.Timelock)
-	e.WritePrefix(len(uc.PublicKeys))
-	for _, pk := range uc.PublicKeys {
-		pk.EncodeTo(e)
-	}
+	EncodeSlice(e, uc.PublicKeys)
 	e.WriteUint64(uc.SignaturesRequired)
 }
 
@@ -262,6 +359,12 @@ type V1Currency Currency
 
 // V2Currency provides v2 encoding for Currency.
 type V2Currency Currency
+
+// Cast provides type safety for DecodeSliceCast.
+func (c V1Currency) Cast() Currency { return Currency(c) }
+
+// Cast provides type safety for DecodeSliceCast.
+func (c V2Currency) Cast() Currency { return Currency(c) }
 
 // EncodeTo implements types.EncoderTo.
 func (c V1Currency) EncodeTo(e *Encoder) {
@@ -289,6 +392,12 @@ type V1SiacoinOutput SiacoinOutput
 // V2SiacoinOutput provides v2 encoding for SiacoinOutput.
 type V2SiacoinOutput SiacoinOutput
 
+// Cast provides type safety for DecodeSliceCast.
+func (sco V1SiacoinOutput) Cast() SiacoinOutput { return SiacoinOutput(sco) }
+
+// Cast provides type safety for DecodeSliceCast.
+func (sco V2SiacoinOutput) Cast() SiacoinOutput { return SiacoinOutput(sco) }
+
 // EncodeTo implements types.EncoderTo.
 func (sco V1SiacoinOutput) EncodeTo(e *Encoder) {
 	V1Currency(sco.Value).EncodeTo(e)
@@ -309,6 +418,12 @@ type V1SiafundOutput SiafundOutput
 
 // V2SiafundOutput provides v2 encoding for SiafundOutput.
 type V2SiafundOutput SiafundOutput
+
+// Cast provides type safety for DecodeSliceCast.
+func (sfo V1SiafundOutput) Cast() SiafundOutput { return SiafundOutput(sfo) }
+
+// Cast provides type safety for DecodeSliceCast.
+func (sfo V2SiafundOutput) Cast() SiafundOutput { return SiafundOutput(sfo) }
 
 // EncodeTo implements types.EncoderTo.
 func (sfo V1SiafundOutput) EncodeTo(e *Encoder) {
@@ -346,14 +461,8 @@ func (fc FileContract) EncodeTo(e *Encoder) {
 	e.WriteUint64(fc.WindowStart)
 	e.WriteUint64(fc.WindowEnd)
 	V1Currency(fc.Payout).EncodeTo(e)
-	e.WritePrefix(len(fc.ValidProofOutputs))
-	for _, sco := range fc.ValidProofOutputs {
-		V1SiacoinOutput(sco).EncodeTo(e)
-	}
-	e.WritePrefix(len(fc.MissedProofOutputs))
-	for _, sco := range fc.MissedProofOutputs {
-		V1SiacoinOutput(sco).EncodeTo(e)
-	}
+	EncodeSliceCast[V1SiacoinOutput](e, fc.ValidProofOutputs)
+	EncodeSliceCast[V1SiacoinOutput](e, fc.MissedProofOutputs)
 	fc.UnlockHash.EncodeTo(e)
 	e.WriteUint64(fc.RevisionNumber)
 }
@@ -370,14 +479,8 @@ func (rev FileContractRevision) EncodeTo(e *Encoder) {
 	rev.FileContract.FileMerkleRoot.EncodeTo(e)
 	e.WriteUint64(rev.FileContract.WindowStart)
 	e.WriteUint64(rev.FileContract.WindowEnd)
-	e.WritePrefix(len(rev.FileContract.ValidProofOutputs))
-	for _, sco := range rev.FileContract.ValidProofOutputs {
-		(*V1SiacoinOutput)(&sco).EncodeTo(e)
-	}
-	e.WritePrefix(len(rev.FileContract.MissedProofOutputs))
-	for _, sco := range rev.FileContract.MissedProofOutputs {
-		(*V1SiacoinOutput)(&sco).EncodeTo(e)
-	}
+	EncodeSliceCast[V1SiacoinOutput](e, rev.FileContract.ValidProofOutputs)
+	EncodeSliceCast[V1SiacoinOutput](e, rev.FileContract.MissedProofOutputs)
 	rev.FileContract.UnlockHash.EncodeTo(e)
 }
 
@@ -385,10 +488,7 @@ func (rev FileContractRevision) EncodeTo(e *Encoder) {
 func (sp StorageProof) EncodeTo(e *Encoder) {
 	sp.ParentID.EncodeTo(e)
 	e.Write(sp.Leaf[:])
-	e.WritePrefix(len(sp.Proof))
-	for _, h := range sp.Proof {
-		h.EncodeTo(e)
-	}
+	EncodeSlice(e, sp.Proof)
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -400,23 +500,16 @@ func (fau FoundationAddressUpdate) EncodeTo(e *Encoder) {
 // EncodeTo implements types.EncoderTo.
 func (cf CoveredFields) EncodeTo(e *Encoder) {
 	e.WriteBool(cf.WholeTransaction)
-	for _, f := range [][]uint64{
-		cf.SiacoinInputs,
-		cf.SiacoinOutputs,
-		cf.FileContracts,
-		cf.FileContractRevisions,
-		cf.StorageProofs,
-		cf.SiafundInputs,
-		cf.SiafundOutputs,
-		cf.MinerFees,
-		cf.ArbitraryData,
-		cf.Signatures,
-	} {
-		e.WritePrefix(len(f))
-		for _, i := range f {
-			e.WriteUint64(i)
-		}
-	}
+	EncodeSliceFn(e, cf.SiacoinInputs, (*Encoder).WriteUint64)
+	EncodeSliceFn(e, cf.SiacoinOutputs, (*Encoder).WriteUint64)
+	EncodeSliceFn(e, cf.FileContracts, (*Encoder).WriteUint64)
+	EncodeSliceFn(e, cf.FileContractRevisions, (*Encoder).WriteUint64)
+	EncodeSliceFn(e, cf.StorageProofs, (*Encoder).WriteUint64)
+	EncodeSliceFn(e, cf.SiafundInputs, (*Encoder).WriteUint64)
+	EncodeSliceFn(e, cf.SiafundOutputs, (*Encoder).WriteUint64)
+	EncodeSliceFn(e, cf.MinerFees, (*Encoder).WriteUint64)
+	EncodeSliceFn(e, cf.ArbitraryData, (*Encoder).WriteUint64)
+	EncodeSliceFn(e, cf.Signatures, (*Encoder).WriteUint64)
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -431,51 +524,21 @@ func (ts TransactionSignature) EncodeTo(e *Encoder) {
 type txnSansSigs Transaction
 
 func (txn txnSansSigs) EncodeTo(e *Encoder) {
-	e.WritePrefix(len((txn.SiacoinInputs)))
-	for i := range txn.SiacoinInputs {
-		txn.SiacoinInputs[i].EncodeTo(e)
-	}
-	e.WritePrefix(len((txn.SiacoinOutputs)))
-	for i := range txn.SiacoinOutputs {
-		V1SiacoinOutput(txn.SiacoinOutputs[i]).EncodeTo(e)
-	}
-	e.WritePrefix(len((txn.FileContracts)))
-	for i := range txn.FileContracts {
-		txn.FileContracts[i].EncodeTo(e)
-	}
-	e.WritePrefix(len((txn.FileContractRevisions)))
-	for i := range txn.FileContractRevisions {
-		txn.FileContractRevisions[i].EncodeTo(e)
-	}
-	e.WritePrefix(len((txn.StorageProofs)))
-	for i := range txn.StorageProofs {
-		txn.StorageProofs[i].EncodeTo(e)
-	}
-	e.WritePrefix(len((txn.SiafundInputs)))
-	for i := range txn.SiafundInputs {
-		txn.SiafundInputs[i].EncodeTo(e)
-	}
-	e.WritePrefix(len((txn.SiafundOutputs)))
-	for i := range txn.SiafundOutputs {
-		V1SiafundOutput(txn.SiafundOutputs[i]).EncodeTo(e)
-	}
-	e.WritePrefix(len((txn.MinerFees)))
-	for i := range txn.MinerFees {
-		V1Currency(txn.MinerFees[i]).EncodeTo(e)
-	}
-	e.WritePrefix(len((txn.ArbitraryData)))
-	for i := range txn.ArbitraryData {
-		e.WriteBytes(txn.ArbitraryData[i])
-	}
+	EncodeSlice(e, txn.SiacoinInputs)
+	EncodeSliceCast[V1SiacoinOutput](e, txn.SiacoinOutputs)
+	EncodeSlice(e, txn.FileContracts)
+	EncodeSlice(e, txn.FileContractRevisions)
+	EncodeSlice(e, txn.StorageProofs)
+	EncodeSlice(e, txn.SiafundInputs)
+	EncodeSliceCast[V1SiafundOutput](e, txn.SiafundOutputs)
+	EncodeSliceCast[V1Currency](e, txn.MinerFees)
+	EncodeSliceFn(e, txn.ArbitraryData, (*Encoder).WriteBytes)
 }
 
 // EncodeTo implements types.EncoderTo.
 func (txn Transaction) EncodeTo(e *Encoder) {
 	txnSansSigs(txn).EncodeTo(e)
-	e.WritePrefix(len((txn.Signatures)))
-	for i := range txn.Signatures {
-		txn.Signatures[i].EncodeTo(e)
-	}
+	EncodeSlice(e, txn.Signatures)
 }
 
 func (p SpendPolicy) encodePolicy(e *Encoder) {
@@ -559,10 +622,7 @@ func (sp SatisfiedPolicy) EncodeTo(e *Encoder) {
 func (se StateElement) EncodeTo(e *Encoder) {
 	se.ID.EncodeTo(e)
 	e.WriteUint64(se.LeafIndex)
-	e.WritePrefix(len(se.MerkleProof))
-	for _, p := range se.MerkleProof {
-		p.EncodeTo(e)
-	}
+	EncodeSlice(e, se.MerkleProof)
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -652,10 +712,7 @@ func (fcf V2FileContractFinalization) EncodeTo(e *Encoder) {
 func (sp V2StorageProof) EncodeTo(e *Encoder) {
 	sp.ProofIndex.EncodeTo(e)
 	e.Write(sp.Leaf[:])
-	e.WritePrefix(len(sp.Proof))
-	for _, p := range sp.Proof {
-		p.EncodeTo(e)
-	}
+	EncodeSlice(e, sp.Proof)
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -713,52 +770,28 @@ func (txn V2Transaction) EncodeTo(e *Encoder) {
 	e.WriteUint64(fields)
 
 	if fields&(1<<0) != 0 {
-		e.WritePrefix(len(txn.SiacoinInputs))
-		for _, in := range txn.SiacoinInputs {
-			in.EncodeTo(e)
-		}
+		EncodeSlice(e, txn.SiacoinInputs)
 	}
 	if fields&(1<<1) != 0 {
-		e.WritePrefix(len(txn.SiacoinOutputs))
-		for _, out := range txn.SiacoinOutputs {
-			V2SiacoinOutput(out).EncodeTo(e)
-		}
+		EncodeSliceCast[V2SiacoinOutput](e, txn.SiacoinOutputs)
 	}
 	if fields&(1<<2) != 0 {
-		e.WritePrefix(len(txn.SiafundInputs))
-		for _, in := range txn.SiafundInputs {
-			in.EncodeTo(e)
-		}
+		EncodeSlice(e, txn.SiafundInputs)
 	}
 	if fields&(1<<3) != 0 {
-		e.WritePrefix(len(txn.SiafundOutputs))
-		for _, out := range txn.SiafundOutputs {
-			V2SiafundOutput(out).EncodeTo(e)
-		}
+		EncodeSliceCast[V2SiafundOutput](e, txn.SiafundOutputs)
 	}
 	if fields&(1<<4) != 0 {
-		e.WritePrefix(len(txn.FileContracts))
-		for _, fc := range txn.FileContracts {
-			fc.EncodeTo(e)
-		}
+		EncodeSlice(e, txn.FileContracts)
 	}
 	if fields&(1<<5) != 0 {
-		e.WritePrefix(len(txn.FileContractRevisions))
-		for _, rev := range txn.FileContractRevisions {
-			rev.EncodeTo(e)
-		}
+		EncodeSlice(e, txn.FileContractRevisions)
 	}
 	if fields&(1<<6) != 0 {
-		e.WritePrefix(len(txn.FileContractResolutions))
-		for _, fcr := range txn.FileContractResolutions {
-			fcr.EncodeTo(e)
-		}
+		EncodeSlice(e, txn.FileContractResolutions)
 	}
 	if fields&(1<<7) != 0 {
-		e.WritePrefix(len(txn.Attestations))
-		for _, a := range txn.Attestations {
-			a.EncodeTo(e)
-		}
+		EncodeSlice(e, txn.Attestations)
 	}
 	if fields&(1<<8) != 0 {
 		e.WriteBytes(txn.ArbitraryData)
@@ -783,34 +816,34 @@ func (txn V2TransactionSemantics) EncodeTo(e *Encoder) {
 		}
 	}
 
-	e.WritePrefix(len(txn.SiacoinInputs))
+	e.WriteUint64(uint64(len(txn.SiacoinInputs)))
 	for _, in := range txn.SiacoinInputs {
 		in.Parent.ID.EncodeTo(e)
 	}
-	e.WritePrefix(len(txn.SiacoinOutputs))
+	e.WriteUint64(uint64(len(txn.SiacoinOutputs)))
 	for _, out := range txn.SiacoinOutputs {
 		V2SiacoinOutput(out).EncodeTo(e)
 	}
-	e.WritePrefix(len(txn.SiafundInputs))
+	e.WriteUint64(uint64(len(txn.SiafundInputs)))
 	for _, in := range txn.SiafundInputs {
 		in.Parent.ID.EncodeTo(e)
 	}
-	e.WritePrefix(len(txn.SiafundOutputs))
+	e.WriteUint64(uint64(len(txn.SiafundOutputs)))
 	for _, out := range txn.SiafundOutputs {
 		V2SiafundOutput(out).EncodeTo(e)
 	}
-	e.WritePrefix(len(txn.FileContracts))
+	e.WriteUint64(uint64(len(txn.FileContracts)))
 	for _, fc := range txn.FileContracts {
 		nilSigs(&fc.RenterSignature, &fc.HostSignature)
 		fc.EncodeTo(e)
 	}
-	e.WritePrefix(len(txn.FileContractRevisions))
+	e.WriteUint64(uint64(len(txn.FileContractRevisions)))
 	for _, fcr := range txn.FileContractRevisions {
 		fcr.Parent.ID.EncodeTo(e)
 		nilSigs(&fcr.Revision.RenterSignature, &fcr.Revision.HostSignature)
 		fcr.Revision.EncodeTo(e)
 	}
-	e.WritePrefix(len(txn.FileContractResolutions))
+	e.WriteUint64(uint64(len(txn.FileContractResolutions)))
 	for _, fcr := range txn.FileContractResolutions {
 		fcr.Parent.ID.EncodeTo(e)
 		// normalize (being careful not to modify the original)
@@ -834,15 +867,12 @@ func (txn V2TransactionSemantics) EncodeTo(e *Encoder) {
 		}
 		fcr.Resolution.(EncoderTo).EncodeTo(e)
 	}
-	e.WritePrefix(len(txn.Attestations))
+	e.WriteUint64(uint64(len(txn.Attestations)))
 	for _, a := range txn.Attestations {
 		a.EncodeTo(e)
 	}
 	e.WriteBytes(txn.ArbitraryData)
-	e.WriteBool(txn.NewFoundationAddress != nil)
-	if txn.NewFoundationAddress != nil {
-		txn.NewFoundationAddress.EncodeTo(e)
-	}
+	EncodePtr(e, txn.NewFoundationAddress)
 	V2Currency(txn.MinerFee).EncodeTo(e)
 }
 
@@ -856,31 +886,28 @@ func (b V2BlockData) EncodeTo(e *Encoder) {
 // V1Block provides v1 encoding for Block.
 type V1Block Block
 
+// V2Block provides v2 encoding for Block.
+type V2Block Block
+
+// Cast provides type safety for DecodeSliceCast.
+func (b V1Block) Cast() Block { return Block(b) }
+
+// Cast provides type safety for DecodeSliceCast.
+func (b V2Block) Cast() Block { return Block(b) }
+
 // EncodeTo implements types.EncoderTo.
 func (b V1Block) EncodeTo(e *Encoder) {
 	b.ParentID.EncodeTo(e)
 	e.WriteUint64(b.Nonce)
 	e.WriteTime(b.Timestamp)
-	e.WritePrefix(len(b.MinerPayouts))
-	for i := range b.MinerPayouts {
-		V1SiacoinOutput(b.MinerPayouts[i]).EncodeTo(e)
-	}
-	e.WritePrefix(len(b.Transactions))
-	for i := range b.Transactions {
-		b.Transactions[i].EncodeTo(e)
-	}
+	EncodeSliceCast[V1SiacoinOutput](e, b.MinerPayouts)
+	EncodeSlice(e, b.Transactions)
 }
-
-// V2Block provides v2 encoding for Block.
-type V2Block Block
 
 // EncodeTo implements types.EncoderTo.
 func (b V2Block) EncodeTo(e *Encoder) {
 	V1Block(b).EncodeTo(e)
-	e.WriteBool(b.V2 != nil)
-	if b.V2 != nil {
-		b.V2.EncodeTo(e)
-	}
+	EncodePtr(e, b.V2)
 }
 
 // DecodeFrom implements types.DecoderFrom.
@@ -913,17 +940,14 @@ func (uk *UnlockKey) DecodeFrom(d *Decoder) {
 // DecodeFrom implements types.DecoderFrom.
 func (uc *UnlockConditions) DecodeFrom(d *Decoder) {
 	uc.Timelock = d.ReadUint64()
-	uc.PublicKeys = make([]UnlockKey, d.ReadPrefix())
-	for i := range uc.PublicKeys {
-		uc.PublicKeys[i].DecodeFrom(d)
-	}
+	DecodeSlice(d, &uc.PublicKeys)
 	uc.SignaturesRequired = d.ReadUint64()
 }
 
 // DecodeFrom implements types.DecoderFrom.
 func (c *V1Currency) DecodeFrom(d *Decoder) {
 	var buf [16]byte
-	n := d.ReadPrefix()
+	n := d.ReadUint64()
 	if n > 16 {
 		d.SetErr(fmt.Errorf("Currency too large: %v bytes", n))
 		return
@@ -1002,14 +1026,8 @@ func (fc *FileContract) DecodeFrom(d *Decoder) {
 	fc.WindowStart = d.ReadUint64()
 	fc.WindowEnd = d.ReadUint64()
 	(*V1Currency)(&fc.Payout).DecodeFrom(d)
-	fc.ValidProofOutputs = make([]SiacoinOutput, d.ReadPrefix())
-	for i := range fc.ValidProofOutputs {
-		(*V1SiacoinOutput)(&fc.ValidProofOutputs[i]).DecodeFrom(d)
-	}
-	fc.MissedProofOutputs = make([]SiacoinOutput, d.ReadPrefix())
-	for i := range fc.MissedProofOutputs {
-		(*V1SiacoinOutput)(&fc.MissedProofOutputs[i]).DecodeFrom(d)
-	}
+	DecodeSliceCast[V1SiacoinOutput](d, &fc.ValidProofOutputs)
+	DecodeSliceCast[V1SiacoinOutput](d, &fc.MissedProofOutputs)
 	fc.UnlockHash.DecodeFrom(d)
 	fc.RevisionNumber = d.ReadUint64()
 }
@@ -1026,14 +1044,8 @@ func (rev *FileContractRevision) DecodeFrom(d *Decoder) {
 	rev.FileContract.FileMerkleRoot.DecodeFrom(d)
 	rev.FileContract.WindowStart = d.ReadUint64()
 	rev.FileContract.WindowEnd = d.ReadUint64()
-	rev.FileContract.ValidProofOutputs = make([]SiacoinOutput, d.ReadPrefix())
-	for i := range rev.FileContract.ValidProofOutputs {
-		(*V1SiacoinOutput)(&rev.FileContract.ValidProofOutputs[i]).DecodeFrom(d)
-	}
-	rev.FileContract.MissedProofOutputs = make([]SiacoinOutput, d.ReadPrefix())
-	for i := range rev.FileContract.MissedProofOutputs {
-		(*V1SiacoinOutput)(&rev.FileContract.MissedProofOutputs[i]).DecodeFrom(d)
-	}
+	DecodeSliceCast[V1SiacoinOutput](d, &rev.FileContract.ValidProofOutputs)
+	DecodeSliceCast[V1SiacoinOutput](d, &rev.FileContract.MissedProofOutputs)
 	rev.FileContract.UnlockHash.DecodeFrom(d)
 
 	// see FileContractRevision docstring
@@ -1044,10 +1056,7 @@ func (rev *FileContractRevision) DecodeFrom(d *Decoder) {
 func (sp *StorageProof) DecodeFrom(d *Decoder) {
 	sp.ParentID.DecodeFrom(d)
 	d.Read(sp.Leaf[:])
-	sp.Proof = make([]Hash256, d.ReadPrefix())
-	for i := range sp.Proof {
-		sp.Proof[i].DecodeFrom(d)
-	}
+	DecodeSlice(d, &sp.Proof)
 }
 
 // DecodeFrom implements types.DecoderFrom.
@@ -1059,23 +1068,16 @@ func (fau *FoundationAddressUpdate) DecodeFrom(d *Decoder) {
 // DecodeFrom implements types.DecoderFrom.
 func (cf *CoveredFields) DecodeFrom(d *Decoder) {
 	cf.WholeTransaction = d.ReadBool()
-	for _, f := range []*[]uint64{
-		&cf.SiacoinInputs,
-		&cf.SiacoinOutputs,
-		&cf.FileContracts,
-		&cf.FileContractRevisions,
-		&cf.StorageProofs,
-		&cf.SiafundInputs,
-		&cf.SiafundOutputs,
-		&cf.MinerFees,
-		&cf.ArbitraryData,
-		&cf.Signatures,
-	} {
-		*f = make([]uint64, d.ReadPrefix())
-		for i := range *f {
-			(*f)[i] = d.ReadUint64()
-		}
-	}
+	DecodeSliceFn(d, &cf.SiacoinInputs, (*Decoder).ReadUint64)
+	DecodeSliceFn(d, &cf.SiacoinOutputs, (*Decoder).ReadUint64)
+	DecodeSliceFn(d, &cf.FileContracts, (*Decoder).ReadUint64)
+	DecodeSliceFn(d, &cf.FileContractRevisions, (*Decoder).ReadUint64)
+	DecodeSliceFn(d, &cf.StorageProofs, (*Decoder).ReadUint64)
+	DecodeSliceFn(d, &cf.SiafundInputs, (*Decoder).ReadUint64)
+	DecodeSliceFn(d, &cf.SiafundOutputs, (*Decoder).ReadUint64)
+	DecodeSliceFn(d, &cf.MinerFees, (*Decoder).ReadUint64)
+	DecodeSliceFn(d, &cf.ArbitraryData, (*Decoder).ReadUint64)
+	DecodeSliceFn(d, &cf.Signatures, (*Decoder).ReadUint64)
 }
 
 // DecodeFrom implements types.DecoderFrom.
@@ -1089,46 +1091,16 @@ func (ts *TransactionSignature) DecodeFrom(d *Decoder) {
 
 // DecodeFrom implements types.DecoderFrom.
 func (txn *Transaction) DecodeFrom(d *Decoder) {
-	txn.SiacoinInputs = make([]SiacoinInput, d.ReadPrefix())
-	for i := range txn.SiacoinInputs {
-		txn.SiacoinInputs[i].DecodeFrom(d)
-	}
-	txn.SiacoinOutputs = make([]SiacoinOutput, d.ReadPrefix())
-	for i := range txn.SiacoinOutputs {
-		(*V1SiacoinOutput)(&txn.SiacoinOutputs[i]).DecodeFrom(d)
-	}
-	txn.FileContracts = make([]FileContract, d.ReadPrefix())
-	for i := range txn.FileContracts {
-		txn.FileContracts[i].DecodeFrom(d)
-	}
-	txn.FileContractRevisions = make([]FileContractRevision, d.ReadPrefix())
-	for i := range txn.FileContractRevisions {
-		txn.FileContractRevisions[i].DecodeFrom(d)
-	}
-	txn.StorageProofs = make([]StorageProof, d.ReadPrefix())
-	for i := range txn.StorageProofs {
-		txn.StorageProofs[i].DecodeFrom(d)
-	}
-	txn.SiafundInputs = make([]SiafundInput, d.ReadPrefix())
-	for i := range txn.SiafundInputs {
-		txn.SiafundInputs[i].DecodeFrom(d)
-	}
-	txn.SiafundOutputs = make([]SiafundOutput, d.ReadPrefix())
-	for i := range txn.SiafundOutputs {
-		(*V1SiafundOutput)(&txn.SiafundOutputs[i]).DecodeFrom(d)
-	}
-	txn.MinerFees = make([]Currency, d.ReadPrefix())
-	for i := range txn.MinerFees {
-		(*V1Currency)(&txn.MinerFees[i]).DecodeFrom(d)
-	}
-	txn.ArbitraryData = make([][]byte, d.ReadPrefix())
-	for i := range txn.ArbitraryData {
-		txn.ArbitraryData[i] = d.ReadBytes()
-	}
-	txn.Signatures = make([]TransactionSignature, d.ReadPrefix())
-	for i := range txn.Signatures {
-		txn.Signatures[i].DecodeFrom(d)
-	}
+	DecodeSlice(d, &txn.SiacoinInputs)
+	DecodeSliceCast[V1SiacoinOutput](d, &txn.SiacoinOutputs)
+	DecodeSlice(d, &txn.FileContracts)
+	DecodeSlice(d, &txn.FileContractRevisions)
+	DecodeSlice(d, &txn.StorageProofs)
+	DecodeSlice(d, &txn.SiafundInputs)
+	DecodeSliceCast[V1SiafundOutput](d, &txn.SiafundOutputs)
+	DecodeSliceCast[V1Currency](d, &txn.MinerFees)
+	DecodeSliceFn(d, &txn.ArbitraryData, (*Decoder).ReadBytes)
+	DecodeSlice(d, &txn.Signatures)
 }
 
 // DecodeFrom implements types.DecoderFrom.
@@ -1236,10 +1208,7 @@ func (sp *SatisfiedPolicy) DecodeFrom(d *Decoder) {
 func (se *StateElement) DecodeFrom(d *Decoder) {
 	se.ID.DecodeFrom(d)
 	se.LeafIndex = d.ReadUint64()
-	se.MerkleProof = make([]Hash256, d.ReadPrefix())
-	for i := range se.MerkleProof {
-		se.MerkleProof[i].DecodeFrom(d)
-	}
+	DecodeSlice(d, &se.MerkleProof)
 }
 
 // DecodeFrom implements types.DecoderFrom.
@@ -1329,10 +1298,7 @@ func (fcf V2FileContractFinalization) DecodeFrom(d *Decoder) {
 func (sp *V2StorageProof) DecodeFrom(d *Decoder) {
 	sp.ProofIndex.DecodeFrom(d)
 	d.Read(sp.Leaf[:])
-	sp.Proof = make([]Hash256, d.ReadPrefix())
-	for i := range sp.Proof {
-		sp.Proof[i].DecodeFrom(d)
-	}
+	DecodeSlice(d, &sp.Proof)
 }
 
 // DecodeFrom implements types.DecoderFrom.
@@ -1374,52 +1340,28 @@ func (txn *V2Transaction) DecodeFrom(d *Decoder) {
 	fields := d.ReadUint64()
 
 	if fields&(1<<0) != 0 {
-		txn.SiacoinInputs = make([]V2SiacoinInput, d.ReadPrefix())
-		for i := range txn.SiacoinInputs {
-			txn.SiacoinInputs[i].DecodeFrom(d)
-		}
+		DecodeSlice(d, &txn.SiacoinInputs)
 	}
 	if fields&(1<<1) != 0 {
-		txn.SiacoinOutputs = make([]SiacoinOutput, d.ReadPrefix())
-		for i := range txn.SiacoinOutputs {
-			(*V2SiacoinOutput)(&txn.SiacoinOutputs[i]).DecodeFrom(d)
-		}
+		DecodeSliceCast[V2SiacoinOutput](d, &txn.SiacoinOutputs)
 	}
 	if fields&(1<<2) != 0 {
-		txn.SiafundInputs = make([]V2SiafundInput, d.ReadPrefix())
-		for i := range txn.SiafundInputs {
-			txn.SiafundInputs[i].DecodeFrom(d)
-		}
+		DecodeSlice(d, &txn.SiafundInputs)
 	}
 	if fields&(1<<3) != 0 {
-		txn.SiafundOutputs = make([]SiafundOutput, d.ReadPrefix())
-		for i := range txn.SiafundOutputs {
-			(*V2SiafundOutput)(&txn.SiafundOutputs[i]).DecodeFrom(d)
-		}
+		DecodeSliceCast[V2SiafundOutput](d, &txn.SiafundOutputs)
 	}
 	if fields&(1<<4) != 0 {
-		txn.FileContracts = make([]V2FileContract, d.ReadPrefix())
-		for i := range txn.FileContracts {
-			txn.FileContracts[i].DecodeFrom(d)
-		}
+		DecodeSlice(d, &txn.FileContracts)
 	}
 	if fields&(1<<5) != 0 {
-		txn.FileContractRevisions = make([]V2FileContractRevision, d.ReadPrefix())
-		for i := range txn.FileContractRevisions {
-			txn.FileContractRevisions[i].DecodeFrom(d)
-		}
+		DecodeSlice(d, &txn.FileContractRevisions)
 	}
 	if fields&(1<<6) != 0 {
-		txn.FileContractResolutions = make([]V2FileContractResolution, d.ReadPrefix())
-		for i := range txn.FileContractResolutions {
-			txn.FileContractResolutions[i].DecodeFrom(d)
-		}
+		DecodeSlice(d, &txn.FileContractResolutions)
 	}
 	if fields&(1<<7) != 0 {
-		txn.Attestations = make([]Attestation, d.ReadPrefix())
-		for i := range txn.Attestations {
-			txn.Attestations[i].DecodeFrom(d)
-		}
+		DecodeSlice(d, &txn.Attestations)
 	}
 	if fields&(1<<8) != 0 {
 		txn.ArbitraryData = d.ReadBytes()
@@ -1445,21 +1387,12 @@ func (b *V1Block) DecodeFrom(d *Decoder) {
 	b.ParentID.DecodeFrom(d)
 	b.Nonce = d.ReadUint64()
 	b.Timestamp = d.ReadTime()
-	b.MinerPayouts = make([]SiacoinOutput, d.ReadPrefix())
-	for i := range b.MinerPayouts {
-		(*V1SiacoinOutput)(&b.MinerPayouts[i]).DecodeFrom(d)
-	}
-	b.Transactions = make([]Transaction, d.ReadPrefix())
-	for i := range b.Transactions {
-		b.Transactions[i].DecodeFrom(d)
-	}
+	DecodeSliceCast[V1SiacoinOutput](d, &b.MinerPayouts)
+	DecodeSlice(d, &b.Transactions)
 }
 
 // DecodeFrom implements types.DecoderFrom.
 func (b *V2Block) DecodeFrom(d *Decoder) {
 	(*V1Block)(b).DecodeFrom(d)
-	if d.ReadBool() {
-		b.V2 = new(V2BlockData)
-		b.V2.DecodeFrom(d)
-	}
+	DecodePtr(d, &b.V2)
 }

@@ -129,10 +129,7 @@ func (b uncompressedBlock) EncodeTo(e *types.Encoder) {
 	if b.V2 != nil {
 		e.WriteUint64(b.V2.Height)
 		b.V2.Commitment.EncodeTo(e)
-		e.WritePrefix(len(b.V2.Transactions))
-		for i := range b.V2.Transactions {
-			b.V2.Transactions[i].EncodeTo(e)
-		}
+		types.EncodeSlice(e, b.V2.Transactions)
 	}
 }
 

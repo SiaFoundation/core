@@ -1,10 +1,13 @@
 package types
 
 import (
+	"bytes"
 	"encoding/json"
 	"math"
 	"strings"
 	"testing"
+
+	"lukechampine.com/frand"
 )
 
 func mustParseCurrency(s string) Currency {
@@ -782,4 +785,38 @@ func TestUnmarshalHex(t *testing.T) {
 			}
 		}
 	}
+}
+
+func BenchmarkDecodeSlice(b *testing.B) {
+	s := make([]V2FileContract, 10000)
+
+	var buf bytes.Buffer
+	e := NewEncoder(&buf)
+	EncodeSlice(e, s)
+	e.Flush()
+	enc := buf.Bytes()
+	frand.Read(enc[8:])
+
+	b.ReportAllocs()
+	b.Run("std", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			d := NewBufDecoder(enc)
+			s2 := make([]V2FileContract, d.ReadUint64())
+			for i := range s2 {
+				s2[i].DecodeFrom(d)
+			}
+			if d.Err() != nil {
+				b.Fatal(d.Err())
+			}
+		}
+	})
+	b.Run("slice", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			d := NewBufDecoder(enc)
+			DecodeSlice(d, new([]V2FileContract))
+			if d.Err() != nil {
+				b.Fatal(d.Err())
+			}
+		}
+	})
 }

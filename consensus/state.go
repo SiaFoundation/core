@@ -435,41 +435,41 @@ func (s State) WholeSigHash(txn types.Transaction, parentID types.Hash256, pubke
 	defer hasherPool.Put(h)
 	h.Reset()
 
-	h.E.WritePrefix(len((txn.SiacoinInputs)))
+	h.E.WriteUint64(uint64(len((txn.SiacoinInputs))))
 	for i := range txn.SiacoinInputs {
 		h.E.Write(s.replayPrefix())
 		txn.SiacoinInputs[i].EncodeTo(h.E)
 	}
-	h.E.WritePrefix(len((txn.SiacoinOutputs)))
+	h.E.WriteUint64(uint64(len((txn.SiacoinOutputs))))
 	for i := range txn.SiacoinOutputs {
 		types.V1SiacoinOutput(txn.SiacoinOutputs[i]).EncodeTo(h.E)
 	}
-	h.E.WritePrefix(len((txn.FileContracts)))
+	h.E.WriteUint64(uint64(len((txn.FileContracts))))
 	for i := range txn.FileContracts {
 		txn.FileContracts[i].EncodeTo(h.E)
 	}
-	h.E.WritePrefix(len((txn.FileContractRevisions)))
+	h.E.WriteUint64(uint64(len((txn.FileContractRevisions))))
 	for i := range txn.FileContractRevisions {
 		txn.FileContractRevisions[i].EncodeTo(h.E)
 	}
-	h.E.WritePrefix(len((txn.StorageProofs)))
+	h.E.WriteUint64(uint64(len((txn.StorageProofs))))
 	for i := range txn.StorageProofs {
 		txn.StorageProofs[i].EncodeTo(h.E)
 	}
-	h.E.WritePrefix(len((txn.SiafundInputs)))
+	h.E.WriteUint64(uint64(len((txn.SiafundInputs))))
 	for i := range txn.SiafundInputs {
 		h.E.Write(s.replayPrefix())
 		txn.SiafundInputs[i].EncodeTo(h.E)
 	}
-	h.E.WritePrefix(len((txn.SiafundOutputs)))
+	h.E.WriteUint64(uint64(len((txn.SiafundOutputs))))
 	for i := range txn.SiafundOutputs {
 		types.V1SiafundOutput(txn.SiafundOutputs[i]).EncodeTo(h.E)
 	}
-	h.E.WritePrefix(len((txn.MinerFees)))
+	h.E.WriteUint64(uint64(len((txn.MinerFees))))
 	for i := range txn.MinerFees {
 		types.V1Currency(txn.MinerFees[i]).EncodeTo(h.E)
 	}
-	h.E.WritePrefix(len((txn.ArbitraryData)))
+	h.E.WriteUint64(uint64(len((txn.ArbitraryData))))
 	for i := range txn.ArbitraryData {
 		h.E.WriteBytes(txn.ArbitraryData[i])
 	}
@@ -693,42 +693,18 @@ type V1TransactionSupplement struct {
 
 // EncodeTo implements types.EncoderTo.
 func (ts V1TransactionSupplement) EncodeTo(e *types.Encoder) {
-	e.WritePrefix(len(ts.SiacoinInputs))
-	for i := range ts.SiacoinInputs {
-		ts.SiacoinInputs[i].EncodeTo(e)
-	}
-	e.WritePrefix(len(ts.SiafundInputs))
-	for i := range ts.SiafundInputs {
-		ts.SiafundInputs[i].EncodeTo(e)
-	}
-	e.WritePrefix(len(ts.RevisedFileContracts))
-	for i := range ts.RevisedFileContracts {
-		ts.RevisedFileContracts[i].EncodeTo(e)
-	}
-	e.WritePrefix(len(ts.ValidFileContracts))
-	for i := range ts.ValidFileContracts {
-		ts.ValidFileContracts[i].EncodeTo(e)
-	}
+	types.EncodeSlice(e, ts.SiacoinInputs)
+	types.EncodeSlice(e, ts.SiafundInputs)
+	types.EncodeSlice(e, ts.RevisedFileContracts)
+	types.EncodeSlice(e, ts.ValidFileContracts)
 }
 
 // DecodeFrom implements types.DecoderFrom.
 func (ts *V1TransactionSupplement) DecodeFrom(d *types.Decoder) {
-	ts.SiacoinInputs = make([]types.SiacoinElement, d.ReadPrefix())
-	for i := range ts.SiacoinInputs {
-		ts.SiacoinInputs[i].DecodeFrom(d)
-	}
-	ts.SiafundInputs = make([]types.SiafundElement, d.ReadPrefix())
-	for i := range ts.SiafundInputs {
-		ts.SiafundInputs[i].DecodeFrom(d)
-	}
-	ts.RevisedFileContracts = make([]types.FileContractElement, d.ReadPrefix())
-	for i := range ts.RevisedFileContracts {
-		ts.RevisedFileContracts[i].DecodeFrom(d)
-	}
-	ts.ValidFileContracts = make([]types.FileContractElement, d.ReadPrefix())
-	for i := range ts.ValidFileContracts {
-		ts.ValidFileContracts[i].DecodeFrom(d)
-	}
+	types.DecodeSlice(d, &ts.SiacoinInputs)
+	types.DecodeSlice(d, &ts.SiafundInputs)
+	types.DecodeSlice(d, &ts.RevisedFileContracts)
+	types.DecodeSlice(d, &ts.ValidFileContracts)
 }
 
 func (ts V1TransactionSupplement) siacoinElement(id types.SiacoinOutputID) (sce types.SiacoinElement, ok bool) {
@@ -783,24 +759,12 @@ type V1BlockSupplement struct {
 
 // EncodeTo implements types.EncoderTo.
 func (bs V1BlockSupplement) EncodeTo(e *types.Encoder) {
-	e.WritePrefix(len(bs.Transactions))
-	for i := range bs.Transactions {
-		bs.Transactions[i].EncodeTo(e)
-	}
-	e.WritePrefix(len(bs.ExpiringFileContracts))
-	for i := range bs.ExpiringFileContracts {
-		bs.ExpiringFileContracts[i].EncodeTo(e)
-	}
+	types.EncodeSlice(e, bs.Transactions)
+	types.EncodeSlice(e, bs.ExpiringFileContracts)
 }
 
 // DecodeFrom implements types.DecoderFrom.
 func (bs *V1BlockSupplement) DecodeFrom(d *types.Decoder) {
-	bs.Transactions = make([]V1TransactionSupplement, d.ReadPrefix())
-	for i := range bs.Transactions {
-		bs.Transactions[i].DecodeFrom(d)
-	}
-	bs.ExpiringFileContracts = make([]types.FileContractElement, d.ReadPrefix())
-	for i := range bs.ExpiringFileContracts {
-		bs.ExpiringFileContracts[i].DecodeFrom(d)
-	}
+	types.DecodeSlice(d, &bs.Transactions)
+	types.DecodeSlice(d, &bs.ExpiringFileContracts)
 }
