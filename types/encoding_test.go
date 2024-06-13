@@ -78,10 +78,10 @@ func FuzzSpendPolicy(f *testing.F) {
 		types.PolicyHash(types.Hash256{}),
 		types.PolicyHash(hash),
 		types.AnyoneCanSpend(),
+		types.PolicyOpaque(types.PolicyAbove(0)),
 	}
 	for _, seed := range seeds {
 		f.Add(encode(seed))
-		f.Add(encode(types.PolicyOpaque(seed)))
 	}
 
 	for i := 0; i < 10; i++ {
