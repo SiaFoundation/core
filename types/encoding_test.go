@@ -53,22 +53,22 @@ func TestEncodeSlice(t *testing.T) {
 	}
 }
 
-func FuzzSpendPolicy(f *testing.F) {
-	encode := func(x types.EncoderTo) []byte {
-		var buf bytes.Buffer
-		e := types.NewEncoder(&buf)
-		x.EncodeTo(e)
-		e.Flush()
-		return buf.Bytes()
-	}
+func encode(x types.EncoderTo) []byte {
+	var buf bytes.Buffer
+	e := types.NewEncoder(&buf)
+	x.EncodeTo(e)
+	e.Flush()
+	return buf.Bytes()
+}
 
+func policyCorpus() []types.SpendPolicy {
 	privateKey := types.GeneratePrivateKey()
 	publicKey := privateKey.PublicKey()
 
 	var hash types.Hash256
 	frand.Read(hash[:])
 
-	seeds := []types.SpendPolicy{
+	return []types.SpendPolicy{
 		types.PolicyAbove(0),
 		types.PolicyAbove(math.MaxUint64),
 		types.PolicyAfter(time.Time{}),
@@ -80,6 +80,9 @@ func FuzzSpendPolicy(f *testing.F) {
 		types.AnyoneCanSpend(),
 		types.PolicyOpaque(types.PolicyAbove(0)),
 	}
+}
+func FuzzSpendPolicy(f *testing.F) {
+	seeds := policyCorpus()
 	for _, seed := range seeds {
 		f.Add(encode(seed))
 	}
@@ -98,6 +101,43 @@ func FuzzSpendPolicy(f *testing.F) {
 		d := types.NewBufDecoder(data)
 
 		var sp types.SpendPolicy
+		sp.DecodeFrom(d)
+	})
+}
+
+func FuzzSatisfiedPolicy(f *testing.F) {
+	policies := policyCorpus()
+
+	var signatures [16]types.Signature
+	for i := 0; i < len(signatures); i++ {
+		frand.Read(signatures[i][:])
+	}
+
+	var preimages [16][]byte
+	for i := 0; i < len(preimages); i++ {
+		preimages[i] = make([]byte, frand.Uint64n(32))
+		frand.Read(preimages[i])
+	}
+
+	for i := 0; i < 256; i++ {
+		policy := policies[frand.Uint64n(uint64(len(policies)))]
+		sigs := signatures[:frand.Uint64n(uint64(len(signatures)))]
+		pre := preimages[:frand.Uint64n(uint64(len(preimages)))]
+		if len(pre) == 0 || len(sigs) == 0 {
+			continue
+		}
+
+		f.Add(encode(types.SatisfiedPolicy{
+			Policy:     policy,
+			Signatures: sigs,
+			Preimages:  pre,
+		}))
+	}
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		d := types.NewBufDecoder(data)
+
+		var sp types.SatisfiedPolicy
 		sp.DecodeFrom(d)
 	})
 }
