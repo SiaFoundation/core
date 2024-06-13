@@ -68,17 +68,43 @@ func policyCorpus() []types.SpendPolicy {
 	var hash types.Hash256
 	frand.Read(hash[:])
 
+	date := time.Date(2009, time.November, 10, 23, 0, 0, 0, time.UTC)
+
 	return []types.SpendPolicy{
 		types.PolicyAbove(0),
 		types.PolicyAbove(math.MaxUint64),
 		types.PolicyAfter(time.Time{}),
-		types.PolicyAfter(time.Date(2009, time.November, 10, 23, 0, 0, 0, time.UTC)),
+		types.PolicyAfter(date),
 		types.PolicyPublicKey(types.PublicKey{}),
 		types.PolicyPublicKey(publicKey),
 		types.PolicyHash(types.Hash256{}),
 		types.PolicyHash(hash),
 		types.AnyoneCanSpend(),
 		types.PolicyOpaque(types.PolicyAbove(0)),
+		{types.PolicyTypeUnlockConditions{
+			PublicKeys:         []types.UnlockKey{{Key: publicKey[:], Algorithm: types.SpecifierEd25519}},
+			SignaturesRequired: 1,
+		}},
+		{types.PolicyTypeUnlockConditions{
+			Timelock:           uint64(date.Unix()),
+			PublicKeys:         []types.UnlockKey{{Key: publicKey[:], Algorithm: types.SpecifierEd25519}},
+			SignaturesRequired: 1,
+		}},
+		{types.PolicyTypeUnlockConditions{
+			PublicKeys: []types.UnlockKey{
+				{Key: publicKey[:], Algorithm: types.SpecifierEd25519},
+				{Key: publicKey[:], Algorithm: types.SpecifierEd25519},
+			},
+			SignaturesRequired: 1,
+		}},
+		{types.PolicyTypeUnlockConditions{
+			Timelock: uint64(date.Unix()),
+			PublicKeys: []types.UnlockKey{
+				{Key: publicKey[:], Algorithm: types.SpecifierEd25519},
+				{Key: publicKey[:], Algorithm: types.SpecifierEd25519},
+			},
+			SignaturesRequired: 2,
+		}},
 	}
 }
 func FuzzSpendPolicy(f *testing.F) {
@@ -106,6 +132,15 @@ func FuzzSpendPolicy(f *testing.F) {
 }
 
 func FuzzSatisfiedPolicy(f *testing.F) {
+	// Some of the satisfied policies we randomly generate are invalid
+	// and cannot be encoded without panics
+	tryAddEncode := func(x types.EncoderTo) {
+		defer func() {
+			recover()
+		}()
+		f.Add(encode(x))
+	}
+
 	policies := policyCorpus()
 
 	var signatures [16]types.Signature
@@ -123,15 +158,12 @@ func FuzzSatisfiedPolicy(f *testing.F) {
 		policy := policies[frand.Uint64n(uint64(len(policies)))]
 		sigs := signatures[:frand.Uint64n(uint64(len(signatures)))]
 		pre := preimages[:frand.Uint64n(uint64(len(preimages)))]
-		if len(pre) == 0 || len(sigs) == 0 {
-			continue
-		}
 
-		f.Add(encode(types.SatisfiedPolicy{
+		tryAddEncode(types.SatisfiedPolicy{
 			Policy:     policy,
 			Signatures: sigs,
 			Preimages:  pre,
-		}))
+		})
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
