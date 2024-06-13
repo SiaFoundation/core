@@ -3,9 +3,12 @@ package types_test
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"testing"
+	"time"
 
 	"go.sia.tech/core/types"
+	"lukechampine.com/frand"
 )
 
 func TestEncodeSlice(t *testing.T) {
@@ -48,4 +51,53 @@ func TestEncodeSlice(t *testing.T) {
 	if err := d.Err(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func FuzzSpendPolicy(f *testing.F) {
+	encode := func(x types.EncoderTo) []byte {
+		var buf bytes.Buffer
+		e := types.NewEncoder(&buf)
+		x.EncodeTo(e)
+		e.Flush()
+		return buf.Bytes()
+	}
+
+	privateKey := types.GeneratePrivateKey()
+	publicKey := privateKey.PublicKey()
+
+	var hash types.Hash256
+	frand.Read(hash[:])
+
+	seeds := []types.SpendPolicy{
+		types.PolicyAbove(0),
+		types.PolicyAbove(math.MaxUint64),
+		types.PolicyAfter(time.Time{}),
+		types.PolicyAfter(time.Date(2009, time.November, 10, 23, 0, 0, 0, time.UTC)),
+		types.PolicyPublicKey(types.PublicKey{}),
+		types.PolicyPublicKey(publicKey),
+		types.PolicyHash(types.Hash256{}),
+		types.PolicyHash(hash),
+		types.AnyoneCanSpend(),
+	}
+	for _, seed := range seeds {
+		f.Add(encode(seed))
+		f.Add(encode(types.PolicyOpaque(seed)))
+	}
+
+	for i := 0; i < 10; i++ {
+		rng := frand.Uint64n(uint64(len(seeds)) / 2)
+		frand.Shuffle(len(seeds), func(i, j int) {
+			seeds[i], seeds[j] = seeds[j], seeds[i]
+		})
+		sp := types.PolicyThreshold(uint8(rng), seeds[:rng])
+
+		f.Add(encode(sp))
+	}
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		d := types.NewBufDecoder(data)
+
+		var sp types.SpendPolicy
+		sp.DecodeFrom(d)
+	})
 }
