@@ -1185,12 +1185,15 @@ func (sp *SatisfiedPolicy) DecodeFrom(d *Decoder) {
 				rec(p.Of[i])
 			}
 		case PolicyTypeUnlockConditions:
-			for i := range p.PublicKeys {
-				if len(p.PublicKeys[i].Key) != 32 {
-					d.SetErr(fmt.Errorf("invalid public key length: %d", len(p.PublicKeys[i].Key)))
+			for _, uk := range p.PublicKeys {
+				if len(uk.Key) != 32 {
+					d.SetErr(fmt.Errorf("invalid public key length: %d", len(uk.Key)))
+					return
+				} else if uk.Algorithm != SpecifierEd25519 {
+					d.SetErr(fmt.Errorf("invalid specifier: %v", uk.Algorithm))
 					return
 				}
-				rec(PolicyPublicKey(*(*PublicKey)(p.PublicKeys[i].Key)))
+				rec(PolicyPublicKey(*(*PublicKey)(uk.Key)))
 			}
 		default:
 			// nothing to do
