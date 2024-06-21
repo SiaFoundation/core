@@ -834,7 +834,7 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 			} else if sp.ProofIndex.ChainIndex.Height != fc.ProofHeight {
 				// see note on this field in types.StorageProof
 				return fmt.Errorf("file contract storage proof %v has ProofIndex height (%v) that does not match contract ProofHeight (%v)", i, sp.ProofIndex.ChainIndex.Height, fc.ProofHeight)
-			} else if ms.base.Elements.containsChainIndex(sp.ProofIndex) {
+			} else if !ms.base.Elements.containsChainIndex(sp.ProofIndex) {
 				return fmt.Errorf("file contract storage proof %v has invalid history proof", i)
 			}
 			leafIndex := ms.base.StorageProofLeafIndex(fc.Filesize, sp.ProofIndex.ChainIndex.ID, types.FileContractID(fcr.Parent.ID))
