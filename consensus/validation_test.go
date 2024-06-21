@@ -688,7 +688,7 @@ func TestValidateBlock(t *testing.T) {
 	}
 }
 
-func updateProofs(au ApplyUpdate, sces []types.SiacoinElement, sfes []types.SiafundElement, fces []types.V2FileContractElement) {
+func updateProofs(au ApplyUpdate, sces []types.SiacoinElement, sfes []types.SiafundElement, fces []types.V2FileContractElement, cies []types.ChainIndexElement) {
 	for i := range sces {
 		au.UpdateElementProof(&sces[i].StateElement)
 	}
@@ -697,6 +697,9 @@ func updateProofs(au ApplyUpdate, sces []types.SiacoinElement, sfes []types.Siaf
 	}
 	for i := range fces {
 		au.UpdateElementProof(&fces[i].StateElement)
+	}
+	for i := range cies {
+		au.UpdateElementProof(&cies[i].StateElement)
 	}
 }
 
@@ -1171,7 +1174,7 @@ func TestValidateV2Block(t *testing.T) {
 
 	cs, testAU := ApplyBlock(cs, validBlock, db.supplementTipBlock(validBlock), time.Now())
 	db.applyBlock(testAU)
-	updateProofs(testAU, sces, sfes, fces)
+	updateProofs(testAU, sces, sfes, fces, cies)
 
 	var testSces []types.SiacoinElement
 	testAU.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
@@ -1209,8 +1212,8 @@ func TestValidateV2Block(t *testing.T) {
 		}
 		cs, au = ApplyBlock(cs, b, db.supplementTipBlock(validBlock), time.Now())
 		db.applyBlock(au)
-		updateProofs(au, sces, sfes, fces)
-		updateProofs(au, testSces, testSfes, testFces)
+		updateProofs(au, sces, sfes, fces, cies)
+		updateProofs(au, testSces, testSfes, testFces, nil)
 		cies = append(cies, au.ChainIndexElement())
 
 		blockID = b.ID()
@@ -1246,6 +1249,7 @@ func TestValidateV2Block(t *testing.T) {
 			Proof:      []types.Hash256{cs.StorageProofLeafHash([]byte{1})},
 		}
 	}
+
 	signTxn(cs, &b.V2.Transactions[0])
 	b.V2.Commitment = cs.Commitment(cs.TransactionsCommitment(b.Transactions, b.V2Transactions()), b.MinerPayouts[0].Address)
 	findBlockNonce(cs, &validBlock)

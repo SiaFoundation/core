@@ -736,9 +736,11 @@ func (txn *V2Transaction) DeepCopy() V2Transaction {
 	c.FileContractResolutions = append([]V2FileContractResolution(nil), c.FileContractResolutions...)
 	for i := range c.FileContractResolutions {
 		c.FileContractResolutions[i].Parent.MerkleProof = append([]Hash256(nil), c.FileContractResolutions[i].Parent.MerkleProof...)
-		if sp, ok := c.FileContractResolutions[i].Resolution.(*V2StorageProof); ok {
+		if res, ok := c.FileContractResolutions[i].Resolution.(*V2StorageProof); ok {
+			sp := *res
 			sp.ProofIndex.MerkleProof = append([]Hash256(nil), sp.ProofIndex.MerkleProof...)
 			sp.Proof = append([]Hash256(nil), sp.Proof...)
+			c.FileContractResolutions[i].Resolution = &sp
 		}
 	}
 	c.Attestations = append([]Attestation(nil), c.Attestations...)
