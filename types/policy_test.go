@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"lukechampine.com/frand"
 )
 
 func roundtrip(from EncoderTo, to DecoderFrom) {
@@ -470,5 +472,25 @@ func TestSatisfiedPolicyUnmarshaling(t *testing.T) {
 		if len(tt.preimages) != 0 && !reflect.DeepEqual(tt.preimages, sp.Preimages) {
 			t.Error("preimage mismatch")
 		}
+	}
+}
+
+func TestPolicyTypeUnlockConditionsRoundtrip(t *testing.T) {
+	sp := SpendPolicy{PolicyTypeUnlockConditions(UnlockConditions{
+		Timelock: 0,
+		PublicKeys: []UnlockKey{
+			{
+				Algorithm: NewSpecifier("blank"),
+				Key:       frand.Bytes(40),
+			},
+		},
+		SignaturesRequired: 1,
+	})}
+	t.Log(sp.String())
+	parsed, err := ParseSpendPolicy(sp.String())
+	if err != nil {
+		t.Fatal(err)
+	} else if sp.String() != parsed.String() {
+		t.Fatalf("expected %q = %q", sp.String(), parsed.String())
 	}
 }

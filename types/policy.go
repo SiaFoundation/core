@@ -258,7 +258,8 @@ func (p SpendPolicy) String() string {
 			if i > 0 {
 				sb.WriteByte(',')
 			}
-			writeHex(pk.Key)
+			buf, _ := pk.MarshalText() // never fails
+			sb.Write(buf)
 		}
 		sb.WriteString("],")
 		sb.WriteString(strconv.FormatUint(uint64(p.SignaturesRequired), 10))
@@ -330,6 +331,14 @@ func ParseSpendPolicy(s string) (SpendPolicy, error) {
 		_, err = hex.Decode(pk[:], []byte(t[2:]))
 		return
 	}
+	parseUnlockKey := func() (uk UnlockKey) {
+		t := nextToken()
+		if err != nil {
+			return
+		}
+		err = uk.UnmarshalText([]byte(t))
+		return
+	}
 	var parseSpendPolicy func() SpendPolicy
 	parseSpendPolicy = func() SpendPolicy {
 		typ := nextToken()
@@ -365,7 +374,7 @@ func ParseSpendPolicy(s string) (SpendPolicy, error) {
 			consume('[')
 			var pks []UnlockKey
 			for err == nil && peek() != ']' {
-				pks = append(pks, parsePubkey().UnlockKey())
+				pks = append(pks, parseUnlockKey())
 				if peek() != ']' {
 					consume(',')
 				}
