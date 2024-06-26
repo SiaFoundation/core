@@ -46,25 +46,28 @@ type consensusDB struct {
 }
 
 func (db *consensusDB) applyBlock(au ApplyUpdate) {
-	au.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
+	au.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
 		if spent {
 			delete(db.sces, types.SiacoinOutputID(sce.ID))
 		} else {
 			db.sces[types.SiacoinOutputID(sce.ID)] = sce
 		}
 	})
-	au.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
+	au.ForEachSiafundElement(func(sfe types.SiafundElement, created, spent bool) {
 		if spent {
 			delete(db.sfes, types.SiafundOutputID(sfe.ID))
 		} else {
 			db.sfes[types.SiafundOutputID(sfe.ID)] = sfe
 		}
 	})
-	au.ForEachFileContractElement(func(fce types.FileContractElement, rev *types.FileContractElement, resolved, valid bool) {
+	au.ForEachFileContractElement(func(fce types.FileContractElement, created bool, rev *types.FileContractElement, resolved, valid bool) {
 		if resolved {
 			delete(db.fces, types.FileContractID(fce.ID))
 		} else {
 			db.fces[types.FileContractID(fce.ID)] = fce
+			if rev != nil {
+				db.fces[types.FileContractID(rev.ID)] = *rev
+			}
 		}
 	})
 }
@@ -787,15 +790,15 @@ func TestValidateV2Block(t *testing.T) {
 
 	_, au := ApplyBlock(n.GenesisState(), genesisBlock, V1BlockSupplement{}, time.Time{})
 	var sces []types.SiacoinElement
-	au.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
+	au.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
 		sces = append(sces, sce)
 	})
 	var sfes []types.SiafundElement
-	au.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
+	au.ForEachSiafundElement(func(sfe types.SiafundElement, created, spent bool) {
 		sfes = append(sfes, sfe)
 	})
 	var fces []types.V2FileContractElement
-	au.ForEachV2FileContractElement(func(fce types.V2FileContractElement, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
+	au.ForEachV2FileContractElement(func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
 		fces = append(fces, fce)
 	})
 	var cies []types.ChainIndexElement
@@ -1177,15 +1180,15 @@ func TestValidateV2Block(t *testing.T) {
 	updateProofs(testAU, sces, sfes, fces, cies)
 
 	var testSces []types.SiacoinElement
-	testAU.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
+	testAU.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
 		testSces = append(testSces, sce)
 	})
 	var testSfes []types.SiafundElement
-	testAU.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
+	testAU.ForEachSiafundElement(func(sfe types.SiafundElement, created, spent bool) {
 		testSfes = append(testSfes, sfe)
 	})
 	var testFces []types.V2FileContractElement
-	testAU.ForEachV2FileContractElement(func(fce types.V2FileContractElement, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
+	testAU.ForEachV2FileContractElement(func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
 		testFces = append(testFces, fce)
 	})
 	cies = append(cies, testAU.ChainIndexElement())
@@ -1462,7 +1465,7 @@ func TestV2ImmatureSiacoinOutput(t *testing.T) {
 
 		var cau ApplyUpdate
 		cs, cau = ApplyBlock(cs, b, db.supplementTipBlock(b), db.ancestorTimestamp(b.ParentID))
-		cau.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
+		cau.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
 			if spent {
 				delete(utxos, types.SiacoinOutputID(sce.ID))
 			} else if sce.SiacoinOutput.Address == addr {

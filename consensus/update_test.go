@@ -58,7 +58,7 @@ func TestApplyBlock(t *testing.T) {
 		return
 	}
 	checkUpdateElements := func(au ApplyUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {
-		au.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
+		au.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
 			sces := &addedSCEs
 			if spent {
 				sces = &spentSCEs
@@ -72,7 +72,7 @@ func TestApplyBlock(t *testing.T) {
 			}
 			*sces = (*sces)[1:]
 		})
-		au.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
+		au.ForEachSiafundElement(func(sfe types.SiafundElement, created, spent bool) {
 			sfes := &addedSFEs
 			if spent {
 				sfes = &spentSFEs
@@ -91,7 +91,7 @@ func TestApplyBlock(t *testing.T) {
 		}
 	}
 	checkRevertElements := func(ru RevertUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {
-		ru.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
+		ru.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
 			sces := &addedSCEs
 			if spent {
 				sces = &spentSCEs
@@ -105,7 +105,7 @@ func TestApplyBlock(t *testing.T) {
 			}
 			*sces = (*sces)[:len(*sces)-1]
 		})
-		ru.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
+		ru.ForEachSiafundElement(func(sfe types.SiafundElement, created, spent bool) {
 			sfes := &addedSFEs
 			if spent {
 				sfes = &spentSFEs

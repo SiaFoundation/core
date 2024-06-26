@@ -585,7 +585,7 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 
 		// check accumulator
 		if sci.Parent.LeafIndex == types.EphemeralLeafIndex {
-			if _, ok := ms.ephemeral[sci.Parent.ID]; !ok {
+			if !ms.isCreated(sci.Parent.ID) {
 				return fmt.Errorf("siacoin input %v spends nonexistent ephemeral output %v", i, sci.Parent.ID)
 			}
 		} else if !ms.base.Elements.containsUnspentSiacoinElement(sci.Parent) {
@@ -646,7 +646,7 @@ func validateV2Siafunds(ms *MidState, txn types.V2Transaction) error {
 
 		// check accumulator
 		if sfi.Parent.LeafIndex == types.EphemeralLeafIndex {
-			if _, ok := ms.ephemeral[sfi.Parent.ID]; !ok {
+			if !ms.isCreated(sfi.Parent.ID) {
 				return fmt.Errorf("siafund input %v spends nonexistent ephemeral output %v", i, sfi.Parent.ID)
 			}
 		} else if !ms.base.Elements.containsUnspentSiafundElement(sfi.Parent) {
