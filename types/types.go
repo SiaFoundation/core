@@ -30,11 +30,15 @@ const (
 	// a FileContract.
 	HostContractIndex = 1
 
-	// EphemeralLeafIndex is used as the LeafIndex of StateElements that are created
-	// and spent within the same block. Such elements do not require a proof of
-	// existence. They are, however, assigned a proper index and are incorporated
-	// into the state accumulator when the block is processed.
-	EphemeralLeafIndex = math.MaxUint64
+	// UnassignedLeafIndex is a sentinel value used as the LeafIndex of
+	// StateElements that have not been added to the accumulator yet. This is
+	// necessary for constructing blocks sets where later transactions reference
+	// elements created in earlier transactions.
+	//
+	// Most clients do not need to reference this value directly, and should
+	// instead use the EphemeralSiacoinElement and EphemeralSiafundElement
+	// functions to construct dependent transaction sets.
+	UnassignedLeafIndex = 10101010101010101010
 )
 
 // Various specifiers.
@@ -687,7 +691,7 @@ func (txn *V2Transaction) EphemeralSiacoinOutput(i int) SiacoinElement {
 	return SiacoinElement{
 		StateElement: StateElement{
 			ID:        Hash256(txn.SiacoinOutputID(txn.ID(), i)),
-			LeafIndex: EphemeralLeafIndex,
+			LeafIndex: UnassignedLeafIndex,
 		},
 		SiacoinOutput: txn.SiacoinOutputs[i],
 	}
@@ -699,7 +703,7 @@ func (txn *V2Transaction) EphemeralSiafundOutput(i int) SiafundElement {
 	return SiafundElement{
 		StateElement: StateElement{
 			ID:        Hash256(txn.SiafundOutputID(txn.ID(), i)),
-			LeafIndex: EphemeralLeafIndex,
+			LeafIndex: UnassignedLeafIndex,
 		},
 		SiafundOutput: txn.SiafundOutputs[i],
 	}

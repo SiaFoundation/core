@@ -90,8 +90,8 @@ func TestUpdateElementProof(t *testing.T) {
 		expectProofLen int
 	}{
 		{
-			name:        "EphemeralLeafIndexPanic",
-			leafIndex:   types.EphemeralLeafIndex,
+			name:        "UnassignedLeafIndexPanic",
+			leafIndex:   types.UnassignedLeafIndex,
 			numLeaves:   5,
 			expectPanic: true,
 		},

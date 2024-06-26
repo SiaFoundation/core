@@ -48,7 +48,7 @@ func splitLeaves(ls []elementLeaf, mid uint64) (left, right []elementLeaf) {
 
 func forEachElementLeaf(txns []V2Transaction, fn func(l elementLeaf)) {
 	visit := func(l elementLeaf) {
-		if l.LeafIndex != EphemeralLeafIndex {
+		if l.LeafIndex != UnassignedLeafIndex {
 			fn(l)
 		}
 	}

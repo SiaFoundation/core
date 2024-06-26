@@ -584,7 +584,7 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 		spent[sci.Parent.ID] = i
 
 		// check accumulator
-		if sci.Parent.LeafIndex == types.EphemeralLeafIndex {
+		if sci.Parent.LeafIndex == types.UnassignedLeafIndex {
 			if !ms.isCreated(sci.Parent.ID) {
 				return fmt.Errorf("siacoin input %v spends nonexistent ephemeral output %v", i, sci.Parent.ID)
 			}
@@ -645,7 +645,7 @@ func validateV2Siafunds(ms *MidState, txn types.V2Transaction) error {
 		spent[sfi.Parent.ID] = i
 
 		// check accumulator
-		if sfi.Parent.LeafIndex == types.EphemeralLeafIndex {
+		if sfi.Parent.LeafIndex == types.UnassignedLeafIndex {
 			if !ms.isCreated(sfi.Parent.ID) {
 				return fmt.Errorf("siafund input %v spends nonexistent ephemeral output %v", i, sfi.Parent.ID)
 			}

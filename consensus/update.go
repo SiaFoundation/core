@@ -336,10 +336,7 @@ func ApplyOrphan(s State, b types.Block, targetTimestamp time.Time) State {
 
 func (ms *MidState) addSiacoinElement(id types.SiacoinOutputID, sco types.SiacoinOutput) {
 	sce := types.SiacoinElement{
-		StateElement: types.StateElement{
-			ID:        types.Hash256(id),
-			LeafIndex: types.EphemeralLeafIndex,
-		},
+		StateElement:  types.StateElement{ID: types.Hash256(id)},
 		SiacoinOutput: sco,
 	}
 	ms.sces = append(ms.sces, sce)
@@ -361,10 +358,7 @@ func (ms *MidState) spendSiacoinElement(sce types.SiacoinElement, txid types.Tra
 
 func (ms *MidState) addSiafundElement(id types.SiafundOutputID, sfo types.SiafundOutput) {
 	sfe := types.SiafundElement{
-		StateElement: types.StateElement{
-			ID:        types.Hash256(id),
-			LeafIndex: types.EphemeralLeafIndex,
-		},
+		StateElement:  types.StateElement{ID: types.Hash256(id)},
 		SiafundOutput: sfo,
 		ClaimStart:    ms.siafundPool,
 	}
@@ -382,10 +376,7 @@ func (ms *MidState) spendSiafundElement(sfe types.SiafundElement, txid types.Tra
 
 func (ms *MidState) addFileContractElement(id types.FileContractID, fc types.FileContract) {
 	fce := types.FileContractElement{
-		StateElement: types.StateElement{
-			ID:        types.Hash256(id),
-			LeafIndex: types.EphemeralLeafIndex,
-		},
+		StateElement: types.StateElement{ID: types.Hash256(id)},
 		FileContract: fc,
 	}
 	ms.fces = append(ms.fces, fce)
@@ -421,10 +412,7 @@ func (ms *MidState) resolveFileContractElement(fce types.FileContractElement, va
 
 func (ms *MidState) addV2FileContractElement(id types.FileContractID, fc types.V2FileContract) {
 	fce := types.V2FileContractElement{
-		StateElement: types.StateElement{
-			ID:        types.Hash256(id),
-			LeafIndex: types.EphemeralLeafIndex,
-		},
+		StateElement:   types.StateElement{ID: types.Hash256(id)},
 		V2FileContract: fc,
 	}
 	ms.v2fces = append(ms.v2fces, fce)
