@@ -47,18 +47,18 @@ func TestApplyBlock(t *testing.T) {
 			appendSig(types.Hash256(txn.FileContractRevisions[i].ParentID))
 		}
 	}
-	addBlock := func(b types.Block) (au ApplyUpdate, err error) {
-		bs := db.supplementTipBlock(b)
-		findBlockNonce(cs, &b)
-		if err = ValidateBlock(cs, b, bs); err != nil {
+	addBlock := func(b *types.Block) (au ApplyUpdate, err error) {
+		bs := db.supplementTipBlock(*b)
+		findBlockNonce(cs, b)
+		if err = ValidateBlock(cs, *b, bs); err != nil {
 			return
 		}
-		cs, au = ApplyBlock(cs, b, bs, db.ancestorTimestamp(b.ParentID))
+		cs, au = ApplyBlock(cs, *b, bs, db.ancestorTimestamp(b.ParentID))
 		db.applyBlock(au)
 		return
 	}
 	checkUpdateElements := func(au ApplyUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {
-		au.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
+		au.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
 			sces := &addedSCEs
 			if spent {
 				sces = &spentSCEs
@@ -72,7 +72,7 @@ func TestApplyBlock(t *testing.T) {
 			}
 			*sces = (*sces)[1:]
 		})
-		au.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
+		au.ForEachSiafundElement(func(sfe types.SiafundElement, created, spent bool) {
 			sfes := &addedSFEs
 			if spent {
 				sfes = &spentSFEs
@@ -91,7 +91,7 @@ func TestApplyBlock(t *testing.T) {
 		}
 	}
 	checkRevertElements := func(ru RevertUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {
-		ru.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
+		ru.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
 			sces := &addedSCEs
 			if spent {
 				sces = &spentSCEs
@@ -105,7 +105,7 @@ func TestApplyBlock(t *testing.T) {
 			}
 			*sces = (*sces)[:len(*sces)-1]
 		})
-		ru.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
+		ru.ForEachSiafundElement(func(sfe types.SiafundElement, created, spent bool) {
 			sfes := &addedSFEs
 			if spent {
 				sfes = &spentSFEs
@@ -136,7 +136,7 @@ func TestApplyBlock(t *testing.T) {
 	spentSCEs := []types.SiacoinElement{}
 	addedSFEs := []types.SiafundElement{}
 	spentSFEs := []types.SiafundElement{}
-	if au, err := addBlock(b1); err != nil {
+	if au, err := addBlock(&b1); err != nil {
 		t.Fatal(err)
 	} else {
 		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
@@ -188,7 +188,7 @@ func TestApplyBlock(t *testing.T) {
 
 	prev := cs
 	bs := db.supplementTipBlock(b2)
-	if au, err := addBlock(b2); err != nil {
+	if au, err := addBlock(&b2); err != nil {
 		t.Fatal(err)
 	} else {
 		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)

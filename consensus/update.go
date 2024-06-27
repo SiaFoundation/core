@@ -334,41 +334,59 @@ func ApplyOrphan(s State, b types.Block, targetTimestamp time.Time) State {
 	return next
 }
 
-func (ms *MidState) addSiacoinElement(sce types.SiacoinElement) {
+func (ms *MidState) addSiacoinElement(id types.SiacoinOutputID, sco types.SiacoinOutput) {
+	sce := types.SiacoinElement{
+		StateElement:  types.StateElement{ID: types.Hash256(id)},
+		SiacoinOutput: sco,
+	}
 	ms.sces = append(ms.sces, sce)
-	ms.ephemeral[ms.sces[len(ms.sces)-1].ID] = len(ms.sces) - 1
+	ms.created[ms.sces[len(ms.sces)-1].ID] = len(ms.sces) - 1
+}
+
+func (ms *MidState) addImmatureSiacoinElement(id types.SiacoinOutputID, sco types.SiacoinOutput) {
+	ms.addSiacoinElement(id, sco)
+	ms.sces[len(ms.sces)-1].MaturityHeight = ms.base.MaturityHeight()
 }
 
 func (ms *MidState) spendSiacoinElement(sce types.SiacoinElement, txid types.TransactionID) {
 	ms.spends[sce.ID] = txid
-	if _, ok := ms.ephemeral[sce.ID]; !ok {
+	if !ms.isCreated(sce.ID) {
 		sce.MerkleProof = append([]types.Hash256(nil), sce.MerkleProof...)
 		ms.sces = append(ms.sces, sce)
 	}
 }
 
-func (ms *MidState) addSiafundElement(sfe types.SiafundElement) {
+func (ms *MidState) addSiafundElement(id types.SiafundOutputID, sfo types.SiafundOutput) {
+	sfe := types.SiafundElement{
+		StateElement:  types.StateElement{ID: types.Hash256(id)},
+		SiafundOutput: sfo,
+		ClaimStart:    ms.siafundPool,
+	}
 	ms.sfes = append(ms.sfes, sfe)
-	ms.ephemeral[ms.sfes[len(ms.sfes)-1].ID] = len(ms.sfes) - 1
+	ms.created[ms.sfes[len(ms.sfes)-1].ID] = len(ms.sfes) - 1
 }
 
 func (ms *MidState) spendSiafundElement(sfe types.SiafundElement, txid types.TransactionID) {
 	ms.spends[sfe.ID] = txid
-	if _, ok := ms.ephemeral[sfe.ID]; !ok {
+	if !ms.isCreated(sfe.ID) {
 		sfe.MerkleProof = append([]types.Hash256(nil), sfe.MerkleProof...)
 		ms.sfes = append(ms.sfes, sfe)
 	}
 }
 
-func (ms *MidState) addFileContractElement(fce types.FileContractElement) {
+func (ms *MidState) addFileContractElement(id types.FileContractID, fc types.FileContract) {
+	fce := types.FileContractElement{
+		StateElement: types.StateElement{ID: types.Hash256(id)},
+		FileContract: fc,
+	}
 	ms.fces = append(ms.fces, fce)
-	ms.ephemeral[ms.fces[len(ms.fces)-1].ID] = len(ms.fces) - 1
+	ms.created[ms.fces[len(ms.fces)-1].ID] = len(ms.fces) - 1
 	ms.siafundPool = ms.siafundPool.Add(ms.base.FileContractTax(fce.FileContract))
 }
 
 func (ms *MidState) reviseFileContractElement(fce types.FileContractElement, rev types.FileContract) {
 	rev.Payout = fce.FileContract.Payout
-	if i, ok := ms.ephemeral[fce.ID]; ok {
+	if i, ok := ms.created[fce.ID]; ok {
 		ms.fces[i].FileContract = rev
 	} else {
 		if r, ok := ms.revs[fce.ID]; ok {
@@ -392,14 +410,18 @@ func (ms *MidState) resolveFileContractElement(fce types.FileContractElement, va
 	ms.fces = append(ms.fces, fce)
 }
 
-func (ms *MidState) addV2FileContractElement(fce types.V2FileContractElement) {
+func (ms *MidState) addV2FileContractElement(id types.FileContractID, fc types.V2FileContract) {
+	fce := types.V2FileContractElement{
+		StateElement:   types.StateElement{ID: types.Hash256(id)},
+		V2FileContract: fc,
+	}
 	ms.v2fces = append(ms.v2fces, fce)
-	ms.ephemeral[ms.v2fces[len(ms.v2fces)-1].ID] = len(ms.v2fces) - 1
+	ms.created[ms.v2fces[len(ms.v2fces)-1].ID] = len(ms.v2fces) - 1
 	ms.siafundPool = ms.siafundPool.Add(ms.base.V2FileContractTax(fce.V2FileContract))
 }
 
 func (ms *MidState) reviseV2FileContractElement(fce types.V2FileContractElement, rev types.V2FileContract) {
-	if i, ok := ms.ephemeral[fce.ID]; ok {
+	if i, ok := ms.created[fce.ID]; ok {
 		ms.v2fces[i].V2FileContract = rev
 	} else {
 		if r, ok := ms.v2revs[fce.ID]; ok {
@@ -434,33 +456,19 @@ func (ms *MidState) ApplyTransaction(txn types.Transaction, ts V1TransactionSupp
 		ms.spendSiacoinElement(ms.mustSiacoinElement(ts, sci.ParentID), txid)
 	}
 	for i, sco := range txn.SiacoinOutputs {
-		ms.addSiacoinElement(types.SiacoinElement{
-			StateElement:  types.StateElement{ID: types.Hash256(txn.SiacoinOutputID(i))},
-			SiacoinOutput: sco,
-		})
+		ms.addSiacoinElement(txn.SiacoinOutputID(i), sco)
 	}
 	for _, sfi := range txn.SiafundInputs {
 		sfe := ms.mustSiafundElement(ts, sfi.ParentID)
 		claimPortion := ms.siafundPool.Sub(sfe.ClaimStart).Div64(ms.base.SiafundCount()).Mul64(sfe.SiafundOutput.Value)
 		ms.spendSiafundElement(sfe, txid)
-		ms.addSiacoinElement(types.SiacoinElement{
-			StateElement:   types.StateElement{ID: types.Hash256(sfi.ParentID.ClaimOutputID())},
-			SiacoinOutput:  types.SiacoinOutput{Value: claimPortion, Address: sfi.ClaimAddress},
-			MaturityHeight: ms.base.MaturityHeight(),
-		})
+		ms.addImmatureSiacoinElement(sfi.ParentID.ClaimOutputID(), types.SiacoinOutput{Value: claimPortion, Address: sfi.ClaimAddress})
 	}
 	for i, sfo := range txn.SiafundOutputs {
-		ms.addSiafundElement(types.SiafundElement{
-			StateElement:  types.StateElement{ID: types.Hash256(txn.SiafundOutputID(i))},
-			SiafundOutput: sfo,
-			ClaimStart:    ms.siafundPool,
-		})
+		ms.addSiafundElement(txn.SiafundOutputID(i), sfo)
 	}
 	for i, fc := range txn.FileContracts {
-		ms.addFileContractElement(types.FileContractElement{
-			StateElement: types.StateElement{ID: types.Hash256(txn.FileContractID(i))},
-			FileContract: fc,
-		})
+		ms.addFileContractElement(txn.FileContractID(i), fc)
 	}
 	for _, fcr := range txn.FileContractRevisions {
 		ms.reviseFileContractElement(ms.mustFileContractElement(ts, fcr.ParentID), fcr.FileContract)
@@ -469,11 +477,7 @@ func (ms *MidState) ApplyTransaction(txn types.Transaction, ts V1TransactionSupp
 		fce := ms.mustFileContractElement(ts, sp.ParentID)
 		ms.resolveFileContractElement(fce, true, txid)
 		for i, sco := range fce.FileContract.ValidProofOutputs {
-			ms.addSiacoinElement(types.SiacoinElement{
-				StateElement:   types.StateElement{ID: types.Hash256(sp.ParentID.ValidOutputID(i))},
-				SiacoinOutput:  sco,
-				MaturityHeight: ms.base.MaturityHeight(),
-			})
+			ms.addImmatureSiacoinElement(sp.ParentID.ValidOutputID(i), sco)
 		}
 	}
 	if ms.base.Index.Height >= ms.base.Network.HardforkFoundation.Height {
@@ -496,32 +500,18 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 		ms.spendSiacoinElement(sci.Parent, txid)
 	}
 	for i, sco := range txn.SiacoinOutputs {
-		ms.addSiacoinElement(types.SiacoinElement{
-			StateElement:  types.StateElement{ID: types.Hash256(txn.SiacoinOutputID(txid, i))},
-			SiacoinOutput: sco,
-		})
+		ms.addSiacoinElement(txn.SiacoinOutputID(txid, i), sco)
 	}
 	for _, sfi := range txn.SiafundInputs {
 		ms.spendSiafundElement(sfi.Parent, txid)
 		claimPortion := ms.siafundPool.Sub(sfi.Parent.ClaimStart).Div64(ms.base.SiafundCount()).Mul64(sfi.Parent.SiafundOutput.Value)
-		ms.addSiacoinElement(types.SiacoinElement{
-			StateElement:   types.StateElement{ID: types.Hash256(types.SiafundOutputID(sfi.Parent.ID).V2ClaimOutputID())},
-			SiacoinOutput:  types.SiacoinOutput{Value: claimPortion, Address: sfi.ClaimAddress},
-			MaturityHeight: ms.base.MaturityHeight(),
-		})
+		ms.addImmatureSiacoinElement(types.SiafundOutputID(sfi.Parent.ID).V2ClaimOutputID(), types.SiacoinOutput{Value: claimPortion, Address: sfi.ClaimAddress})
 	}
 	for i, sfo := range txn.SiafundOutputs {
-		ms.addSiafundElement(types.SiafundElement{
-			StateElement:  types.StateElement{ID: types.Hash256(txn.SiafundOutputID(txid, i))},
-			SiafundOutput: sfo,
-			ClaimStart:    ms.siafundPool,
-		})
+		ms.addSiafundElement(txn.SiafundOutputID(txid, i), sfo)
 	}
 	for i, fc := range txn.FileContracts {
-		ms.addV2FileContractElement(types.V2FileContractElement{
-			StateElement:   types.StateElement{ID: types.Hash256(txn.V2FileContractID(txid, i))},
-			V2FileContract: fc,
-		})
+		ms.addV2FileContractElement(txn.V2FileContractID(txid, i), fc)
 	}
 	for _, fcr := range txn.FileContractRevisions {
 		ms.reviseV2FileContractElement(fcr.Parent, fcr.Revision)
@@ -537,10 +527,7 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 			renter, host = r.FinalRevision.RenterOutput, r.FinalRevision.HostOutput
 			renter.Value = renter.Value.Sub(r.RenterRollover)
 			host.Value = host.Value.Sub(r.HostRollover)
-			ms.addV2FileContractElement(types.V2FileContractElement{
-				StateElement:   types.StateElement{ID: types.Hash256(types.FileContractID(fce.ID).V2RenewalID())},
-				V2FileContract: r.NewContract,
-			})
+			ms.addV2FileContractElement(types.FileContractID(fce.ID).V2RenewalID(), r.NewContract)
 		case *types.V2StorageProof:
 			renter, host = fc.RenterOutput, fc.HostOutput
 		case *types.V2FileContractFinalization:
@@ -548,16 +535,8 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 		case *types.V2FileContractExpiration:
 			renter, host = fc.RenterOutput, fc.MissedHostOutput()
 		}
-		ms.addSiacoinElement(types.SiacoinElement{
-			StateElement:   types.StateElement{ID: types.Hash256(types.FileContractID(fce.ID).V2RenterOutputID())},
-			SiacoinOutput:  renter,
-			MaturityHeight: ms.base.MaturityHeight(),
-		})
-		ms.addSiacoinElement(types.SiacoinElement{
-			StateElement:   types.StateElement{ID: types.Hash256(types.FileContractID(fce.ID).V2HostOutputID())},
-			SiacoinOutput:  host,
-			MaturityHeight: ms.base.MaturityHeight(),
-		})
+		ms.addImmatureSiacoinElement(types.FileContractID(fce.ID).V2RenterOutputID(), renter)
+		ms.addImmatureSiacoinElement(types.FileContractID(fce.ID).V2HostOutputID(), host)
 	}
 	for i, a := range txn.Attestations {
 		ms.addAttestationElement(types.AttestationElement{
@@ -581,18 +560,10 @@ func (ms *MidState) ApplyBlock(b types.Block, bs V1BlockSupplement) {
 	}
 	bid := b.ID()
 	for i, sco := range b.MinerPayouts {
-		ms.addSiacoinElement(types.SiacoinElement{
-			StateElement:   types.StateElement{ID: types.Hash256(bid.MinerOutputID(i))},
-			SiacoinOutput:  sco,
-			MaturityHeight: ms.base.MaturityHeight(),
-		})
+		ms.addImmatureSiacoinElement(bid.MinerOutputID(i), sco)
 	}
 	if subsidy := ms.base.FoundationSubsidy(); !subsidy.Value.IsZero() {
-		ms.addSiacoinElement(types.SiacoinElement{
-			StateElement:   types.StateElement{ID: types.Hash256(bid.FoundationOutputID())},
-			SiacoinOutput:  subsidy,
-			MaturityHeight: ms.base.MaturityHeight(),
-		})
+		ms.addImmatureSiacoinElement(bid.FoundationOutputID(), subsidy)
 	}
 	for _, fce := range bs.ExpiringFileContracts {
 		if ms.isSpent(fce.ID) {
@@ -600,11 +571,7 @@ func (ms *MidState) ApplyBlock(b types.Block, bs V1BlockSupplement) {
 		}
 		ms.resolveFileContractElement(fce, false, types.TransactionID(bid))
 		for i, sco := range fce.FileContract.MissedProofOutputs {
-			ms.addSiacoinElement(types.SiacoinElement{
-				StateElement:   types.StateElement{ID: types.Hash256(types.FileContractID(fce.ID).MissedOutputID(i))},
-				SiacoinOutput:  sco,
-				MaturityHeight: ms.base.MaturityHeight(),
-			})
+			ms.addImmatureSiacoinElement(types.FileContractID(fce.ID).MissedOutputID(i), sco)
 		}
 	}
 
@@ -660,33 +627,33 @@ func (au ApplyUpdate) UpdateElementProof(e *types.StateElement) {
 }
 
 // ForEachSiacoinElement calls fn on each siacoin element related to au.
-func (au ApplyUpdate) ForEachSiacoinElement(fn func(sce types.SiacoinElement, spent bool)) {
+func (au ApplyUpdate) ForEachSiacoinElement(fn func(sce types.SiacoinElement, created, spent bool)) {
 	for _, sce := range au.ms.sces {
-		fn(sce, au.ms.isSpent(sce.ID))
+		fn(sce, au.ms.isCreated(sce.ID), au.ms.isSpent(sce.ID))
 	}
 }
 
 // ForEachSiafundElement calls fn on each siafund element related to au.
-func (au ApplyUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, spent bool)) {
+func (au ApplyUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, created, spent bool)) {
 	for _, sfe := range au.ms.sfes {
-		fn(sfe, au.ms.isSpent(sfe.ID))
+		fn(sfe, au.ms.isCreated(sfe.ID), au.ms.isSpent(sfe.ID))
 	}
 }
 
 // ForEachFileContractElement calls fn on each file contract element related to
 // au. If the contract was revised, rev is non-nil.
-func (au ApplyUpdate) ForEachFileContractElement(fn func(fce types.FileContractElement, rev *types.FileContractElement, resolved, valid bool)) {
+func (au ApplyUpdate) ForEachFileContractElement(fn func(fce types.FileContractElement, created bool, rev *types.FileContractElement, resolved, valid bool)) {
 	for _, fce := range au.ms.fces {
-		fn(fce, au.ms.revs[fce.ID], au.ms.isSpent(fce.ID), au.ms.res[fce.ID])
+		fn(fce, au.ms.isCreated(fce.ID), au.ms.revs[fce.ID], au.ms.isSpent(fce.ID), au.ms.res[fce.ID])
 	}
 }
 
 // ForEachV2FileContractElement calls fn on each V2 file contract element
 // related to au. If the contract was revised, rev is non-nil. If the contract
 // was resolved, res is non-nil.
-func (au ApplyUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileContractElement, rev *types.V2FileContractElement, res types.V2FileContractResolutionType)) {
+func (au ApplyUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType)) {
 	for _, fce := range au.ms.v2fces {
-		fn(fce, au.ms.v2revs[fce.ID], au.ms.v2res[fce.ID])
+		fn(fce, au.ms.isCreated(fce.ID), au.ms.v2revs[fce.ID], au.ms.v2res[fce.ID])
 	}
 }
 
@@ -737,7 +704,7 @@ func ApplyBlock(s State, b types.Block, bs V1BlockSupplement, targetTimestamp ti
 	// compute updated and added elements
 	var updated, added []elementLeaf
 	ms.forEachElementLeaf(func(el elementLeaf) {
-		if el.MerkleProof == nil {
+		if ms.isCreated(el.ID) {
 			added = append(added, el)
 		} else {
 			updated = append(updated, el)
@@ -762,37 +729,37 @@ func (ru RevertUpdate) UpdateElementProof(e *types.StateElement) {
 }
 
 // ForEachSiacoinElement calls fn on each siacoin element related to ru.
-func (ru RevertUpdate) ForEachSiacoinElement(fn func(sce types.SiacoinElement, spent bool)) {
+func (ru RevertUpdate) ForEachSiacoinElement(fn func(sce types.SiacoinElement, created, spent bool)) {
 	for i := range ru.ms.sces {
 		sce := ru.ms.sces[len(ru.ms.sces)-i-1]
-		fn(sce, ru.ms.isSpent(sce.ID))
+		fn(sce, ru.ms.isCreated(sce.ID), ru.ms.isSpent(sce.ID))
 	}
 }
 
 // ForEachSiafundElement calls fn on each siafund element related to ru.
-func (ru RevertUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, spent bool)) {
+func (ru RevertUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, created, spent bool)) {
 	for i := range ru.ms.sfes {
 		sfe := ru.ms.sfes[len(ru.ms.sfes)-i-1]
-		fn(sfe, ru.ms.isSpent(sfe.ID))
+		fn(sfe, ru.ms.isCreated(sfe.ID), ru.ms.isSpent(sfe.ID))
 	}
 }
 
 // ForEachFileContractElement calls fn on each file contract element related to
 // ru. If the contract was revised, rev is non-nil.
-func (ru RevertUpdate) ForEachFileContractElement(fn func(fce types.FileContractElement, rev *types.FileContractElement, resolved, valid bool)) {
+func (ru RevertUpdate) ForEachFileContractElement(fn func(fce types.FileContractElement, created bool, rev *types.FileContractElement, resolved, valid bool)) {
 	for i := range ru.ms.fces {
 		fce := ru.ms.fces[len(ru.ms.fces)-i-1]
-		fn(fce, ru.ms.revs[fce.ID], ru.ms.isSpent(fce.ID), ru.ms.res[fce.ID])
+		fn(fce, ru.ms.isCreated(fce.ID), ru.ms.revs[fce.ID], ru.ms.isSpent(fce.ID), ru.ms.res[fce.ID])
 	}
 }
 
 // ForEachV2FileContractElement calls fn on each V2 file contract element
 // related to au. If the contract was revised, rev is non-nil. If the contract
 // was resolved, res is non-nil.
-func (ru RevertUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileContractElement, rev *types.V2FileContractElement, res types.V2FileContractResolutionType)) {
+func (ru RevertUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType)) {
 	for i := range ru.ms.v2fces {
 		fce := ru.ms.v2fces[len(ru.ms.fces)-i-1]
-		fn(fce, ru.ms.v2revs[fce.ID], ru.ms.v2res[fce.ID])
+		fn(fce, ru.ms.isCreated(fce.ID), ru.ms.v2revs[fce.ID], ru.ms.v2res[fce.ID])
 	}
 }
 
@@ -833,7 +800,7 @@ func RevertBlock(s State, b types.Block, bs V1BlockSupplement) RevertUpdate {
 	var updated, added []elementLeaf
 	ms.forEachElementLeaf(func(el elementLeaf) {
 		el.Spent = false // reverting a block can never cause an element to become spent
-		if el.MerkleProof != nil {
+		if !ms.isCreated(el.ID) {
 			updated = append(updated, el)
 		} else {
 			added = append(added, el)

@@ -586,7 +586,7 @@ func (s State) AttestationSigHash(a types.Attestation) types.Hash256 {
 // A MidState represents the state of the chain within a block.
 type MidState struct {
 	base               State
-	ephemeral          map[types.Hash256]int // indices into element slices
+	created            map[types.Hash256]int // indices into element slices
 	spends             map[types.Hash256]types.TransactionID
 	revs               map[types.Hash256]*types.FileContractElement
 	res                map[types.Hash256]bool
@@ -596,7 +596,7 @@ type MidState struct {
 	foundationPrimary  types.Address
 	foundationFailsafe types.Address
 
-	// elements updated/added by block
+	// elements created/updated by block
 	sces   []types.SiacoinElement
 	sfes   []types.SiafundElement
 	fces   []types.FileContractElement
@@ -606,21 +606,21 @@ type MidState struct {
 }
 
 func (ms *MidState) siacoinElement(ts V1TransactionSupplement, id types.SiacoinOutputID) (types.SiacoinElement, bool) {
-	if i, ok := ms.ephemeral[types.Hash256(id)]; ok {
+	if i, ok := ms.created[types.Hash256(id)]; ok {
 		return ms.sces[i], true
 	}
 	return ts.siacoinElement(id)
 }
 
 func (ms *MidState) siafundElement(ts V1TransactionSupplement, id types.SiafundOutputID) (types.SiafundElement, bool) {
-	if i, ok := ms.ephemeral[types.Hash256(id)]; ok {
+	if i, ok := ms.created[types.Hash256(id)]; ok {
 		return ms.sfes[i], true
 	}
 	return ts.siafundElement(id)
 }
 
 func (ms *MidState) fileContractElement(ts V1TransactionSupplement, id types.FileContractID) (types.FileContractElement, bool) {
-	if i, ok := ms.ephemeral[types.Hash256(id)]; ok {
+	if i, ok := ms.created[types.Hash256(id)]; ok {
 		return ms.fces[i], true
 	}
 	return ts.fileContractElement(id)
@@ -660,11 +660,16 @@ func (ms *MidState) isSpent(id types.Hash256) bool {
 	return ok
 }
 
+func (ms *MidState) isCreated(id types.Hash256) bool {
+	_, ok := ms.created[id]
+	return ok || id == ms.cie.ID
+}
+
 // NewMidState constructs a MidState initialized to the provided base state.
 func NewMidState(s State) *MidState {
 	return &MidState{
 		base:               s,
-		ephemeral:          make(map[types.Hash256]int),
+		created:            make(map[types.Hash256]int),
 		spends:             make(map[types.Hash256]types.TransactionID),
 		revs:               make(map[types.Hash256]*types.FileContractElement),
 		res:                make(map[types.Hash256]bool),

@@ -400,7 +400,7 @@ type elementApplyUpdate struct {
 }
 
 func (eau *elementApplyUpdate) updateElementProof(e *types.StateElement) {
-	if e.LeafIndex == types.EphemeralLeafIndex {
+	if e.LeafIndex == types.UnassignedLeafIndex {
 		panic("cannot update an ephemeral element")
 	} else if e.LeafIndex >= eau.oldNumLeaves {
 		return // newly-added element
@@ -417,7 +417,7 @@ type elementRevertUpdate struct {
 }
 
 func (eru *elementRevertUpdate) updateElementProof(e *types.StateElement) {
-	if e.LeafIndex == types.EphemeralLeafIndex {
+	if e.LeafIndex == types.UnassignedLeafIndex {
 		panic("cannot update an ephemeral element")
 	} else if e.LeafIndex >= eru.numLeaves {
 		panic("cannot update an element that is not present in the accumulator")
