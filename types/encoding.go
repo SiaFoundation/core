@@ -920,7 +920,10 @@ func (pk *PublicKey) DecodeFrom(d *Decoder) { d.Read(pk[:]) }
 func (s *Signature) DecodeFrom(d *Decoder) { d.Read(s[:]) }
 
 // DecodeFrom implements types.DecoderFrom.
-func (s *Specifier) DecodeFrom(d *Decoder) { d.Read(s[:]) }
+func (s *Specifier) DecodeFrom(d *Decoder) {
+	d.Read(s[:])
+	d.SetErr(s.validate())
+}
 
 // DecodeFrom implements types.DecoderFrom.
 func (uk *UnlockKey) DecodeFrom(d *Decoder) {
