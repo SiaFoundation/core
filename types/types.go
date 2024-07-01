@@ -116,32 +116,12 @@ type Signature [64]byte
 // A Specifier is a fixed-size, 0-padded identifier.
 type Specifier [16]byte
 
-func (s Specifier) bytes() []byte {
-	end := len(s)
-	for end > 0 && s[end-1] == 0 {
-		end--
-	}
-	return s[:end]
-}
-
-func (s Specifier) validate() error {
-	for _, c := range s.bytes() {
-		if !(('0' <= c && c <= '9') || ('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z') || c == ' ') {
-			return fmt.Errorf("non-alphanumeric character %q in specifier", c)
-		}
-	}
-	return nil
-}
-
 // NewSpecifier returns a specifier containing the provided name.
 func NewSpecifier(name string) (s Specifier) {
 	if len(name) > len(s) {
 		panic(fmt.Sprintf("specifier name too long: len(%q) > 16", name))
 	}
 	copy(s[:], name)
-	if err := s.validate(); err != nil {
-		panic(err)
-	}
 	return
 }
 
@@ -910,18 +890,33 @@ func ParseChainIndex(s string) (ci ChainIndex, err error) {
 }
 
 // String implements fmt.Stringer.
-func (s Specifier) String() string { return string(s.bytes()) }
+func (s Specifier) String() string {
+	b := string(bytes.TrimRight(s[:], "\x00"))
+	for _, c := range b {
+		if !(('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z') || ('0' <= c && c <= '9')) {
+			return strconv.Quote(b)
+		}
+	}
+	return b
+}
 
 // MarshalText implements encoding.TextMarshaler.
-func (s Specifier) MarshalText() ([]byte, error) { return s.bytes(), nil }
+func (s Specifier) MarshalText() ([]byte, error) { return []byte(s.String()), nil }
 
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (s *Specifier) UnmarshalText(b []byte) error {
+	if len(b) > 0 && b[0] == '"' {
+		uq, err := strconv.Unquote(string(b))
+		if err != nil {
+			return err
+		}
+		b = []byte(uq)
+	}
 	if len(b) > len(s) {
 		return fmt.Errorf("specifier %v too long (%v > 16)", b, len(b))
 	}
 	copy(s[:], b)
-	return s.validate()
+	return nil
 }
 
 // MarshalText implements encoding.TextMarshaler.
