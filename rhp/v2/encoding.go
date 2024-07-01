@@ -12,6 +12,12 @@ type ProtocolObject interface {
 }
 
 // EncodeTo implements ProtocolObject.
+func (c *Challenge) EncodeTo(e *types.Encoder) { e.Write(c[:]) }
+
+// DecodeFrom implements ProtocolObject.
+func (c *Challenge) DecodeFrom(d *types.Decoder) { d.Read(c[:]) }
+
+// EncodeTo implements ProtocolObject.
 func (r *RPCError) EncodeTo(e *types.Encoder) {
 	r.Type.EncodeTo(e)
 	e.WriteBytes(r.Data)
@@ -164,7 +170,7 @@ func (r *RPCLockRequest) DecodeFrom(d *types.Decoder) {
 // EncodeTo implements ProtocolObject.
 func (r *RPCLockResponse) EncodeTo(e *types.Encoder) {
 	e.WriteBool(r.Acquired)
-	e.Write(r.NewChallenge[:])
+	r.NewChallenge.EncodeTo(e)
 	r.Revision.EncodeTo(e)
 	types.EncodeSlice(e, r.Signatures)
 }
@@ -172,7 +178,7 @@ func (r *RPCLockResponse) EncodeTo(e *types.Encoder) {
 // DecodeFrom implements ProtocolObject.
 func (r *RPCLockResponse) DecodeFrom(d *types.Decoder) {
 	r.Acquired = d.ReadBool()
-	d.Read(r.NewChallenge[:])
+	r.NewChallenge.DecodeFrom(d)
 	r.Revision.DecodeFrom(d)
 	types.DecodeSlice(d, &r.Signatures)
 }

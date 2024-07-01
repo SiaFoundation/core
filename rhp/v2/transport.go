@@ -71,6 +71,9 @@ func deriveSharedSecret(xsk []byte, xpk [32]byte) ([]byte, error) {
 	return key[:], nil
 }
 
+// A Challenge is a random 128-bit value used to authenticate RPCs.
+type Challenge [16]byte
+
 // An RPCError may be sent instead of a response object to any RPC.
 type RPCError struct {
 	Type        types.Specifier
@@ -103,7 +106,7 @@ type Transport struct {
 	key       []byte // for RawResponse
 	inbuf     bytes.Buffer
 	outbuf    bytes.Buffer
-	challenge [16]byte
+	challenge Challenge
 	isRenter  bool
 	hostKey   types.PublicKey
 
@@ -149,7 +152,7 @@ func (t *Transport) IsClosed() bool {
 	return t.closed || t.err != nil
 }
 
-func hashChallenge(challenge [16]byte) [32]byte {
+func hashChallenge(challenge Challenge) types.Hash256 {
 	c := make([]byte, 32)
 	copy(c[:16], "challenge")
 	copy(c[16:], challenge[:])
@@ -157,8 +160,8 @@ func hashChallenge(challenge [16]byte) [32]byte {
 }
 
 // SetChallenge sets the current Transport challenge.
-func (t *Transport) SetChallenge(challenge [16]byte) {
-	t.challenge = challenge
+func (t *Transport) SetChallenge(c Challenge) {
+	t.challenge = c
 }
 
 // SetDeadline sets the read and write deadline on the underlying connection.
@@ -184,10 +187,10 @@ func (t *Transport) SignChallenge(priv types.PrivateKey) types.Signature {
 }
 
 // VerifyChallenge verifies a challenge signature and returns a new challenge.
-func (t *Transport) VerifyChallenge(sig types.Signature, pubkey types.PublicKey) ([16]byte, bool) {
+func (t *Transport) VerifyChallenge(sig types.Signature, pubkey types.PublicKey) (Challenge, bool) {
 	ok := pubkey.VerifyHash(hashChallenge(t.challenge), sig)
 	if !ok {
-		return [16]byte{}, false
+		return Challenge{}, false
 	}
 	t.challenge = frand.Entropy128()
 	return t.challenge, true
@@ -519,8 +522,7 @@ func NewHostTransport(conn net.Conn, priv types.PrivateKey) (_ *Transport, err e
 		isRenter:  false,
 		hostKey:   priv.PublicKey(),
 	}
-	// hack: cast challenge to Specifier to make it a ProtocolObject
-	if err := t.writeMessage((*types.Specifier)(&t.challenge)); err != nil {
+	if err := t.writeMessage(&t.challenge); err != nil {
 		return nil, err
 	}
 	return t, nil
@@ -570,8 +572,7 @@ func NewRenterTransport(conn net.Conn, pub types.PublicKey) (_ *Transport, err e
 		isRenter: true,
 		hostKey:  pub,
 	}
-	// hack: cast challenge to Specifier to make it a ProtocolObject
-	if err := t.readMessage((*types.Specifier)(&t.challenge), minMessageSize); err != nil {
+	if err := t.readMessage(&t.challenge, minMessageSize); err != nil {
 		return nil, err
 	}
 	return t, nil

@@ -118,6 +118,9 @@ type Specifier [16]byte
 
 // NewSpecifier returns a specifier containing the provided name.
 func NewSpecifier(name string) (s Specifier) {
+	if len(name) > len(s) {
+		panic(fmt.Sprintf("specifier name too long: len(%q) > 16", name))
+	}
 	copy(s[:], name)
 	return
 }
@@ -887,21 +890,32 @@ func ParseChainIndex(s string) (ci ChainIndex, err error) {
 }
 
 // String implements fmt.Stringer.
-func (s Specifier) String() string { return string(bytes.Trim(s[:], "\x00")) }
+func (s Specifier) String() string {
+	b := string(bytes.TrimRight(s[:], "\x00"))
+	for _, c := range b {
+		if !(('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z') || ('0' <= c && c <= '9')) {
+			return strconv.Quote(b)
+		}
+	}
+	return b
+}
 
 // MarshalText implements encoding.TextMarshaler.
 func (s Specifier) MarshalText() ([]byte, error) { return []byte(s.String()), nil }
 
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (s *Specifier) UnmarshalText(b []byte) error {
-	str, err := strconv.Unquote(string(b))
-	if err != nil {
-		str = string(b)
+	if len(b) > 0 && b[0] == '"' {
+		uq, err := strconv.Unquote(string(b))
+		if err != nil {
+			return err
+		}
+		b = []byte(uq)
 	}
-	if len(str) > len(s) {
-		return fmt.Errorf("specifier %s too long", str)
+	if len(b) > len(s) {
+		return fmt.Errorf("specifier %v too long (%v > 16)", b, len(b))
 	}
-	copy(s[:], str)
+	copy(s[:], b)
 	return nil
 }
 
@@ -912,12 +926,11 @@ func (uk UnlockKey) MarshalText() ([]byte, error) {
 
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (uk *UnlockKey) UnmarshalText(b []byte) error {
-	parts := bytes.Split(b, []byte(":"))
-	if len(parts) != 2 {
-		return errors.New("decoding <algorithm>:<key> failed: wrong number of separators")
-	} else if err := uk.Algorithm.UnmarshalText(parts[0]); err != nil {
+	if i := bytes.LastIndexByte(b, ':'); i < 0 {
+		return errors.New("decoding <algorithm>:<key> failed: no separator")
+	} else if err := uk.Algorithm.UnmarshalText(b[:i]); err != nil {
 		return fmt.Errorf("decoding <algorithm>:<key> failed: %w", err)
-	} else if uk.Key, err = hex.DecodeString(string(parts[1])); err != nil {
+	} else if uk.Key, err = hex.DecodeString(string(b[i+1:])); err != nil {
 		return fmt.Errorf("decoding <algorithm>:<key> failed: %w", err)
 	}
 	return nil
