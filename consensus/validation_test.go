@@ -46,6 +46,18 @@ type consensusDB struct {
 }
 
 func (db *consensusDB) applyBlock(au ApplyUpdate) {
+	for id, sce := range db.sces {
+		au.UpdateElementProof(&sce.StateElement)
+		db.sces[id] = sce
+	}
+	for id, sfe := range db.sfes {
+		au.UpdateElementProof(&sfe.StateElement)
+		db.sfes[id] = sfe
+	}
+	for id, fce := range db.fces {
+		au.UpdateElementProof(&fce.StateElement)
+		db.fces[id] = fce
+	}
 	au.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
 		if spent {
 			delete(db.sces, types.SiacoinOutputID(sce.ID))

@@ -199,6 +199,10 @@ func (acc *ElementAccumulator) containsSpentSiafundElement(sfe types.SiafundElem
 	return acc.containsLeaf(siafundLeaf(&sfe, true))
 }
 
+func (acc *ElementAccumulator) containsUnresolvedFileContractElement(fce types.FileContractElement) bool {
+	return acc.containsLeaf(fileContractLeaf(&fce, false))
+}
+
 func (acc *ElementAccumulator) containsUnresolvedV2FileContractElement(fce types.V2FileContractElement) bool {
 	return acc.containsLeaf(v2FileContractLeaf(&fce, false))
 }
