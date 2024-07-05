@@ -896,6 +896,43 @@ func ValidateV2Transaction(ms *MidState, txn types.V2Transaction) error {
 	return nil
 }
 
+func validateSupplement(s State, b types.Block, bs V1BlockSupplement) error {
+	if len(bs.Transactions) != len(b.Transactions) {
+		return errors.New("incorrect number of transactions")
+	}
+	for _, txn := range bs.Transactions {
+		for _, sce := range txn.SiacoinInputs {
+			if !s.Elements.containsUnspentSiacoinElement(sce) {
+				return fmt.Errorf("siacoin element %v is not present in the accumulator", sce.ID)
+			}
+		}
+		for _, sfe := range txn.SiafundInputs {
+			if !s.Elements.containsUnspentSiafundElement(sfe) {
+				return fmt.Errorf("siafund element %v is not present in the accumulator", sfe.ID)
+			}
+		}
+		for _, fce := range txn.RevisedFileContracts {
+			if !s.Elements.containsUnresolvedFileContractElement(fce) {
+				return fmt.Errorf("revised file contract %v is not present in the accumulator", fce.ID)
+			}
+		}
+		for _, fce := range txn.ValidFileContracts {
+			if !s.Elements.containsUnresolvedFileContractElement(fce) {
+				return fmt.Errorf("valid file contract %v is not present in the accumulator", fce.ID)
+			}
+		}
+		if len(txn.StorageProofBlockIDs) != len(txn.ValidFileContracts) {
+			return errors.New("incorrect number of storage proof block IDs")
+		}
+	}
+	for _, fce := range bs.ExpiringFileContracts {
+		if !s.Elements.containsUnresolvedFileContractElement(fce) {
+			return fmt.Errorf("expiring file contract %v is not present in the accumulator", fce.ID)
+		}
+	}
+	return nil
+}
+
 // ValidateBlock validates b in the context of s.
 //
 // This function does not check whether the header's timestamp is too far in the
@@ -904,6 +941,8 @@ func ValidateV2Transaction(ms *MidState, txn types.V2Transaction) error {
 func ValidateBlock(s State, b types.Block, bs V1BlockSupplement) error {
 	if err := ValidateOrphan(s, b); err != nil {
 		return err
+	} else if err := validateSupplement(s, b, bs); err != nil {
+		return fmt.Errorf("block supplement is invalid: %w", err)
 	}
 	if b.V2 != nil {
 		if b.V2.Commitment != s.Commitment(s.TransactionsCommitment(b.Transactions, b.V2Transactions()), b.MinerPayouts[0].Address) {
