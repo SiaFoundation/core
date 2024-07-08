@@ -486,11 +486,58 @@ func TestPolicyTypeUnlockConditionsRoundtrip(t *testing.T) {
 		},
 		SignaturesRequired: 1,
 	})}
-	t.Log(sp.String())
 	parsed, err := ParseSpendPolicy(sp.String())
 	if err != nil {
 		t.Fatal(err)
 	} else if sp.String() != parsed.String() {
 		t.Fatalf("expected %q = %q", sp.String(), parsed.String())
+	}
+}
+
+func TestParseSpendPolicy(t *testing.T) {
+	tests := []struct {
+		str   string
+		valid bool
+	}{
+		{
+			str:   "invalid",
+			valid: false,
+		},
+		{
+			str:   "pk(invalid)",
+			valid: false,
+		},
+		{
+			str:   "pk(0x0102030000000000000000000000000000000000000000000000000000000000)",
+			valid: true,
+		},
+		{
+			str:   "pk( 0x0102030000000000000000000000000000000000000000000000000000000000 )",
+			valid: true,
+		},
+		{
+			str:   "pk(0x01020300000000000000000000 00000000000000000000000000000000000000)",
+			valid: false,
+		},
+		{
+			str: `
+		thresh(1, [
+		    thresh(2, [
+		        pk(  0x0102030000000000000000000000000000000000000000000000000000000000  ),
+		        h( 0x0100000000000000000000000000000000000000000000000000000000000000
+				)
+		    ]),
+		    opaque(
+			0xf72e84ee9e344e424a6764068ffd7fdce4b4e50609892c6801bc1ead79d3ae0d)
+		])
+					`,
+			valid: true,
+		},
+	}
+
+	for _, tt := range tests {
+		if _, err := ParseSpendPolicy(tt.str); (err == nil) != tt.valid {
+			t.Errorf("ParseSpendPolicy(%q) -> %v", tt.str, err)
+		}
 	}
 }

@@ -279,7 +279,7 @@ func ParseSpendPolicy(s string) (SpendPolicy, error) {
 		}
 		t := s[:i]
 		s = s[i:]
-		return t
+		return strings.TrimSpace(t)
 	}
 	consume := func(b byte) {
 		if err != nil {
@@ -295,6 +295,7 @@ func ParseSpendPolicy(s string) (SpendPolicy, error) {
 		}
 	}
 	peek := func() byte {
+		s = strings.TrimSpace(s)
 		if err != nil || len(s) == 0 {
 			return 0
 		}
