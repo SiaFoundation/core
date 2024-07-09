@@ -620,6 +620,7 @@ type ApplyUpdate struct {
 	eau elementApplyUpdate
 }
 
+// MarshalJSON implements json.Marshaler.
 func (au ApplyUpdate) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		MidState           *MidState          `json:"midstate"`
@@ -630,6 +631,7 @@ func (au ApplyUpdate) MarshalJSON() ([]byte, error) {
 	})
 }
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (au *ApplyUpdate) UnmarshalJSON(b []byte) error {
 	var data struct {
 		MidState           *MidState          `json:"midstate"`
@@ -745,6 +747,7 @@ type RevertUpdate struct {
 	eru elementRevertUpdate
 }
 
+// MarshalJSON implements json.Marshaler.
 func (ru RevertUpdate) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		MidState            *MidState           `json:"midstate"`
@@ -755,6 +758,7 @@ func (ru RevertUpdate) MarshalJSON() ([]byte, error) {
 	})
 }
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (ru *RevertUpdate) UnmarshalJSON(b []byte) error {
 	var data struct {
 		MidState            *MidState           `json:"midstate"`

@@ -606,6 +606,7 @@ type MidState struct {
 	cie    types.ChainIndexElement
 }
 
+// MarshalJSON implements json.Marshaler.
 func (ms *MidState) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Base               State                                                `json:"base"`
@@ -646,6 +647,7 @@ func (ms *MidState) MarshalJSON() ([]byte, error) {
 	})
 }
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (ms *MidState) UnmarshalJSON(b []byte) error {
 	var v struct {
 		Base               State                                                `json:"base"`
