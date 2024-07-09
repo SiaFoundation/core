@@ -52,8 +52,8 @@ func storageProofRoot(leafHash types.Hash256, leafIndex uint64, filesize uint64,
 // An elementLeaf represents a leaf in the ElementAccumulator Merkle tree.
 type elementLeaf struct {
 	*types.StateElement
-	ElementHash types.Hash256
-	Spent       bool
+	ElementHash types.Hash256 `json:"elementHash"`
+	Spent       bool          `json:"spent"`
 }
 
 // hash returns the leaf's hash, for direct use in the Merkle tree.
@@ -399,6 +399,32 @@ type elementApplyUpdate struct {
 	numLeaves    uint64
 }
 
+func (eau *elementApplyUpdate) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Updated      [64][]elementLeaf   `json:"updated"`
+		TreeGrowth   [64][]types.Hash256 `json:"treeGrowth"`
+		OldNumLeaves uint64              `json:"oldNumLeaves"`
+		NumLeaves    uint64              `json:"numLeaves"`
+	}{eau.updated, eau.treeGrowth, eau.oldNumLeaves, eau.numLeaves})
+}
+
+func (eau *elementApplyUpdate) UnmarshalJSON(b []byte) error {
+	var v struct {
+		Updated      [64][]elementLeaf   `json:"updated"`
+		TreeGrowth   [64][]types.Hash256 `json:"treeGrowth"`
+		OldNumLeaves uint64              `json:"oldNumLeaves"`
+		NumLeaves    uint64              `json:"numLeaves"`
+	}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	eau.updated = v.Updated
+	eau.treeGrowth = v.TreeGrowth
+	eau.oldNumLeaves = v.OldNumLeaves
+	eau.numLeaves = v.NumLeaves
+	return nil
+}
+
 func (eau *elementApplyUpdate) updateElementProof(e *types.StateElement) {
 	if e.LeafIndex == types.UnassignedLeafIndex {
 		panic("cannot update an ephemeral element")
@@ -414,6 +440,26 @@ func (eau *elementApplyUpdate) updateElementProof(e *types.StateElement) {
 type elementRevertUpdate struct {
 	updated   [64][]elementLeaf
 	numLeaves uint64
+}
+
+func (eru *elementRevertUpdate) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Updated   [64][]elementLeaf `json:"updated"`
+		NumLeaves uint64            `json:"numLeaves"`
+	}{eru.updated, eru.numLeaves})
+}
+
+func (eru *elementRevertUpdate) UnmarshalJSON(b []byte) error {
+	var v struct {
+		Updated   [64][]elementLeaf `json:"updated"`
+		NumLeaves uint64            `json:"numLeaves"`
+	}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	eru.updated = v.Updated
+	eru.numLeaves = v.NumLeaves
+	return nil
 }
 
 func (eru *elementRevertUpdate) updateElementProof(e *types.StateElement) {

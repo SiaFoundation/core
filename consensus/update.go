@@ -3,6 +3,7 @@ package consensus
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"math/big"
 	"math/bits"
@@ -619,6 +620,29 @@ type ApplyUpdate struct {
 	eau elementApplyUpdate
 }
 
+func (au ApplyUpdate) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		MidState           *MidState          `json:"midstate"`
+		ElementApplyUpdate elementApplyUpdate `json:"elementApplyUpdate"`
+	}{
+		MidState:           au.ms,
+		ElementApplyUpdate: au.eau,
+	})
+}
+
+func (au *ApplyUpdate) UnmarshalJSON(b []byte) error {
+	var data struct {
+		MidState           *MidState          `json:"midstate"`
+		ElementApplyUpdate elementApplyUpdate `json:"elementApplyUpdate"`
+	}
+	if err := json.Unmarshal(b, &data); err != nil {
+		return err
+	}
+	au.ms = data.MidState
+	au.eau = data.ElementApplyUpdate
+	return nil
+}
+
 // UpdateElementProof updates the Merkle proof of the supplied element to
 // incorporate the changes made to the accumulator. The element's proof must be
 // up-to-date; if it is not, UpdateElementProof may panic.
@@ -719,6 +743,29 @@ func ApplyBlock(s State, b types.Block, bs V1BlockSupplement, targetTimestamp ti
 type RevertUpdate struct {
 	ms  *MidState
 	eru elementRevertUpdate
+}
+
+func (ru RevertUpdate) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		MidState            *MidState           `json:"midstate"`
+		ElementRevertUpdate elementRevertUpdate `json:"elementRevertUpdate"`
+	}{
+		MidState:            ru.ms,
+		ElementRevertUpdate: ru.eru,
+	})
+}
+
+func (ru *RevertUpdate) UnmarshalJSON(b []byte) error {
+	var data struct {
+		MidState            *MidState           `json:"midstate"`
+		ElementRevertUpdate elementRevertUpdate `json:"elementRevertUpdate"`
+	}
+	if err := json.Unmarshal(b, &data); err != nil {
+		return err
+	}
+	ru.ms = data.MidState
+	ru.eru = data.ElementRevertUpdate
+	return nil
 }
 
 // UpdateElementProof updates the Merkle proof of the supplied element to

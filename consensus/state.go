@@ -3,6 +3,7 @@ package consensus
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"math/bits"
@@ -603,6 +604,91 @@ type MidState struct {
 	v2fces []types.V2FileContractElement
 	aes    []types.AttestationElement
 	cie    types.ChainIndexElement
+}
+
+func (ms *MidState) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Base               State                                                `json:"base"`
+		Created            map[types.Hash256]int                                `json:"created"`
+		Spends             map[types.Hash256]types.TransactionID                `json:"spends"`
+		Revisions          map[types.Hash256]*types.FileContractElement         `json:"revisions"`
+		Resolutions        map[types.Hash256]bool                               `json:"resolutions"`
+		V2Revisions        map[types.Hash256]*types.V2FileContractElement       `json:"v2revisions"`
+		V2Resolutions      map[types.Hash256]types.V2FileContractResolutionType `json:"v2resolutions"`
+		SiafundPool        types.Currency                                       `json:"siafundPool"`
+		FoundationPrimary  types.Address                                        `json:"foundationPrimary"`
+		FoundationFailsafe types.Address                                        `json:"foundationFailsafe"`
+
+		SiacoinElements        []types.SiacoinElement        `json:"siacoinElements"`
+		SiafundElements        []types.SiafundElement        `json:"siafundElements"`
+		FileContractElements   []types.FileContractElement   `json:"fileContractElements"`
+		V2FileContractElements []types.V2FileContractElement `json:"v2FileContractElements"`
+		AttestationElements    []types.AttestationElement    `json:"attestationElements"`
+		ChainIndexElement      types.ChainIndexElement       `json:"chainIndexElement"`
+	}{
+		Base:               ms.base,
+		Created:            ms.created,
+		Spends:             ms.spends,
+		Revisions:          ms.revs,
+		Resolutions:        ms.res,
+		V2Revisions:        ms.v2revs,
+		V2Resolutions:      ms.v2res,
+		SiafundPool:        ms.siafundPool,
+		FoundationPrimary:  ms.foundationPrimary,
+		FoundationFailsafe: ms.foundationFailsafe,
+
+		SiacoinElements:        ms.sces,
+		SiafundElements:        ms.sfes,
+		FileContractElements:   ms.fces,
+		V2FileContractElements: ms.v2fces,
+		AttestationElements:    ms.aes,
+		ChainIndexElement:      ms.cie,
+	})
+}
+
+func (ms *MidState) UnmarshalJSON(b []byte) error {
+	var v struct {
+		Base               State                                                `json:"base"`
+		Created            map[types.Hash256]int                                `json:"created"`
+		Spends             map[types.Hash256]types.TransactionID                `json:"spends"`
+		Revisions          map[types.Hash256]*types.FileContractElement         `json:"revisions"`
+		Resolutions        map[types.Hash256]bool                               `json:"resolutions"`
+		V2Revisions        map[types.Hash256]*types.V2FileContractElement       `json:"v2revisions"`
+		V2Resolutions      map[types.Hash256]types.V2FileContractResolutionType `json:"v2resolutions"`
+		SiafundPool        types.Currency                                       `json:"siafundPool"`
+		FoundationPrimary  types.Address                                        `json:"foundationPrimary"`
+		FoundationFailsafe types.Address                                        `json:"foundationFailsafe"`
+
+		SiacoinElements        []types.SiacoinElement        `json:"siacoinElements"`
+		SiafundElements        []types.SiafundElement        `json:"siafundElements"`
+		FileContractElements   []types.FileContractElement   `json:"fileContractElements"`
+		V2FileContractElements []types.V2FileContractElement `json:"v2FileContractElements"`
+		AttestationElements    []types.AttestationElement    `json:"attestationElements"`
+		ChainIndexElement      types.ChainIndexElement       `json:"chainIndexElement"`
+	}
+
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+
+	ms.base = v.Base
+	ms.created = v.Created
+	ms.spends = v.Spends
+	ms.revs = v.Revisions
+	ms.res = v.Resolutions
+	ms.v2revs = v.V2Revisions
+	ms.v2res = v.V2Resolutions
+	ms.siafundPool = v.SiafundPool
+	ms.foundationPrimary = v.FoundationPrimary
+	ms.foundationFailsafe = v.FoundationFailsafe
+
+	ms.sces = v.SiacoinElements
+	ms.sfes = v.SiafundElements
+	ms.fces = v.FileContractElements
+	ms.v2fces = v.V2FileContractElements
+	ms.aes = v.AttestationElements
+	ms.cie = v.ChainIndexElement
+	return nil
 }
 
 func (ms *MidState) siacoinElement(ts V1TransactionSupplement, id types.SiacoinOutputID) (types.SiacoinElement, bool) {
