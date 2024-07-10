@@ -430,14 +430,14 @@ var (
 	idSendBlocks          = types.NewSpecifier("SendBlocks")
 	idSendBlk             = types.NewSpecifier("SendBlk")
 	idRelayHeader         = types.NewSpecifier("RelayHeader")
-	idRelayTransactionSet = types.NewSpecifier("RelayTransactionSet")
+	idRelayTransactionSet = types.NewSpecifier("RelayTransaction")
 	// v2
 	idSendV2Blocks          = types.NewSpecifier("SendV2Blocks")
 	idSendTransactions      = types.NewSpecifier("SendTransactions")
 	idSendCheckpoint        = types.NewSpecifier("SendCheckpoint")
 	idRelayV2Header         = types.NewSpecifier("RelayV2Header")
-	idRelayV2BlockOutline   = types.NewSpecifier("RelayV2BlockOutline")
-	idRelayV2TransactionSet = types.NewSpecifier("RelayV2TransactionSet")
+	idRelayV2BlockOutline   = types.NewSpecifier("RelayV2Outline")
+	idRelayV2TransactionSet = types.NewSpecifier("RelayV2Txns")
 )
 
 func idForObject(o Object) types.Specifier {

@@ -220,7 +220,7 @@ type (
 	// RPCLockResponse contains the response data for the Lock RPC.
 	RPCLockResponse struct {
 		Acquired     bool
-		NewChallenge [16]byte
+		NewChallenge Challenge
 		Revision     types.FileContractRevision
 		Signatures   []types.TransactionSignature
 	}
