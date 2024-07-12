@@ -52,17 +52,17 @@ func storageProofRoot(leafHash types.Hash256, leafIndex uint64, filesize uint64,
 // An elementLeaf represents a leaf in the ElementAccumulator Merkle tree.
 type elementLeaf struct {
 	*types.StateElement
-	ElementHash types.Hash256
-	Spent       bool
+	elementHash types.Hash256
+	spent       bool
 }
 
 // hash returns the leaf's hash, for direct use in the Merkle tree.
 func (l elementLeaf) hash() types.Hash256 {
 	buf := make([]byte, 1+32+8+1)
 	buf[0] = leafHashPrefix
-	copy(buf[1:], l.ElementHash[:])
+	copy(buf[1:], l.elementHash[:])
 	binary.LittleEndian.PutUint64(buf[33:], l.LeafIndex)
-	if l.Spent {
+	if l.spent {
 		buf[41] = 1
 	}
 	return types.HashBytes(buf)

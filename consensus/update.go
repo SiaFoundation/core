@@ -3,6 +3,7 @@ package consensus
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"math/big"
 	"math/bits"
@@ -767,7 +768,7 @@ func (ru RevertUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileCont
 func (ru RevertUpdate) ForEachTreeNode(fn func(row, col uint64, h types.Hash256)) {
 	seen := make(map[[2]uint64]bool)
 	ru.ms.forEachElementLeaf(func(el elementLeaf) {
-		el.Spent = false // reverting a block can never cause an element to become spent
+		el.spent = false // reverting a block can never cause an element to become spent
 		row, col := uint64(0), el.LeafIndex
 		h := el.hash()
 		fn(row, col, h)
@@ -799,7 +800,7 @@ func RevertBlock(s State, b types.Block, bs V1BlockSupplement) RevertUpdate {
 	// compute updated elements
 	var updated, added []elementLeaf
 	ms.forEachElementLeaf(func(el elementLeaf) {
-		el.Spent = false // reverting a block can never cause an element to become spent
+		el.spent = false // reverting a block can never cause an element to become spent
 		if !ms.isCreated(el.ID) {
 			updated = append(updated, el)
 		} else {
@@ -808,4 +809,233 @@ func RevertBlock(s State, b types.Block, bs V1BlockSupplement) RevertUpdate {
 	})
 	eru := s.Elements.revertBlock(updated, added)
 	return RevertUpdate{ms, eru}
+}
+
+// MarshalJSON implements json.Marshaler.
+func (au ApplyUpdate) MarshalJSON() ([]byte, error) {
+	js := struct {
+		Created                []types.Hash256                                      `json:"created"`
+		Spent                  []types.Hash256                                      `json:"spent"`
+		Valid                  []types.Hash256                                      `json:"valid"`
+		Revisions              []types.FileContractElement                          `json:"revisions"`
+		V2Revisions            []types.V2FileContractElement                        `json:"v2Revisions"`
+		V2Resolutions          map[types.Hash256]types.V2FileContractResolutionType `json:"v2Resolutions"`
+		SiacoinElements        []types.SiacoinElement                               `json:"siacoinElements"`
+		SiafundElements        []types.SiafundElement                               `json:"siafundElements"`
+		FileContractElements   []types.FileContractElement                          `json:"fileContractElements"`
+		V2FileContractElements []types.V2FileContractElement                        `json:"v2FileContractElements"`
+		AttestationElements    []types.AttestationElement                           `json:"attestationElements"`
+		ChainIndexElement      types.ChainIndexElement                              `json:"chainIndexElement"`
+
+		UpdatedLeaves map[int][]elementLeaf   `json:"updatedLeaves"`
+		TreeGrowth    map[int][]types.Hash256 `json:"treeGrowth"`
+		OldNumLeaves  uint64                  `json:"oldNumLeaves"`
+		NumLeaves     uint64                  `json:"numLeaves"`
+	}{
+		V2Resolutions:          au.ms.v2res,
+		SiacoinElements:        au.ms.sces,
+		SiafundElements:        au.ms.sfes,
+		FileContractElements:   au.ms.fces,
+		V2FileContractElements: au.ms.v2fces,
+		AttestationElements:    au.ms.aes,
+		ChainIndexElement:      au.ms.cie,
+	}
+	for id := range au.ms.created {
+		js.Created = append(js.Created, id)
+	}
+	for id := range au.ms.spends {
+		js.Spent = append(js.Spent, id)
+	}
+	for id := range au.ms.res {
+		js.Valid = append(js.Valid, id)
+	}
+	for _, fce := range au.ms.revs {
+		js.Revisions = append(js.Revisions, *fce)
+	}
+	for _, v2fce := range au.ms.v2revs {
+		js.V2Revisions = append(js.V2Revisions, *v2fce)
+	}
+	js.UpdatedLeaves = make(map[int][]elementLeaf, len(au.eau.updated))
+	for i, els := range au.eau.updated {
+		if len(els) > 0 {
+			js.UpdatedLeaves[i] = els
+		}
+	}
+	js.TreeGrowth = make(map[int][]types.Hash256, len(au.eau.treeGrowth))
+	for i, els := range au.eau.treeGrowth {
+		if len(els) > 0 {
+			js.TreeGrowth[i] = els
+		}
+	}
+	js.OldNumLeaves = au.eau.oldNumLeaves
+	js.NumLeaves = au.eau.numLeaves
+	return json.Marshal(js)
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (au *ApplyUpdate) UnmarshalJSON(b []byte) error {
+	var js struct {
+		Created                []types.Hash256
+		Spent                  []types.Hash256
+		Valid                  []types.Hash256
+		Revisions              []types.FileContractElement
+		V2Revisions            []types.V2FileContractElement
+		V2Resolutions          map[types.Hash256]types.V2FileContractResolutionType
+		SiacoinElements        []types.SiacoinElement
+		SiafundElements        []types.SiafundElement
+		FileContractElements   []types.FileContractElement
+		V2FileContractElements []types.V2FileContractElement
+		AttestationElements    []types.AttestationElement
+		ChainIndexElement      types.ChainIndexElement
+
+		UpdatedLeaves map[int][]elementLeaf
+		TreeGrowth    map[int][]types.Hash256
+		OldNumLeaves  uint64
+		NumLeaves     uint64
+	}
+	if err := json.Unmarshal(b, &js); err != nil {
+		return err
+	}
+	au.ms = NewMidState(State{})
+	for _, id := range js.Created {
+		au.ms.created[id] = 0 // value doesn't matter, just need an entry
+	}
+	for _, id := range js.Spent {
+		au.ms.spends[id] = types.TransactionID{} // value doesn't matter, just need an entry
+	}
+	for _, id := range js.Valid {
+		au.ms.res[id] = true
+	}
+	for _, fce := range js.Revisions {
+		au.ms.revs[fce.ID] = &fce
+	}
+	for _, v2fce := range js.V2Revisions {
+		au.ms.v2revs[v2fce.ID] = &v2fce
+	}
+	au.ms.v2res = js.V2Resolutions
+	au.ms.sces = js.SiacoinElements
+	au.ms.sfes = js.SiafundElements
+	au.ms.fces = js.FileContractElements
+	au.ms.v2fces = js.V2FileContractElements
+	au.ms.aes = js.AttestationElements
+	au.ms.cie = js.ChainIndexElement
+
+	au.eau = elementApplyUpdate{
+		oldNumLeaves: js.OldNumLeaves,
+		numLeaves:    js.NumLeaves,
+	}
+	for i, els := range js.UpdatedLeaves {
+		au.eau.updated[i] = els
+	}
+	for i, els := range js.TreeGrowth {
+		au.eau.treeGrowth[i] = els
+	}
+	return nil
+}
+
+// MarshalJSON implements json.Marshaler.
+func (ru RevertUpdate) MarshalJSON() ([]byte, error) {
+	js := struct {
+		Created                []types.Hash256                                      `json:"created"`
+		Spent                  []types.Hash256                                      `json:"spent"`
+		Valid                  []types.Hash256                                      `json:"valid"`
+		Revisions              []types.FileContractElement                          `json:"revisions"`
+		V2Revisions            []types.V2FileContractElement                        `json:"v2Revisions"`
+		V2Resolutions          map[types.Hash256]types.V2FileContractResolutionType `json:"v2Resolutions"`
+		SiacoinElements        []types.SiacoinElement                               `json:"siacoinElements"`
+		SiafundElements        []types.SiafundElement                               `json:"siafundElements"`
+		FileContractElements   []types.FileContractElement                          `json:"fileContractElements"`
+		V2FileContractElements []types.V2FileContractElement                        `json:"v2FileContractElements"`
+		AttestationElements    []types.AttestationElement                           `json:"attestationElements"`
+		ChainIndexElement      types.ChainIndexElement                              `json:"chainIndexElement"`
+
+		UpdatedLeaves map[int][]elementLeaf `json:"updatedLeaves"`
+		NumLeaves     uint64                `json:"numLeaves"`
+	}{
+		V2Resolutions:          ru.ms.v2res,
+		SiacoinElements:        ru.ms.sces,
+		SiafundElements:        ru.ms.sfes,
+		FileContractElements:   ru.ms.fces,
+		V2FileContractElements: ru.ms.v2fces,
+		AttestationElements:    ru.ms.aes,
+		ChainIndexElement:      ru.ms.cie,
+	}
+	for id := range ru.ms.created {
+		js.Created = append(js.Created, id)
+	}
+	for id := range ru.ms.spends {
+		js.Spent = append(js.Spent, id)
+	}
+	for id := range ru.ms.res {
+		js.Valid = append(js.Valid, id)
+	}
+	for _, fce := range ru.ms.revs {
+		js.Revisions = append(js.Revisions, *fce)
+	}
+	for _, v2fce := range ru.ms.v2revs {
+		js.V2Revisions = append(js.V2Revisions, *v2fce)
+	}
+	js.UpdatedLeaves = make(map[int][]elementLeaf, len(ru.eru.updated))
+	for i, els := range ru.eru.updated {
+		if len(els) > 0 {
+			js.UpdatedLeaves[i] = els
+		}
+	}
+	js.NumLeaves = ru.eru.numLeaves
+	return json.Marshal(js)
+}
+
+// UnmarshalJSON implments json.Unmarshaler.
+func (ru *RevertUpdate) UnmarshalJSON(b []byte) error {
+	var js struct {
+		Created                []types.Hash256
+		Spent                  []types.Hash256
+		Valid                  []types.Hash256
+		Revisions              []types.FileContractElement
+		V2Revisions            []types.V2FileContractElement
+		V2Resolutions          map[types.Hash256]types.V2FileContractResolutionType
+		SiacoinElements        []types.SiacoinElement
+		SiafundElements        []types.SiafundElement
+		FileContractElements   []types.FileContractElement
+		V2FileContractElements []types.V2FileContractElement
+		AttestationElements    []types.AttestationElement
+		ChainIndexElement      types.ChainIndexElement
+
+		UpdatedLeaves map[int][]elementLeaf
+		NumLeaves     uint64
+	}
+	if err := json.Unmarshal(b, &js); err != nil {
+		return err
+	}
+	ru.ms = NewMidState(State{})
+	for _, id := range js.Created {
+		ru.ms.created[id] = 0 // value doesn't matter, just need an entry
+	}
+	for _, id := range js.Spent {
+		ru.ms.spends[id] = types.TransactionID{} // value doesn't matter, just need an entry
+	}
+	for _, id := range js.Valid {
+		ru.ms.res[id] = true
+	}
+	for _, fce := range js.Revisions {
+		ru.ms.revs[fce.ID] = &fce
+	}
+	for _, v2fce := range js.V2Revisions {
+		ru.ms.v2revs[v2fce.ID] = &v2fce
+	}
+	ru.ms.v2res = js.V2Resolutions
+	ru.ms.sces = js.SiacoinElements
+	ru.ms.sfes = js.SiafundElements
+	ru.ms.fces = js.FileContractElements
+	ru.ms.v2fces = js.V2FileContractElements
+	ru.ms.aes = js.AttestationElements
+	ru.ms.cie = js.ChainIndexElement
+
+	ru.eru = elementRevertUpdate{
+		numLeaves: js.NumLeaves,
+	}
+	for i, els := range js.UpdatedLeaves {
+		ru.eru.updated[i] = els
+	}
+	return nil
 }

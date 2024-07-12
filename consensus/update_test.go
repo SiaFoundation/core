@@ -54,6 +54,15 @@ func TestApplyBlock(t *testing.T) {
 			return
 		}
 		cs, au = ApplyBlock(cs, *b, bs, db.ancestorTimestamp(b.ParentID))
+		// test update marshalling while we're at it
+		{
+			js, _ := au.MarshalJSON()
+			var au2 ApplyUpdate
+			if err = au2.UnmarshalJSON(js); err != nil {
+				panic(err)
+			}
+			au = au2
+		}
 		db.applyBlock(au)
 		return
 	}
@@ -195,6 +204,16 @@ func TestApplyBlock(t *testing.T) {
 	}
 
 	ru := RevertBlock(prev, b2, bs)
+	// test update marshalling while we're at it
+	{
+		js, _ := ru.MarshalJSON()
+		var ru2 RevertUpdate
+		if err := ru2.UnmarshalJSON(js); err != nil {
+			panic(err)
+		}
+		ru = ru2
+	}
+
 	checkRevertElements(ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 
 	// reverting a non-child block should trigger a panic
