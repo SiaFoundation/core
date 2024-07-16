@@ -23,6 +23,14 @@ func roundtrip(from EncoderTo, to DecoderFrom) {
 	}
 }
 
+func jsonRoundtrip(from json.Marshaler, to json.Unmarshaler) {
+	if js, err := from.MarshalJSON(); err != nil {
+		panic(err)
+	} else if err := to.UnmarshalJSON(js); err != nil {
+		panic(err)
+	}
+}
+
 func TestPolicyVerify(t *testing.T) {
 	key := GeneratePrivateKey()
 	pk := key.PublicKey()
@@ -328,6 +336,7 @@ func TestPolicyRoundtrip(t *testing.T) {
 	} {
 		var p2 SpendPolicy
 		roundtrip(p, &p2)
+		jsonRoundtrip(p, &p2)
 		if p.Address() != p2.Address() {
 			t.Fatal("policy did not survive roundtrip")
 		}
@@ -358,6 +367,7 @@ func TestPolicyRoundtrip(t *testing.T) {
 	}
 	var sp2 SatisfiedPolicy
 	roundtrip(sp, &sp2)
+	jsonRoundtrip(sp, &sp2)
 	if fmt.Sprint(sp) != fmt.Sprint(sp2) {
 		t.Fatal("satisfied policy did not survive roundtrip:", sp, sp2)
 	}
@@ -373,30 +383,47 @@ func TestSpendPolicyMarshalJSON(t *testing.T) {
 	}{
 		{
 			sp:  PolicyAbove(100),
-			exp: `"above(100)"`,
+			exp: `{"type":"above","policy":100}`,
 		},
 		{
 			sp:  PolicyAfter(time.Unix(1234567890, 0)),
-			exp: `"after(1234567890)"`,
+			exp: `{"type":"after","policy":1234567890}`,
 		},
 		{
 			sp:  PolicyPublicKey(publicKey),
-			exp: fmt.Sprintf(`"pk(0x%x)"`, publicKey[:]),
+			exp: fmt.Sprintf(`{"type":"pk","policy":"ed25519:%x"}`, publicKey[:]),
 		},
 		{
 			sp:  PolicyHash(hash),
-			exp: fmt.Sprintf(`"h(0x%x)"`, hash[:]),
+			exp: fmt.Sprintf(`{"type":"h","policy":"h:%x"}`, hash[:]),
+		},
+		{
+			sp: PolicyThreshold(2, []SpendPolicy{
+				PolicyAbove(100),
+				PolicyPublicKey(publicKey),
+				PolicyThreshold(2, []SpendPolicy{
+					PolicyAbove(200),
+					PolicyPublicKey(publicKey),
+				}),
+			}),
+			exp: fmt.Sprintf(`{"type":"thresh","policy":{"n":2,"of":[{"type":"above","policy":100},{"type":"pk","policy":"ed25519:%x"},{"type":"thresh","policy":{"n":2,"of":[{"type":"above","policy":200},{"type":"pk","policy":"ed25519:%x"}]}}]}}`, publicKey[:], publicKey[:]),
+		},
+		{
+			sp: SpendPolicy{PolicyTypeUnlockConditions{
+				Timelock:           123,
+				PublicKeys:         []UnlockKey{publicKey.UnlockKey()},
+				SignaturesRequired: 2,
+			}},
+			exp: fmt.Sprintf(`{"type":"uc","policy":{"timelock":123,"publicKeys":["ed25519:%x"],"signaturesRequired":2}}`, publicKey[:]),
 		},
 	}
 
 	for _, tt := range tests {
 		data, err := json.Marshal(tt.sp)
 		if err != nil {
-			t.Fatalf("Expected no error, but got %v", err)
-		}
-
-		if string(data) != tt.exp {
-			t.Fatalf("Expected %s, but got %s", tt.exp, string(data))
+			t.Errorf("Expected no error, but got %v", err)
+		} else if string(data) != tt.exp {
+			t.Errorf("Expected %s, but got %s", tt.exp, string(data))
 		}
 	}
 }
@@ -416,38 +443,33 @@ func TestSatisfiedPolicyMarshalJSON(t *testing.T) {
 		exp        string
 	}{
 		{
-			name: "EmptyPolicy",
-			sp:   SpendPolicy{},
-			exp:  `{"policy":""}`,
-		},
-		{
 			name:       "PolicyWithSignature",
 			sp:         PolicyPublicKey(publicKey),
 			signatures: []Signature{signature},
-			exp:        fmt.Sprintf(`{"policy":"pk(0x%x)","signatures":[%q]}`, publicKey[:], signature),
+			exp:        fmt.Sprintf(`{"policy":{"type":"pk","policy":"ed25519:%x"},"signatures":[%q]}`, publicKey[:], signature),
 		},
 		{
 			name:       "PolicyWithSignaturesAndPreimages",
 			sp:         PolicyThreshold(1, []SpendPolicy{PolicyPublicKey(publicKey), PolicyHash(hash)}),
 			signatures: []Signature{signature},
 			preimages:  [][]byte{{1, 2, 3}},
-			exp:        fmt.Sprintf(`{"policy":"thresh(1,[pk(0x%x),h(0x%x)])","signatures":[%q],"preimages":["010203"]}`, publicKey[:], hash[:], signature),
+			exp:        fmt.Sprintf(`{"policy":{"type":"thresh","policy":{"n":1,"of":[{"type":"pk","policy":"ed25519:%x"},{"type":"h","policy":"h:%x"}]}},"signatures":[%q],"preimages":["010203"]}`, publicKey[:], hash[:], signature),
 		},
 		{
 			name:      "PolicyWithPreimagesOnly",
 			sp:        PolicyHash(hash),
 			preimages: [][]byte{{4, 5, 6}},
-			exp:       fmt.Sprintf(`{"policy":"h(0x%x)","preimages":["040506"]}`, hash[:]),
+			exp:       fmt.Sprintf(`{"policy":{"type":"h","policy":"h:%x"},"preimages":["040506"]}`, hash[:]),
 		},
 		{
 			name: "PolicyWithEmptySignatures",
 			sp:   PolicyPublicKey(publicKey),
-			exp:  fmt.Sprintf(`{"policy":"pk(0x%x)"}`, publicKey[:]),
+			exp:  fmt.Sprintf(`{"policy":{"type":"pk","policy":"ed25519:%x"}}`, publicKey[:]),
 		},
 		{
 			name: "PolicyWithEmptyPreimages",
 			sp:   PolicyHash(hash),
-			exp:  fmt.Sprintf(`{"policy":"h(0x%x)"}`, hash[:]),
+			exp:  fmt.Sprintf(`{"policy":{"type":"h","policy":"h:%x"}}`, hash[:]),
 		},
 	}
 
