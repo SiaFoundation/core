@@ -1094,7 +1094,7 @@ func (res V2FileContractResolution) MarshalJSON() ([]byte, error) {
 	case *V2FileContractRenewal:
 		typ = "renewal"
 	case *V2StorageProof:
-		typ = "storage proof"
+		typ = "storageProof"
 	case *V2FileContractFinalization:
 		typ = "finalization"
 	case *V2FileContractExpiration:
@@ -1122,7 +1122,7 @@ func (res *V2FileContractResolution) UnmarshalJSON(b []byte) error {
 	switch p.Type {
 	case "renewal":
 		res.Resolution = new(V2FileContractRenewal)
-	case "storage proof":
+	case "storageProof":
 		res.Resolution = new(V2StorageProof)
 	case "finalization":
 		res.Resolution = new(V2FileContractFinalization)
