@@ -1288,8 +1288,8 @@ func (ren *V2FileContractRenewal) DecodeFrom(d *Decoder) {
 }
 
 // DecodeFrom implements types.DecoderFrom.
-func (fcf V2FileContractFinalization) DecodeFrom(d *Decoder) {
-	(*V2FileContract)(&fcf).DecodeFrom(d)
+func (fcf *V2FileContractFinalization) DecodeFrom(d *Decoder) {
+	(*V2FileContract)(fcf).DecodeFrom(d)
 }
 
 // DecodeFrom implements types.DecoderFrom.
