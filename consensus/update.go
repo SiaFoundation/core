@@ -811,12 +811,13 @@ func RevertBlock(s State, b types.Block, bs V1BlockSupplement) RevertUpdate {
 	return RevertUpdate{ms, eru}
 }
 
-// MarshalJSON implements json.Marshaler.
-func (au ApplyUpdate) MarshalJSON() ([]byte, error) {
-	js := struct {
+// condensed representation of the update types for JSON marshaling
+type (
+	applyUpdateJSON struct {
 		Created                []types.Hash256                                      `json:"created"`
 		Spent                  []types.Hash256                                      `json:"spent"`
-		Valid                  []types.Hash256                                      `json:"valid"`
+		ValidProof             []types.Hash256                                      `json:"validProof"`
+		MissedProof            []types.Hash256                                      `json:"missedProof"`
 		Revisions              []types.FileContractElement                          `json:"revisions"`
 		V2Revisions            []types.V2FileContractElement                        `json:"v2Revisions"`
 		V2Resolutions          map[types.Hash256]types.V2FileContractResolutionType `json:"v2Resolutions"`
@@ -831,7 +832,31 @@ func (au ApplyUpdate) MarshalJSON() ([]byte, error) {
 		TreeGrowth    map[int][]types.Hash256 `json:"treeGrowth"`
 		OldNumLeaves  uint64                  `json:"oldNumLeaves"`
 		NumLeaves     uint64                  `json:"numLeaves"`
-	}{
+	}
+
+	revertUpdateJSON struct {
+		Created                []types.Hash256                                      `json:"created"`
+		Spent                  []types.Hash256                                      `json:"spent"`
+		ValidProof             []types.Hash256                                      `json:"validProof"`
+		MissedProof            []types.Hash256                                      `json:"missedProof"`
+		Revisions              []types.FileContractElement                          `json:"revisions"`
+		V2Revisions            []types.V2FileContractElement                        `json:"v2Revisions"`
+		V2Resolutions          map[types.Hash256]types.V2FileContractResolutionType `json:"v2Resolutions"`
+		SiacoinElements        []types.SiacoinElement                               `json:"siacoinElements"`
+		SiafundElements        []types.SiafundElement                               `json:"siafundElements"`
+		FileContractElements   []types.FileContractElement                          `json:"fileContractElements"`
+		V2FileContractElements []types.V2FileContractElement                        `json:"v2FileContractElements"`
+		AttestationElements    []types.AttestationElement                           `json:"attestationElements"`
+		ChainIndexElement      types.ChainIndexElement                              `json:"chainIndexElement"`
+
+		UpdatedLeaves map[int][]elementLeaf `json:"updatedLeaves"`
+		NumLeaves     uint64                `json:"numLeaves"`
+	}
+)
+
+// MarshalJSON implements json.Marshaler.
+func (au ApplyUpdate) MarshalJSON() ([]byte, error) {
+	js := applyUpdateJSON{
 		V2Resolutions:          au.ms.v2res,
 		SiacoinElements:        au.ms.sces,
 		SiafundElements:        au.ms.sfes,
@@ -846,8 +871,12 @@ func (au ApplyUpdate) MarshalJSON() ([]byte, error) {
 	for id := range au.ms.spends {
 		js.Spent = append(js.Spent, id)
 	}
-	for id := range au.ms.res {
-		js.Valid = append(js.Valid, id)
+	for id, valid := range au.ms.res {
+		if valid {
+			js.ValidProof = append(js.ValidProof, id)
+		} else {
+			js.MissedProof = append(js.MissedProof, id)
+		}
 	}
 	for _, fce := range au.ms.revs {
 		js.Revisions = append(js.Revisions, *fce)
@@ -874,25 +903,7 @@ func (au ApplyUpdate) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements json.Unmarshaler.
 func (au *ApplyUpdate) UnmarshalJSON(b []byte) error {
-	var js struct {
-		Created                []types.Hash256
-		Spent                  []types.Hash256
-		Valid                  []types.Hash256
-		Revisions              []types.FileContractElement
-		V2Revisions            []types.V2FileContractElement
-		V2Resolutions          map[types.Hash256]types.V2FileContractResolutionType
-		SiacoinElements        []types.SiacoinElement
-		SiafundElements        []types.SiafundElement
-		FileContractElements   []types.FileContractElement
-		V2FileContractElements []types.V2FileContractElement
-		AttestationElements    []types.AttestationElement
-		ChainIndexElement      types.ChainIndexElement
-
-		UpdatedLeaves map[int][]elementLeaf
-		TreeGrowth    map[int][]types.Hash256
-		OldNumLeaves  uint64
-		NumLeaves     uint64
-	}
+	var js applyUpdateJSON
 	if err := json.Unmarshal(b, &js); err != nil {
 		return err
 	}
@@ -903,8 +914,11 @@ func (au *ApplyUpdate) UnmarshalJSON(b []byte) error {
 	for _, id := range js.Spent {
 		au.ms.spends[id] = types.TransactionID{} // value doesn't matter, just need an entry
 	}
-	for _, id := range js.Valid {
+	for _, id := range js.ValidProof {
 		au.ms.res[id] = true
+	}
+	for _, id := range js.MissedProof {
+		au.ms.res[id] = false
 	}
 	for _, fce := range js.Revisions {
 		au.ms.revs[fce.ID] = &fce
@@ -935,23 +949,7 @@ func (au *ApplyUpdate) UnmarshalJSON(b []byte) error {
 
 // MarshalJSON implements json.Marshaler.
 func (ru RevertUpdate) MarshalJSON() ([]byte, error) {
-	js := struct {
-		Created                []types.Hash256                                      `json:"created"`
-		Spent                  []types.Hash256                                      `json:"spent"`
-		Valid                  []types.Hash256                                      `json:"valid"`
-		Revisions              []types.FileContractElement                          `json:"revisions"`
-		V2Revisions            []types.V2FileContractElement                        `json:"v2Revisions"`
-		V2Resolutions          map[types.Hash256]types.V2FileContractResolutionType `json:"v2Resolutions"`
-		SiacoinElements        []types.SiacoinElement                               `json:"siacoinElements"`
-		SiafundElements        []types.SiafundElement                               `json:"siafundElements"`
-		FileContractElements   []types.FileContractElement                          `json:"fileContractElements"`
-		V2FileContractElements []types.V2FileContractElement                        `json:"v2FileContractElements"`
-		AttestationElements    []types.AttestationElement                           `json:"attestationElements"`
-		ChainIndexElement      types.ChainIndexElement                              `json:"chainIndexElement"`
-
-		UpdatedLeaves map[int][]elementLeaf `json:"updatedLeaves"`
-		NumLeaves     uint64                `json:"numLeaves"`
-	}{
+	js := revertUpdateJSON{
 		V2Resolutions:          ru.ms.v2res,
 		SiacoinElements:        ru.ms.sces,
 		SiafundElements:        ru.ms.sfes,
@@ -966,8 +964,12 @@ func (ru RevertUpdate) MarshalJSON() ([]byte, error) {
 	for id := range ru.ms.spends {
 		js.Spent = append(js.Spent, id)
 	}
-	for id := range ru.ms.res {
-		js.Valid = append(js.Valid, id)
+	for id, valid := range ru.ms.res {
+		if valid {
+			js.ValidProof = append(js.ValidProof, id)
+		} else {
+			js.MissedProof = append(js.MissedProof, id)
+		}
 	}
 	for _, fce := range ru.ms.revs {
 		js.Revisions = append(js.Revisions, *fce)
@@ -987,23 +989,7 @@ func (ru RevertUpdate) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implments json.Unmarshaler.
 func (ru *RevertUpdate) UnmarshalJSON(b []byte) error {
-	var js struct {
-		Created                []types.Hash256
-		Spent                  []types.Hash256
-		Valid                  []types.Hash256
-		Revisions              []types.FileContractElement
-		V2Revisions            []types.V2FileContractElement
-		V2Resolutions          map[types.Hash256]types.V2FileContractResolutionType
-		SiacoinElements        []types.SiacoinElement
-		SiafundElements        []types.SiafundElement
-		FileContractElements   []types.FileContractElement
-		V2FileContractElements []types.V2FileContractElement
-		AttestationElements    []types.AttestationElement
-		ChainIndexElement      types.ChainIndexElement
-
-		UpdatedLeaves map[int][]elementLeaf
-		NumLeaves     uint64
-	}
+	var js revertUpdateJSON
 	if err := json.Unmarshal(b, &js); err != nil {
 		return err
 	}
@@ -1014,8 +1000,11 @@ func (ru *RevertUpdate) UnmarshalJSON(b []byte) error {
 	for _, id := range js.Spent {
 		ru.ms.spends[id] = types.TransactionID{} // value doesn't matter, just need an entry
 	}
-	for _, id := range js.Valid {
+	for _, id := range js.ValidProof {
 		ru.ms.res[id] = true
+	}
+	for _, id := range js.MissedProof {
+		ru.ms.res[id] = false
 	}
 	for _, fce := range js.Revisions {
 		ru.ms.revs[fce.ID] = &fce
