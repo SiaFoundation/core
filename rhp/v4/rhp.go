@@ -367,7 +367,8 @@ func NewContract(hs HostSettings, allowance, collateral types.Currency, proofHei
 			Value:   collateral.Add(hs.Prices.ContractPrice),
 			Address: hs.WalletAddress,
 		},
-		HostCollateral:  collateral,
+		MissedHostValue: collateral,
+		TotalCollateral: collateral,
 		RenterPublicKey: renterPublicKey,
 		HostPublicKey:   hostPublicKey,
 		RevisionNumber:  0,
@@ -375,7 +376,7 @@ func NewContract(hs HostSettings, allowance, collateral types.Currency, proofHei
 }
 
 func ContractCost(cs consensus.State, hs HostSettings, fc types.V2FileContract, minerFee types.Currency) (renter, host types.Currency) {
-	return fc.RenterOutput.Value.Add(hs.Prices.ContractPrice).Add(minerFee), fc.HostOutput.Value.Sub(hs.Prices.ContractPrice)
+	return fc.RenterOutput.Value.Add(hs.Prices.ContractPrice).Add(minerFee), fc.TotalCollateral.Sub(hs.Prices.ContractPrice)
 }
 
 func FormContractTransaction(cs consensus.State, req RPCFormContractRequest, resp RPCFormContractResponse) types.V2Transaction {
@@ -465,24 +466,19 @@ func SignRenewContractTransaction(txn *types.V2Transaction, resp2 RPCRenewContra
 	}
 }
 
-func pay(fc types.V2FileContract, amount types.Currency) types.V2FileContract {
+func pay(fc types.V2FileContract, amount, collateral types.Currency) (types.V2FileContract, error) {
 	if fc.RenterOutput.Value.Cmp(amount) < 0 {
-		amount = fc.RenterOutput.Value
+		return fc, fmt.Errorf("insufficient renter funds: %v < %v", fc.RenterOutput.Value, amount)
+	} else if fc.MissedHostValue.Cmp(collateral) < 0 {
+		return fc, fmt.Errorf("insufficient host collateral: %v < %v", fc.MissedHostValue, collateral)
 	}
 	fc.RenterOutput.Value = fc.RenterOutput.Value.Sub(amount)
 	fc.HostOutput.Value = fc.HostOutput.Value.Add(amount)
-	return fc
+	fc.MissedHostValue = fc.MissedHostValue.Sub(amount)
+	return fc, nil
 }
 
-func pledge(fc types.V2FileContract, amount types.Currency) types.V2FileContract {
-	if fc.HostCollateral.Cmp(amount) < 0 {
-		amount = fc.HostCollateral
-	}
-	fc.HostCollateral = fc.HostCollateral.Sub(amount)
-	return fc
-}
-
-func ReviseForModifySectors(fc types.V2FileContract, req RPCModifySectorsRequest, resp RPCModifySectorsResponse) types.V2FileContract {
+func ReviseForModifySectors(fc types.V2FileContract, req RPCModifySectorsRequest, resp RPCModifySectorsResponse) (types.V2FileContract, error) {
 	old := fc.Filesize
 	for _, action := range req.Actions {
 		switch action.Type {
@@ -495,17 +491,19 @@ func ReviseForModifySectors(fc types.V2FileContract, req RPCModifySectorsRequest
 	if fc.Filesize > old {
 		size := fc.Filesize - old
 		duration := fc.ProofHeight - req.Prices.TipHeight
-		fc = pay(fc, req.Prices.StoragePrice.Mul64(size).Mul64(duration))
-		fc = pledge(fc, req.Prices.Collateral.Mul64(size).Mul64(duration))
+		fc, err := pay(fc, req.Prices.StoragePrice.Mul64(size).Mul64(duration), req.Prices.Collateral.Mul64(size).Mul64(duration))
+		if err != nil {
+			return fc, err
+		}
 	}
 	fc.FileMerkleRoot = resp.Proof[len(resp.Proof)-1] // TODO
-	return fc
+	return fc, nil
 }
 
-func ReviseForSectorRoots(fc types.V2FileContract, prices HostPrices, numRoots uint64) types.V2FileContract {
-	return pay(fc, prices.EgressPrice.Mul64(round4KiB(32*numRoots)))
+func ReviseForSectorRoots(fc types.V2FileContract, prices HostPrices, numRoots uint64) (types.V2FileContract, error) {
+	return pay(fc, prices.EgressPrice.Mul64(round4KiB(32*numRoots)), types.ZeroCurrency)
 }
 
-func ReviseForFundAccount(fc types.V2FileContract, amount types.Currency) types.V2FileContract {
-	return pay(fc, amount)
+func ReviseForFundAccount(fc types.V2FileContract, amount types.Currency) (types.V2FileContract, error) {
+	return pay(fc, amount, types.ZeroCurrency)
 }

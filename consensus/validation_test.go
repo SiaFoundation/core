@@ -777,7 +777,8 @@ func TestValidateV2Block(t *testing.T) {
 		ExpirationHeight: 30,
 		RenterOutput:     v1GiftFC.ValidProofOutputs[0],
 		HostOutput:       v1GiftFC.ValidProofOutputs[1],
-		HostCollateral:   v1GiftFC.MissedProofOutputs[1].Value,
+		MissedHostValue:  v1GiftFC.MissedProofOutputs[1].Value,
+		TotalCollateral:  v1GiftFC.Payout,
 		RenterPublicKey:  renterPublicKey,
 		HostPublicKey:    hostPublicKey,
 	}
@@ -818,6 +819,7 @@ func TestValidateV2Block(t *testing.T) {
 	db, cs := newConsensusDB(n, genesisBlock)
 
 	fc := v2GiftFC
+	fc.TotalCollateral = fc.HostOutput.Value
 
 	rev1 := v2GiftFC
 	rev1.RevisionNumber++
@@ -1097,13 +1099,21 @@ func TestValidateV2Block(t *testing.T) {
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.SiacoinOutputs[0].Value = txn.SiacoinOutputs[0].Value.Add(types.Siacoins(1))
+					txn.FileContracts[0].TotalCollateral = txn.FileContracts[0].TotalCollateral.Sub(types.Siacoins(1))
 				},
 			},
 			{
-				"host collateral exceeding valid host value",
+				"missed host value exceeding valid host value",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
-					txn.FileContracts[0].HostCollateral = txn.FileContracts[0].HostOutput.Value.Add(types.Siacoins(1))
+					txn.FileContracts[0].MissedHostValue = txn.FileContracts[0].HostOutput.Value.Add(types.Siacoins(1))
+				},
+			},
+			{
+				"total collateral exceeding valid host value",
+				func(b *types.Block) {
+					txn := &b.V2.Transactions[0]
+					txn.FileContracts[0].TotalCollateral = txn.FileContracts[0].HostOutput.Value.Add(types.Siacoins(1))
 				},
 			},
 			{
@@ -1343,6 +1353,7 @@ func TestValidateV2Block(t *testing.T) {
 
 					resolution := types.V2FileContractFinalization(testFces[0].V2FileContract)
 					resolution.RevisionNumber = types.MaxRevisionNumber
+					resolution.TotalCollateral = types.ZeroCurrency
 					txn.FileContractResolutions = []types.V2FileContractResolution{{
 						Parent:     testFces[0],
 						Resolution: &resolution,
@@ -1380,6 +1391,7 @@ func TestValidateV2Block(t *testing.T) {
 
 					rev := testFces[0].V2FileContract
 					rev.RevisionNumber = types.MaxRevisionNumber
+					rev.TotalCollateral = types.ZeroCurrency
 					resolution := types.V2FileContractRenewal{
 						FinalRevision: rev,
 						NewContract:   testFces[0].V2FileContract,
