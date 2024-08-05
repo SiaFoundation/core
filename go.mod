@@ -5,7 +5,7 @@ go 1.21.8
 require (
 	go.sia.tech/mux v1.2.0
 	golang.org/x/crypto v0.25.0
-	golang.org/x/sys v0.22.0
+	golang.org/x/sys v0.23.0
 	lukechampine.com/frand v1.4.2
 )
 
