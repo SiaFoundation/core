@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"go.sia.tech/core/types"
 )
@@ -302,5 +303,89 @@ func TestWorkEncoding(t *testing.T) {
 				continue
 			}
 		}
+	}
+}
+
+func TestRevertedRevisionLeaf(t *testing.T) {
+	// Regression test for a1a2c3fd (consensus: Add (*MidState).forEachRevertedElement)
+	//
+	// NOTE: this is a tricky bug to reproduce. We can't directly observe it by
+	// looking at the contract element itself; instead, we have to look at the
+	// leaf *adjacent* to it in the accumulator (in this case, the chain index
+	// element).
+
+	n, genesisBlock := testnet()
+	genesisBlock.Transactions = []types.Transaction{{
+		FileContracts: []types.FileContract{{
+			Filesize:       123,
+			Payout:         types.Siacoins(1),
+			WindowStart:    1000,
+			WindowEnd:      1001,
+			RevisionNumber: 0,
+		}},
+	}}
+	bs := V1BlockSupplement{Transactions: make([]V1TransactionSupplement, len(genesisBlock.Transactions))}
+	cs, cau := ApplyBlock(n.GenesisState(), genesisBlock, bs, time.Time{})
+	cie := cau.ms.cie
+	fce := cau.ms.fces[0]
+	if !cs.Elements.containsChainIndex(cie) {
+		t.Error("chain index element should be present in accumulator")
+	}
+	if !cs.Elements.containsUnresolvedFileContractElement(fce) {
+		t.Error("unrevised contract should be present in accumulator")
+	}
+
+	// revise the contract
+	b := types.Block{
+		ParentID: cs.Index.ID,
+		Transactions: []types.Transaction{{
+			FileContractRevisions: []types.FileContractRevision{{
+				ParentID: types.FileContractID(fce.ID),
+				FileContract: types.FileContract{
+					Filesize:       456,
+					Payout:         types.Siacoins(2),
+					WindowStart:    1000,
+					WindowEnd:      1001,
+					RevisionNumber: 1,
+				},
+			}},
+		}},
+	}
+	bs = V1BlockSupplement{
+		Transactions: []V1TransactionSupplement{{
+			RevisedFileContracts: []types.FileContractElement{fce},
+		}},
+	}
+	prev := cs
+	cs, cau = ApplyBlock(cs, b, bs, time.Time{})
+
+	cau.UpdateElementProof(&cie.StateElement)
+	if !cs.Elements.containsChainIndex(cie) {
+		t.Fatal("chain index element should be present in accumulator")
+	}
+	rev := *cau.ms.revs[fce.ID]
+	if !cs.Elements.containsUnresolvedFileContractElement(rev) {
+		t.Error("revised contract should be present in accumulator")
+	}
+	cau.UpdateElementProof(&fce.StateElement)
+	if cs.Elements.containsUnresolvedFileContractElement(fce) {
+		t.Error("unrevised contract should not be present in accumulator")
+	}
+
+	// revert the block
+	cru := RevertBlock(prev, b, bs)
+	cs = prev
+
+	cru.UpdateElementProof(&cie.StateElement)
+	if !cs.Elements.containsChainIndex(cie) {
+		t.Error("chain index element should be present in accumulator")
+	}
+	cru.UpdateElementProof(&rev.StateElement)
+	if cs.Elements.containsUnresolvedFileContractElement(rev) {
+		t.Error("revised contract should not be present in accumulator")
+	}
+	cru.UpdateElementProof(&fce.StateElement)
+	if !cs.Elements.containsUnresolvedFileContractElement(fce) {
+		t.Error("unrevised contract should be present in accumulator")
 	}
 }

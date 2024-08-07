@@ -721,7 +721,7 @@ func (ts V1TransactionSupplement) siacoinElement(id types.SiacoinOutputID) (sce 
 	return
 }
 
-func (ts V1TransactionSupplement) siafundElement(id types.SiafundOutputID) (sce types.SiafundElement, ok bool) {
+func (ts V1TransactionSupplement) siafundElement(id types.SiafundOutputID) (sfe types.SiafundElement, ok bool) {
 	for _, sfe := range ts.SiafundInputs {
 		if types.SiafundOutputID(sfe.ID) == id {
 			return sfe, true
@@ -730,7 +730,7 @@ func (ts V1TransactionSupplement) siafundElement(id types.SiafundOutputID) (sce 
 	return
 }
 
-func (ts V1TransactionSupplement) fileContractElement(id types.FileContractID) (sce types.FileContractElement, ok bool) {
+func (ts V1TransactionSupplement) fileContractElement(id types.FileContractID) (fce types.FileContractElement, ok bool) {
 	for _, fce := range ts.RevisedFileContracts {
 		if types.FileContractID(fce.ID) == id {
 			return fce, true

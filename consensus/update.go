@@ -582,7 +582,7 @@ func (ms *MidState) ApplyBlock(b types.Block, bs V1BlockSupplement) {
 	}
 }
 
-func (ms *MidState) forEachElementLeaf(fn func(elementLeaf)) {
+func (ms *MidState) forEachAppliedElement(fn func(elementLeaf)) {
 	for i := range ms.sces {
 		fn(siacoinLeaf(&ms.sces[i], ms.isSpent(ms.sces[i].ID)))
 	}
@@ -612,6 +612,21 @@ func (ms *MidState) forEachElementLeaf(fn func(elementLeaf)) {
 		fn(attestationLeaf(&ms.aes[i]))
 	}
 	fn(chainIndexLeaf(&ms.cie))
+}
+
+func (ms *MidState) forEachRevertedElement(fn func(elementLeaf)) {
+	for i := range ms.sces {
+		fn(siacoinLeaf(&ms.sces[i], false))
+	}
+	for i := range ms.sfes {
+		fn(siafundLeaf(&ms.sfes[i], false))
+	}
+	for i := range ms.fces {
+		fn(fileContractLeaf(&ms.fces[i], false))
+	}
+	for i := range ms.v2fces {
+		fn(v2FileContractLeaf(&ms.v2fces[i], false))
+	}
 }
 
 // An ApplyUpdate represents the effects of applying a block to a state.
@@ -661,10 +676,11 @@ func (au ApplyUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileContr
 // ForEachTreeNode calls fn on each node in the accumulator affected by au.
 func (au ApplyUpdate) ForEachTreeNode(fn func(row, col uint64, h types.Hash256)) {
 	seen := make(map[[2]uint64]bool)
-	au.ms.forEachElementLeaf(func(el elementLeaf) {
+	au.ms.forEachAppliedElement(func(el elementLeaf) {
 		row, col := uint64(0), el.LeafIndex
 		h := el.hash()
 		fn(row, col, h)
+		seen[[2]uint64{row, col}] = true
 		for i, sibling := range el.MerkleProof {
 			if el.LeafIndex&(1<<i) == 0 {
 				h = blake2b.SumPair(h, sibling)
@@ -673,10 +689,10 @@ func (au ApplyUpdate) ForEachTreeNode(fn func(row, col uint64, h types.Hash256))
 			}
 			row++
 			col >>= 1
-			fn(row, col, h)
 			if seen[[2]uint64{row, col}] {
 				return // already seen everything above this
 			}
+			fn(row, col, h)
 			seen[[2]uint64{row, col}] = true
 		}
 	})
@@ -704,7 +720,7 @@ func ApplyBlock(s State, b types.Block, bs V1BlockSupplement, targetTimestamp ti
 
 	// compute updated and added elements
 	var updated, added []elementLeaf
-	ms.forEachElementLeaf(func(el elementLeaf) {
+	ms.forEachAppliedElement(func(el elementLeaf) {
 		if ms.isCreated(el.ID) {
 			added = append(added, el)
 		} else {
@@ -767,11 +783,14 @@ func (ru RevertUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileCont
 // ForEachTreeNode calls fn on each node in the accumulator affected by ru.
 func (ru RevertUpdate) ForEachTreeNode(fn func(row, col uint64, h types.Hash256)) {
 	seen := make(map[[2]uint64]bool)
-	ru.ms.forEachElementLeaf(func(el elementLeaf) {
-		el.spent = false // reverting a block can never cause an element to become spent
+	ru.ms.forEachRevertedElement(func(el elementLeaf) {
+		if el.LeafIndex >= ru.eru.numLeaves {
+			return
+		}
 		row, col := uint64(0), el.LeafIndex
 		h := el.hash()
 		fn(row, col, h)
+		seen[[2]uint64{row, col}] = true
 		for i, sibling := range el.MerkleProof {
 			if el.LeafIndex&(1<<i) == 0 {
 				h = blake2b.SumPair(h, sibling)
@@ -780,10 +799,10 @@ func (ru RevertUpdate) ForEachTreeNode(fn func(row, col uint64, h types.Hash256)
 			}
 			row++
 			col >>= 1
-			fn(row, col, h)
 			if seen[[2]uint64{row, col}] {
 				return // already seen everything above this
 			}
+			fn(row, col, h)
 			seen[[2]uint64{row, col}] = true
 		}
 	})
@@ -799,8 +818,7 @@ func RevertBlock(s State, b types.Block, bs V1BlockSupplement) RevertUpdate {
 
 	// compute updated elements
 	var updated, added []elementLeaf
-	ms.forEachElementLeaf(func(el elementLeaf) {
-		el.spent = false // reverting a block can never cause an element to become spent
+	ms.forEachRevertedElement(func(el elementLeaf) {
 		if !ms.isCreated(el.ID) {
 			updated = append(updated, el)
 		} else {
