@@ -360,8 +360,7 @@ func (acc *ElementAccumulator) applyBlock(updated, added []elementLeaf) (eau ele
 
 // revertBlock modifies the proofs of supplied elements such that they validate
 // under acc, which must be the accumulator prior to the application of those
-// elements. All of the elements will be marked unspent. The accumulator itself
-// is not modified.
+// elements. The accumulator itself is not modified.
 func (acc *ElementAccumulator) revertBlock(updated, added []elementLeaf) (eru elementRevertUpdate) {
 	eru.updated = updateLeaves(updated)
 	eru.numLeaves = acc.NumLeaves
