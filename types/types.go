@@ -601,7 +601,7 @@ type Attestation struct {
 type StateElement struct {
 	ID          Hash256   `json:"id"` // SiacoinOutputID, FileContractID, etc.
 	LeafIndex   uint64    `json:"leafIndex"`
-	MerkleProof []Hash256 `json:"merkleProof"`
+	MerkleProof []Hash256 `json:"merkleProof,omitempty"`
 }
 
 // A ChainIndexElement is a record of a ChainIndex within the state accumulator.
