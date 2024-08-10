@@ -569,6 +569,8 @@ func (ms *MidState) ApplyBlock(b types.Block, bs V1BlockSupplement) {
 	for _, fce := range bs.ExpiringFileContracts {
 		if ms.isSpent(fce.ID) {
 			continue
+		} else if rev, ok := ms.revs[fce.ID]; ok && rev.FileContract.WindowEnd > ms.base.childHeight() {
+			continue // expiration postponed
 		}
 		ms.resolveFileContractElement(fce, false, types.TransactionID(bid))
 		for i, sco := range fce.FileContract.MissedProofOutputs {
