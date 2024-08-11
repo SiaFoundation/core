@@ -271,8 +271,9 @@ func validateFileContracts(ms *MidState, txn types.Transaction, ts V1Transaction
 		parent, ok := ms.fileContractElement(ts, fcr.ParentID)
 		if !ok {
 			return fmt.Errorf("file contract revision %v revises nonexistent file contract %v", i, fcr.ParentID)
-		}
-		if fcr.FileContract.RevisionNumber <= parent.FileContract.RevisionNumber {
+		} else if parent.FileContract.WindowStart < ms.base.childHeight() {
+			return fmt.Errorf("file contract revision %v revises contract after its proof window has opened", i)
+		} else if fcr.FileContract.RevisionNumber <= parent.FileContract.RevisionNumber {
 			return fmt.Errorf("file contract revision %v does not have a higher revision number than its parent", i)
 		} else if types.Hash256(fcr.UnlockConditions.UnlockHash()) != parent.FileContract.UnlockHash {
 			return fmt.Errorf("file contract revision %v claims incorrect unlock conditions", i)
@@ -750,6 +751,8 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 		curOutputSum := cur.RenterOutput.Value.Add(cur.HostOutput.Value)
 		revOutputSum := rev.RenterOutput.Value.Add(rev.HostOutput.Value)
 		switch {
+		case cur.ProofHeight < ms.base.childHeight():
+			return fmt.Errorf("revises contract after its proof window has opened")
 		case rev.RevisionNumber <= cur.RevisionNumber:
 			return fmt.Errorf("does not increase revision number (%v -> %v)", cur.RevisionNumber, rev.RevisionNumber)
 		case !revOutputSum.Equals(curOutputSum):
