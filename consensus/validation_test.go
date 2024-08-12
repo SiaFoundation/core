@@ -1539,3 +1539,56 @@ func TestEarlyV2Transaction(t *testing.T) {
 		t.Fatalf("expected %q, got %q", exp, err)
 	}
 }
+
+func TestWindowRevision(t *testing.T) {
+	n, genesisBlock := testnet()
+	n.InitialTarget = types.BlockID{0xFF}
+
+	// create file contract with window that is already open
+	sk := types.NewPrivateKeyFromSeed(make([]byte, 32))
+	uc := types.StandardUnlockConditions(sk.PublicKey())
+	fc := types.FileContract{
+		WindowStart: 0,
+		WindowEnd:   3,
+		UnlockHash:  types.Hash256(uc.UnlockHash()),
+	}
+	genesisBlock.Transactions = []types.Transaction{{
+		FileContracts: []types.FileContract{fc},
+	}}
+	db, cs := newConsensusDB(n, genesisBlock)
+
+	// attempt to extend the window
+	rev := fc
+	rev.WindowStart = 1
+	rev.RevisionNumber++
+	txn := types.Transaction{
+		FileContractRevisions: []types.FileContractRevision{{
+			ParentID:         genesisBlock.Transactions[0].FileContractID(0),
+			UnlockConditions: uc,
+			FileContract:     rev,
+		}},
+		Signatures: []types.TransactionSignature{{
+			ParentID:       types.Hash256(genesisBlock.Transactions[0].FileContractID(0)),
+			PublicKeyIndex: 0,
+			Timelock:       0,
+			CoveredFields:  types.CoveredFields{WholeTransaction: true},
+		}},
+	}
+	sig := sk.SignHash(cs.WholeSigHash(txn, txn.Signatures[0].ParentID, 0, 0, nil))
+	txn.Signatures[0].Signature = sig[:]
+
+	b := types.Block{
+		ParentID:  genesisBlock.ID(),
+		Timestamp: types.CurrentTimestamp(),
+		MinerPayouts: []types.SiacoinOutput{{
+			Address: types.VoidAddress,
+			Value:   cs.BlockReward(),
+		}},
+		Transactions: []types.Transaction{txn},
+	}
+
+	findBlockNonce(cs, &b)
+	if err := ValidateBlock(cs, b, db.supplementTipBlock(b)); err == nil || !strings.Contains(err.Error(), "proof window has opened") {
+		t.Fatal("expected error when extending window")
+	}
+}
