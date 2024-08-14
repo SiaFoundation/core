@@ -282,7 +282,10 @@ func updateLeaves(leaves []elementLeaf) [64][]elementLeaf {
 	var recompute func(i, j uint64, leaves []elementLeaf) types.Hash256
 	recompute = func(i, j uint64, leaves []elementLeaf) types.Hash256 {
 		height := bits.TrailingZeros64(j - i) // equivalent to log2(j-i), as j-i is always a power of two
-		if len(leaves) == 1 && height == 0 {
+		if height == 0 {
+			if len(leaves) > 1 {
+				panic("consensus: multiple leaves with same accumulator index")
+			}
 			return leaves[0].hash()
 		}
 		mid := (i + j) / 2

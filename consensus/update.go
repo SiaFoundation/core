@@ -448,6 +448,7 @@ func (ms *MidState) resolveV2FileContractElement(fce types.V2FileContractElement
 
 func (ms *MidState) addAttestationElement(ae types.AttestationElement) {
 	ms.aes = append(ms.aes, ae)
+	ms.created[ms.aes[len(ms.aes)-1].ID] = len(ms.aes) - 1
 }
 
 // ApplyTransaction applies a transaction to the MidState.
