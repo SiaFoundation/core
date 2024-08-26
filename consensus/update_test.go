@@ -9,6 +9,78 @@ import (
 	"go.sia.tech/core/types"
 )
 
+func checkApplyUpdate(t *testing.T, cs State, au ApplyUpdate) {
+	t.Helper()
+
+	ms := au.ms
+	for _, sce := range ms.sces {
+		if !cs.Elements.containsLeaf(siacoinLeaf(&sce, ms.isSpent(sce.ID))) {
+			t.Fatal("consensus: siacoin element not found in accumulator after apply")
+		}
+	}
+	for _, sfe := range ms.sfes {
+		if !cs.Elements.containsLeaf(siafundLeaf(&sfe, ms.isSpent(sfe.ID))) {
+			t.Fatal("consensus: siafund element not found in accumulator after apply")
+		}
+	}
+	for _, fce := range ms.fces {
+		if !cs.Elements.containsLeaf(fileContractLeaf(&fce, ms.isSpent(fce.ID))) {
+			t.Fatal("consensus: file contract element leaf not found in accumulator after apply")
+		}
+	}
+	for _, fce := range ms.v2fces {
+		leaf := v2FileContractLeaf(&fce, ms.isSpent(fce.ID))
+		if r, ok := ms.v2revs[fce.ID]; ok {
+			leaf = v2FileContractLeaf(r, ms.isSpent(fce.ID))
+		}
+
+		if !cs.Elements.containsLeaf(leaf) {
+			t.Fatal("consensus: v2 file contract element leaf not found in accumulator after apply")
+		}
+	}
+	for _, ae := range ms.aes {
+		if !cs.Elements.containsLeaf(attestationLeaf(&ae)) {
+			t.Fatal("consensus: attestation element leaf not found in accumulator after apply")
+		}
+	}
+}
+
+func checkRevertUpdate(t *testing.T, cs State, ru RevertUpdate) {
+	t.Helper()
+
+	ms := ru.ms
+	for _, sce := range ms.sces {
+		if cs.Elements.containsLeaf(siacoinLeaf(&sce, ms.isSpent(sce.ID))) {
+			t.Fatal("consensus: siacoin element found in accumulator after revert")
+		}
+	}
+	for _, sfe := range ms.sfes {
+		if cs.Elements.containsLeaf(siafundLeaf(&sfe, ms.isSpent(sfe.ID))) {
+			t.Fatal("consensus: siafund element found in accumulator after revert")
+		}
+	}
+	for _, fce := range ms.fces {
+		if cs.Elements.containsLeaf(fileContractLeaf(&fce, ms.isSpent(fce.ID))) {
+			t.Fatal("consensus: file contract element leaf found in accumulator after revert")
+		}
+	}
+	for _, fce := range ms.v2fces {
+		leaf := v2FileContractLeaf(&fce, ms.isSpent(fce.ID))
+		if r, ok := ms.v2revs[fce.ID]; ok {
+			leaf = v2FileContractLeaf(r, ms.isSpent(fce.ID))
+		}
+
+		if cs.Elements.containsLeaf(leaf) {
+			t.Fatal("consensus: v2 file contract element leaf found in accumulator after revert")
+		}
+	}
+	for _, ae := range ms.aes {
+		if cs.Elements.containsLeaf(attestationLeaf(&ae)) {
+			t.Fatal("consensus: attestation element leaf found in accumulator after revert")
+		}
+	}
+}
+
 func TestApplyBlock(t *testing.T) {
 	n, genesisBlock := testnet()
 
@@ -149,6 +221,7 @@ func TestApplyBlock(t *testing.T) {
 	if au, err := addBlock(&b1); err != nil {
 		t.Fatal(err)
 	} else {
+		checkApplyUpdate(t, cs, au)
 		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 
@@ -201,6 +274,7 @@ func TestApplyBlock(t *testing.T) {
 	if au, err := addBlock(&b2); err != nil {
 		t.Fatal(err)
 	} else {
+		checkApplyUpdate(t, cs, au)
 		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 

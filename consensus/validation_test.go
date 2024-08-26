@@ -800,7 +800,8 @@ func TestValidateV2Block(t *testing.T) {
 		Transactions: []types.V2Transaction{giftTxn},
 	}
 
-	_, au := ApplyBlock(n.GenesisState(), genesisBlock, V1BlockSupplement{}, time.Time{})
+	cs, au := ApplyBlock(n.GenesisState(), genesisBlock, V1BlockSupplement{}, time.Time{})
+	checkApplyUpdate(t, cs, au)
 	var sces []types.SiacoinElement
 	au.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
 		sces = append(sces, sce)
@@ -1188,6 +1189,7 @@ func TestValidateV2Block(t *testing.T) {
 	}
 
 	cs, testAU := ApplyBlock(cs, validBlock, db.supplementTipBlock(validBlock), time.Now())
+	checkApplyUpdate(t, cs, testAU)
 	db.applyBlock(testAU)
 	updateProofs(testAU, sces, sfes, fces, cies)
 
@@ -1226,6 +1228,7 @@ func TestValidateV2Block(t *testing.T) {
 			t.Fatal(err)
 		}
 		cs, au = ApplyBlock(cs, b, db.supplementTipBlock(validBlock), time.Now())
+		checkApplyUpdate(t, cs, au)
 		db.applyBlock(au)
 		updateProofs(au, sces, sfes, fces, cies)
 		updateProofs(au, testSces, testSfes, testFces, nil)
@@ -1477,6 +1480,7 @@ func TestV2ImmatureSiacoinOutput(t *testing.T) {
 
 		var cau ApplyUpdate
 		cs, cau = ApplyBlock(cs, b, db.supplementTipBlock(b), db.ancestorTimestamp(b.ParentID))
+		checkApplyUpdate(t, cs, cau)
 		cau.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
 			if spent {
 				delete(utxos, types.SiacoinOutputID(sce.ID))
