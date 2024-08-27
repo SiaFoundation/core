@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"go.sia.tech/core/internal/blake2b"
 	"go.sia.tech/core/types"
 )
 
@@ -522,8 +523,7 @@ func TestApplyRevertBlock(t *testing.T) {
 			appendSig(hostPrivateKey, 1, types.Hash256(txn.FileContractRevisions[i].ParentID))
 		}
 	}
-	addBlock := func(b *types.Block) (au ApplyUpdate, err error) {
-		bs := db.supplementTipBlock(*b)
+	addBlock := func(b *types.Block, bs V1BlockSupplement) (au ApplyUpdate, err error) {
 		findBlockNonce(cs, b)
 		if err = ValidateBlock(cs, *b, bs); err != nil {
 			return
@@ -611,7 +611,7 @@ func TestApplyRevertBlock(t *testing.T) {
 	spentSCEs := []types.SiacoinElement{}
 	addedSFEs := []types.SiafundElement{}
 	spentSFEs := []types.SiafundElement{}
-	if au, err := addBlock(&b1); err != nil {
+	if au, err := addBlock(&b1, db.supplementTipBlock(b1)); err != nil {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
@@ -664,7 +664,7 @@ func TestApplyRevertBlock(t *testing.T) {
 
 	prev := cs
 	bs := db.supplementTipBlock(b2)
-	if au, err := addBlock(&b2); err != nil {
+	if au, err := addBlock(&b2, bs); err != nil {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
@@ -711,7 +711,7 @@ func TestApplyRevertBlock(t *testing.T) {
 
 	// add block creating fc
 	bs = db.supplementTipBlock(b3)
-	if au, err := addBlock(&b3); err != nil {
+	if au, err := addBlock(&b3, bs); err != nil {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
@@ -726,7 +726,7 @@ func TestApplyRevertBlock(t *testing.T) {
 	db.revertBlock(ru)
 
 	// readd block creating fc
-	if au, err := addBlock(&b3); err != nil {
+	if au, err := addBlock(&b3, bs); err != nil {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
@@ -736,6 +736,11 @@ func TestApplyRevertBlock(t *testing.T) {
 	// block creating file contract revision
 	fcr := fc
 	fcr.RevisionNumber++
+	fcr.Filesize = 65
+	fcr.WindowStart = 4
+	fcr.WindowEnd = 20
+	fcr.FileMerkleRoot = blake2b.SumPair((State{}).StorageProofLeafHash([]byte{1}), (State{}).StorageProofLeafHash([]byte{2}))
+
 	uc := types.UnlockConditions{
 		PublicKeys: []types.UnlockKey{
 			{Algorithm: types.SpecifierEd25519, Key: renterPublicKey[:]},
@@ -768,7 +773,7 @@ func TestApplyRevertBlock(t *testing.T) {
 
 	prev = cs
 	bs = db.supplementTipBlock(b4)
-	if au, err := addBlock(&b4); err != nil {
+	if au, err := addBlock(&b4, bs); err != nil {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
@@ -783,7 +788,65 @@ func TestApplyRevertBlock(t *testing.T) {
 	db.revertBlock(ru)
 
 	// readd block revising fc
-	if au, err := addBlock(&b4); err != nil {
+	if au, err := addBlock(&b4, bs); err != nil {
+		t.Fatal(err)
+	} else {
+		checkApplyUpdate(t, cs, au)
+		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	}
+
+	// block with storage proof
+	txnB5 := types.Transaction{
+		StorageProofs: []types.StorageProof{{
+			ParentID: txnB3.FileContractID(0),
+			Leaf:     [64]byte{1},
+			Proof:    []types.Hash256{cs.StorageProofLeafHash([]byte{2})},
+		}},
+	}
+	signTxn(&txnB5)
+	b5 := types.Block{
+		ParentID:     b4.ID(),
+		Timestamp:    types.CurrentTimestamp(),
+		MinerPayouts: []types.SiacoinOutput{{Address: types.VoidAddress, Value: cs.BlockReward()}},
+		Transactions: []types.Transaction{txnB5},
+	}
+	if cs.StorageProofLeafIndex(fcr.Filesize, b3.ID(), types.FileContractID(txnB3.FileContractID(0))) == 1 {
+		b5.Transactions[0].StorageProofs[0] = types.StorageProof{
+			ParentID: txnB3.FileContractID(0),
+			Leaf:     [64]byte{2},
+			Proof:    []types.Hash256{cs.StorageProofLeafHash([]byte{1})},
+		}
+	}
+	addedSCEs = []types.SiacoinElement{
+		{SiacoinOutput: txnB3.FileContracts[0].ValidProofOutputs[1], MaturityHeight: 148},
+		{SiacoinOutput: txnB3.FileContracts[0].ValidProofOutputs[0], MaturityHeight: 148},
+		{SiacoinOutput: b5.MinerPayouts[0], MaturityHeight: cs.MaturityHeight()},
+	}
+	spentSCEs = nil
+	addedSFEs = nil
+	spentSFEs = nil
+
+	// add block with storage proof
+	bs = db.supplementTipBlock(b5)
+	bs.Transactions[0].ValidFileContracts = append(bs.Transactions[0].ValidFileContracts, db.fces[txnB5.StorageProofs[0].ParentID])
+	bs.Transactions[0].StorageProofBlockIDs = append(bs.Transactions[0].StorageProofBlockIDs, b3.ID())
+	prev = cs
+	if au, err := addBlock(&b5, bs); err != nil {
+		t.Fatal(err)
+	} else {
+		checkApplyUpdate(t, cs, au)
+		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	}
+
+	// revert block with storage proof
+	ru = RevertBlock(prev, b5, bs)
+	cs = prev
+	checkRevertUpdate(t, cs, ru)
+	checkRevertElements(ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	db.revertBlock(ru)
+
+	// readd block with storage proof
+	if au, err := addBlock(&b5, bs); err != nil {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
