@@ -776,7 +776,7 @@ func (ru RevertUpdate) ForEachFileContractElement(fn func(fce types.FileContract
 // was resolved, res is non-nil.
 func (ru RevertUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType)) {
 	for i := range ru.ms.v2fces {
-		fce := ru.ms.v2fces[len(ru.ms.fces)-i-1]
+		fce := ru.ms.v2fces[len(ru.ms.v2fces)-i-1]
 		fn(fce, ru.ms.isCreated(fce.ID), ru.ms.v2revs[fce.ID], ru.ms.v2res[fce.ID])
 	}
 }
