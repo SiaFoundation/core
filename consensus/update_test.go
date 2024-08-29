@@ -908,15 +908,15 @@ func TestApplyRevertBlockV2(t *testing.T) {
 			}
 		}
 	}
-	addBlock := func(b *types.Block, bs V1BlockSupplement) (au ApplyUpdate, err error) {
+	addBlock := func(b *types.Block) (au ApplyUpdate, err error) {
 		if b.V2 != nil {
 			b.V2.Commitment = cs.Commitment(cs.TransactionsCommitment(b.Transactions, b.V2Transactions()), b.MinerPayouts[0].Address)
 		}
 		findBlockNonce(cs, b)
-		if err = ValidateBlock(cs, *b, bs); err != nil {
+		if err = ValidateBlock(cs, *b, V1BlockSupplement{}); err != nil {
 			return
 		}
-		cs, au = ApplyBlock(cs, *b, bs, db.ancestorTimestamp(b.ParentID))
+		cs, au = ApplyBlock(cs, *b, V1BlockSupplement{}, db.ancestorTimestamp(b.ParentID))
 		db.applyBlock(au)
 		return
 	}
@@ -1004,7 +1004,7 @@ func TestApplyRevertBlockV2(t *testing.T) {
 	spentSCEs := []types.SiacoinElement{}
 	addedSFEs := []types.SiafundElement{}
 	spentSFEs := []types.SiafundElement{}
-	if au, err := addBlock(&b1, db.supplementTipBlock(b1)); err != nil {
+	if au, err := addBlock(&b1); err != nil {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
@@ -1059,8 +1059,7 @@ func TestApplyRevertBlockV2(t *testing.T) {
 	}
 
 	prev := cs
-	bs := db.supplementTipBlock(b2)
-	if au, err := addBlock(&b2, bs); err != nil {
+	if au, err := addBlock(&b2); err != nil {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
@@ -1073,7 +1072,7 @@ func TestApplyRevertBlockV2(t *testing.T) {
 	_ = prev
 
 	// revert block spending sc and sf
-	ru := RevertBlock(prev, b2, bs)
+	ru := RevertBlock(prev, b2, V1BlockSupplement{})
 	cs = prev
 	checkRevertUpdate(t, cs, ru)
 	checkRevertElements(ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
@@ -1130,8 +1129,7 @@ func TestApplyRevertBlockV2(t *testing.T) {
 	spentSFEs = nil
 
 	// add block creating fc
-	bs = db.supplementTipBlock(b3)
-	if au, err := addBlock(&b3, bs); err != nil {
+	if au, err := addBlock(&b3); err != nil {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
@@ -1139,14 +1137,14 @@ func TestApplyRevertBlockV2(t *testing.T) {
 	}
 
 	// revert block creating fc
-	ru = RevertBlock(prev, b3, bs)
+	ru = RevertBlock(prev, b3, V1BlockSupplement{})
 	cs = prev
 	checkRevertUpdate(t, cs, ru)
 	checkRevertElements(ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	db.revertBlock(ru)
 
 	// readd block creating fc
-	if au, err := addBlock(&b3, bs); err != nil {
+	if au, err := addBlock(&b3); err != nil {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
@@ -1157,7 +1155,7 @@ func TestApplyRevertBlockV2(t *testing.T) {
 	fcr := v2FC
 	fcr.RevisionNumber++
 	fcr.Filesize = 65
-	fcr.ProofHeight = 4
+	fcr.ProofHeight = 3
 	fcr.ExpirationHeight = 20
 	fcr.FileMerkleRoot = blake2b.SumPair((State{}).StorageProofLeafHash([]byte{1}), (State{}).StorageProofLeafHash([]byte{2}))
 
@@ -1186,85 +1184,91 @@ func TestApplyRevertBlockV2(t *testing.T) {
 	addedSFEs = nil
 	spentSFEs = nil
 
+	var cie types.ChainIndexElement
 	prev = cs
-	bs = db.supplementTipBlock(b4)
-	if au, err := addBlock(&b4, bs); err != nil {
+	if au, err := addBlock(&b4); err != nil {
 		t.Fatal(err)
 	} else {
+		cie = au.ChainIndexElement()
 		checkApplyUpdate(t, cs, au)
 		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 
 	// revert block revising fc
-	ru = RevertBlock(prev, b4, bs)
+	ru = RevertBlock(prev, b4, V1BlockSupplement{})
 	cs = prev
 	checkRevertUpdate(t, cs, ru)
 	checkRevertElements(ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	db.revertBlock(ru)
 
 	// readd block revising fc
-	if au, err := addBlock(&b4, bs); err != nil {
+	if au, err := addBlock(&b4); err != nil {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
 		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 
-	// // block with storage proof
-	// txnB5 := types.Transaction{
-	// 	StorageProofs: []types.StorageProof{{
-	// 		ParentID: txnB3.FileContractID(0),
-	// 		Leaf:     [64]byte{1},
-	// 		Proof:    []types.Hash256{cs.StorageProofLeafHash([]byte{2})},
-	// 	}},
-	// }
-	// signTxn(cs, &txnB5)
-	// b5 := types.Block{
-	// 	ParentID:     b4.ID(),
-	// 	Timestamp:    types.CurrentTimestamp(),
-	// 	MinerPayouts: []types.SiacoinOutput{{Address: types.VoidAddress, Value: cs.BlockReward()}},
-	// 	Transactions: []types.Transaction{txnB5},
-	// }
-	// if cs.StorageProofLeafIndex(fcr.Filesize, b3.ID(), types.FileContractID(txnB3.FileContractID(0))) == 1 {
-	// 	b5.Transactions[0].StorageProofs[0] = types.StorageProof{
-	// 		ParentID: txnB3.FileContractID(0),
-	// 		Leaf:     [64]byte{2},
-	// 		Proof:    []types.Hash256{cs.StorageProofLeafHash([]byte{1})},
-	// 	}
-	// }
-	// addedSCEs = []types.SiacoinElement{
-	// 	{SiacoinOutput: txnB3.FileContracts[0].ValidProofOutputs[1], MaturityHeight: 148},
-	// 	{SiacoinOutput: txnB3.FileContracts[0].ValidProofOutputs[0], MaturityHeight: 148},
-	// 	{SiacoinOutput: b5.MinerPayouts[0], MaturityHeight: cs.MaturityHeight()},
-	// }
-	// spentSCEs = nil
-	// addedSFEs = nil
-	// spentSFEs = nil
+	// block with storage proof
+	fce := db.v2fces[txnB3.V2FileContractID(txnB3.ID(), 0)]
+	txnB5 := types.V2Transaction{
+		FileContractResolutions: []types.V2FileContractResolution{{
+			Parent: fce,
+			Resolution: &types.V2StorageProof{
+				ProofIndex: cie,
+				Leaf:       [64]byte{1},
+				Proof:      []types.Hash256{cs.StorageProofLeafHash([]byte{2})},
+			},
+		}},
+	}
+	signTxn(cs, &txnB5)
+	b5 := types.Block{
+		ParentID:     b4.ID(),
+		Timestamp:    types.CurrentTimestamp(),
+		MinerPayouts: []types.SiacoinOutput{{Address: types.VoidAddress, Value: cs.BlockReward()}},
+		V2: &types.V2BlockData{
+			Height:       4,
+			Transactions: []types.V2Transaction{txnB5},
+		},
+	}
+	if cs.StorageProofLeafIndex(fce.V2FileContract.Filesize, cie.ChainIndex.ID, types.FileContractID(fce.ID)) == 1 {
+		b5.V2.Transactions[0].FileContractResolutions[0].Resolution = &types.V2StorageProof{
+			ProofIndex: cie,
+			Leaf:       [64]byte{2},
+			Proof:      []types.Hash256{cs.StorageProofLeafHash([]byte{1})},
+		}
+	}
 
-	// // add block with storage proof
-	// bs = db.supplementTipBlock(b5)
-	// bs.Transactions[0].ValidFileContracts = append(bs.Transactions[0].ValidFileContracts, db.fces[txnB5.StorageProofs[0].ParentID])
-	// bs.Transactions[0].StorageProofBlockIDs = append(bs.Transactions[0].StorageProofBlockIDs, b3.ID())
-	// prev = cs
-	// if au, err := addBlock(&b5, bs); err != nil {
-	// 	t.Fatal(err)
-	// } else {
-	// 	checkApplyUpdate(t, cs, au)
-	// 	checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
-	// }
+	addedSCEs = []types.SiacoinElement{
+		{SiacoinOutput: txnB3.FileContracts[0].RenterOutput, MaturityHeight: 148},
+		{SiacoinOutput: txnB3.FileContracts[0].HostOutput, MaturityHeight: 148},
+		{SiacoinOutput: b5.MinerPayouts[0], MaturityHeight: cs.MaturityHeight()},
+	}
+	spentSCEs = nil
+	addedSFEs = nil
+	spentSFEs = nil
 
-	// // revert block with storage proof
-	// ru = RevertBlock(prev, b5, bs)
-	// cs = prev
-	// checkRevertUpdate(t, cs, ru)
-	// checkRevertElements(ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
-	// db.revertBlock(ru)
+	// add block with storage proof
+	prev = cs
+	if au, err := addBlock(&b5); err != nil {
+		t.Fatal(err)
+	} else {
+		checkApplyUpdate(t, cs, au)
+		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	}
 
-	// // readd block with storage proof
-	// if au, err := addBlock(&b5, bs); err != nil {
-	// 	t.Fatal(err)
-	// } else {
-	// 	checkApplyUpdate(t, cs, au)
-	// 	checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
-	// }
+	// revert block with storage proof
+	ru = RevertBlock(prev, b5, V1BlockSupplement{})
+	cs = prev
+	checkRevertUpdate(t, cs, ru)
+	checkRevertElements(ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	db.revertBlock(ru)
+
+	// readd block with storage proof
+	if au, err := addBlock(&b5); err != nil {
+		t.Fatal(err)
+	} else {
+		checkApplyUpdate(t, cs, au)
+		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	}
 }
