@@ -988,7 +988,7 @@ func TestApplyRevertBlockV2(t *testing.T) {
 	}
 	satisfiedPolicy := func(uc types.UnlockConditions) types.SatisfiedPolicy {
 		return types.SatisfiedPolicy{
-			Policy: types.SpendPolicy{types.PolicyTypeUnlockConditions(uc)},
+			Policy: types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(uc)},
 		}
 	}
 
