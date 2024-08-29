@@ -73,15 +73,52 @@ func (db *consensusDB) applyBlock(au ApplyUpdate) {
 		}
 	})
 	au.ForEachFileContractElement(func(fce types.FileContractElement, created bool, rev *types.FileContractElement, resolved, valid bool) {
-		if resolved {
-			delete(db.fces, types.FileContractID(fce.ID))
-		} else {
+		if created {
 			db.fces[types.FileContractID(fce.ID)] = fce
-			if rev != nil {
-				db.fces[types.FileContractID(rev.ID)] = *rev
-			}
+		} else if rev != nil {
+			db.fces[types.FileContractID(fce.ID)] = *rev
+		} else if resolved {
+			delete(db.fces, types.FileContractID(fce.ID))
 		}
 	})
+}
+
+func (db *consensusDB) revertBlock(ru RevertUpdate) {
+	ru.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
+		if spent {
+			db.sces[types.SiacoinOutputID(sce.ID)] = sce
+		} else {
+			delete(db.sces, types.SiacoinOutputID(sce.ID))
+		}
+	})
+	ru.ForEachSiafundElement(func(sfe types.SiafundElement, created, spent bool) {
+		if spent {
+			db.sfes[types.SiafundOutputID(sfe.ID)] = sfe
+		} else {
+			delete(db.sfes, types.SiafundOutputID(sfe.ID))
+		}
+	})
+	ru.ForEachFileContractElement(func(fce types.FileContractElement, created bool, rev *types.FileContractElement, resolved, valid bool) {
+		if created {
+			delete(db.fces, types.FileContractID(fce.ID))
+		} else if rev != nil {
+			db.fces[types.FileContractID(fce.ID)] = fce
+		} else if resolved {
+			db.fces[types.FileContractID(fce.ID)] = fce
+		}
+	})
+	for id, sce := range db.sces {
+		ru.UpdateElementProof(&sce.StateElement)
+		db.sces[id] = sce
+	}
+	for id, sfe := range db.sfes {
+		ru.UpdateElementProof(&sfe.StateElement)
+		db.sfes[id] = sfe
+	}
+	for id, fce := range db.fces {
+		ru.UpdateElementProof(&fce.StateElement)
+		db.fces[id] = fce
+	}
 }
 
 func (db *consensusDB) supplementTipBlock(b types.Block) (bs V1BlockSupplement) {
@@ -800,7 +837,8 @@ func TestValidateV2Block(t *testing.T) {
 		Transactions: []types.V2Transaction{giftTxn},
 	}
 
-	_, au := ApplyBlock(n.GenesisState(), genesisBlock, V1BlockSupplement{}, time.Time{})
+	cs, au := ApplyBlock(n.GenesisState(), genesisBlock, V1BlockSupplement{}, time.Time{})
+	checkApplyUpdate(t, cs, au)
 	var sces []types.SiacoinElement
 	au.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
 		sces = append(sces, sce)
@@ -1188,6 +1226,7 @@ func TestValidateV2Block(t *testing.T) {
 	}
 
 	cs, testAU := ApplyBlock(cs, validBlock, db.supplementTipBlock(validBlock), time.Now())
+	checkApplyUpdate(t, cs, testAU)
 	db.applyBlock(testAU)
 	updateProofs(testAU, sces, sfes, fces, cies)
 
@@ -1226,6 +1265,7 @@ func TestValidateV2Block(t *testing.T) {
 			t.Fatal(err)
 		}
 		cs, au = ApplyBlock(cs, b, db.supplementTipBlock(validBlock), time.Now())
+		checkApplyUpdate(t, cs, au)
 		db.applyBlock(au)
 		updateProofs(au, sces, sfes, fces, cies)
 		updateProofs(au, testSces, testSfes, testFces, nil)
@@ -1477,6 +1517,7 @@ func TestV2ImmatureSiacoinOutput(t *testing.T) {
 
 		var cau ApplyUpdate
 		cs, cau = ApplyBlock(cs, b, db.supplementTipBlock(b), db.ancestorTimestamp(b.ParentID))
+		checkApplyUpdate(t, cs, cau)
 		cau.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
 			if spent {
 				delete(utxos, types.SiacoinOutputID(sce.ID))
