@@ -40,9 +40,10 @@ func testnet() (*Network, types.Block) {
 }
 
 type consensusDB struct {
-	sces map[types.SiacoinOutputID]types.SiacoinElement
-	sfes map[types.SiafundOutputID]types.SiafundElement
-	fces map[types.FileContractID]types.FileContractElement
+	sces   map[types.SiacoinOutputID]types.SiacoinElement
+	sfes   map[types.SiafundOutputID]types.SiafundElement
+	fces   map[types.FileContractID]types.FileContractElement
+	v2fces map[types.FileContractID]types.V2FileContractElement
 }
 
 func (db *consensusDB) applyBlock(au ApplyUpdate) {
@@ -57,6 +58,10 @@ func (db *consensusDB) applyBlock(au ApplyUpdate) {
 	for id, fce := range db.fces {
 		au.UpdateElementProof(&fce.StateElement)
 		db.fces[id] = fce
+	}
+	for id, fce := range db.v2fces {
+		au.UpdateElementProof(&fce.StateElement)
+		db.v2fces[id] = fce
 	}
 	au.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
 		if spent {
@@ -79,6 +84,15 @@ func (db *consensusDB) applyBlock(au ApplyUpdate) {
 			db.fces[types.FileContractID(fce.ID)] = *rev
 		} else if resolved {
 			delete(db.fces, types.FileContractID(fce.ID))
+		}
+	})
+	au.ForEachV2FileContractElement(func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
+		if created {
+			db.v2fces[types.FileContractID(fce.ID)] = fce
+		} else if rev != nil {
+			db.v2fces[types.FileContractID(fce.ID)] = *rev
+		} else if res != nil {
+			delete(db.v2fces, types.FileContractID(fce.ID))
 		}
 	})
 }
@@ -107,6 +121,15 @@ func (db *consensusDB) revertBlock(ru RevertUpdate) {
 			db.fces[types.FileContractID(fce.ID)] = fce
 		}
 	})
+	ru.ForEachV2FileContractElement(func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
+		if created {
+			delete(db.v2fces, types.FileContractID(fce.ID))
+		} else if rev != nil {
+			db.v2fces[types.FileContractID(fce.ID)] = fce
+		} else if res != nil {
+			db.v2fces[types.FileContractID(fce.ID)] = fce
+		}
+	})
 	for id, sce := range db.sces {
 		ru.UpdateElementProof(&sce.StateElement)
 		db.sces[id] = sce
@@ -118,6 +141,10 @@ func (db *consensusDB) revertBlock(ru RevertUpdate) {
 	for id, fce := range db.fces {
 		ru.UpdateElementProof(&fce.StateElement)
 		db.fces[id] = fce
+	}
+	for id, fce := range db.v2fces {
+		ru.UpdateElementProof(&fce.StateElement)
+		db.v2fces[id] = fce
 	}
 }
 
@@ -152,9 +179,10 @@ func (db *consensusDB) ancestorTimestamp(types.BlockID) time.Time {
 
 func newConsensusDB(n *Network, genesisBlock types.Block) (*consensusDB, State) {
 	db := &consensusDB{
-		sces: make(map[types.SiacoinOutputID]types.SiacoinElement),
-		sfes: make(map[types.SiafundOutputID]types.SiafundElement),
-		fces: make(map[types.FileContractID]types.FileContractElement),
+		sces:   make(map[types.SiacoinOutputID]types.SiacoinElement),
+		sfes:   make(map[types.SiafundOutputID]types.SiafundElement),
+		fces:   make(map[types.FileContractID]types.FileContractElement),
+		v2fces: make(map[types.FileContractID]types.V2FileContractElement),
 	}
 	cs, au := ApplyBlock(n.GenesisState(), genesisBlock, db.supplementTipBlock(genesisBlock), time.Time{})
 	db.applyBlock(au)

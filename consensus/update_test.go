@@ -476,7 +476,7 @@ func TestRevertedRevisionLeaf(t *testing.T) {
 	}
 }
 
-func TestApplyRevertBlock(t *testing.T) {
+func TestApplyRevertBlockV1(t *testing.T) {
 	n, genesisBlock := testnet()
 
 	giftPrivateKey := types.GeneratePrivateKey()
@@ -847,6 +847,425 @@ func TestApplyRevertBlock(t *testing.T) {
 
 	// readd block with storage proof
 	if au, err := addBlock(&b5, bs); err != nil {
+		t.Fatal(err)
+	} else {
+		checkApplyUpdate(t, cs, au)
+		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	}
+}
+
+func TestApplyRevertBlockV2(t *testing.T) {
+	n, genesisBlock := testnet()
+	n.HardforkV2.AllowHeight = 1
+	n.HardforkV2.RequireHeight = 2
+
+	giftPrivateKey := types.GeneratePrivateKey()
+	giftPublicKey := giftPrivateKey.PublicKey()
+
+	renterPrivateKey := types.GeneratePrivateKey()
+	renterPublicKey := renterPrivateKey.PublicKey()
+
+	hostPrivateKey := types.GeneratePrivateKey()
+	hostPublicKey := hostPrivateKey.PublicKey()
+
+	giftAddress := types.StandardUnlockHash(giftPublicKey)
+	giftAmountSC := types.Siacoins(100)
+	giftAmountSF := uint64(100)
+	giftTxn := types.Transaction{
+		SiacoinOutputs: []types.SiacoinOutput{
+			{Address: giftAddress, Value: giftAmountSC},
+		},
+		SiafundOutputs: []types.SiafundOutput{
+			{Address: giftAddress, Value: giftAmountSF},
+		},
+	}
+	genesisBlock.Transactions = []types.Transaction{giftTxn}
+	db, cs := newConsensusDB(n, genesisBlock)
+
+	signTxn := func(cs State, txn *types.V2Transaction) {
+		for i := range txn.SiacoinInputs {
+			txn.SiacoinInputs[i].SatisfiedPolicy.Signatures = []types.Signature{giftPrivateKey.SignHash(cs.InputSigHash(*txn))}
+		}
+		for i := range txn.SiafundInputs {
+			txn.SiafundInputs[i].SatisfiedPolicy.Signatures = []types.Signature{giftPrivateKey.SignHash(cs.InputSigHash(*txn))}
+		}
+		for i := range txn.FileContracts {
+			txn.FileContracts[i].RenterSignature = renterPrivateKey.SignHash(cs.ContractSigHash(txn.FileContracts[i]))
+			txn.FileContracts[i].HostSignature = hostPrivateKey.SignHash(cs.ContractSigHash(txn.FileContracts[i]))
+		}
+		for i := range txn.FileContractRevisions {
+			txn.FileContractRevisions[i].Revision.RenterSignature = renterPrivateKey.SignHash(cs.ContractSigHash(txn.FileContractRevisions[i].Revision))
+			txn.FileContractRevisions[i].Revision.HostSignature = hostPrivateKey.SignHash(cs.ContractSigHash(txn.FileContractRevisions[i].Revision))
+		}
+		for i := range txn.FileContractResolutions {
+			switch r := txn.FileContractResolutions[i].Resolution.(type) {
+			case *types.V2FileContractRenewal:
+				r.RenterSignature = renterPrivateKey.SignHash(cs.RenewalSigHash(*r))
+				r.HostSignature = hostPrivateKey.SignHash(cs.RenewalSigHash(*r))
+			case *types.V2FileContractFinalization:
+				r.RenterSignature = renterPrivateKey.SignHash(cs.ContractSigHash(types.V2FileContract(*r)))
+				r.HostSignature = hostPrivateKey.SignHash(cs.ContractSigHash(types.V2FileContract(*r)))
+			}
+		}
+	}
+	addBlock := func(b *types.Block) (au ApplyUpdate, err error) {
+		if b.V2 != nil {
+			b.V2.Commitment = cs.Commitment(cs.TransactionsCommitment(b.Transactions, b.V2Transactions()), b.MinerPayouts[0].Address)
+		}
+		findBlockNonce(cs, b)
+		if err = ValidateBlock(cs, *b, V1BlockSupplement{}); err != nil {
+			return
+		}
+		cs, au = ApplyBlock(cs, *b, V1BlockSupplement{}, db.ancestorTimestamp(b.ParentID))
+		db.applyBlock(au)
+		return
+	}
+	checkUpdateElements := func(au ApplyUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {
+		au.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
+			sces := &addedSCEs
+			if spent {
+				sces = &spentSCEs
+			}
+			if len(*sces) == 0 {
+				t.Fatal("unexpected spent siacoin element")
+			}
+			sce.StateElement = types.StateElement{}
+			if !reflect.DeepEqual(sce, (*sces)[0]) {
+				t.Fatalf("siacoin element doesn't match:\n%v\nvs\n%v\n", sce, (*sces)[0])
+			}
+			*sces = (*sces)[1:]
+		})
+		au.ForEachSiafundElement(func(sfe types.SiafundElement, created, spent bool) {
+			sfes := &addedSFEs
+			if spent {
+				sfes = &spentSFEs
+			}
+			if len(*sfes) == 0 {
+				t.Fatal("unexpected spent siafund element")
+			}
+			sfe.StateElement = types.StateElement{}
+			if !reflect.DeepEqual(sfe, (*sfes)[0]) {
+				t.Fatalf("siafund element doesn't match:\n%v\nvs\n%v\n", sfe, (*sfes)[0])
+			}
+			*sfes = (*sfes)[1:]
+		})
+		if len(addedSCEs)+len(spentSCEs)+len(addedSFEs)+len(spentSFEs) > 0 {
+			t.Fatal("extraneous elements")
+		}
+	}
+	checkRevertElements := func(ru RevertUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {
+		ru.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
+			sces := &addedSCEs
+			if spent {
+				sces = &spentSCEs
+			}
+			if len(*sces) == 0 {
+				t.Fatal("unexpected spent siacoin element")
+			}
+			sce.StateElement = types.StateElement{}
+			if !reflect.DeepEqual(sce, (*sces)[len(*sces)-1]) {
+				t.Fatalf("siacoin element doesn't match:\n%v\nvs\n%v\n", sce, (*sces)[len(*sces)-1])
+			}
+			*sces = (*sces)[:len(*sces)-1]
+		})
+		ru.ForEachSiafundElement(func(sfe types.SiafundElement, created, spent bool) {
+			sfes := &addedSFEs
+			if spent {
+				sfes = &spentSFEs
+			}
+			if len(*sfes) == 0 {
+				t.Fatal("unexpected spent siafund element")
+			}
+			sfe.StateElement = types.StateElement{}
+			if !reflect.DeepEqual(sfe, (*sfes)[len(*sfes)-1]) {
+				t.Fatalf("siafund element doesn't match:\n%v\nvs\n%v\n", sfe, (*sfes)[len(*sfes)-1])
+			}
+			*sfes = (*sfes)[:len(*sfes)-1]
+		})
+		if len(addedSCEs)+len(spentSCEs)+len(addedSFEs)+len(spentSFEs) > 0 {
+			t.Fatal("extraneous elements")
+		}
+	}
+	satisfiedPolicy := func(uc types.UnlockConditions) types.SatisfiedPolicy {
+		return types.SatisfiedPolicy{
+			Policy: types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(uc)},
+		}
+	}
+
+	// block with nothing except block reward
+	b1 := types.Block{
+		ParentID:     genesisBlock.ID(),
+		Timestamp:    types.CurrentTimestamp(),
+		MinerPayouts: []types.SiacoinOutput{{Address: types.VoidAddress, Value: cs.BlockReward()}},
+	}
+	addedSCEs := []types.SiacoinElement{
+		{SiacoinOutput: b1.MinerPayouts[0], MaturityHeight: cs.MaturityHeight()},
+	}
+	spentSCEs := []types.SiacoinElement{}
+	addedSFEs := []types.SiafundElement{}
+	spentSFEs := []types.SiafundElement{}
+	if au, err := addBlock(&b1); err != nil {
+		t.Fatal(err)
+	} else {
+		checkApplyUpdate(t, cs, au)
+		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	}
+
+	// block that spends part of the gift transaction
+	txnB2 := types.V2Transaction{
+		SiacoinInputs: []types.V2SiacoinInput{{
+			Parent:          db.sces[giftTxn.SiacoinOutputID(0)],
+			SatisfiedPolicy: satisfiedPolicy(types.StandardUnlockConditions(giftPublicKey)),
+		}},
+		SiafundInputs: []types.V2SiafundInput{{
+			Parent:          db.sfes[giftTxn.SiafundOutputID(0)],
+			ClaimAddress:    types.VoidAddress,
+			SatisfiedPolicy: satisfiedPolicy(types.StandardUnlockConditions(giftPublicKey)),
+		}},
+		SiacoinOutputs: []types.SiacoinOutput{
+			{Value: giftAmountSC.Div64(2), Address: giftAddress},
+			{Value: giftAmountSC.Div64(2), Address: types.VoidAddress},
+		},
+		SiafundOutputs: []types.SiafundOutput{
+			{Value: giftAmountSF / 2, Address: giftAddress},
+			{Value: giftAmountSF / 2, Address: types.VoidAddress},
+		},
+	}
+	signTxn(cs, &txnB2)
+	b2 := types.Block{
+		ParentID:     b1.ID(),
+		Timestamp:    types.CurrentTimestamp(),
+		MinerPayouts: []types.SiacoinOutput{{Address: types.VoidAddress, Value: cs.BlockReward()}},
+		V2: &types.V2BlockData{
+			Height:       2,
+			Transactions: []types.V2Transaction{txnB2},
+		},
+	}
+	addedSCEs = []types.SiacoinElement{
+		{SiacoinOutput: txnB2.SiacoinOutputs[0]},
+		{SiacoinOutput: txnB2.SiacoinOutputs[1]},
+		{SiacoinOutput: types.SiacoinOutput{Value: types.ZeroCurrency, Address: txnB2.SiafundInputs[0].ClaimAddress}, MaturityHeight: cs.MaturityHeight()},
+		{SiacoinOutput: b2.MinerPayouts[0], MaturityHeight: cs.MaturityHeight()},
+	}
+	spentSCEs = []types.SiacoinElement{
+		{SiacoinOutput: giftTxn.SiacoinOutputs[0]},
+	}
+	addedSFEs = []types.SiafundElement{
+		{SiafundOutput: txnB2.SiafundOutputs[0]},
+		{SiafundOutput: txnB2.SiafundOutputs[1]},
+	}
+	spentSFEs = []types.SiafundElement{
+		{SiafundOutput: giftTxn.SiafundOutputs[0]},
+	}
+
+	prev := cs
+	if au, err := addBlock(&b2); err != nil {
+		t.Fatal(err)
+	} else {
+		checkApplyUpdate(t, cs, au)
+		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	}
+
+	_ = renterPublicKey
+	_ = hostPublicKey
+	_ = checkRevertElements
+	_ = prev
+
+	// revert block spending sc and sf
+	ru := RevertBlock(prev, b2, V1BlockSupplement{})
+	cs = prev
+	checkRevertUpdate(t, cs, ru)
+	checkRevertElements(ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	db.revertBlock(ru)
+
+	// block that creates a file contract
+	v1FC := prepareContractFormation(renterPublicKey, hostPublicKey, types.Siacoins(1), types.Siacoins(1), 100, 105, types.VoidAddress)
+	v1FC.Filesize = 65
+	v1FC.FileMerkleRoot = blake2b.SumPair((State{}).StorageProofLeafHash([]byte{1}), (State{}).StorageProofLeafHash([]byte{2}))
+	v2FC := types.V2FileContract{
+		Filesize:         v1FC.Filesize,
+		FileMerkleRoot:   v1FC.FileMerkleRoot,
+		ProofHeight:      20,
+		ExpirationHeight: 30,
+		RenterOutput:     v1FC.ValidProofOutputs[0],
+		HostOutput:       v1FC.ValidProofOutputs[1],
+		MissedHostValue:  v1FC.MissedProofOutputs[1].Value,
+		TotalCollateral:  v1FC.ValidProofOutputs[0].Value,
+		RenterPublicKey:  renterPublicKey,
+		HostPublicKey:    hostPublicKey,
+	}
+	fcOut := v2FC.RenterOutput.Value.Add(v2FC.HostOutput.Value).Add(cs.V2FileContractTax(v2FC))
+
+	txnB3 := types.V2Transaction{
+		SiacoinInputs: []types.V2SiacoinInput{{
+			Parent:          db.sces[giftTxn.SiacoinOutputID(0)],
+			SatisfiedPolicy: satisfiedPolicy(types.StandardUnlockConditions(giftPublicKey)),
+		}},
+		SiacoinOutputs: []types.SiacoinOutput{{
+			Address: giftAddress,
+			Value:   giftAmountSC.Sub(fcOut),
+		}},
+		FileContracts: []types.V2FileContract{v2FC},
+	}
+	signTxn(cs, &txnB3)
+
+	b3 := types.Block{
+		ParentID:     b1.ID(),
+		Timestamp:    types.CurrentTimestamp(),
+		MinerPayouts: []types.SiacoinOutput{{Address: types.VoidAddress, Value: cs.BlockReward()}},
+		V2: &types.V2BlockData{
+			Height:       2,
+			Transactions: []types.V2Transaction{txnB3},
+		},
+	}
+	addedSCEs = []types.SiacoinElement{
+		{SiacoinOutput: txnB3.SiacoinOutputs[0]},
+		{SiacoinOutput: b3.MinerPayouts[0], MaturityHeight: cs.MaturityHeight()},
+	}
+	spentSCEs = []types.SiacoinElement{
+		{SiacoinOutput: giftTxn.SiacoinOutputs[0]},
+	}
+	addedSFEs = nil
+	spentSFEs = nil
+
+	// add block creating fc
+	if au, err := addBlock(&b3); err != nil {
+		t.Fatal(err)
+	} else {
+		checkApplyUpdate(t, cs, au)
+		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	}
+
+	// revert block creating fc
+	ru = RevertBlock(prev, b3, V1BlockSupplement{})
+	cs = prev
+	checkRevertUpdate(t, cs, ru)
+	checkRevertElements(ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	db.revertBlock(ru)
+
+	// readd block creating fc
+	if au, err := addBlock(&b3); err != nil {
+		t.Fatal(err)
+	} else {
+		checkApplyUpdate(t, cs, au)
+		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	}
+
+	// block creating file contract revision
+	fcr := v2FC
+	fcr.RevisionNumber++
+	fcr.Filesize = 65
+	fcr.ProofHeight = 3
+	fcr.ExpirationHeight = 20
+	fcr.FileMerkleRoot = blake2b.SumPair((State{}).StorageProofLeafHash([]byte{1}), (State{}).StorageProofLeafHash([]byte{2}))
+
+	txnB4 := types.V2Transaction{
+		FileContractRevisions: []types.V2FileContractRevision{{
+			Parent:   db.v2fces[txnB3.V2FileContractID(txnB3.ID(), 0)],
+			Revision: fcr,
+		}},
+	}
+	signTxn(cs, &txnB4)
+	b4 := types.Block{
+		ParentID:     b3.ID(),
+		Timestamp:    types.CurrentTimestamp(),
+		MinerPayouts: []types.SiacoinOutput{{Address: types.VoidAddress, Value: cs.BlockReward()}},
+		V2: &types.V2BlockData{
+			Height:       3,
+			Transactions: []types.V2Transaction{txnB4},
+		},
+	}
+	addedSCEs = []types.SiacoinElement{
+		{SiacoinOutput: b4.MinerPayouts[0], MaturityHeight: cs.MaturityHeight()},
+	}
+	spentSCEs = []types.SiacoinElement{
+		// {SiacoinOutput: giftTxn.SiacoinOutputs[0]},
+	}
+	addedSFEs = nil
+	spentSFEs = nil
+
+	var cie types.ChainIndexElement
+	prev = cs
+	if au, err := addBlock(&b4); err != nil {
+		t.Fatal(err)
+	} else {
+		cie = au.ChainIndexElement()
+		checkApplyUpdate(t, cs, au)
+		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	}
+
+	// revert block revising fc
+	ru = RevertBlock(prev, b4, V1BlockSupplement{})
+	cs = prev
+	checkRevertUpdate(t, cs, ru)
+	checkRevertElements(ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	db.revertBlock(ru)
+
+	// readd block revising fc
+	if au, err := addBlock(&b4); err != nil {
+		t.Fatal(err)
+	} else {
+		checkApplyUpdate(t, cs, au)
+		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	}
+
+	// block with storage proof
+	fce := db.v2fces[txnB3.V2FileContractID(txnB3.ID(), 0)]
+	txnB5 := types.V2Transaction{
+		FileContractResolutions: []types.V2FileContractResolution{{
+			Parent: fce,
+			Resolution: &types.V2StorageProof{
+				ProofIndex: cie,
+				Leaf:       [64]byte{1},
+				Proof:      []types.Hash256{cs.StorageProofLeafHash([]byte{2})},
+			},
+		}},
+	}
+	signTxn(cs, &txnB5)
+	b5 := types.Block{
+		ParentID:     b4.ID(),
+		Timestamp:    types.CurrentTimestamp(),
+		MinerPayouts: []types.SiacoinOutput{{Address: types.VoidAddress, Value: cs.BlockReward()}},
+		V2: &types.V2BlockData{
+			Height:       4,
+			Transactions: []types.V2Transaction{txnB5},
+		},
+	}
+	if cs.StorageProofLeafIndex(fce.V2FileContract.Filesize, cie.ChainIndex.ID, types.FileContractID(fce.ID)) == 1 {
+		b5.V2.Transactions[0].FileContractResolutions[0].Resolution = &types.V2StorageProof{
+			ProofIndex: cie,
+			Leaf:       [64]byte{2},
+			Proof:      []types.Hash256{cs.StorageProofLeafHash([]byte{1})},
+		}
+	}
+
+	addedSCEs = []types.SiacoinElement{
+		{SiacoinOutput: txnB3.FileContracts[0].RenterOutput, MaturityHeight: 148},
+		{SiacoinOutput: txnB3.FileContracts[0].HostOutput, MaturityHeight: 148},
+		{SiacoinOutput: b5.MinerPayouts[0], MaturityHeight: cs.MaturityHeight()},
+	}
+	spentSCEs = nil
+	addedSFEs = nil
+	spentSFEs = nil
+
+	// add block with storage proof
+	prev = cs
+	if au, err := addBlock(&b5); err != nil {
+		t.Fatal(err)
+	} else {
+		checkApplyUpdate(t, cs, au)
+		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	}
+
+	// revert block with storage proof
+	ru = RevertBlock(prev, b5, V1BlockSupplement{})
+	cs = prev
+	checkRevertUpdate(t, cs, ru)
+	checkRevertElements(ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	db.revertBlock(ru)
+
+	// readd block with storage proof
+	if au, err := addBlock(&b5); err != nil {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
