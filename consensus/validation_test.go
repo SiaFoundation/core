@@ -597,6 +597,21 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
+				"misordered revisions",
+				func(b *types.Block) {
+					newRevision := b.Transactions[0].FileContractRevisions[0]
+					newRevision.RevisionNumber = 99
+
+					b.Transactions = append(b.Transactions, types.Transaction{
+						FileContractRevisions: []types.FileContractRevision{newRevision},
+					})
+
+					// set the initial revision number to be higher than the new
+					// revision
+					b.Transactions[0].FileContractRevisions[0].RevisionNumber = 100
+				},
+			},
+			{
 				"duplicate revisions in same block",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]

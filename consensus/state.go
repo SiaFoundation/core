@@ -621,7 +621,6 @@ func (ms *MidState) siafundElement(ts V1TransactionSupplement, id types.SiafundO
 
 func (ms *MidState) fileContractElement(ts V1TransactionSupplement, id types.FileContractID) (types.FileContractElement, bool) {
 	if rev, ok := ms.revs[types.Hash256(id)]; ok {
-		// TODO: Luke, double check this is valid
 		return *rev, true
 	}
 	if i, ok := ms.created[types.Hash256(id)]; ok {
