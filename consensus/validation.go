@@ -238,11 +238,15 @@ func validateSiafunds(ms *MidState, txn types.Transaction, ts V1TransactionSuppl
 }
 
 func validateFileContracts(ms *MidState, txn types.Transaction, ts V1TransactionSupplement) error {
+	v2RequireHeight := ms.base.Network.HardforkV2.RequireHeight
+
 	for i, fc := range txn.FileContracts {
 		if fc.WindowStart < ms.base.childHeight() {
 			return fmt.Errorf("file contract %v has window that starts in the past", i)
 		} else if fc.WindowEnd <= fc.WindowStart {
 			return fmt.Errorf("file contract %v has window that ends before it begins", i)
+		} else if fc.WindowStart >= v2RequireHeight {
+			return fmt.Errorf("file contract %v has window that starts after v2 hardfork", i)
 		}
 		var validSum, missedSum types.Currency
 		for _, output := range fc.ValidProofOutputs {
@@ -265,6 +269,8 @@ func validateFileContracts(ms *MidState, txn types.Transaction, ts V1Transaction
 			return fmt.Errorf("file contract revision %v has window that starts in the past", i)
 		} else if fcr.FileContract.WindowEnd <= fcr.FileContract.WindowStart {
 			return fmt.Errorf("file contract revision %v has window that ends before it begins", i)
+		} else if fcr.WindowStart >= v2RequireHeight {
+			return fmt.Errorf("file contract %v has window that starts after v2 hardfork", i)
 		} else if txid, ok := ms.spent(types.Hash256(fcr.ParentID)); ok {
 			return fmt.Errorf("file contract revision %v conflicts with previous proof or revision (in %v)", i, txid)
 		}

@@ -365,6 +365,9 @@ func TestValidateBlock(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// clear signatures to avoid false positives
+	validBlock.Transactions[0].Signatures = nil
+
 	// tests with correct signatures
 	{
 		tests := []struct {
@@ -659,6 +662,32 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
+				"misordered revisions",
+				func(b *types.Block) {
+					newRevision := b.Transactions[0].FileContractRevisions[0]
+					newRevision.RevisionNumber = 99
+
+					b.Transactions = append(b.Transactions, types.Transaction{
+						FileContractRevisions: []types.FileContractRevision{newRevision},
+					})
+
+					// set the initial revision number to be higher than the new
+					// revision
+					b.Transactions[0].FileContractRevisions[0].RevisionNumber = 100
+				},
+			},
+			{
+				"duplicate revisions in same block",
+				func(b *types.Block) {
+					txn := &b.Transactions[0]
+					newRevision := txn.FileContractRevisions[0]
+
+					b.Transactions = append(b.Transactions, types.Transaction{
+						FileContractRevisions: []types.FileContractRevision{newRevision},
+					})
+				},
+			},
+			{
 				"double-spent siacoin input",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
@@ -685,11 +714,15 @@ func TestValidateBlock(t *testing.T) {
 		for _, test := range tests {
 			corruptBlock := deepCopyBlock(validBlock)
 			test.corrupt(&corruptBlock)
-			signTxn(&corruptBlock.Transactions[0])
+			for i := range corruptBlock.Transactions {
+				signTxn(&corruptBlock.Transactions[i])
+			}
 			findBlockNonce(cs, &corruptBlock)
 
 			if err := ValidateBlock(cs, corruptBlock, db.supplementTipBlock(corruptBlock)); err == nil {
 				t.Fatalf("accepted block with %v", test.desc)
+			} else {
+				t.Log(test.desc, err)
 			}
 		}
 	}
@@ -758,6 +791,9 @@ func TestValidateBlock(t *testing.T) {
 		}
 		for _, test := range tests {
 			corruptBlock := deepCopyBlock(validBlock)
+			for i := range corruptBlock.Transactions {
+				signTxn(&corruptBlock.Transactions[i])
+			}
 			test.corrupt(&corruptBlock)
 			findBlockNonce(cs, &corruptBlock)
 
