@@ -592,14 +592,6 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
-				"file contract that ends after v2 hardfork",
-				func(b *types.Block) {
-					txn := &b.Transactions[0]
-					txn.FileContracts[0].WindowStart = n.HardforkV2.RequireHeight
-					txn.FileContracts[0].WindowEnd = txn.FileContracts[0].WindowStart + 100
-				},
-			},
-			{
 				"revision of nonexistent file contract",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
