@@ -1295,8 +1295,6 @@ func TestValidateV2Block(t *testing.T) {
 
 			if err := ValidateBlock(cs, corruptBlock, db.supplementTipBlock(corruptBlock)); err == nil {
 				t.Fatalf("accepted block with %v", test.desc)
-			} else {
-				t.Log(test.desc, err)
 			}
 		}
 	}
