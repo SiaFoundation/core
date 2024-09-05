@@ -1152,6 +1152,24 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			{
+				"misordered revisions",
+				func(b *types.Block) {
+					// create a revision
+					b.V2.Transactions[0].FileContractRevisions[0].Revision.RevisionNumber = 100
+					signTxn(cs, &b.V2.Transactions[0])
+
+					// create a second revision with a lower revision number
+					newRevision := b.V2.Transactions[0].FileContractRevisions[0]
+					newRevision.Revision.RevisionNumber = 99
+					txn := types.V2Transaction{
+						FileContractRevisions: []types.V2FileContractRevision{newRevision},
+					}
+					// sign and add the transaction to the block
+					signTxn(cs, &txn)
+					b.V2.Transactions = append(b.V2.Transactions, txn)
+				},
+			},
+			{
 				"revision having different valid payout sum",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
@@ -1277,6 +1295,8 @@ func TestValidateV2Block(t *testing.T) {
 
 			if err := ValidateBlock(cs, corruptBlock, db.supplementTipBlock(corruptBlock)); err == nil {
 				t.Fatalf("accepted block with %v", test.desc)
+			} else {
+				t.Log(test.desc, err)
 			}
 		}
 	}
