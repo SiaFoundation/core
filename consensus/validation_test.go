@@ -1782,13 +1782,7 @@ func TestV2RevisionApply(t *testing.T) {
 	applyContractChanges(au)
 	checkRevision(t, 0)
 
-	// create a block that modifies the revision in two separate transactions
-	b := types.Block{
-		ParentID: genesisBlock.ID(),
-		V2: &types.V2BlockData{
-			Height: 1,
-		},
-	}
+	ms := NewMidState(cs)
 
 	rev1 := fc
 	rev1.RevisionNumber = 100
@@ -1796,11 +1790,16 @@ func TestV2RevisionApply(t *testing.T) {
 	rev1.HostSignature = pk.SignHash(rev1SigHash)
 	rev1.RenterSignature = pk.SignHash(rev1SigHash)
 
-	b.V2.Transactions = append(b.V2.Transactions, types.V2Transaction{
+	txn1 := types.V2Transaction{
 		FileContractRevisions: []types.V2FileContractRevision{
 			{Parent: fces[types.Hash256(contractID)], Revision: rev1},
 		},
-	})
+	}
+
+	if err := ValidateV2Transaction(ms, txn1); err != nil {
+		t.Fatal(err)
+	}
+	ms.ApplyV2Transaction(txn1)
 
 	rev2 := fc
 	rev2.RevisionNumber = 50
@@ -1808,12 +1807,23 @@ func TestV2RevisionApply(t *testing.T) {
 	rev2.HostSignature = pk.SignHash(rev2SigHash)
 	rev2.RenterSignature = pk.SignHash(rev2SigHash)
 
-	b.V2.Transactions = append(b.V2.Transactions, types.V2Transaction{
+	txn2 := types.V2Transaction{
 		FileContractRevisions: []types.V2FileContractRevision{
 			{Parent: fces[types.Hash256(contractID)], Revision: rev2},
 		},
-	})
+	}
+	if err := ValidateV2Transaction(ms, txn2); err == nil {
+		t.Error("expected error when applying revision with lower revision number")
+	}
+	ms.ApplyV2Transaction(txn2)
 
+	b := types.Block{
+		ParentID: genesisBlock.ID(),
+		V2: &types.V2BlockData{
+			Height:       cs.Index.Height + 1,
+			Transactions: []types.V2Transaction{txn1, txn2},
+		},
+	}
 	_, au = ApplyBlock(cs, b, V1BlockSupplement{}, time.Time{})
 	applyContractChanges(au)
 	checkRevision(t, 100)
