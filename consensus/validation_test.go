@@ -1707,3 +1707,114 @@ func TestWindowRevision(t *testing.T) {
 		t.Fatal("expected error when extending window")
 	}
 }
+
+func TestV2RevisionApply(t *testing.T) {
+	n, genesisBlock := testnet()
+
+	n.HardforkOak.Height = 0
+	n.HardforkTax.Height = 0
+	n.HardforkFoundation.Height = 0
+	n.InitialTarget = types.BlockID{0xFF}
+	n.HardforkV2.AllowHeight = 0
+	n.HardforkV2.RequireHeight = 0
+
+	pk := types.GeneratePrivateKey()
+	addr := types.AnyoneCanSpend().Address()
+	fc := types.V2FileContract{
+		ProofHeight:      100,
+		ExpirationHeight: 150,
+		RenterPublicKey:  pk.PublicKey(),
+		HostPublicKey:    pk.PublicKey(),
+		HostOutput: types.SiacoinOutput{
+			Address: addr, Value: types.Siacoins(10),
+		},
+		RenterOutput: types.SiacoinOutput{
+			Address: addr, Value: types.ZeroCurrency,
+		},
+	}
+	cs := n.GenesisState()
+	sigHash := cs.ContractSigHash(fc)
+	fc.HostSignature = pk.SignHash(sigHash)
+	fc.RenterSignature = pk.SignHash(sigHash)
+	contractCost := cs.V2FileContractTax(fc).Add(fc.HostOutput.Value)
+
+	genesisTxn := types.V2Transaction{
+		SiacoinOutputs: []types.SiacoinOutput{
+			{Address: addr, Value: contractCost},
+		},
+		FileContracts: []types.V2FileContract{fc},
+	}
+	genesisBlock.V2 = &types.V2BlockData{
+		Transactions: []types.V2Transaction{genesisTxn},
+	}
+	contractID := genesisTxn.V2FileContractID(genesisTxn.ID(), 0)
+	fces := make(map[types.Hash256]types.V2FileContractElement)
+	applyContractChanges := func(au ApplyUpdate) {
+		au.ForEachV2FileContractElement(func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
+			switch {
+			case res != nil:
+				delete(fces, fce.ID)
+			case rev != nil:
+				fces[fce.ID] = *rev
+			default:
+				fces[fce.ID] = fce
+			}
+		})
+
+		// update proofs
+		for key, fce := range fces {
+			au.UpdateElementProof(&fce.StateElement)
+			fces[key] = fce
+		}
+	}
+
+	checkRevision := func(t *testing.T, expected uint64) {
+		t.Helper()
+		fce, ok := fces[types.Hash256(contractID)]
+		if !ok {
+			t.Fatal("missing revision")
+		} else if fce.V2FileContract.RevisionNumber != expected {
+			t.Fatalf("expected revision %v, got %v", expected, fce.V2FileContract.RevisionNumber)
+		}
+	}
+
+	cs, au := ApplyBlock(cs, genesisBlock, V1BlockSupplement{}, time.Time{})
+	applyContractChanges(au)
+	checkRevision(t, 0)
+
+	// create a block that modifies the revision in two separate transactions
+	b := types.Block{
+		ParentID: genesisBlock.ID(),
+		V2: &types.V2BlockData{
+			Height: 1,
+		},
+	}
+
+	rev1 := fc
+	rev1.RevisionNumber = 100
+	rev1SigHash := cs.ContractSigHash(rev1)
+	rev1.HostSignature = pk.SignHash(rev1SigHash)
+	rev1.RenterSignature = pk.SignHash(rev1SigHash)
+
+	b.V2.Transactions = append(b.V2.Transactions, types.V2Transaction{
+		FileContractRevisions: []types.V2FileContractRevision{
+			{Parent: fces[types.Hash256(contractID)], Revision: rev1},
+		},
+	})
+
+	rev2 := fc
+	rev2.RevisionNumber = 50
+	rev2SigHash := cs.ContractSigHash(rev2)
+	rev2.HostSignature = pk.SignHash(rev2SigHash)
+	rev2.RenterSignature = pk.SignHash(rev2SigHash)
+
+	b.V2.Transactions = append(b.V2.Transactions, types.V2Transaction{
+		FileContractRevisions: []types.V2FileContractRevision{
+			{Parent: fces[types.Hash256(contractID)], Revision: rev2},
+		},
+	})
+
+	_, au = ApplyBlock(cs, b, V1BlockSupplement{}, time.Time{})
+	applyContractChanges(au)
+	checkRevision(t, 100)
+}
