@@ -589,12 +589,12 @@ func (s State) AttestationSigHash(a types.Attestation) types.Hash256 {
 // A MidState represents the state of the chain within a block.
 type MidState struct {
 	base               State
-	created            map[types.Hash256]int // indices into element slices
-	spends             map[types.Hash256]types.TransactionID
-	revs               map[types.Hash256]*types.FileContractElement
-	res                map[types.Hash256]bool
-	v2revs             map[types.Hash256]*types.V2FileContractElement
-	v2res              map[types.Hash256]types.V2FileContractResolutionType
+	created            map[types.ElementID]int // indices into element slices
+	spends             map[types.ElementID]types.TransactionID
+	revs               map[types.FileContractID]*types.FileContractElement
+	res                map[types.FileContractID]bool
+	v2revs             map[types.FileContractID]*types.V2FileContractElement
+	v2res              map[types.FileContractID]types.V2FileContractResolutionType
 	siafundPool        types.Currency
 	foundationPrimary  types.Address
 	foundationFailsafe types.Address
@@ -616,33 +616,33 @@ func (ms *MidState) siacoinElement(ts V1TransactionSupplement, id types.SiacoinO
 }
 
 func (ms *MidState) siafundElement(ts V1TransactionSupplement, id types.SiafundOutputID) (types.SiafundElement, bool) {
-	if i, ok := ms.created[types.Hash256(id)]; ok {
+	if i, ok := ms.created[id]; ok {
 		return ms.sfes[i], true
 	}
 	return ts.siafundElement(id)
 }
 
 func (ms *MidState) fileContractElement(ts V1TransactionSupplement, id types.FileContractID) (types.FileContractElement, bool) {
-	if rev, ok := ms.revs[types.Hash256(id)]; ok {
+	if rev, ok := ms.revs[id]; ok {
 		return *rev, true
 	}
-	if i, ok := ms.created[types.Hash256(id)]; ok {
+	if i, ok := ms.created[id]; ok {
 		return ms.fces[i], true
 	}
 	return ts.revision(id)
 }
 
-func (ms *MidState) spent(id types.Hash256) (types.TransactionID, bool) {
+func (ms *MidState) spent(id types.ElementID) (types.TransactionID, bool) {
 	txid, ok := ms.spends[id]
 	return txid, ok
 }
 
-func (ms *MidState) isSpent(id types.Hash256) bool {
+func (ms *MidState) isSpent(id types.ElementID) bool {
 	_, ok := ms.spends[id]
 	return ok
 }
 
-func (ms *MidState) isCreated(id types.Hash256) bool {
+func (ms *MidState) isCreated(id types.ElementID) bool {
 	_, ok := ms.created[id]
 	return ok || id == ms.cie.ID
 }
@@ -651,12 +651,12 @@ func (ms *MidState) isCreated(id types.Hash256) bool {
 func NewMidState(s State) *MidState {
 	return &MidState{
 		base:               s,
-		created:            make(map[types.Hash256]int),
-		spends:             make(map[types.Hash256]types.TransactionID),
-		revs:               make(map[types.Hash256]*types.FileContractElement),
-		res:                make(map[types.Hash256]bool),
-		v2revs:             make(map[types.Hash256]*types.V2FileContractElement),
-		v2res:              make(map[types.Hash256]types.V2FileContractResolutionType),
+		created:            make(map[types.ElementID]int),
+		spends:             make(map[types.ElementID]types.TransactionID),
+		revs:               make(map[types.FileContractID]*types.FileContractElement),
+		res:                make(map[types.FileContractID]bool),
+		v2revs:             make(map[types.FileContractID]*types.V2FileContractElement),
+		v2res:              make(map[types.FileContractID]types.V2FileContractResolutionType),
 		siafundPool:        s.SiafundPool,
 		foundationPrimary:  s.FoundationPrimaryAddress,
 		foundationFailsafe: s.FoundationFailsafeAddress,

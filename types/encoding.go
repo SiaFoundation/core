@@ -611,7 +611,6 @@ func (sp SatisfiedPolicy) EncodeTo(e *Encoder) {
 
 // EncodeTo implements types.EncoderTo.
 func (se StateElement) EncodeTo(e *Encoder) {
-	se.ID.EncodeTo(e)
 	e.WriteUint64(se.LeafIndex)
 	EncodeSlice(e, se.MerkleProof)
 }
@@ -625,12 +624,14 @@ func (in V2SiacoinInput) EncodeTo(e *Encoder) {
 // EncodeTo implements types.EncoderTo.
 func (cie ChainIndexElement) EncodeTo(e *Encoder) {
 	cie.StateElement.EncodeTo(e)
+	cie.ID.EncodeTo(e)
 	cie.ChainIndex.EncodeTo(e)
 }
 
 // EncodeTo implements types.EncoderTo.
 func (sce SiacoinElement) EncodeTo(e *Encoder) {
 	sce.StateElement.EncodeTo(e)
+	sce.ID.EncodeTo(e)
 	V2SiacoinOutput(sce.SiacoinOutput).EncodeTo(e)
 	e.WriteUint64(sce.MaturityHeight)
 }
@@ -645,6 +646,7 @@ func (in V2SiafundInput) EncodeTo(e *Encoder) {
 // EncodeTo implements types.EncoderTo.
 func (sfe SiafundElement) EncodeTo(e *Encoder) {
 	sfe.StateElement.EncodeTo(e)
+	sfe.ID.EncodeTo(e)
 	V2SiafundOutput(sfe.SiafundOutput).EncodeTo(e)
 	V2Currency(sfe.ClaimStart).EncodeTo(e)
 }
@@ -670,12 +672,14 @@ func (fc V2FileContract) EncodeTo(e *Encoder) {
 // EncodeTo implements types.EncoderTo.
 func (fce FileContractElement) EncodeTo(e *Encoder) {
 	fce.StateElement.EncodeTo(e)
+	fce.ID.EncodeTo(e)
 	fce.FileContract.EncodeTo(e)
 }
 
 // EncodeTo implements types.EncoderTo.
 func (fce V2FileContractElement) EncodeTo(e *Encoder) {
 	fce.StateElement.EncodeTo(e)
+	fce.ID.EncodeTo(e)
 	fce.V2FileContract.EncodeTo(e)
 }
 
@@ -1207,7 +1211,6 @@ func (sp *SatisfiedPolicy) DecodeFrom(d *Decoder) {
 
 // DecodeFrom implements types.DecoderFrom.
 func (se *StateElement) DecodeFrom(d *Decoder) {
-	se.ID.DecodeFrom(d)
 	se.LeafIndex = d.ReadUint64()
 	DecodeSlice(d, &se.MerkleProof)
 }
@@ -1221,12 +1224,14 @@ func (in *V2SiacoinInput) DecodeFrom(d *Decoder) {
 // DecodeFrom implements types.DecoderFrom.
 func (cie *ChainIndexElement) DecodeFrom(d *Decoder) {
 	cie.StateElement.DecodeFrom(d)
+	cie.ID.DecodeFrom(d)
 	cie.ChainIndex.DecodeFrom(d)
 }
 
 // DecodeFrom implements types.DecoderFrom.
 func (sce *SiacoinElement) DecodeFrom(d *Decoder) {
 	sce.StateElement.DecodeFrom(d)
+	sce.ID.DecodeFrom(d)
 	(*V2SiacoinOutput)(&sce.SiacoinOutput).DecodeFrom(d)
 	sce.MaturityHeight = d.ReadUint64()
 }
@@ -1241,6 +1246,7 @@ func (in *V2SiafundInput) DecodeFrom(d *Decoder) {
 // DecodeFrom implements types.DecoderFrom.
 func (sfe *SiafundElement) DecodeFrom(d *Decoder) {
 	sfe.StateElement.DecodeFrom(d)
+	sfe.ID.DecodeFrom(d)
 	(*V2SiafundOutput)(&sfe.SiafundOutput).DecodeFrom(d)
 	(*V2Currency)(&sfe.ClaimStart).DecodeFrom(d)
 }
@@ -1266,12 +1272,14 @@ func (fc *V2FileContract) DecodeFrom(d *Decoder) {
 // DecodeFrom implements types.DecoderFrom.
 func (fce *FileContractElement) DecodeFrom(d *Decoder) {
 	fce.StateElement.DecodeFrom(d)
+	fce.ID.DecodeFrom(d)
 	fce.FileContract.DecodeFrom(d)
 }
 
 // DecodeFrom implements types.DecoderFrom.
 func (fce *V2FileContractElement) DecodeFrom(d *Decoder) {
 	fce.StateElement.DecodeFrom(d)
+	fce.ID.DecodeFrom(d)
 	fce.V2FileContract.DecodeFrom(d)
 }
 

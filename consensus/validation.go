@@ -559,7 +559,7 @@ func validateV2CurrencyOverflow(ms *MidState, txn types.V2Transaction) error {
 
 func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 	sigHash := ms.base.InputSigHash(txn)
-	spent := make(map[types.Hash256]int)
+	spent := make(map[types.SiacoinOutputID]int)
 	for i, sci := range txn.SiacoinInputs {
 		if txid, ok := ms.spent(sci.Parent.ID); ok {
 			return fmt.Errorf("siacoin input %v double-spends parent output (previously spent in %v)", i, txid)
@@ -625,7 +625,7 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 
 func validateV2Siafunds(ms *MidState, txn types.V2Transaction) error {
 	sigHash := ms.base.InputSigHash(txn)
-	spent := make(map[types.Hash256]int)
+	spent := make(map[types.SiafundOutputID]int)
 	for i, sfi := range txn.SiafundInputs {
 		if txid, ok := ms.spent(sfi.Parent.ID); ok {
 			return fmt.Errorf("siafund input %v double-spends parent output (previously spent in %v)", i, txid)
@@ -672,8 +672,8 @@ func validateV2Siafunds(ms *MidState, txn types.V2Transaction) error {
 }
 
 func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
-	revised := make(map[types.Hash256]int)
-	resolved := make(map[types.Hash256]int)
+	revised := make(map[types.FileContractID]int)
+	resolved := make(map[types.FileContractID]int)
 	validateParent := func(fce types.V2FileContractElement) error {
 		if txid, ok := ms.spent(fce.ID); ok {
 			return fmt.Errorf("has already been resolved in transaction %v", txid)

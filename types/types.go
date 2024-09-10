@@ -603,9 +603,16 @@ type Attestation struct {
 	Signature Signature `json:"signature"`
 }
 
+// An AttestationID uniquely identifies an attestation.
+type AttestationID Hash256
+
+// An ElementID identifies a generic element within the state accumulator. In
+// practice, it may be a BlockID, SiacoinOutputID, SiafundOutputID,
+// FileContractID, or AttestationID.
+type ElementID = [32]byte
+
 // A StateElement is a generic element within the state accumulator.
 type StateElement struct {
-	ID          Hash256   `json:"id"` // SiacoinOutputID, FileContractID, etc.
 	LeafIndex   uint64    `json:"leafIndex"`
 	MerkleProof []Hash256 `json:"merkleProof,omitempty"`
 }
@@ -613,34 +620,39 @@ type StateElement struct {
 // A ChainIndexElement is a record of a ChainIndex within the state accumulator.
 type ChainIndexElement struct {
 	StateElement
+	ID         BlockID    `json:"id"`
 	ChainIndex ChainIndex `json:"chainIndex"`
 }
 
 // A SiacoinElement is a record of a SiacoinOutput within the state accumulator.
 type SiacoinElement struct {
 	StateElement
-	SiacoinOutput  SiacoinOutput `json:"siacoinOutput"`
-	MaturityHeight uint64        `json:"maturityHeight"`
+	ID             SiacoinOutputID `json:"id"`
+	SiacoinOutput  SiacoinOutput   `json:"siacoinOutput"`
+	MaturityHeight uint64          `json:"maturityHeight"`
 }
 
 // A SiafundElement is a record of a SiafundOutput within the state accumulator.
 type SiafundElement struct {
 	StateElement
-	SiafundOutput SiafundOutput `json:"siafundOutput"`
-	ClaimStart    Currency      `json:"claimStart"` // value of SiafundPool when element was created
+	ID            SiafundOutputID `json:"id"`
+	SiafundOutput SiafundOutput   `json:"siafundOutput"`
+	ClaimStart    Currency        `json:"claimStart"` // value of SiafundPool when element was created
 }
 
 // A FileContractElement is a record of a FileContract within the state
 // accumulator.
 type FileContractElement struct {
 	StateElement
-	FileContract FileContract `json:"fileContract"`
+	ID           FileContractID `json:"id"`
+	FileContract FileContract   `json:"fileContract"`
 }
 
 // A V2FileContractElement is a record of a V2FileContract within the state
 // accumulator.
 type V2FileContractElement struct {
 	StateElement
+	ID             FileContractID `json:"id"`
 	V2FileContract V2FileContract `json:"v2FileContract"`
 }
 
@@ -648,7 +660,8 @@ type V2FileContractElement struct {
 // accumulator.
 type AttestationElement struct {
 	StateElement
-	Attestation Attestation `json:"attestation"`
+	ID          AttestationID `json:"id"`
+	Attestation Attestation   `json:"attestation"`
 }
 
 // A V2Transaction effects a change of blockchain state.
@@ -697,7 +710,7 @@ func (*V2Transaction) V2FileContractID(txid TransactionID, i int) FileContractID
 }
 
 // AttestationID returns the ID for the attestation at index i.
-func (*V2Transaction) AttestationID(txid TransactionID, i int) Hash256 {
+func (*V2Transaction) AttestationID(txid TransactionID, i int) AttestationID {
 	return hashAll("id/attestation", txid, i)
 }
 
@@ -706,9 +719,9 @@ func (*V2Transaction) AttestationID(txid TransactionID, i int) Hash256 {
 func (txn *V2Transaction) EphemeralSiacoinOutput(i int) SiacoinElement {
 	return SiacoinElement{
 		StateElement: StateElement{
-			ID:        Hash256(txn.SiacoinOutputID(txn.ID(), i)),
 			LeafIndex: UnassignedLeafIndex,
 		},
+		ID:            txn.SiacoinOutputID(txn.ID(), i),
 		SiacoinOutput: txn.SiacoinOutputs[i],
 	}
 }
@@ -718,9 +731,9 @@ func (txn *V2Transaction) EphemeralSiacoinOutput(i int) SiacoinElement {
 func (txn *V2Transaction) EphemeralSiafundOutput(i int) SiafundElement {
 	return SiafundElement{
 		StateElement: StateElement{
-			ID:        Hash256(txn.SiafundOutputID(txn.ID(), i)),
 			LeafIndex: UnassignedLeafIndex,
 		},
+		ID:            txn.SiafundOutputID(txn.ID(), i),
 		SiafundOutput: txn.SiafundOutputs[i],
 	}
 }
