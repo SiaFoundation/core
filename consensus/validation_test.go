@@ -1214,14 +1214,14 @@ func TestValidateV2Block(t *testing.T) {
 				"spends siacoin output not in accumulator",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
-					txn.SiacoinInputs[0].Parent.StateElement.ID[0] ^= 255
+					txn.SiacoinInputs[0].Parent.ID[0] ^= 255
 				},
 			},
 			{
 				"spends siafund output not in accumulator",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
-					txn.SiafundInputs[0].Parent.StateElement.ID[0] ^= 255
+					txn.SiafundInputs[0].Parent.ID[0] ^= 255
 				},
 			},
 			{
