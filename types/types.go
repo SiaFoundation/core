@@ -619,23 +619,23 @@ type StateElement struct {
 
 // A ChainIndexElement is a record of a ChainIndex within the state accumulator.
 type ChainIndexElement struct {
-	StateElement
-	ID         BlockID    `json:"id"`
-	ChainIndex ChainIndex `json:"chainIndex"`
+	ID           BlockID `json:"id"`
+	StateElement StateElement
+	ChainIndex   ChainIndex `json:"chainIndex"`
 }
 
 // A SiacoinElement is a record of a SiacoinOutput within the state accumulator.
 type SiacoinElement struct {
-	StateElement
 	ID             SiacoinOutputID `json:"id"`
+	StateElement   StateElement    `json:"stateElement"`
 	SiacoinOutput  SiacoinOutput   `json:"siacoinOutput"`
 	MaturityHeight uint64          `json:"maturityHeight"`
 }
 
 // A SiafundElement is a record of a SiafundOutput within the state accumulator.
 type SiafundElement struct {
-	StateElement
 	ID            SiafundOutputID `json:"id"`
+	StateElement  StateElement    `json:"stateElement"`
 	SiafundOutput SiafundOutput   `json:"siafundOutput"`
 	ClaimStart    Currency        `json:"claimStart"` // value of SiafundPool when element was created
 }
@@ -643,25 +643,25 @@ type SiafundElement struct {
 // A FileContractElement is a record of a FileContract within the state
 // accumulator.
 type FileContractElement struct {
-	StateElement
 	ID           FileContractID `json:"id"`
+	StateElement StateElement   `json:"stateElement"`
 	FileContract FileContract   `json:"fileContract"`
 }
 
 // A V2FileContractElement is a record of a V2FileContract within the state
 // accumulator.
 type V2FileContractElement struct {
-	StateElement
 	ID             FileContractID `json:"id"`
+	StateElement   StateElement   `json:"stateElement"`
 	V2FileContract V2FileContract `json:"v2FileContract"`
 }
 
 // An AttestationElement is a record of an Attestation within the state
 // accumulator.
 type AttestationElement struct {
-	StateElement
-	ID          AttestationID `json:"id"`
-	Attestation Attestation   `json:"attestation"`
+	ID           AttestationID `json:"id"`
+	StateElement StateElement  `json:"stateElement"`
+	Attestation  Attestation   `json:"attestation"`
 }
 
 // A V2Transaction effects a change of blockchain state.
@@ -743,14 +743,14 @@ func (txn *V2Transaction) DeepCopy() V2Transaction {
 	c := *txn
 	c.SiacoinInputs = append([]V2SiacoinInput(nil), c.SiacoinInputs...)
 	for i := range c.SiacoinInputs {
-		c.SiacoinInputs[i].Parent.MerkleProof = append([]Hash256(nil), c.SiacoinInputs[i].Parent.MerkleProof...)
+		c.SiacoinInputs[i].Parent.StateElement.MerkleProof = append([]Hash256(nil), c.SiacoinInputs[i].Parent.StateElement.MerkleProof...)
 		c.SiacoinInputs[i].SatisfiedPolicy.Signatures = append([]Signature(nil), c.SiacoinInputs[i].SatisfiedPolicy.Signatures...)
 		c.SiacoinInputs[i].SatisfiedPolicy.Preimages = append([][32]byte(nil), c.SiacoinInputs[i].SatisfiedPolicy.Preimages...)
 	}
 	c.SiacoinOutputs = append([]SiacoinOutput(nil), c.SiacoinOutputs...)
 	c.SiafundInputs = append([]V2SiafundInput(nil), c.SiafundInputs...)
 	for i := range c.SiafundInputs {
-		c.SiafundInputs[i].Parent.MerkleProof = append([]Hash256(nil), c.SiafundInputs[i].Parent.MerkleProof...)
+		c.SiafundInputs[i].Parent.StateElement.MerkleProof = append([]Hash256(nil), c.SiafundInputs[i].Parent.StateElement.MerkleProof...)
 		c.SiafundInputs[i].SatisfiedPolicy.Signatures = append([]Signature(nil), c.SiafundInputs[i].SatisfiedPolicy.Signatures...)
 		c.SiafundInputs[i].SatisfiedPolicy.Preimages = append([][32]byte(nil), c.SiafundInputs[i].SatisfiedPolicy.Preimages...)
 	}
@@ -758,14 +758,14 @@ func (txn *V2Transaction) DeepCopy() V2Transaction {
 	c.FileContracts = append([]V2FileContract(nil), c.FileContracts...)
 	c.FileContractRevisions = append([]V2FileContractRevision(nil), c.FileContractRevisions...)
 	for i := range c.FileContractRevisions {
-		c.FileContractRevisions[i].Parent.MerkleProof = append([]Hash256(nil), c.FileContractRevisions[i].Parent.MerkleProof...)
+		c.FileContractRevisions[i].Parent.StateElement.MerkleProof = append([]Hash256(nil), c.FileContractRevisions[i].Parent.StateElement.MerkleProof...)
 	}
 	c.FileContractResolutions = append([]V2FileContractResolution(nil), c.FileContractResolutions...)
 	for i := range c.FileContractResolutions {
-		c.FileContractResolutions[i].Parent.MerkleProof = append([]Hash256(nil), c.FileContractResolutions[i].Parent.MerkleProof...)
+		c.FileContractResolutions[i].Parent.StateElement.MerkleProof = append([]Hash256(nil), c.FileContractResolutions[i].Parent.StateElement.MerkleProof...)
 		if res, ok := c.FileContractResolutions[i].Resolution.(*V2StorageProof); ok {
 			sp := *res
-			sp.ProofIndex.MerkleProof = append([]Hash256(nil), sp.ProofIndex.MerkleProof...)
+			sp.ProofIndex.StateElement.MerkleProof = append([]Hash256(nil), sp.ProofIndex.StateElement.MerkleProof...)
 			sp.Proof = append([]Hash256(nil), sp.Proof...)
 			c.FileContractResolutions[i].Resolution = &sp
 		}

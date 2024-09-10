@@ -858,7 +858,7 @@ func (txn V2TransactionSemantics) EncodeTo(e *Encoder) {
 			fcr.Resolution = &renewal
 		case *V2StorageProof:
 			sp := *res
-			sp.ProofIndex.MerkleProof = nil
+			sp.ProofIndex.StateElement.MerkleProof = nil
 			fcr.Resolution = &sp
 		}
 		fcr.Resolution.(EncoderTo).EncodeTo(e)

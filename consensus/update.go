@@ -335,6 +335,10 @@ func ApplyOrphan(s State, b types.Block, targetTimestamp time.Time) State {
 	return next
 }
 
+func dupProof(se *types.StateElement) {
+	se.MerkleProof = append([]types.Hash256(nil), se.MerkleProof...)
+}
+
 func (ms *MidState) addSiacoinElement(id types.SiacoinOutputID, sco types.SiacoinOutput) {
 	sce := types.SiacoinElement{
 		StateElement:  types.StateElement{LeafIndex: types.UnassignedLeafIndex},
@@ -353,7 +357,7 @@ func (ms *MidState) addImmatureSiacoinElement(id types.SiacoinOutputID, sco type
 func (ms *MidState) spendSiacoinElement(sce types.SiacoinElement, txid types.TransactionID) {
 	ms.spends[sce.ID] = txid
 	if !ms.isCreated(sce.ID) {
-		sce.MerkleProof = append([]types.Hash256(nil), sce.MerkleProof...)
+		dupProof(&sce.StateElement)
 		ms.sces = append(ms.sces, sce)
 	}
 }
@@ -372,7 +376,7 @@ func (ms *MidState) addSiafundElement(id types.SiafundOutputID, sfo types.Siafun
 func (ms *MidState) spendSiafundElement(sfe types.SiafundElement, txid types.TransactionID) {
 	ms.spends[sfe.ID] = txid
 	if !ms.isCreated(sfe.ID) {
-		sfe.MerkleProof = append([]types.Hash256(nil), sfe.MerkleProof...)
+		dupProof(&sfe.StateElement)
 		ms.sfes = append(ms.sfes, sfe)
 	}
 }
@@ -397,10 +401,10 @@ func (ms *MidState) reviseFileContractElement(fce types.FileContractElement, rev
 			r.FileContract = rev
 		} else {
 			// store the original
-			fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
+			dupProof(&fce.StateElement)
 			ms.fces = append(ms.fces, fce)
 			// store the revision
-			fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
+			dupProof(&fce.StateElement)
 			fce.FileContract = rev
 			ms.revs[fce.ID] = &fce
 		}
@@ -410,7 +414,7 @@ func (ms *MidState) reviseFileContractElement(fce types.FileContractElement, rev
 func (ms *MidState) resolveFileContractElement(fce types.FileContractElement, valid bool, txid types.TransactionID) {
 	ms.res[fce.ID] = valid
 	ms.spends[fce.ID] = txid
-	fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
+	dupProof(&fce.StateElement)
 	ms.fces = append(ms.fces, fce)
 }
 
@@ -433,10 +437,10 @@ func (ms *MidState) reviseV2FileContractElement(fce types.V2FileContractElement,
 			r.V2FileContract = rev
 		} else {
 			// store the original
-			fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
+			dupProof(&fce.StateElement)
 			ms.v2fces = append(ms.v2fces, fce)
 			// store the revision
-			fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
+			dupProof(&fce.StateElement)
 			fce.V2FileContract = rev
 			ms.v2revs[fce.ID] = &fce
 		}
@@ -446,7 +450,7 @@ func (ms *MidState) reviseV2FileContractElement(fce types.V2FileContractElement,
 func (ms *MidState) resolveV2FileContractElement(fce types.V2FileContractElement, res types.V2FileContractResolutionType, txid types.TransactionID) {
 	ms.v2res[fce.ID] = res
 	ms.spends[fce.ID] = txid
-	fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
+	dupProof(&fce.StateElement)
 	ms.v2fces = append(ms.v2fces, fce)
 }
 
@@ -722,7 +726,7 @@ func (au ApplyUpdate) ForEachTreeNode(fn func(row, col uint64, h types.Hash256))
 // ChainIndexElement returns the chain index element for the applied block.
 func (au ApplyUpdate) ChainIndexElement() types.ChainIndexElement {
 	cie := au.ms.cie
-	cie.MerkleProof = append([]types.Hash256(nil), cie.MerkleProof...)
+	dupProof(&cie.StateElement)
 	return cie
 }
 

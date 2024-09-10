@@ -309,14 +309,14 @@ func (s State) V2TransactionWeight(txn types.V2Transaction) uint64 {
 	var wc writeCounter
 	e := types.NewEncoder(&wc)
 	for _, sci := range txn.SiacoinInputs {
-		sci.Parent.MerkleProof = nil
+		sci.Parent.StateElement.MerkleProof = nil
 		sci.EncodeTo(e)
 	}
 	for _, sco := range txn.SiacoinOutputs {
 		types.V2SiacoinOutput(sco).EncodeTo(e)
 	}
 	for _, sfi := range txn.SiafundInputs {
-		sfi.Parent.MerkleProof = nil
+		sfi.Parent.StateElement.MerkleProof = nil
 		sfi.EncodeTo(e)
 	}
 	for _, sfo := range txn.SiafundOutputs {
@@ -326,14 +326,14 @@ func (s State) V2TransactionWeight(txn types.V2Transaction) uint64 {
 		fc.EncodeTo(e)
 	}
 	for _, fcr := range txn.FileContractRevisions {
-		fcr.Parent.MerkleProof = nil
+		fcr.Parent.StateElement.MerkleProof = nil
 		fcr.EncodeTo(e)
 	}
 	for _, fcr := range txn.FileContractResolutions {
-		fcr.Parent.MerkleProof = nil
+		fcr.Parent.StateElement.MerkleProof = nil
 		if sp, ok := fcr.Resolution.(*types.V2StorageProof); ok {
 			c := *sp // don't modify original
-			c.ProofIndex.MerkleProof = nil
+			c.ProofIndex.StateElement.MerkleProof = nil
 			fcr.Resolution = &c
 		}
 		fcr.EncodeTo(e)
