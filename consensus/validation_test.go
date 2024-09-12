@@ -1821,7 +1821,7 @@ func TestV2RevisionApply(t *testing.T) {
 		ParentID: genesisBlock.ID(),
 		V2: &types.V2BlockData{
 			Height:       cs.Index.Height + 1,
-			Transactions: []types.V2Transaction{txn1, txn2},
+			Transactions: []types.V2Transaction{txn1},
 		},
 	}
 	_, au = ApplyBlock(cs, b, V1BlockSupplement{}, time.Time{})
