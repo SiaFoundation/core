@@ -1,0 +1,12 @@
+name: Lint & Test
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  test:
+    uses: SiaFoundation/workflows/.github/workflows/go-test.yml@master
+    with:
+      try-build: false
