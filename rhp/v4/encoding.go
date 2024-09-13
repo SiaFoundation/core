@@ -184,19 +184,35 @@ func (r *RPCSettingsResponse) maxLen() int {
 	return reasonableObjectSize
 }
 
+func (r *RPCFormContractParams) encodeTo(e *types.Encoder) {
+	r.RenterPublicKey.EncodeTo(e)
+	r.RenterAddress.EncodeTo(e)
+	types.V2Currency(r.Allowance).EncodeTo(e)
+	types.V2Currency(r.Collateral).EncodeTo(e)
+	e.WriteUint64(r.ProofHeight)
+}
+
+func (r *RPCFormContractParams) decodeFrom(d *types.Decoder) {
+	r.RenterPublicKey.DecodeFrom(d)
+	r.RenterAddress.DecodeFrom(d)
+	(*types.V2Currency)(&r.Allowance).DecodeFrom(d)
+	(*types.V2Currency)(&r.Collateral).DecodeFrom(d)
+	r.ProofHeight = d.ReadUint64()
+}
+
 func (r *RPCFormContractRequest) encodeTo(e *types.Encoder) {
 	r.Prices.EncodeTo(e)
+	r.Contract.encodeTo(e)
 	r.Basis.EncodeTo(e)
 	types.V2Currency(r.MinerFee).EncodeTo(e)
-	r.Contract.EncodeTo(e)
 	types.EncodeSlice(e, r.RenterInputs)
 	types.EncodeSlice(e, r.RenterParents)
 }
 func (r *RPCFormContractRequest) decodeFrom(d *types.Decoder) {
 	r.Prices.DecodeFrom(d)
+	r.Contract.decodeFrom(d)
 	r.Basis.DecodeFrom(d)
 	(*types.V2Currency)(&r.MinerFee).DecodeFrom(d)
-	r.Contract.DecodeFrom(d)
 	types.DecodeSlice(d, &r.RenterInputs)
 	types.DecodeSlice(d, &r.RenterParents)
 }
@@ -216,9 +232,11 @@ func (r *RPCFormContractResponse) maxLen() int {
 }
 
 func (r *RPCFormContractSecondResponse) encodeTo(e *types.Encoder) {
+	r.RenterContractSignature.EncodeTo(e)
 	types.EncodeSlice(e, r.RenterSatisfiedPolicies)
 }
 func (r *RPCFormContractSecondResponse) decodeFrom(d *types.Decoder) {
+	r.RenterContractSignature.DecodeFrom(d)
 	types.DecodeSlice(d, &r.RenterSatisfiedPolicies)
 }
 func (r *RPCFormContractSecondResponse) maxLen() int {
@@ -237,10 +255,23 @@ func (r *RPCFormContractThirdResponse) maxLen() int {
 	return reasonableObjectSize
 }
 
+func (r *RPCRenewContractParams) encodeTo(e *types.Encoder) {
+	r.ContractID.EncodeTo(e)
+	types.V2Currency(r.Allowance).EncodeTo(e)
+	types.V2Currency(r.Collateral).EncodeTo(e)
+	e.WriteUint64(r.ProofHeight)
+}
+
+func (r *RPCRenewContractParams) decodeFrom(d *types.Decoder) {
+	r.ContractID.DecodeFrom(d)
+	(*types.V2Currency)(&r.Allowance).DecodeFrom(d)
+	(*types.V2Currency)(&r.Collateral).DecodeFrom(d)
+	r.ProofHeight = d.ReadUint64()
+}
+
 func (r *RPCRenewContractRequest) encodeTo(e *types.Encoder) {
 	r.Prices.EncodeTo(e)
-	r.ContractID.EncodeTo(e)
-	r.Renewal.EncodeTo(e)
+	r.Renewal.encodeTo(e)
 	types.V2Currency(r.MinerFee).EncodeTo(e)
 	r.Basis.EncodeTo(e)
 	types.EncodeSlice(e, r.RenterInputs)
@@ -249,8 +280,7 @@ func (r *RPCRenewContractRequest) encodeTo(e *types.Encoder) {
 }
 func (r *RPCRenewContractRequest) decodeFrom(d *types.Decoder) {
 	r.Prices.DecodeFrom(d)
-	r.ContractID.DecodeFrom(d)
-	r.Renewal.DecodeFrom(d)
+	r.Renewal.decodeFrom(d)
 	(*types.V2Currency)(&r.MinerFee).DecodeFrom(d)
 	r.Basis.DecodeFrom(d)
 	types.DecodeSlice(d, &r.RenterInputs)
@@ -272,9 +302,11 @@ func (r *RPCRenewContractResponse) maxLen() int {
 }
 
 func (r *RPCRenewContractSecondResponse) encodeTo(e *types.Encoder) {
+	r.RenterRenewalSignature.EncodeTo(e)
 	types.EncodeSlice(e, r.RenterSatisfiedPolicies)
 }
 func (r *RPCRenewContractSecondResponse) decodeFrom(d *types.Decoder) {
+	r.RenterRenewalSignature.DecodeFrom(d)
 	types.DecodeSlice(d, &r.RenterSatisfiedPolicies)
 }
 func (r *RPCRenewContractSecondResponse) maxLen() int {

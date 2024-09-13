@@ -3,6 +3,7 @@ package rhp
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -12,6 +13,8 @@ import (
 )
 
 const (
+	proofWindow = 144 // 24 hours
+
 	// SectorSize is the size of one sector in bytes.
 	SectorSize = 1 << 22 // 4 MiB
 )
@@ -221,12 +224,20 @@ type (
 		Settings HostSettings `json:"settings"`
 	}
 
+	// RPCFormContractParams includes the contract details required to construct
+	// a contract.
+	RPCFormContractParams struct {
+		RenterPublicKey types.PublicKey `json:"renterPublicKey"`
+		RenterAddress   types.Address   `json:"renterAddress"`
+		Allowance       types.Currency  `json:"allowance"`
+		Collateral      types.Currency  `json:"collateral"`
+		ProofHeight     uint64          `json:"proofHeight"`
+	}
+
 	// RPCFormContractRequest implements Request.
 	RPCFormContractRequest struct {
-		Prices HostPrices `json:"prices"`
-
-		Contract types.V2FileContract `json:"contract"`
-
+		Prices        HostPrices             `json:"prices"`
+		Contract      RPCFormContractParams  `json:"contract"`
 		MinerFee      types.Currency         `json:"minerFee"`
 		Basis         types.ChainIndex       `json:"basis"`
 		RenterInputs  []types.SiacoinElement `json:"renterInputs"`
@@ -240,6 +251,7 @@ type (
 
 	// RPCFormContractSecondResponse implements Object.
 	RPCFormContractSecondResponse struct {
+		RenterContractSignature types.Signature         `json:"renterContractSignature"`
 		RenterSatisfiedPolicies []types.SatisfiedPolicy `json:"renterSatisfiedPolicies"`
 	}
 
@@ -249,13 +261,17 @@ type (
 		TransactionSet []types.V2Transaction `json:"transactionSet"`
 	}
 
+	RPCRenewContractParams struct {
+		ContractID  types.FileContractID `json:"contractID"`
+		Allowance   types.Currency       `json:"allowance"`
+		Collateral  types.Currency       `json:"collateral"`
+		ProofHeight uint64               `json:"proofHeight"`
+	}
+
 	// RPCRenewContractRequest implements Request.
 	RPCRenewContractRequest struct {
-		Prices HostPrices `json:"prices"`
-
-		ContractID types.FileContractID        `json:"contractID"`
-		Renewal    types.V2FileContractRenewal `json:"renewal"`
-
+		Prices             HostPrices             `json:"prices"`
+		Renewal            RPCRenewContractParams `json:"renewal"`
 		MinerFee           types.Currency         `json:"minerFee"`
 		Basis              types.ChainIndex       `json:"basis"`
 		RenterInputs       []types.SiacoinElement `json:"renterInputs"`
@@ -268,6 +284,7 @@ type (
 	}
 	// RPCRenewContractSecondResponse implements Object.
 	RPCRenewContractSecondResponse struct {
+		RenterRenewalSignature  types.Signature         `json:"renterRenewalSignature"`
 		RenterSatisfiedPolicies []types.SatisfiedPolicy `json:"renterSatisfiedPolicies"`
 	}
 	// RPCRenewContractThirdResponse implements Object.
@@ -402,7 +419,7 @@ func (r *RPCModifySectorsRequest) ValidChallengeSignature(fc types.V2FileContrac
 // of a contract for the renew RPC.
 func (r *RPCRenewContractRequest) ChallengeSigHash(lastRevisionNumber uint64) types.Hash256 {
 	h := types.NewHasher()
-	r.ContractID.EncodeTo(h.E)
+	r.Renewal.ContractID.EncodeTo(h.E)
 	h.E.WriteUint64(lastRevisionNumber)
 	return h.Sum()
 }
@@ -433,32 +450,40 @@ func ValidateModifyActions(actions []WriteAction, maxActions uint64) error {
 }
 
 // NewContract creates a new file contract with the given settings.
-func NewContract(hs HostSettings, allowance, collateral types.Currency, proofHeight uint64, renterAddress types.Address, renterPublicKey, hostPublicKey types.PublicKey) types.V2FileContract {
-	const proofWindow = 144
+func NewContract(p HostPrices, cp RPCFormContractParams, hostKey types.PublicKey, hostAddress types.Address) types.V2FileContract {
 	return types.V2FileContract{
 		Filesize:         0,
 		FileMerkleRoot:   types.Hash256{},
-		ProofHeight:      proofHeight,
-		ExpirationHeight: proofHeight + proofWindow,
+		ProofHeight:      cp.ProofHeight,
+		ExpirationHeight: cp.ProofHeight + proofWindow,
 		RenterOutput: types.SiacoinOutput{
-			Value:   allowance,
-			Address: renterAddress,
+			Value:   cp.Allowance,
+			Address: cp.RenterAddress,
 		},
 		HostOutput: types.SiacoinOutput{
-			Value:   collateral.Add(hs.Prices.ContractPrice),
-			Address: hs.WalletAddress,
+			Value:   cp.Collateral.Add(p.ContractPrice),
+			Address: hostAddress,
 		},
-		MissedHostValue: collateral,
-		TotalCollateral: collateral,
-		RenterPublicKey: renterPublicKey,
-		HostPublicKey:   hostPublicKey,
+		MissedHostValue: cp.Collateral,
+		TotalCollateral: cp.Collateral,
+		RenterPublicKey: cp.RenterPublicKey,
+		HostPublicKey:   hostKey,
 		RevisionNumber:  0,
 	}
 }
 
-// ContractRenterCost calculates the cost to the renter for forming a contract.
-func ContractRenterCost(cs consensus.State, p HostPrices, fc types.V2FileContract, minerFee types.Currency) types.Currency {
-	return fc.RenterOutput.Value.Add(p.ContractPrice).Add(minerFee).Add(cs.V2FileContractTax(fc))
+// ContractCost calculates the cost to the renter for forming a contract.
+func ContractCost(cs consensus.State, p HostPrices, fc types.V2FileContract, minerFee types.Currency) (renter, host types.Currency) {
+	renter = fc.RenterOutput.Value.Add(p.ContractPrice).Add(minerFee).Add(cs.V2FileContractTax(fc))
+	host = fc.TotalCollateral
+	return
+}
+
+// RenewalCost calculates the cost to the renter for renewing a contract.
+func RenewalCost(cs consensus.State, p HostPrices, r types.V2FileContractRenewal, minerFee types.Currency) (renter, host types.Currency) {
+	renter = r.NewContract.RenterOutput.Value.Add(p.ContractPrice).Add(minerFee).Add(cs.V2FileContractTax(r.NewContract)).Sub(r.RenterRollover)
+	host = r.NewContract.TotalCollateral.Sub(r.HostRollover)
+	return
 }
 
 // PayWithContract modifies a contract to transfer the amount from the renter and
@@ -515,18 +540,62 @@ func ReviseForFundAccount(fc types.V2FileContract, amount types.Currency) (types
 	return fc, err
 }
 
-// ReviseForRenewal creates a contract renewal from an existing contract.
-func ReviseForRenewal(fc types.V2FileContract, prices HostPrices, proofHeight, expirationHeight uint64, allowance, additionalCollateral types.Currency) (renewal types.V2FileContractRenewal) {
-	// developer errors
-	switch {
-	case fc.ProofHeight > proofHeight:
-		panic("new proof height must be greater than or equal to existing")
-	case fc.ExpirationHeight > expirationHeight:
-		panic("new expiration height must be greater than or equal to existing")
-	case proofHeight >= expirationHeight:
-		panic("proof height must be less than expiration height")
-	}
+// MinRenterAllowance returns the minimum allowance required to justify the given
+// host collateral.
+func MinRenterAllowance(hp HostPrices, duration uint64, collateral types.Currency) types.Currency {
+	maxCollateralBytes := collateral.Div(hp.Collateral).Div64(duration)
+	return hp.StoragePrice.Mul64(duration).Mul(maxCollateralBytes).Mul64(9).Div64(10) // 10% buffer
+}
 
+// ValidateFormContractParams checks the given contract parameters for validity.
+func ValidateFormContractParams(hs HostSettings, tip types.ChainIndex, req RPCFormContractParams) error {
+	hp := hs.Prices
+	expirationHeight := req.ProofHeight + proofWindow
+	duration := expirationHeight - hp.TipHeight
+	minRenterAllowance := MinRenterAllowance(hp, duration, req.Collateral)
+
+	switch {
+	case expirationHeight <= hp.TipHeight: // must be validated against tip instead of prices
+		return errors.New("contract expiration height is in the past")
+	case req.Allowance.IsZero():
+		return errors.New("allowance is zero")
+	case req.Collateral.Cmp(hs.MaxCollateral) > 0:
+		return fmt.Errorf("collateral %v exceeds max collateral %v", req.Collateral, hs.MaxCollateral)
+	case duration > hs.MaxContractDuration:
+		return fmt.Errorf("contract duration %v exceeds max duration %v", duration, hs.MaxContractDuration)
+	case req.Allowance.Cmp(minRenterAllowance) < 0:
+		return fmt.Errorf("allowance %v is less than minimum %v for collateral", req.Allowance, minRenterAllowance)
+	default:
+		return nil
+	}
+}
+
+// ValidateRenewContractParams checks the given renew parameters for validity.
+func ValidateRenewContractParams(hs HostSettings, tip types.ChainIndex, req RPCRenewContractParams) error {
+	hp := hs.Prices
+	expirationHeight := req.ProofHeight + proofWindow
+	duration := expirationHeight - hp.TipHeight
+	minRenterAllowance := MinRenterAllowance(hp, duration, req.Collateral)
+
+	switch {
+	case expirationHeight <= tip.Height: // must be validated against tip instead of prices
+		return errors.New("contract expiration height is in the past")
+	case req.Allowance.IsZero():
+		return errors.New("allowance is zero")
+	case req.Collateral.Cmp(hs.MaxCollateral) > 0:
+		return fmt.Errorf("collateral %v exceeds max collateral %v", req.Collateral, hs.MaxCollateral)
+	case duration > hs.MaxContractDuration:
+		return fmt.Errorf("contract duration %v exceeds max duration %v", duration, hs.MaxContractDuration)
+	case req.Allowance.Cmp(minRenterAllowance) < 0:
+		return fmt.Errorf("allowance %v is less than minimum %v for collateral", req.Allowance, minRenterAllowance)
+	default:
+		return nil
+	}
+}
+
+// NewRenewal creates a contract renewal from an existing contract revision
+func NewRenewal(fc types.V2FileContract, prices HostPrices, rp RPCRenewContractParams) (renewal types.V2FileContractRenewal) {
+	expirationHeight := rp.ProofHeight + proofWindow
 	duration := expirationHeight - prices.TipHeight
 	// collateral will always be risked for the full duration. Existing locked
 	// collateral will be rolled into the new contract, so cost to the host
@@ -555,18 +624,18 @@ func ReviseForRenewal(fc types.V2FileContract, prices HostPrices, proofHeight, e
 	renewal.NewContract.RenterSignature = types.Signature{}
 	renewal.NewContract.HostSignature = types.Signature{}
 	renewal.NewContract.ExpirationHeight = expirationHeight
-	renewal.NewContract.ProofHeight = proofHeight
+	renewal.NewContract.ProofHeight = rp.ProofHeight
 	// the renter output value only needs to cover the new allowance
-	renewal.NewContract.RenterOutput.Value = allowance
+	renewal.NewContract.RenterOutput.Value = rp.Allowance
 
 	// total collateral includes the additional requested collateral and
 	// the risked collateral from the existing storage.
-	renewal.NewContract.TotalCollateral = additionalCollateral.Add(riskedCollateral)
+	renewal.NewContract.TotalCollateral = rp.Collateral.Add(riskedCollateral)
 	// host output value includes the required collateral, the additional
 	// storage cost, and the contract price.
 	renewal.NewContract.HostOutput.Value = renewal.NewContract.TotalCollateral.Add(storage).Add(prices.ContractPrice)
 	// missed host value should only includes the additional collateral
-	renewal.NewContract.MissedHostValue = additionalCollateral
+	renewal.NewContract.MissedHostValue = rp.Collateral
 
 	// if the existing locked collateral is greater than the new required
 	// collateral, the host will only lock the new required collateral. Otherwise,
@@ -581,8 +650,8 @@ func ReviseForRenewal(fc types.V2FileContract, prices HostPrices, proofHeight, e
 	// if the remaining renter output is greater than the required allowance,
 	// only roll over the new allowance. Otherwise, roll over the remaining
 	// allowance. The renter will need to fund the difference.
-	if fc.RenterOutput.Value.Cmp(allowance) > 0 {
-		renewal.RenterRollover = allowance
+	if fc.RenterOutput.Value.Cmp(rp.Allowance) > 0 {
+		renewal.RenterRollover = rp.Allowance
 	} else {
 		renewal.RenterRollover = fc.RenterOutput.Value
 	}
