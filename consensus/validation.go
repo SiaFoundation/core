@@ -747,7 +747,11 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 		return validateSignatures(fc, fc.RenterPublicKey, fc.HostPublicKey, renewal)
 	}
 
-	validateRevision := func(cur, rev types.V2FileContract, renewal bool) error {
+	validateRevision := func(fce types.V2FileContractElement, rev types.V2FileContract, renewal bool) error {
+		cur := fce.V2FileContract
+		if priorRev, ok := ms.v2revs[fce.ID]; ok {
+			cur = priorRev.V2FileContract
+		}
 		curOutputSum := cur.RenterOutput.Value.Add(cur.HostOutput.Value)
 		revOutputSum := rev.RenterOutput.Value.Add(rev.HostOutput.Value)
 		switch {
@@ -784,7 +788,7 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 			// NOTE: disallowing this means that resolutions always take
 			// precedence over revisions
 			return fmt.Errorf("file contract revision %v resolves contract", i)
-		} else if err := validateRevision(cur, rev, false); err != nil {
+		} else if err := validateRevision(fcr.Parent, rev, false); err != nil {
 			return fmt.Errorf("file contract revision %v %s", i, err)
 		}
 		revised[fcr.Parent.ID] = i
@@ -801,7 +805,7 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 			old, renewed := renewal.FinalRevision, renewal.NewContract
 			if old.RevisionNumber != types.MaxRevisionNumber {
 				return fmt.Errorf("file contract renewal %v does not finalize old contract", i)
-			} else if err := validateRevision(fc, old, true); err != nil {
+			} else if err := validateRevision(fcr.Parent, old, true); err != nil {
 				return fmt.Errorf("file contract renewal %v final revision %s", i, err)
 			} else if err := validateContract(renewed, true); err != nil {
 				return fmt.Errorf("file contract renewal %v initial revision %s", i, err)
@@ -827,7 +831,7 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 			finalRevision := types.V2FileContract(*r)
 			if finalRevision.RevisionNumber != types.MaxRevisionNumber {
 				return fmt.Errorf("file contract finalization %v does not set maximum revision number", i)
-			} else if err := validateRevision(fc, finalRevision, false); err != nil {
+			} else if err := validateRevision(fcr.Parent, finalRevision, false); err != nil {
 				return fmt.Errorf("file contract finalization %v %s", i, err)
 			}
 		case *types.V2StorageProof:
