@@ -261,6 +261,8 @@ type (
 		TransactionSet []types.V2Transaction `json:"transactionSet"`
 	}
 
+	// RPCRenewContractParams includes the contract details required to create
+	// a renewal.
 	RPCRenewContractParams struct {
 		ContractID  types.FileContractID `json:"contractID"`
 		Allowance   types.Currency       `json:"allowance"`
