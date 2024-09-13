@@ -187,11 +187,10 @@ func (p SpendPolicy) Verify(height uint64, medianTimestamp time.Time, sigHash Ha
 				case SpecifierEd25519:
 					var epk PublicKey
 					copy(epk[:], pk.Key)
-					if !epk.VerifyHash(sigHash, sigs[0]) {
-						return errInvalidSignature
+					if epk.VerifyHash(sigHash, sigs[0]) {
+						sigs = sigs[1:]
+						p.SignaturesRequired--
 					}
-					sigs = sigs[1:]
-					p.SignaturesRequired--
 				default:
 					// all other algorithms are considered valid by default
 					sigs = sigs[1:]
