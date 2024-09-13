@@ -1,37 +1,10 @@
 package rhp
 
 import (
-	"errors"
-	"fmt"
 	"io"
 
 	"go.sia.tech/core/types"
 )
-
-// Error codes.
-const (
-	ErrorCodeTransport = iota
-)
-
-// An RPCError pairs a human-readable error description with a status code.
-type RPCError struct {
-	Code        uint8
-	Description string
-}
-
-// Error implements error.
-func (e *RPCError) Error() string {
-	return fmt.Sprintf("%v %v", e.Code, e.Description)
-}
-
-// ErrorCode returns the code of err. If err is not an RPCError, ErrorCode
-// returns ErrorCodeTransport.
-func ErrorCode(err error) uint8 {
-	if re := new(RPCError); errors.As(err, &re) {
-		return re.Code
-	}
-	return ErrorCodeTransport
-}
 
 func withEncoder(w io.Writer, fn func(*types.Encoder)) error {
 	e := types.NewEncoder(w)
@@ -45,11 +18,6 @@ func withDecoder(r io.Reader, maxLen int, fn func(*types.Decoder)) error {
 	return d.Err()
 }
 
-// WriteID writes a request's ID to the stream.
-func WriteID(w io.Writer, r Request) error {
-	return withEncoder(w, r.ID().EncodeTo)
-}
-
 // ReadID reads an RPC ID from the stream.
 func ReadID(r io.Reader) (id types.Specifier, err error) {
 	err = withDecoder(r, 16, id.DecodeFrom)
@@ -57,8 +25,14 @@ func ReadID(r io.Reader) (id types.Specifier, err error) {
 }
 
 // WriteRequest writes a request to the stream.
-func WriteRequest(w io.Writer, r Request) error {
-	return withEncoder(w, r.encodeTo)
+func WriteRequest(w io.Writer, id types.Specifier, o Object) error {
+	return withEncoder(w, func(e *types.Encoder) {
+		id.EncodeTo(e)
+		if o == nil {
+			return
+		}
+		o.encodeTo(e)
+	})
 }
 
 // ReadRequest reads a request from the stream.

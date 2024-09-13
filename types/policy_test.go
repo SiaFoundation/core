@@ -592,3 +592,23 @@ func TestParseSpendPolicy(t *testing.T) {
 		}
 	}
 }
+
+func TestTest(t *testing.T) {
+	var pk PublicKey
+	if err := pk.UnmarshalText([]byte("ed25519:5e4bbc181bae781575a30fabdce472842d0373c12eafcd8013dba0cbf69e34e0")); err != nil {
+		t.Fatal(err)
+	}
+
+	policy := PolicyThreshold(1, []SpendPolicy{
+		PolicyAbove(100),
+		PolicyPublicKey(pk),
+	})
+
+	buf, err := json.Marshal(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Error(string(buf))
+
+	t.Fatal(policy.Address())
+}

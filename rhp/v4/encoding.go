@@ -8,12 +8,25 @@ import (
 )
 
 // EncodeTo implements types.EncoderTo.
+func (ad AccountDeposit) EncodeTo(e *types.Encoder) {
+	ad.Account.EncodeTo(e)
+	types.V2Currency(ad.Amount).EncodeTo(e)
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (ad *AccountDeposit) DecodeFrom(d *types.Decoder) {
+	ad.Account.DecodeFrom(d)
+	(*types.V2Currency)(&ad.Amount).DecodeFrom(d)
+}
+
+// EncodeTo implements types.EncoderTo.
 func (hp HostPrices) EncodeTo(e *types.Encoder) {
 	types.V2Currency(hp.ContractPrice).EncodeTo(e)
 	types.V2Currency(hp.Collateral).EncodeTo(e)
 	types.V2Currency(hp.StoragePrice).EncodeTo(e)
 	types.V2Currency(hp.IngressPrice).EncodeTo(e)
 	types.V2Currency(hp.EgressPrice).EncodeTo(e)
+	types.V2Currency(hp.ModifySectorActionPrice).EncodeTo(e)
 	e.WriteUint64(hp.TipHeight)
 	e.WriteTime(hp.ValidUntil)
 	hp.Signature.EncodeTo(e)
@@ -26,6 +39,7 @@ func (hp *HostPrices) DecodeFrom(d *types.Decoder) {
 	(*types.V2Currency)(&hp.StoragePrice).DecodeFrom(d)
 	(*types.V2Currency)(&hp.IngressPrice).DecodeFrom(d)
 	(*types.V2Currency)(&hp.EgressPrice).DecodeFrom(d)
+	(*types.V2Currency)(&hp.ModifySectorActionPrice).DecodeFrom(d)
 	hp.TipHeight = d.ReadUint64()
 	hp.ValidUntil = d.ReadTime()
 	hp.Signature.DecodeFrom(d)
@@ -33,16 +47,14 @@ func (hp *HostPrices) DecodeFrom(d *types.Decoder) {
 
 // EncodeTo implements types.EncoderTo.
 func (hs HostSettings) EncodeTo(e *types.Encoder) {
-	e.Write(hs.Version[:])
-	e.WritePrefix(len(hs.NetAddresses))
-	for i := range hs.NetAddresses {
-		e.WriteString(hs.NetAddresses[i].Protocol)
-		e.WriteString(hs.NetAddresses[i].Address)
-	}
+	e.Write(hs.ProtocolVersion[:])
+	e.WriteString(hs.Release)
 	hs.WalletAddress.EncodeTo(e)
 	e.WriteBool(hs.AcceptingContracts)
 	types.V2Currency(hs.MaxCollateral).EncodeTo(e)
-	e.WriteUint64(hs.MaxDuration)
+	e.WriteUint64(hs.MaxContractDuration)
+	e.WriteUint64(hs.MaxSectorDuration)
+	e.WriteUint64(hs.MaxModifyActions)
 	e.WriteUint64(hs.RemainingStorage)
 	e.WriteUint64(hs.TotalStorage)
 	hs.Prices.EncodeTo(e)
@@ -50,16 +62,14 @@ func (hs HostSettings) EncodeTo(e *types.Encoder) {
 
 // DecodeFrom implements types.DecoderFrom.
 func (hs *HostSettings) DecodeFrom(d *types.Decoder) {
-	d.Read(hs.Version[:])
-	hs.NetAddresses = make([]NetAddress, d.ReadPrefix())
-	for i := range hs.NetAddresses {
-		hs.NetAddresses[i].Protocol = d.ReadString()
-		hs.NetAddresses[i].Address = d.ReadString()
-	}
+	d.Read(hs.ProtocolVersion[:])
+	hs.Release = d.ReadString()
 	hs.WalletAddress.DecodeFrom(d)
 	hs.AcceptingContracts = d.ReadBool()
 	(*types.V2Currency)(&hs.MaxCollateral).DecodeFrom(d)
-	hs.MaxDuration = d.ReadUint64()
+	hs.MaxContractDuration = d.ReadUint64()
+	hs.MaxSectorDuration = d.ReadUint64()
+	hs.MaxModifyActions = d.ReadUint64()
 	hs.RemainingStorage = d.ReadUint64()
 	hs.TotalStorage = d.ReadUint64()
 	hs.Prices.DecodeFrom(d)
@@ -77,7 +87,8 @@ func (a WriteAction) EncodeTo(e *types.Encoder) {
 	case ActionTrim:
 		e.WriteUint64(a.N)
 	case ActionUpdate:
-		panic("unimplemented")
+		a.Root.EncodeTo(e)
+		e.WriteUint64(a.A)
 	default:
 		panic("invalid action type")
 	}
@@ -95,7 +106,8 @@ func (a *WriteAction) DecodeFrom(d *types.Decoder) {
 	case ActionTrim:
 		a.N = d.ReadUint64()
 	case ActionUpdate:
-		panic("unimplemented")
+		a.Root.DecodeFrom(d)
+		a.A = d.ReadUint64()
 	default:
 		d.SetErr(fmt.Errorf("invalid action type (%v)", a.Type))
 	}
@@ -174,71 +186,52 @@ func (r *RPCSettingsResponse) maxLen() int {
 
 func (r *RPCFormContractRequest) encodeTo(e *types.Encoder) {
 	r.Prices.EncodeTo(e)
+	r.Basis.EncodeTo(e)
+	types.V2Currency(r.MinerFee).EncodeTo(e)
 	r.Contract.EncodeTo(e)
-	e.WritePrefix(len(r.RenterInputs))
-	for i := range r.RenterInputs {
-		r.RenterInputs[i].EncodeTo(e)
-	}
+	types.EncodeSlice(e, r.RenterInputs)
+	types.EncodeSlice(e, r.RenterParents)
 }
 func (r *RPCFormContractRequest) decodeFrom(d *types.Decoder) {
 	r.Prices.DecodeFrom(d)
+	r.Basis.DecodeFrom(d)
+	(*types.V2Currency)(&r.MinerFee).DecodeFrom(d)
 	r.Contract.DecodeFrom(d)
-	r.RenterInputs = make([]types.V2SiacoinInput, d.ReadPrefix())
-	for i := range r.RenterInputs {
-		r.RenterInputs[i].DecodeFrom(d)
-	}
+	types.DecodeSlice(d, &r.RenterInputs)
+	types.DecodeSlice(d, &r.RenterParents)
 }
 func (r *RPCFormContractRequest) maxLen() int {
 	return reasonableObjectSize
 }
 
 func (r *RPCFormContractResponse) encodeTo(e *types.Encoder) {
-	e.WritePrefix(len(r.HostInputs))
-	for i := range r.HostInputs {
-		r.HostInputs[i].EncodeTo(e)
-	}
+	types.EncodeSlice(e, r.HostInputs)
 }
+
 func (r *RPCFormContractResponse) decodeFrom(d *types.Decoder) {
-	r.HostInputs = make([]types.V2SiacoinInput, d.ReadPrefix())
-	for i := range r.HostInputs {
-		r.HostInputs[i].DecodeFrom(d)
-	}
+	types.DecodeSlice(d, &r.HostInputs)
 }
 func (r *RPCFormContractResponse) maxLen() int {
 	return reasonableObjectSize
 }
 
 func (r *RPCFormContractSecondResponse) encodeTo(e *types.Encoder) {
-	r.RenterContractSignature.EncodeTo(e)
-	e.WritePrefix(len(r.RenterSatisfiedPolicies))
-	for i := range r.RenterSatisfiedPolicies {
-		r.RenterSatisfiedPolicies[i].EncodeTo(e)
-	}
+	types.EncodeSlice(e, r.RenterSatisfiedPolicies)
 }
 func (r *RPCFormContractSecondResponse) decodeFrom(d *types.Decoder) {
-	r.RenterContractSignature.DecodeFrom(d)
-	r.RenterSatisfiedPolicies = make([]types.SatisfiedPolicy, d.ReadPrefix())
-	for i := range r.RenterSatisfiedPolicies {
-		r.RenterSatisfiedPolicies[i].DecodeFrom(d)
-	}
+	types.DecodeSlice(d, &r.RenterSatisfiedPolicies)
 }
 func (r *RPCFormContractSecondResponse) maxLen() int {
 	return reasonableObjectSize
 }
 
 func (r *RPCFormContractThirdResponse) encodeTo(e *types.Encoder) {
-	r.HostContractSignature.EncodeTo(e)
-	e.WritePrefix(len(r.HostSatisfiedPolicies))
-	for i := range r.HostSatisfiedPolicies {
-		r.HostSatisfiedPolicies[i].EncodeTo(e)
-	}
+	r.Basis.EncodeTo(e)
+	types.EncodeSlice(e, r.TransactionSet)
 }
 func (r *RPCFormContractThirdResponse) decodeFrom(d *types.Decoder) {
-	r.HostContractSignature.DecodeFrom(d)
-	r.HostSatisfiedPolicies = make([]types.SatisfiedPolicy, d.ReadPrefix())
-	for i := range r.HostSatisfiedPolicies {
-		r.HostSatisfiedPolicies[i].DecodeFrom(d)
-	}
+	r.Basis.DecodeFrom(d)
+	types.DecodeSlice(d, &r.TransactionSet)
 }
 func (r *RPCFormContractThirdResponse) maxLen() int {
 	return reasonableObjectSize
@@ -246,121 +239,81 @@ func (r *RPCFormContractThirdResponse) maxLen() int {
 
 func (r *RPCRenewContractRequest) encodeTo(e *types.Encoder) {
 	r.Prices.EncodeTo(e)
+	r.ContractID.EncodeTo(e)
 	r.Renewal.EncodeTo(e)
-	e.WritePrefix(len(r.RenterInputs))
-	for i := range r.RenterInputs {
-		r.RenterInputs[i].EncodeTo(e)
-	}
-	e.WritePrefix(len(r.RenterParents))
-	for i := range r.RenterParents {
-		r.RenterParents[i].EncodeTo(e)
-	}
+	types.V2Currency(r.MinerFee).EncodeTo(e)
+	r.Basis.EncodeTo(e)
+	types.EncodeSlice(e, r.RenterInputs)
+	types.EncodeSlice(e, r.RenterParents)
+	r.ChallengeSignature.EncodeTo(e)
 }
 func (r *RPCRenewContractRequest) decodeFrom(d *types.Decoder) {
 	r.Prices.DecodeFrom(d)
+	r.ContractID.DecodeFrom(d)
 	r.Renewal.DecodeFrom(d)
-	r.RenterInputs = make([]types.V2SiacoinInput, d.ReadPrefix())
-	for i := range r.RenterInputs {
-		r.RenterInputs[i].DecodeFrom(d)
-	}
-	r.RenterParents = make([]types.V2Transaction, d.ReadPrefix())
-	for i := range r.RenterParents {
-		r.RenterParents[i].DecodeFrom(d)
-	}
+	(*types.V2Currency)(&r.MinerFee).DecodeFrom(d)
+	r.Basis.DecodeFrom(d)
+	types.DecodeSlice(d, &r.RenterInputs)
+	types.DecodeSlice(d, &r.RenterParents)
+	r.ChallengeSignature.DecodeFrom(d)
 }
 func (r *RPCRenewContractRequest) maxLen() int {
 	return reasonableObjectSize
 }
 
 func (r *RPCRenewContractResponse) encodeTo(e *types.Encoder) {
-	e.WritePrefix(len(r.HostInputs))
-	for i := range r.HostInputs {
-		r.HostInputs[i].EncodeTo(e)
-	}
-	e.WritePrefix(len(r.HostParents))
-	for i := range r.HostParents {
-		r.HostParents[i].EncodeTo(e)
-	}
+	types.EncodeSlice(e, r.HostInputs)
 }
 func (r *RPCRenewContractResponse) decodeFrom(d *types.Decoder) {
-	r.HostInputs = make([]types.V2SiacoinInput, d.ReadPrefix())
-	for i := range r.HostInputs {
-		r.HostInputs[i].DecodeFrom(d)
-	}
-	r.HostParents = make([]types.V2Transaction, d.ReadPrefix())
-	for i := range r.HostParents {
-		r.HostParents[i].DecodeFrom(d)
-	}
+	types.DecodeSlice(d, &r.HostInputs)
 }
 func (r *RPCRenewContractResponse) maxLen() int {
 	return reasonableObjectSize
 }
 
 func (r *RPCRenewContractSecondResponse) encodeTo(e *types.Encoder) {
-	r.RenterContractSignature.EncodeTo(e)
-	e.WritePrefix(len(r.RenterSatisfiedPolicies))
-	for i := range r.RenterSatisfiedPolicies {
-		r.RenterSatisfiedPolicies[i].EncodeTo(e)
-	}
+	types.EncodeSlice(e, r.RenterSatisfiedPolicies)
 }
 func (r *RPCRenewContractSecondResponse) decodeFrom(d *types.Decoder) {
-	r.RenterContractSignature.DecodeFrom(d)
-	r.RenterSatisfiedPolicies = make([]types.SatisfiedPolicy, d.ReadPrefix())
-	for i := range r.RenterSatisfiedPolicies {
-		r.RenterSatisfiedPolicies[i].DecodeFrom(d)
-	}
+	types.DecodeSlice(d, &r.RenterSatisfiedPolicies)
 }
 func (r *RPCRenewContractSecondResponse) maxLen() int {
 	return reasonableObjectSize
 }
 
 func (r *RPCRenewContractThirdResponse) encodeTo(e *types.Encoder) {
-	r.HostContractSignature.EncodeTo(e)
-	e.WritePrefix(len(r.HostSatisfiedPolicies))
-	for i := range r.HostSatisfiedPolicies {
-		r.HostSatisfiedPolicies[i].EncodeTo(e)
-	}
+	r.Basis.EncodeTo(e)
+	types.EncodeSlice(e, r.TransactionSet)
 }
 func (r *RPCRenewContractThirdResponse) decodeFrom(d *types.Decoder) {
-	r.HostContractSignature.DecodeFrom(d)
-	r.HostSatisfiedPolicies = make([]types.SatisfiedPolicy, d.ReadPrefix())
-	for i := range r.HostSatisfiedPolicies {
-		r.HostSatisfiedPolicies[i].DecodeFrom(d)
-	}
+	r.Basis.DecodeFrom(d)
+	types.DecodeSlice(d, &r.TransactionSet)
 }
 func (r *RPCRenewContractThirdResponse) maxLen() int {
 	return reasonableObjectSize
 }
 
 func (r *RPCModifySectorsRequest) encodeTo(e *types.Encoder) {
+	r.ContractID.EncodeTo(e)
 	r.Prices.EncodeTo(e)
-	e.WritePrefix(len(r.Actions))
-	for i := range r.Actions {
-		r.Actions[i].EncodeTo(e)
-	}
+	types.EncodeSlice(e, r.Actions)
+	r.ChallengeSignature.EncodeTo(e)
 }
 func (r *RPCModifySectorsRequest) decodeFrom(d *types.Decoder) {
+	r.ContractID.DecodeFrom(d)
 	r.Prices.DecodeFrom(d)
-	r.Actions = make([]WriteAction, d.ReadPrefix())
-	for i := range r.Actions {
-		r.Actions[i].DecodeFrom(d)
-	}
+	types.DecodeSlice(d, &r.Actions)
+	r.ChallengeSignature.DecodeFrom(d)
 }
 func (r *RPCModifySectorsRequest) maxLen() int {
 	return reasonableObjectSize
 }
 
 func (r *RPCModifySectorsResponse) encodeTo(e *types.Encoder) {
-	e.WritePrefix(len(r.Proof))
-	for i := range r.Proof {
-		r.Proof[i].EncodeTo(e)
-	}
+	types.EncodeSlice(e, r.Proof)
 }
 func (r *RPCModifySectorsResponse) decodeFrom(d *types.Decoder) {
-	r.Proof = make([]types.Hash256, d.ReadPrefix())
-	for i := range r.Proof {
-		r.Proof[i].DecodeFrom(d)
-	}
+	types.DecodeSlice(d, &r.Proof)
 }
 func (r *RPCModifySectorsResponse) maxLen() int {
 	return reasonableObjectSize
@@ -425,35 +378,44 @@ func (r *RPCReadSectorRequest) maxLen() int {
 }
 
 func (r *RPCReadSectorResponse) encodeTo(e *types.Encoder) {
-	e.WritePrefix(len(r.Proof))
-	for i := range r.Proof {
-		r.Proof[i].EncodeTo(e)
-	}
+	types.EncodeSlice(e, r.Proof)
 	e.WriteBytes(r.Sector)
 }
 func (r *RPCReadSectorResponse) decodeFrom(d *types.Decoder) {
-	r.Proof = make([]types.Hash256, d.ReadPrefix())
-	for i := range r.Proof {
-		r.Proof[i].DecodeFrom(d)
-	}
+	types.DecodeSlice(d, &r.Proof)
 	r.Sector = d.ReadBytes()
 }
 func (r *RPCReadSectorResponse) maxLen() int {
 	return reasonableObjectSize + 8 + SectorSize
 }
 
+func (r RPCWriteSectorStreamingRequest) encodeTo(e *types.Encoder) {
+	panic("use RPCWriteSectorRequest")
+}
+func (r *RPCWriteSectorStreamingRequest) decodeFrom(d *types.Decoder) {
+	r.Prices.DecodeFrom(d)
+	r.Token.decodeFrom(d)
+	r.Duration = d.ReadUint64()
+	r.DataLength = d.ReadUint64()
+}
+func (r *RPCWriteSectorStreamingRequest) maxLen() int {
+	return sizeofPrices + sizeofAccountToken + 8 + 8
+}
+
 func (r *RPCWriteSectorRequest) encodeTo(e *types.Encoder) {
 	r.Prices.EncodeTo(e)
 	r.Token.encodeTo(e)
+	e.WriteUint64(r.Duration)
 	e.WriteBytes(r.Sector)
 }
 func (r *RPCWriteSectorRequest) decodeFrom(d *types.Decoder) {
 	r.Prices.DecodeFrom(d)
 	r.Token.decodeFrom(d)
+	r.Duration = d.ReadUint64()
 	r.Sector = d.ReadBytes()
 }
 func (r *RPCWriteSectorRequest) maxLen() int {
-	return sizeofPrices + sizeofAccountToken + 8 + SectorSize
+	return sizeofPrices + sizeofAccountToken + 8 + 8 + SectorSize
 }
 
 func (r *RPCWriteSectorResponse) encodeTo(e *types.Encoder) {
@@ -481,29 +443,17 @@ func (r *RPCSectorRootsRequest) decodeFrom(d *types.Decoder) {
 	r.Length = d.ReadUint64()
 }
 func (r *RPCSectorRootsRequest) maxLen() int {
-	return sizeofPrices + sizeofSignature + 8 + 8
+	return sizeofPrices + 32 + sizeofSignature + 8 + 8
 }
 
 func (r *RPCSectorRootsResponse) encodeTo(e *types.Encoder) {
-	e.WritePrefix(len(r.Proof))
-	for i := range r.Proof {
-		r.Proof[i].EncodeTo(e)
-	}
-	e.WritePrefix(len(r.Roots))
-	for i := range r.Roots {
-		r.Roots[i].EncodeTo(e)
-	}
+	types.EncodeSlice(e, r.Proof)
+	types.EncodeSlice(e, r.Roots)
 	r.HostSignature.EncodeTo(e)
 }
 func (r *RPCSectorRootsResponse) decodeFrom(d *types.Decoder) {
-	r.Proof = make([]types.Hash256, d.ReadPrefix())
-	for i := range r.Proof {
-		r.Proof[i].DecodeFrom(d)
-	}
-	r.Roots = make([]types.Hash256, d.ReadPrefix())
-	for i := range r.Roots {
-		r.Roots[i].DecodeFrom(d)
-	}
+	types.DecodeSlice(d, &r.Proof)
+	types.DecodeSlice(d, &r.Roots)
 	r.HostSignature.DecodeFrom(d)
 }
 func (r *RPCSectorRootsResponse) maxLen() int {
@@ -530,42 +480,28 @@ func (r *RPCAccountBalanceResponse) maxLen() int {
 	return sizeofCurrency
 }
 
-func (r *RPCFundAccountRequest) encodeTo(e *types.Encoder) {
+func (r *RPCFundAccountsRequest) encodeTo(e *types.Encoder) {
 	r.ContractID.EncodeTo(e)
-	e.WritePrefix(len(r.Deposits))
-	for i := range r.Deposits {
-		r.Deposits[i].Account.EncodeTo(e)
-		types.V2Currency(r.Deposits[i].Amount).EncodeTo(e)
-	}
+	types.EncodeSlice(e, r.Deposits)
 	r.RenterSignature.EncodeTo(e)
 }
-func (r *RPCFundAccountRequest) decodeFrom(d *types.Decoder) {
+func (r *RPCFundAccountsRequest) decodeFrom(d *types.Decoder) {
 	r.ContractID.DecodeFrom(d)
-	r.Deposits = make([]AccountDeposit, d.ReadPrefix())
-	for i := range r.Deposits {
-		r.Deposits[i].Account.DecodeFrom(d)
-		(*types.V2Currency)(&r.Deposits[i].Amount).DecodeFrom(d)
-	}
+	types.DecodeSlice(d, &r.Deposits)
 	r.RenterSignature.DecodeFrom(d)
 }
-func (r *RPCFundAccountRequest) maxLen() int {
+func (r *RPCFundAccountsRequest) maxLen() int {
 	return reasonableObjectSize
 }
 
-func (r *RPCFundAccountResponse) encodeTo(e *types.Encoder) {
-	e.WritePrefix(len(r.Balances))
-	for i := range r.Balances {
-		types.V2Currency(r.Balances[i]).EncodeTo(e)
-	}
+func (r *RPCFundAccountsResponse) encodeTo(e *types.Encoder) {
+	types.EncodeSliceCast[types.V2Currency](e, r.Balances)
 	r.HostSignature.EncodeTo(e)
 }
-func (r *RPCFundAccountResponse) decodeFrom(d *types.Decoder) {
-	r.Balances = make([]types.Currency, d.ReadPrefix())
-	for i := range r.Balances {
-		(*types.V2Currency)(&r.Balances[i]).DecodeFrom(d)
-	}
+func (r *RPCFundAccountsResponse) decodeFrom(d *types.Decoder) {
+	types.DecodeSliceCast[types.V2Currency, types.Currency](d, &r.Balances)
 	r.HostSignature.DecodeFrom(d)
 }
-func (r *RPCFundAccountResponse) maxLen() int {
+func (r *RPCFundAccountsResponse) maxLen() int {
 	return reasonableObjectSize
 }
