@@ -141,16 +141,6 @@ type HostSettings struct {
 	Prices              HostPrices     `json:"prices"`
 }
 
-// Sign signs the host prices with the given key.
-func (hs *HostSettings) Sign(sk types.PrivateKey) {
-	// NOTE: this is a method on HostSettings (rather than HostPrices itself)
-	// because that gives us access to the protocol version.
-	h := types.NewHasher()
-	hs.Prices.Signature = types.Signature{}
-	hs.Prices.EncodeTo(h.E)
-	hs.Prices.Signature = sk.SignHash(h.Sum())
-}
-
 // A WriteAction adds or modifies sectors within a contract.
 type WriteAction struct {
 	Type uint8         `json:"type"`
