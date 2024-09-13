@@ -155,7 +155,7 @@ const (
 	ActionAppend = iota + 1
 	ActionSwap
 	ActionTrim
-	ActionUpdate // TODO: implement
+	ActionUpdate
 )
 
 // An Account represents an ephemeral balance that can be funded via contract
