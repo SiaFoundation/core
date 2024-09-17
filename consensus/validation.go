@@ -20,7 +20,7 @@ func validateHeader(s State, parentID types.BlockID, timestamp time.Time, nonce 
 	if parentID != s.Index.ID {
 		return errors.New("wrong parent ID")
 	} else if timestamp.After(s.MaxFutureTimestamp(time.Now())) {
-		return ErrFutureBlock 
+		return ErrFutureBlock
 	} else if timestamp.Before(s.medianTimestamp()) {
 		return errors.New("timestamp is too far in the past")
 	} else if nonce%s.NonceFactor() != 0 {
