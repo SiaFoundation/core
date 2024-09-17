@@ -52,7 +52,7 @@ func (req *RPCFormContractRequest) Validate(hs HostSettings, tip types.ChainInde
 	switch {
 	case req.MinerFee.IsZero():
 		return errors.New("miner fee must be greater than 0")
-	case req.Basis != (types.ChainIndex{}):
+	case req.Basis == (types.ChainIndex{}):
 		return errors.New("basis must be set")
 	case len(req.RenterInputs) == 0:
 		return errors.New("renter inputs must not be empty")
@@ -88,7 +88,7 @@ func (req *RPCRenewContractRequest) Validate(hs HostSettings, tip types.ChainInd
 	switch {
 	case req.MinerFee.IsZero():
 		return errors.New("miner fee must be greater than 0")
-	case req.Basis != (types.ChainIndex{}):
+	case req.Basis == (types.ChainIndex{}):
 		return errors.New("basis must be set")
 	case len(req.RenterInputs) == 0:
 		return errors.New("renter inputs must not be empty")
