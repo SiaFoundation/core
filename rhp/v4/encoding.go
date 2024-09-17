@@ -421,8 +421,19 @@ func (r *RPCReadSectorResponse) maxLen() int {
 	return reasonableObjectSize + 8 + SectorSize
 }
 
+func (r *RPCReadSectorStreamedResponse) encodeTo(e *types.Encoder) {
+	panic("use RPCReadSectorResponse") // developer error
+}
+func (r *RPCReadSectorStreamedResponse) decodeFrom(d *types.Decoder) {
+	types.DecodeSlice(d, &r.Proof)
+	r.DataLength = d.ReadUint64()
+}
+func (r *RPCReadSectorStreamedResponse) maxLen() int {
+	return reasonableObjectSize + 8 + SectorSize
+}
+
 func (r RPCWriteSectorStreamingRequest) encodeTo(e *types.Encoder) {
-	panic("use RPCWriteSectorRequest")
+	panic("use RPCWriteSectorRequest") // developer error
 }
 func (r *RPCWriteSectorStreamingRequest) decodeFrom(d *types.Decoder) {
 	r.Prices.DecodeFrom(d)

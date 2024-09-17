@@ -338,6 +338,12 @@ type (
 		Sector []byte          `json:"sector"`
 	}
 
+	// RPCReadSectorStreamedResponse implements Object.
+	RPCReadSectorStreamedResponse struct {
+		Proof      []types.Hash256 `json:"proof"`
+		DataLength uint64          `json:"dataLength"`
+	}
+
 	// RPCWriteSectorStreamingRequest implements Request.
 	RPCWriteSectorStreamingRequest struct {
 		Prices     HostPrices   `json:"prices"`
