@@ -626,31 +626,7 @@ func (ms *MidState) fileContractElement(ts V1TransactionSupplement, id types.Fil
 	if i, ok := ms.created[types.Hash256(id)]; ok {
 		return ms.fces[i], true
 	}
-	return ts.fileContractElement(id)
-}
-
-func (ms *MidState) mustSiacoinElement(ts V1TransactionSupplement, id types.SiacoinOutputID) types.SiacoinElement {
-	sce, ok := ms.siacoinElement(ts, id)
-	if !ok {
-		panic("missing SiacoinElement")
-	}
-	return sce
-}
-
-func (ms *MidState) mustSiafundElement(ts V1TransactionSupplement, id types.SiafundOutputID) types.SiafundElement {
-	sfe, ok := ms.siafundElement(ts, id)
-	if !ok {
-		panic("missing SiafundElement")
-	}
-	return sfe
-}
-
-func (ms *MidState) mustFileContractElement(ts V1TransactionSupplement, id types.FileContractID) types.FileContractElement {
-	fce, ok := ms.fileContractElement(ts, id)
-	if !ok {
-		panic("missing FileContractElement")
-	}
-	return fce
+	return ts.revision(id)
 }
 
 func (ms *MidState) spent(id types.Hash256) (types.TransactionID, bool) {
@@ -684,6 +660,25 @@ func NewMidState(s State) *MidState {
 	}
 }
 
+// A V1StorageProofSupplement pairs a file contract with the block ID used to
+// derive its storage proof leaf index.
+type V1StorageProofSupplement struct {
+	FileContract types.FileContractElement
+	WindowID     types.BlockID
+}
+
+// EncodeTo implements types.EncoderTo.
+func (sps V1StorageProofSupplement) EncodeTo(e *types.Encoder) {
+	sps.FileContract.EncodeTo(e)
+	sps.WindowID.EncodeTo(e)
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (sps *V1StorageProofSupplement) DecodeFrom(d *types.Decoder) {
+	sps.FileContract.DecodeFrom(d)
+	sps.WindowID.DecodeFrom(d)
+}
+
 // A V1TransactionSupplement contains elements that are associated with a v1
 // transaction, but not included in the transaction. For example, v1
 // transactions reference the ID of each SiacoinOutput they spend, but do not
@@ -695,8 +690,7 @@ type V1TransactionSupplement struct {
 	SiacoinInputs        []types.SiacoinElement
 	SiafundInputs        []types.SiafundElement
 	RevisedFileContracts []types.FileContractElement
-	ValidFileContracts   []types.FileContractElement
-	StorageProofBlockIDs []types.BlockID // must match ValidFileContracts
+	StorageProofs        []V1StorageProofSupplement
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -704,7 +698,7 @@ func (ts V1TransactionSupplement) EncodeTo(e *types.Encoder) {
 	types.EncodeSlice(e, ts.SiacoinInputs)
 	types.EncodeSlice(e, ts.SiafundInputs)
 	types.EncodeSlice(e, ts.RevisedFileContracts)
-	types.EncodeSlice(e, ts.ValidFileContracts)
+	types.EncodeSlice(e, ts.StorageProofs)
 }
 
 // DecodeFrom implements types.DecoderFrom.
@@ -712,7 +706,7 @@ func (ts *V1TransactionSupplement) DecodeFrom(d *types.Decoder) {
 	types.DecodeSlice(d, &ts.SiacoinInputs)
 	types.DecodeSlice(d, &ts.SiafundInputs)
 	types.DecodeSlice(d, &ts.RevisedFileContracts)
-	types.DecodeSlice(d, &ts.ValidFileContracts)
+	types.DecodeSlice(d, &ts.StorageProofs)
 }
 
 func (ts V1TransactionSupplement) siacoinElement(id types.SiacoinOutputID) (sce types.SiacoinElement, ok bool) {
@@ -733,13 +727,8 @@ func (ts V1TransactionSupplement) siafundElement(id types.SiafundOutputID) (sfe 
 	return
 }
 
-func (ts V1TransactionSupplement) fileContractElement(id types.FileContractID) (fce types.FileContractElement, ok bool) {
+func (ts V1TransactionSupplement) revision(id types.FileContractID) (fce types.FileContractElement, ok bool) {
 	for _, fce := range ts.RevisedFileContracts {
-		if types.FileContractID(fce.ID) == id {
-			return fce, true
-		}
-	}
-	for _, fce := range ts.ValidFileContracts {
 		if types.FileContractID(fce.ID) == id {
 			return fce, true
 		}
@@ -747,13 +736,13 @@ func (ts V1TransactionSupplement) fileContractElement(id types.FileContractID) (
 	return
 }
 
-func (ts V1TransactionSupplement) storageProofWindowID(id types.FileContractID) types.BlockID {
-	for i, fce := range ts.ValidFileContracts {
-		if types.FileContractID(fce.ID) == id {
-			return ts.StorageProofBlockIDs[i]
+func (ts V1TransactionSupplement) storageProof(id types.FileContractID) (sps V1StorageProofSupplement, ok bool) {
+	for _, sps := range ts.StorageProofs {
+		if types.FileContractID(sps.FileContract.ID) == id {
+			return sps, true
 		}
 	}
-	panic("missing contract for storage proof window ID") // developer error
+	return
 }
 
 // A V1BlockSupplement contains elements that are associated with a v1 block,

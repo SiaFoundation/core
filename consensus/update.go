@@ -455,13 +455,20 @@ func (ms *MidState) addAttestationElement(ae types.AttestationElement) {
 func (ms *MidState) ApplyTransaction(txn types.Transaction, ts V1TransactionSupplement) {
 	txid := txn.ID()
 	for _, sci := range txn.SiacoinInputs {
-		ms.spendSiacoinElement(ms.mustSiacoinElement(ts, sci.ParentID), txid)
+		sce, ok := ms.siacoinElement(ts, sci.ParentID)
+		if !ok {
+			panic("missing SiacoinElement")
+		}
+		ms.spendSiacoinElement(sce, txid)
 	}
 	for i, sco := range txn.SiacoinOutputs {
 		ms.addSiacoinElement(txn.SiacoinOutputID(i), sco)
 	}
 	for _, sfi := range txn.SiafundInputs {
-		sfe := ms.mustSiafundElement(ts, sfi.ParentID)
+		sfe, ok := ms.siafundElement(ts, sfi.ParentID)
+		if !ok {
+			panic("missing SiafundElement")
+		}
 		claimPortion := ms.siafundPool.Sub(sfe.ClaimStart).Div64(ms.base.SiafundCount()).Mul64(sfe.SiafundOutput.Value)
 		ms.spendSiafundElement(sfe, txid)
 		ms.addImmatureSiacoinElement(sfi.ParentID.ClaimOutputID(), types.SiacoinOutput{Value: claimPortion, Address: sfi.ClaimAddress})
@@ -473,12 +480,19 @@ func (ms *MidState) ApplyTransaction(txn types.Transaction, ts V1TransactionSupp
 		ms.addFileContractElement(txn.FileContractID(i), fc)
 	}
 	for _, fcr := range txn.FileContractRevisions {
-		ms.reviseFileContractElement(ms.mustFileContractElement(ts, fcr.ParentID), fcr.FileContract)
+		fce, ok := ms.fileContractElement(ts, fcr.ParentID)
+		if !ok {
+			panic("missing FileContractElement")
+		}
+		ms.reviseFileContractElement(fce, fcr.FileContract)
 	}
 	for _, sp := range txn.StorageProofs {
-		fce := ms.mustFileContractElement(ts, sp.ParentID)
-		ms.resolveFileContractElement(fce, true, txid)
-		for i, sco := range fce.FileContract.ValidProofOutputs {
+		sps, ok := ts.storageProof(sp.ParentID)
+		if !ok {
+			panic("missing V1StorageProofSupplement")
+		}
+		ms.resolveFileContractElement(sps.FileContract, true, txid)
+		for i, sco := range sps.FileContract.FileContract.ValidProofOutputs {
 			ms.addImmatureSiacoinElement(sp.ParentID.ValidOutputID(i), sco)
 		}
 	}
