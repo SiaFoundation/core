@@ -3,7 +3,6 @@ package rhp
 import (
 	"bytes"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -547,52 +546,6 @@ func ReviseForFundAccount(fc types.V2FileContract, amount types.Currency) (types
 func MinRenterAllowance(hp HostPrices, duration uint64, collateral types.Currency) types.Currency {
 	maxCollateralBytes := collateral.Div(hp.Collateral).Div64(duration)
 	return hp.StoragePrice.Mul64(duration).Mul(maxCollateralBytes).Mul64(9).Div64(10) // 10% buffer
-}
-
-// ValidateFormContractParams checks the given contract parameters for validity.
-func ValidateFormContractParams(hs HostSettings, tip types.ChainIndex, req RPCFormContractParams) error {
-	hp := hs.Prices
-	expirationHeight := req.ProofHeight + proofWindow
-	duration := expirationHeight - hp.TipHeight
-	minRenterAllowance := MinRenterAllowance(hp, duration, req.Collateral)
-
-	switch {
-	case expirationHeight <= hp.TipHeight: // must be validated against tip instead of prices
-		return errors.New("contract expiration height is in the past")
-	case req.Allowance.IsZero():
-		return errors.New("allowance is zero")
-	case req.Collateral.Cmp(hs.MaxCollateral) > 0:
-		return fmt.Errorf("collateral %v exceeds max collateral %v", req.Collateral, hs.MaxCollateral)
-	case duration > hs.MaxContractDuration:
-		return fmt.Errorf("contract duration %v exceeds max duration %v", duration, hs.MaxContractDuration)
-	case req.Allowance.Cmp(minRenterAllowance) < 0:
-		return fmt.Errorf("allowance %v is less than minimum %v for collateral", req.Allowance, minRenterAllowance)
-	default:
-		return nil
-	}
-}
-
-// ValidateRenewContractParams checks the given renew parameters for validity.
-func ValidateRenewContractParams(hs HostSettings, tip types.ChainIndex, req RPCRenewContractParams) error {
-	hp := hs.Prices
-	expirationHeight := req.ProofHeight + proofWindow
-	duration := expirationHeight - hp.TipHeight
-	minRenterAllowance := MinRenterAllowance(hp, duration, req.Collateral)
-
-	switch {
-	case expirationHeight <= tip.Height: // must be validated against tip instead of prices
-		return errors.New("contract expiration height is in the past")
-	case req.Allowance.IsZero():
-		return errors.New("allowance is zero")
-	case req.Collateral.Cmp(hs.MaxCollateral) > 0:
-		return fmt.Errorf("collateral %v exceeds max collateral %v", req.Collateral, hs.MaxCollateral)
-	case duration > hs.MaxContractDuration:
-		return fmt.Errorf("contract duration %v exceeds max duration %v", duration, hs.MaxContractDuration)
-	case req.Allowance.Cmp(minRenterAllowance) < 0:
-		return fmt.Errorf("allowance %v is less than minimum %v for collateral", req.Allowance, minRenterAllowance)
-	default:
-		return nil
-	}
 }
 
 // NewRenewal creates a contract renewal from an existing contract revision
