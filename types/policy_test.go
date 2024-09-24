@@ -439,7 +439,7 @@ func TestSatisfiedPolicyMarshalJSON(t *testing.T) {
 		name       string
 		sp         SpendPolicy
 		signatures []Signature
-		preimages  [][]byte
+		preimages  [][32]byte
 		exp        string
 	}{
 		{
@@ -452,14 +452,14 @@ func TestSatisfiedPolicyMarshalJSON(t *testing.T) {
 			name:       "PolicyWithSignaturesAndPreimages",
 			sp:         PolicyThreshold(1, []SpendPolicy{PolicyPublicKey(publicKey), PolicyHash(hash)}),
 			signatures: []Signature{signature},
-			preimages:  [][]byte{{1, 2, 3}},
-			exp:        fmt.Sprintf(`{"policy":{"type":"thresh","policy":{"n":1,"of":[{"type":"pk","policy":"ed25519:%x"},{"type":"h","policy":"h:%x"}]}},"signatures":[%q],"preimages":["010203"]}`, publicKey[:], hash[:], signature),
+			preimages:  [][32]byte{{1, 2, 3}},
+			exp:        fmt.Sprintf(`{"policy":{"type":"thresh","policy":{"n":1,"of":[{"type":"pk","policy":"ed25519:%x"},{"type":"h","policy":"h:%x"}]}},"signatures":[%q],"preimages":["0102030000000000000000000000000000000000000000000000000000000000"]}`, publicKey[:], hash[:], signature),
 		},
 		{
 			name:      "PolicyWithPreimagesOnly",
 			sp:        PolicyHash(hash),
-			preimages: [][]byte{{4, 5, 6}},
-			exp:       fmt.Sprintf(`{"policy":{"type":"h","policy":"h:%x"},"preimages":["040506"]}`, hash[:]),
+			preimages: [][32]byte{{4, 5, 6}},
+			exp:       fmt.Sprintf(`{"policy":{"type":"h","policy":"h:%x"},"preimages":["0405060000000000000000000000000000000000000000000000000000000000"]}`, hash[:]),
 		},
 		{
 			name: "PolicyWithEmptySignatures",
@@ -495,7 +495,7 @@ func TestSatisfiedPolicyUnmarshaling(t *testing.T) {
 		name      string
 		jsonData  string
 		expectErr bool
-		preimages [][]byte
+		preimages [][32]byte
 	}{
 		{
 			name:      "InvalidHex",
@@ -509,9 +509,9 @@ func TestSatisfiedPolicyUnmarshaling(t *testing.T) {
 		},
 		{
 			name:      "ValidPreimage",
-			jsonData:  `{"Policy": null, "Signatures": null, "Preimages": ["68656c6c6f776f726c64"]}`,
+			jsonData:  `{"Policy": null, "Signatures": null, "Preimages": ["d23ddde9d4e38ad78261adbc2288100accc33eec3d7b031e27b01b9810061636"]}`,
 			expectErr: false,
-			preimages: [][]byte{[]byte("helloworld")},
+			preimages: [][32]byte{{0xd2, 0x3d, 0xdd, 0xe9, 0xd4, 0xe3, 0x8a, 0xd7, 0x82, 0x61, 0xad, 0xbc, 0x22, 0x88, 0x10, 0x0a, 0xcc, 0xc3, 0x3e, 0xec, 0x3d, 0x7b, 0x03, 0x1e, 0x27, 0xb0, 0x1b, 0x98, 0x10, 0x06, 0x16, 0x36}},
 		},
 	}
 
