@@ -726,20 +726,14 @@ func (txn *V2Transaction) DeepCopy() V2Transaction {
 	for i := range c.SiacoinInputs {
 		c.SiacoinInputs[i].Parent.MerkleProof = append([]Hash256(nil), c.SiacoinInputs[i].Parent.MerkleProof...)
 		c.SiacoinInputs[i].SatisfiedPolicy.Signatures = append([]Signature(nil), c.SiacoinInputs[i].SatisfiedPolicy.Signatures...)
-		c.SiacoinInputs[i].SatisfiedPolicy.Preimages = append([][]byte(nil), c.SiacoinInputs[i].SatisfiedPolicy.Preimages...)
-		for j := range c.SiacoinInputs[i].SatisfiedPolicy.Preimages {
-			c.SiacoinInputs[i].SatisfiedPolicy.Preimages[j] = append([]byte(nil), c.SiacoinInputs[i].SatisfiedPolicy.Preimages[j]...)
-		}
+		c.SiacoinInputs[i].SatisfiedPolicy.Preimages = append([][32]byte(nil), c.SiacoinInputs[i].SatisfiedPolicy.Preimages...)
 	}
 	c.SiacoinOutputs = append([]SiacoinOutput(nil), c.SiacoinOutputs...)
 	c.SiafundInputs = append([]V2SiafundInput(nil), c.SiafundInputs...)
 	for i := range c.SiafundInputs {
 		c.SiafundInputs[i].Parent.MerkleProof = append([]Hash256(nil), c.SiafundInputs[i].Parent.MerkleProof...)
 		c.SiafundInputs[i].SatisfiedPolicy.Signatures = append([]Signature(nil), c.SiafundInputs[i].SatisfiedPolicy.Signatures...)
-		c.SiafundInputs[i].SatisfiedPolicy.Preimages = append([][]byte(nil), c.SiafundInputs[i].SatisfiedPolicy.Preimages...)
-		for j := range c.SiafundInputs[i].SatisfiedPolicy.Preimages {
-			c.SiafundInputs[i].SatisfiedPolicy.Preimages[j] = append([]byte(nil), c.SiafundInputs[i].SatisfiedPolicy.Preimages[j]...)
-		}
+		c.SiafundInputs[i].SatisfiedPolicy.Preimages = append([][32]byte(nil), c.SiafundInputs[i].SatisfiedPolicy.Preimages...)
 	}
 	c.SiafundOutputs = append([]SiafundOutput(nil), c.SiafundOutputs...)
 	c.FileContracts = append([]V2FileContract(nil), c.FileContracts...)

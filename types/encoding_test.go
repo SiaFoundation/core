@@ -148,10 +148,9 @@ func FuzzSatisfiedPolicy(f *testing.F) {
 		frand.Read(signatures[i][:])
 	}
 
-	var preimages [16][]byte
+	var preimages [16][32]byte
 	for i := 0; i < len(preimages); i++ {
-		preimages[i] = make([]byte, frand.Uint64n(32))
-		frand.Read(preimages[i])
+		frand.Read(preimages[i][:])
 	}
 
 	for i := 0; i < 256; i++ {
