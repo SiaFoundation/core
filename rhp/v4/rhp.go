@@ -502,6 +502,7 @@ func PayWithContract(fc *types.V2FileContract, amount, collateral types.Currency
 	} else if fc.MissedHostValue.Cmp(collateral) < 0 {
 		return NewRPCError(ErrorCodePayment, fmt.Sprintf("insufficient host collateral: %v < %v", fc.MissedHostValue, amount))
 	}
+	fc.RevisionNumber++
 	fc.RenterOutput.Value = fc.RenterOutput.Value.Sub(amount)
 	fc.HostOutput.Value = fc.HostOutput.Value.Add(amount)
 	fc.MissedHostValue = fc.MissedHostValue.Sub(collateral)
@@ -528,21 +529,18 @@ func ReviseForModifySectors(fc types.V2FileContract, req RPCModifySectorsRequest
 			return fc, err
 		}
 	}
-	fc.RevisionNumber++
 	fc.FileMerkleRoot = resp.Proof[len(resp.Proof)-1] // TODO get merkle root
 	return fc, nil
 }
 
 // ReviseForSectorRoots creates a contract revision from a sector roots request
 func ReviseForSectorRoots(fc types.V2FileContract, prices HostPrices, numRoots uint64) (types.V2FileContract, error) {
-	fc.RevisionNumber++
 	err := PayWithContract(&fc, prices.EgressPrice.Mul64(round4KiB(32*numRoots)), types.ZeroCurrency)
 	return fc, err
 }
 
 // ReviseForFundAccount creates a contract revision from a fund account request.
 func ReviseForFundAccount(fc types.V2FileContract, amount types.Currency) (types.V2FileContract, error) {
-	fc.RevisionNumber++
 	err := PayWithContract(&fc, amount, types.ZeroCurrency)
 	return fc, err
 }
