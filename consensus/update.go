@@ -578,7 +578,7 @@ func (ms *MidState) ApplyBlock(b types.Block, bs V1BlockSupplement) {
 	for i, sco := range b.MinerPayouts {
 		ms.addImmatureSiacoinElement(bid.MinerOutputID(i), sco)
 	}
-	if subsidy := ms.base.FoundationSubsidy(); !subsidy.Value.IsZero() {
+	if subsidy, ok := ms.base.FoundationSubsidy(); ok {
 		ms.addImmatureSiacoinElement(bid.FoundationOutputID(), subsidy)
 	}
 	for _, fce := range bs.ExpiringFileContracts {

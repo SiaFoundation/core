@@ -256,7 +256,7 @@ func (s State) AncestorDepth() uint64 {
 
 // FoundationSubsidy returns the Foundation subsidy output for the child block.
 // If no subsidy is due, the returned output has a value of zero.
-func (s State) FoundationSubsidy() (sco types.SiacoinOutput) {
+func (s State) FoundationSubsidy() (sco types.SiacoinOutput, exists bool) {
 	sco.Address = s.FoundationPrimaryAddress
 
 	subsidyPerBlock := types.Siacoins(30000)
@@ -270,7 +270,7 @@ func (s State) FoundationSubsidy() (sco types.SiacoinOutput) {
 	} else {
 		sco.Value = subsidyPerBlock.Mul64(blocksPerMonth)
 	}
-	return
+	return sco, !sco.Value.IsZero()
 }
 
 // NonceFactor is the factor by which all block nonces must be divisible.
