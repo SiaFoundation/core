@@ -3,7 +3,6 @@ package rhp
 import (
 	"bytes"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -123,7 +122,7 @@ func (hp HostPrices) SigHash() types.Hash256 {
 // prices have expired or the signature is invalid.
 func (hp *HostPrices) Validate(pk types.PublicKey) error {
 	if time.Until(hp.ValidUntil) <= 0 {
-		return errors.New("prices expired")
+		return ErrPricesExpired
 	}
 	if !pk.VerifyHash(hp.SigHash(), hp.Signature) {
 		return ErrInvalidSignature
