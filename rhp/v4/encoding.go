@@ -562,7 +562,7 @@ func (r *RPCVerifySectorRequest) decodeFrom(d *types.Decoder) {
 	r.LeafIndex = d.ReadUint64()
 }
 func (r *RPCVerifySectorRequest) maxLen() int {
-	return 40
+	return 1024
 }
 
 func (r *RPCVerifySectorResponse) encodeTo(e *types.Encoder) {
