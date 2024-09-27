@@ -513,6 +513,7 @@ func RenewalCost(cs consensus.State, p HostPrices, r types.V2FileContractRenewal
 // deduct collateral from the host. It returns an RPC error if the contract does not
 // have sufficient funds.
 func PayWithContract(fc *types.V2FileContract, amount, collateral types.Currency) error {
+	// verify the contract can pay the amount before modifying
 	if fc.RenterOutput.Value.Cmp(amount) < 0 {
 		return NewRPCError(ErrorCodePayment, fmt.Sprintf("insufficient renter funds: %v < %v", fc.RenterOutput.Value, amount))
 	} else if fc.MissedHostValue.Cmp(collateral) < 0 {
@@ -537,13 +538,18 @@ func ReviseForModifySectors(fc types.V2FileContract, req RPCModifySectorsRequest
 			fc.Filesize -= SectorSize * action.N
 		}
 	}
+	var cost, collateral types.Currency
 	if fc.Filesize > old {
 		size := fc.Filesize - old
 		duration := fc.ProofHeight - req.Prices.TipHeight
-		err := PayWithContract(&fc, req.Prices.StoragePrice.Mul64(size).Mul64(duration), req.Prices.Collateral.Mul64(size).Mul64(duration))
-		if err != nil {
-			return fc, err
-		}
+		cost = req.Prices.StoragePrice.Mul64(size * duration)
+		collateral = req.Prices.Collateral.Mul64(size * duration)
+	}
+
+	// pay with contract is always called because it increments the revision number
+	err := PayWithContract(&fc, cost, collateral)
+	if err != nil {
+		return fc, err
 	}
 	fc.FileMerkleRoot = resp.Proof[len(resp.Proof)-1] // TODO get merkle root
 	return fc, nil
