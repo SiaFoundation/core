@@ -117,3 +117,11 @@ func (req *RPCRenewContractRequest) Validate(hs HostSettings, tip types.ChainInd
 		return nil
 	}
 }
+
+// Validate checks that the request is valid
+func (req *RPCVerifySectorRequest) Validate() error {
+	if req.LeafIndex >= LeavesPerSector {
+		return fmt.Errorf("leaf index must be less than %d", LeavesPerSector)
+	}
+	return nil
+}

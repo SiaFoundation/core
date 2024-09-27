@@ -3,6 +3,7 @@ package rhp
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -30,6 +31,7 @@ var (
 	RPCSectorRootsID    = types.NewSpecifier("SectorRoots")
 	RPCSettingsID       = types.NewSpecifier("Settings")
 	RPCWriteSectorID    = types.NewSpecifier("WriteSector")
+	RPCVerifySectorID   = types.NewSpecifier("VerifySector")
 )
 
 func round4KiB(n uint64) uint64 {
@@ -76,19 +78,20 @@ func (hp HostPrices) RPCSectorRootsCost(length uint64) types.Currency {
 	return hp.EgressPrice.Mul64(round4KiB(32 * length))
 }
 
+// RPCVerifySectorCost returns the cost of building a proof for the specified
+// sector.
+func (hp HostPrices) RPCVerifySectorCost() types.Currency {
+	return hp.EgressPrice.Mul64(SectorSize)
+}
+
 // RPCModifySectorsCost returns the cost of modifying a contract's sectors with the
 // given actions. The duration parameter is the number of blocks until the
 // contract's expiration height.
 func (hp HostPrices) RPCModifySectorsCost(actions []WriteAction, duration uint64) (cost, collateral types.Currency) {
 	var n int
 	for _, action := range actions {
-		switch action.Type {
-		case ActionAppend:
+		if action.Type == ActionAppend {
 			n++
-		case ActionTrim:
-			n -= int(action.N)
-		default:
-			// no change
 		}
 	}
 
@@ -120,7 +123,7 @@ func (hp HostPrices) SigHash() types.Hash256 {
 // prices have expired or the signature is invalid.
 func (hp *HostPrices) Validate(pk types.PublicKey) error {
 	if time.Until(hp.ValidUntil) <= 0 {
-		return NewRPCError(ErrorCodeBadRequest, "prices expired")
+		return errors.New("prices expired")
 	}
 	if !pk.VerifyHash(hp.SigHash(), hp.Signature) {
 		return ErrInvalidSignature
@@ -387,6 +390,20 @@ type (
 	// RPCAccountBalanceResponse implements Object.
 	RPCAccountBalanceResponse struct {
 		Balance types.Currency `json:"balance"`
+	}
+
+	// RPCVerifySectorRequest implements Request.
+	RPCVerifySectorRequest struct {
+		Prices    HostPrices    `json:"prices"`
+		Token     AccountToken  `json:"token"`
+		Root      types.Hash256 `json:"root"`
+		LeafIndex uint64        `json:"leafIndex"`
+	}
+
+	// RPCVerifySectorResponse implements Object.
+	RPCVerifySectorResponse struct {
+		Proof []types.Hash256 `json:"proof"`
+		Leaf  [64]byte        `json:"leaf"`
 	}
 
 	// An AccountDeposit represents a transfer into an account.

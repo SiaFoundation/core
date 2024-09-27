@@ -548,3 +548,31 @@ func (r *RPCFundAccountsResponse) decodeFrom(d *types.Decoder) {
 func (r *RPCFundAccountsResponse) maxLen() int {
 	return reasonableObjectSize
 }
+
+func (r *RPCVerifySectorRequest) encodeTo(e *types.Encoder) {
+	r.Prices.EncodeTo(e)
+	r.Token.encodeTo(e)
+	r.Root.EncodeTo(e)
+	e.WriteUint64(r.LeafIndex)
+}
+func (r *RPCVerifySectorRequest) decodeFrom(d *types.Decoder) {
+	r.Prices.DecodeFrom(d)
+	r.Token.decodeFrom(d)
+	r.Root.DecodeFrom(d)
+	r.LeafIndex = d.ReadUint64()
+}
+func (r *RPCVerifySectorRequest) maxLen() int {
+	return 40
+}
+
+func (r *RPCVerifySectorResponse) encodeTo(e *types.Encoder) {
+	types.EncodeSlice(e, r.Proof)
+	e.Write(r.Leaf[:])
+}
+func (r *RPCVerifySectorResponse) decodeFrom(d *types.Decoder) {
+	types.DecodeSlice(d, &r.Proof)
+	d.Read(r.Leaf[:])
+}
+func (r *RPCVerifySectorResponse) maxLen() int {
+	return reasonableObjectSize
+}
