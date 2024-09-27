@@ -592,7 +592,7 @@ func (sp SatisfiedPolicy) EncodeTo(e *Encoder) {
 			sp.Signatures[sigi].EncodeTo(e)
 			sigi++
 		case PolicyTypeHash:
-			e.WriteBytes(sp.Preimages[prei])
+			e.Write(sp.Preimages[prei][:])
 			prei++
 		case PolicyTypeThreshold:
 			for i := range p.Of {
@@ -1179,7 +1179,9 @@ func (sp *SatisfiedPolicy) DecodeFrom(d *Decoder) {
 			s.DecodeFrom(d)
 			sp.Signatures = append(sp.Signatures, s)
 		case PolicyTypeHash:
-			sp.Preimages = append(sp.Preimages, d.ReadBytes())
+			var pre [32]byte
+			d.Read(pre[:])
+			sp.Preimages = append(sp.Preimages, pre)
 		case PolicyTypeThreshold:
 			for i := range p.Of {
 				rec(p.Of[i])

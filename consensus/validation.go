@@ -354,13 +354,12 @@ func validateFileContracts(ms *MidState, txn types.Transaction, ts V1Transaction
 		if txid, ok := ms.spent(types.Hash256(sp.ParentID)); ok {
 			return fmt.Errorf("storage proof %v conflicts with previous proof (in %v)", i, txid)
 		}
-		fce, ok := ms.fileContractElement(ts, sp.ParentID)
+		sps, ok := ts.storageProof(sp.ParentID)
 		if !ok {
 			return fmt.Errorf("storage proof %v references nonexistent file contract", i)
 		}
-		fc := fce.FileContract
-		windowID := ts.storageProofWindowID(sp.ParentID)
-		leafIndex := ms.base.StorageProofLeafIndex(fc.Filesize, windowID, sp.ParentID)
+		fc := sps.FileContract.FileContract
+		leafIndex := ms.base.StorageProofLeafIndex(fc.Filesize, sps.WindowID, sp.ParentID)
 		leaf := storageProofLeaf(leafIndex, fc.Filesize, sp.Leaf)
 		if leaf == nil {
 			continue
@@ -925,13 +924,10 @@ func validateSupplement(s State, b types.Block, bs V1BlockSupplement) error {
 				return fmt.Errorf("revised file contract %v is not present in the accumulator", fce.ID)
 			}
 		}
-		for _, fce := range txn.ValidFileContracts {
-			if !s.Elements.containsUnresolvedFileContractElement(fce) {
-				return fmt.Errorf("valid file contract %v is not present in the accumulator", fce.ID)
+		for _, sps := range txn.StorageProofs {
+			if !s.Elements.containsUnresolvedFileContractElement(sps.FileContract) {
+				return fmt.Errorf("valid file contract %v is not present in the accumulator", sps.FileContract.ID)
 			}
-		}
-		if len(txn.StorageProofBlockIDs) != len(txn.ValidFileContracts) {
-			return errors.New("incorrect number of storage proof block IDs")
 		}
 	}
 	for _, fce := range bs.ExpiringFileContracts {

@@ -828,8 +828,10 @@ func TestApplyRevertBlockV1(t *testing.T) {
 
 	// add block with storage proof
 	bs = db.supplementTipBlock(b5)
-	bs.Transactions[0].ValidFileContracts = append(bs.Transactions[0].ValidFileContracts, db.fces[txnB5.StorageProofs[0].ParentID])
-	bs.Transactions[0].StorageProofBlockIDs = append(bs.Transactions[0].StorageProofBlockIDs, b3.ID())
+	bs.Transactions[0].StorageProofs = append(bs.Transactions[0].StorageProofs, V1StorageProofSupplement{
+		FileContract: db.fces[txnB5.StorageProofs[0].ParentID],
+		WindowID:     b3.ID(),
+	})
 	prev = cs
 	if au, err := addBlock(&b5, bs); err != nil {
 		t.Fatal(err)

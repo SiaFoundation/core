@@ -119,14 +119,14 @@ func (p SpendPolicy) Address() Address {
 }
 
 // Verify verifies that p is satisfied by the supplied inputs.
-func (p SpendPolicy) Verify(height uint64, medianTimestamp time.Time, sigHash Hash256, sigs []Signature, preimages [][]byte) error {
+func (p SpendPolicy) Verify(height uint64, medianTimestamp time.Time, sigHash Hash256, sigs []Signature, preimages [][32]byte) error {
 	nextSig := func() (sig Signature, ok bool) {
 		if ok = len(sigs) > 0; ok {
 			sig, sigs = sigs[0], sigs[1:]
 		}
 		return
 	}
-	nextPreimage := func() (preimage []byte, ok bool) {
+	nextPreimage := func() (preimage [32]byte, ok bool) {
 		if ok = len(preimages) > 0; ok {
 			preimage, preimages = preimages[0], preimages[1:]
 		}
@@ -153,7 +153,7 @@ func (p SpendPolicy) Verify(height uint64, medianTimestamp time.Time, sigHash Ha
 			}
 			return errInvalidSignature
 		case PolicyTypeHash:
-			if preimage, ok := nextPreimage(); ok && p == sha256.Sum256(preimage) {
+			if preimage, ok := nextPreimage(); ok && p == sha256.Sum256(preimage[:]) {
 				return nil
 			}
 			return errInvalidPreimage
@@ -494,14 +494,14 @@ func (p *SpendPolicy) UnmarshalJSON(b []byte) (err error) {
 type SatisfiedPolicy struct {
 	Policy     SpendPolicy
 	Signatures []Signature
-	Preimages  [][]byte
+	Preimages  [][32]byte
 }
 
 // MarshalJSON implements json.Marshaler.
 func (sp SatisfiedPolicy) MarshalJSON() ([]byte, error) {
 	pre := make([]string, len(sp.Preimages))
 	for i := range pre {
-		pre[i] = hex.EncodeToString(sp.Preimages[i])
+		pre[i] = hex.EncodeToString(sp.Preimages[i][:])
 	}
 	return json.Marshal(struct {
 		Policy     SpendPolicy `json:"policy"`
@@ -521,11 +521,15 @@ func (sp *SatisfiedPolicy) UnmarshalJSON(b []byte) error {
 	if err != nil {
 		return err
 	}
-	sp.Preimages = make([][]byte, len(pre))
+	sp.Preimages = make([][32]byte, len(pre))
 	for i := range sp.Preimages {
-		if sp.Preimages[i], err = hex.DecodeString(pre[i]); err != nil {
+		pre, err := hex.DecodeString(pre[i])
+		if err != nil {
 			return err
+		} else if len(pre) != len(sp.Preimages[i]) {
+			return errors.New("invalid preimage length")
 		}
+		copy(sp.Preimages[i][:], pre)
 	}
 	return nil
 }

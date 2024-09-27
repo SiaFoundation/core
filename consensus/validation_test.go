@@ -1246,14 +1246,14 @@ func TestValidateV2Block(t *testing.T) {
 				"superfluous siacoin spend policy preimage(s)",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
-					txn.SiacoinInputs[0].SatisfiedPolicy.Preimages = [][]byte{{1}}
+					txn.SiacoinInputs[0].SatisfiedPolicy.Preimages = [][32]byte{{1}}
 				},
 			},
 			{
 				"superfluous siafund spend policy preimage(s)",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
-					txn.SiafundInputs[0].SatisfiedPolicy.Preimages = [][]byte{{1}}
+					txn.SiafundInputs[0].SatisfiedPolicy.Preimages = [][32]byte{{1}}
 				},
 			},
 			{
