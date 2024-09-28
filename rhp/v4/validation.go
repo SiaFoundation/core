@@ -33,6 +33,19 @@ func (req *RPCWriteSectorRequest) Validate() error {
 	return nil
 }
 
+// Validate validates a write sector request.
+func (req *RPCWriteSectorStreamingRequest) Validate() error {
+	switch {
+	case req.Duration == 0:
+		return errors.New("duration must be greater than 0")
+	case req.DataLength == 0:
+		return errors.New("sector must not be empty")
+	case req.DataLength%LeafSize != 0:
+		return errors.New("sector must be segment aligned")
+	}
+	return nil
+}
+
 // Validate validates a sector roots request. Signatures are not validated.
 func (req *RPCSectorRootsRequest) Validate(fc types.V2FileContract) error {
 	contractSectors := fc.Filesize / SectorSize
