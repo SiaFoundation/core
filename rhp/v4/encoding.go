@@ -433,7 +433,10 @@ func (r *RPCReadSectorStreamedResponse) maxLen() int {
 }
 
 func (r RPCWriteSectorStreamingRequest) encodeTo(e *types.Encoder) {
-	panic("use RPCWriteSectorRequest") // developer error
+	r.Prices.EncodeTo(e)
+	r.Token.encodeTo(e)
+	e.WriteUint64(r.Duration)
+	e.WriteUint64(r.DataLength)
 }
 func (r *RPCWriteSectorStreamingRequest) decodeFrom(d *types.Decoder) {
 	r.Prices.DecodeFrom(d)
@@ -443,22 +446,6 @@ func (r *RPCWriteSectorStreamingRequest) decodeFrom(d *types.Decoder) {
 }
 func (r *RPCWriteSectorStreamingRequest) maxLen() int {
 	return sizeofPrices + sizeofAccountToken + 8 + 8
-}
-
-func (r *RPCWriteSectorRequest) encodeTo(e *types.Encoder) {
-	r.Prices.EncodeTo(e)
-	r.Token.encodeTo(e)
-	e.WriteUint64(r.Duration)
-	e.WriteBytes(r.Sector)
-}
-func (r *RPCWriteSectorRequest) decodeFrom(d *types.Decoder) {
-	r.Prices.DecodeFrom(d)
-	r.Token.decodeFrom(d)
-	r.Duration = d.ReadUint64()
-	r.Sector = d.ReadBytes()
-}
-func (r *RPCWriteSectorRequest) maxLen() int {
-	return sizeofPrices + sizeofAccountToken + 8 + 8 + SectorSize
 }
 
 func (r *RPCWriteSectorResponse) encodeTo(e *types.Encoder) {
