@@ -76,40 +76,36 @@ func (hs *HostSettings) DecodeFrom(d *types.Decoder) {
 }
 
 // EncodeTo implements types.EncoderTo.
-func (a WriteAction) EncodeTo(e *types.Encoder) {
-	e.WriteUint8(a.Type)
-	switch a.Type {
-	case ActionAppend:
-		a.Root.EncodeTo(e)
+func (m ModifyAction) EncodeTo(e *types.Encoder) {
+	e.WriteUint8(m.Type)
+	switch m.Type {
 	case ActionSwap:
-		e.WriteUint64(a.A)
-		e.WriteUint64(a.B)
+		e.WriteUint64(m.A)
+		e.WriteUint64(m.B)
 	case ActionTrim:
-		e.WriteUint64(a.N)
+		e.WriteUint64(m.N)
 	case ActionUpdate:
-		a.Root.EncodeTo(e)
-		e.WriteUint64(a.A)
+		m.Root.EncodeTo(e)
+		e.WriteUint64(m.A)
 	default:
 		panic("invalid action type")
 	}
 }
 
 // DecodeFrom implements types.DecoderFrom.
-func (a *WriteAction) DecodeFrom(d *types.Decoder) {
-	a.Type = d.ReadUint8()
-	switch a.Type {
-	case ActionAppend:
-		a.Root.DecodeFrom(d)
+func (m *ModifyAction) DecodeFrom(d *types.Decoder) {
+	m.Type = d.ReadUint8()
+	switch m.Type {
 	case ActionSwap:
-		a.A = d.ReadUint64()
-		a.B = d.ReadUint64()
+		m.A = d.ReadUint64()
+		m.B = d.ReadUint64()
 	case ActionTrim:
-		a.N = d.ReadUint64()
+		m.N = d.ReadUint64()
 	case ActionUpdate:
-		a.Root.DecodeFrom(d)
-		a.A = d.ReadUint64()
+		m.Root.DecodeFrom(d)
+		m.A = d.ReadUint64()
 	default:
-		d.SetErr(fmt.Errorf("invalid action type (%v)", a.Type))
+		d.SetErr(fmt.Errorf("invalid action type (%v)", m.Type))
 	}
 }
 
@@ -368,6 +364,76 @@ func (r *RPCModifySectorsThirdResponse) decodeFrom(d *types.Decoder) {
 	r.HostSignature.DecodeFrom(d)
 }
 func (r *RPCModifySectorsThirdResponse) maxLen() int {
+	return sizeofSignature
+}
+
+func (r *RPCAppendSectorsRequest) encodeTo(e *types.Encoder) {
+	r.Prices.EncodeTo(e)
+	types.EncodeSlice(e, r.Sectors)
+	r.ContractID.EncodeTo(e)
+	r.ChallengeSignature.EncodeTo(e)
+}
+func (r *RPCAppendSectorsRequest) decodeFrom(d *types.Decoder) {
+	r.Prices.DecodeFrom(d)
+	types.DecodeSlice(d, &r.Sectors)
+	r.ContractID.DecodeFrom(d)
+	r.ChallengeSignature.DecodeFrom(d)
+}
+func (r *RPCAppendSectorsRequest) maxLen() int {
+	return reasonableObjectSize
+}
+
+func (r *RPCAppendSectorsResponse) encodeTo(e *types.Encoder) {
+	e.WriteUint64(uint64(len(r.Accepted)))
+
+	var flags uint64
+	for i, accepted := range r.Accepted {
+		if accepted {
+			flags |= uint64(1) << (i % 64)
+		}
+		if (i+1)%64 == 0 {
+			e.WriteUint64(flags)
+			flags = 0
+		}
+	}
+	if len(r.Accepted)%64 != 0 {
+		e.WriteUint64(flags)
+	}
+	types.EncodeSlice(e, r.Proof)
+}
+func (r *RPCAppendSectorsResponse) decodeFrom(d *types.Decoder) {
+	length := d.ReadUint64()
+	r.Accepted = make([]bool, length)
+	var flags uint64
+	for i := range r.Accepted {
+		if i%64 == 0 {
+			flags = d.ReadUint64()
+		}
+		r.Accepted[i] = flags&(uint64(1)<<(i%64)) != 0
+	}
+	types.DecodeSlice(d, &r.Proof)
+}
+func (r *RPCAppendSectorsResponse) maxLen() int {
+	return reasonableObjectSize
+}
+
+func (r *RPCAppendSectorsSecondResponse) encodeTo(e *types.Encoder) {
+	r.RenterSignature.EncodeTo(e)
+}
+func (r *RPCAppendSectorsSecondResponse) decodeFrom(d *types.Decoder) {
+	r.RenterSignature.DecodeFrom(d)
+}
+func (r *RPCAppendSectorsSecondResponse) maxLen() int {
+	return sizeofSignature
+}
+
+func (r *RPCAppendSectorsThirdResponse) encodeTo(e *types.Encoder) {
+	r.HostSignature.EncodeTo(e)
+}
+func (r *RPCAppendSectorsThirdResponse) decodeFrom(d *types.Decoder) {
+	r.HostSignature.DecodeFrom(d)
+}
+func (r *RPCAppendSectorsThirdResponse) maxLen() int {
 	return sizeofSignature
 }
 

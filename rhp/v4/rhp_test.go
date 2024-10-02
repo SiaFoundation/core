@@ -14,7 +14,7 @@ func TestMinRenterAllowance(t *testing.T) {
 
 	collateral := types.Siacoins(2)
 	minAllowance := MinRenterAllowance(hp, 1, collateral)
-	expected := types.Siacoins(1).Mul64(9).Div64(10)
+	expected := types.Siacoins(1)
 	if !minAllowance.Equals(expected) {
 		t.Fatalf("expected %v, got %v", expected, minAllowance)
 	}

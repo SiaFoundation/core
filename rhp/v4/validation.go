@@ -162,3 +162,15 @@ func (req *RPCVerifySectorRequest) Validate(pk types.PublicKey) error {
 	}
 	return nil
 }
+
+// Validate checks that the request is valid
+func (req *RPCAppendSectorsRequest) Validate(pk types.PublicKey, maxActions uint64) error {
+	if err := req.Prices.Validate(pk); err != nil {
+		return fmt.Errorf("prices are invalid: %w", err)
+	} else if len(req.Sectors) == 0 {
+		return errors.New("no sectors to append")
+	} else if uint64(len(req.Sectors)) > maxActions {
+		return fmt.Errorf("too many sectors to append: %d > %d", len(req.Sectors), maxActions)
+	}
+	return nil
+}

@@ -24,6 +24,7 @@ var (
 	RPCFormContractID   = types.NewSpecifier("FormContract")
 	RPCFundAccountsID   = types.NewSpecifier("FundAccounts")
 	RPCLatestRevisionID = types.NewSpecifier("LatestRevision")
+	RPCAppendSectorsID  = types.NewSpecifier("AppendSectors")
 	RPCModifySectorsID  = types.NewSpecifier("ModifySectors")
 	RPCReadSectorID     = types.NewSpecifier("ReadSector")
 	RPCRenewContractID  = types.NewSpecifier("RenewContract")
@@ -86,22 +87,25 @@ func (hp HostPrices) RPCVerifySectorCost() types.Currency {
 // RPCModifySectorsCost returns the cost of modifying a contract's sectors with the
 // given actions. The duration parameter is the number of blocks until the
 // contract's expiration height.
-func (hp HostPrices) RPCModifySectorsCost(actions []WriteAction, duration uint64) (cost, collateral types.Currency) {
-	var n int
+func (hp HostPrices) RPCModifySectorsCost(actions []ModifyAction) (cost types.Currency) {
+	var n uint64
 	for _, action := range actions {
-		if action.Type == ActionAppend {
+		if action.Type == ActionTrim {
+			n += action.N
+		} else {
 			n++
 		}
 	}
+	return hp.ModifySectorActionPrice.Mul64(n)
+}
 
-	if n > 0 {
-		storage, collateral := hp.StoreSectorCost(duration)
-		storage = storage.Mul64(uint64(n))
-		collateral = collateral.Mul64(uint64(n))
-		actions := hp.ModifySectorActionPrice.Mul64(uint64(len(actions)))
-		return storage.Add(actions), collateral
-	}
-	return types.ZeroCurrency, types.ZeroCurrency
+// RPCAppendSectorsCost returns the cost of appending sectors to a contract. The duration
+// parameter is the number of blocks until the contract's expiration height.
+func (hp HostPrices) RPCAppendSectorsCost(sectors, duration uint64) (cost, collateral types.Currency) {
+	storage, collateral := hp.StoreSectorCost(duration)
+	storage = storage.Mul64(sectors)
+	collateral = collateral.Mul64(sectors)
+	return storage, collateral
 }
 
 // SigHash returns the hash of the host settings used for signing.
@@ -145,8 +149,8 @@ type HostSettings struct {
 	Prices              HostPrices     `json:"prices"`
 }
 
-// A WriteAction adds or modifies sectors within a contract.
-type WriteAction struct {
+// A ModifyAction adds or modifies sectors within a contract.
+type ModifyAction struct {
 	Type uint8         `json:"type"`
 	Root types.Hash256 `json:"root,omitempty"` // Append
 	A    uint64        `json:"a,omitempty"`    // Swap
@@ -156,8 +160,7 @@ type WriteAction struct {
 
 // WriteAction types.
 const (
-	ActionAppend = iota + 1
-	ActionSwap
+	ActionSwap = iota + 1
 	ActionTrim
 	ActionUpdate
 )
@@ -217,7 +220,7 @@ func GenerateAccount() (types.PrivateKey, Account) {
 }
 
 type (
-	// RPCSettingsRequest implements Request.
+	// RPCSettingsRequest implements Object.
 	RPCSettingsRequest struct{}
 
 	// RPCSettingsResponse implements Object.
@@ -235,7 +238,7 @@ type (
 		ProofHeight     uint64          `json:"proofHeight"`
 	}
 
-	// RPCFormContractRequest implements Request.
+	// RPCFormContractRequest implements Object.
 	RPCFormContractRequest struct {
 		Prices        HostPrices             `json:"prices"`
 		Contract      RPCFormContractParams  `json:"contract"`
@@ -271,7 +274,7 @@ type (
 		ProofHeight uint64               `json:"proofHeight"`
 	}
 
-	// RPCRenewContractRequest implements Request.
+	// RPCRenewContractRequest implements Object.
 	RPCRenewContractRequest struct {
 		Prices             HostPrices             `json:"prices"`
 		Renewal            RPCRenewContractParams `json:"renewal"`
@@ -296,11 +299,11 @@ type (
 		TransactionSet []types.V2Transaction `json:"transactionSet"`
 	}
 
-	// RPCModifySectorsRequest implements Request.
+	// RPCModifySectorsRequest implements Object.
 	RPCModifySectorsRequest struct {
 		ContractID types.FileContractID `json:"contractID"`
 		Prices     HostPrices           `json:"prices"`
-		Actions    []WriteAction        `json:"actions"`
+		Actions    []ModifyAction       `json:"actions"`
 		// A ChallengeSignature proves the renter can modify the contract.
 		ChallengeSignature types.Signature `json:"challengeSignature"`
 	}
@@ -317,7 +320,7 @@ type (
 		HostSignature types.Signature `json:"hostSignature"`
 	}
 
-	// RPCLatestRevisionRequest implements Request.
+	// RPCLatestRevisionRequest implements Object.
 	RPCLatestRevisionRequest struct {
 		ContractID types.FileContractID `json:"contractID"`
 	}
@@ -326,7 +329,7 @@ type (
 		Contract types.V2FileContract `json:"contract"`
 	}
 
-	// RPCReadSectorRequest implements Request.
+	// RPCReadSectorRequest implements Object.
 	RPCReadSectorRequest struct {
 		Prices HostPrices    `json:"prices"`
 		Token  AccountToken  `json:"token"`
@@ -334,6 +337,28 @@ type (
 		Offset uint64        `json:"offset"`
 		Length uint64        `json:"length"`
 	}
+
+	// RPCAppendSectorsRequest implements Object.
+	RPCAppendSectorsRequest struct {
+		Prices             HostPrices           `json:"prices"`
+		Sectors            []types.Hash256      `json:"sectors"`
+		ContractID         types.FileContractID `json:"contractID"`
+		ChallengeSignature types.Signature      `json:"challengeSignature"`
+	}
+	// RPCAppendSectorsResponse implements Object.
+	RPCAppendSectorsResponse struct {
+		Accepted []bool          `json:"accepted"`
+		Proof    []types.Hash256 `json:"proof"`
+	}
+	// RPCAppendSectorsSecondResponse implements Object.
+	RPCAppendSectorsSecondResponse struct {
+		RenterSignature types.Signature `json:"renterSignature"`
+	}
+	// RPCAppendSectorsThirdResponse implements Object.
+	RPCAppendSectorsThirdResponse struct {
+		HostSignature types.Signature `json:"hostSignature"`
+	}
+
 	// RPCReadSectorResponse implements Object.
 	RPCReadSectorResponse struct {
 		Proof  []types.Hash256 `json:"proof"`
@@ -346,7 +371,7 @@ type (
 		DataLength uint64          `json:"dataLength"`
 	}
 
-	// RPCWriteSectorStreamingRequest implements Request.
+	// RPCWriteSectorStreamingRequest implements Object.
 	RPCWriteSectorStreamingRequest struct {
 		Prices     HostPrices   `json:"prices"`
 		Token      AccountToken `json:"token"`
@@ -354,7 +379,7 @@ type (
 		DataLength uint64       `json:"dataLength"` // extended to SectorSize by host
 	}
 
-	// RPCWriteSectorRequest implements Request.
+	// RPCWriteSectorRequest implements Object.
 	RPCWriteSectorRequest struct {
 		Prices   HostPrices   `json:"prices"`
 		Token    AccountToken `json:"token"`
@@ -367,7 +392,7 @@ type (
 		Root types.Hash256 `json:"root"`
 	}
 
-	// RPCSectorRootsRequest implements Request.
+	// RPCSectorRootsRequest implements Object.
 	RPCSectorRootsRequest struct {
 		Prices          HostPrices           `json:"prices"`
 		ContractID      types.FileContractID `json:"contractID"`
@@ -382,7 +407,7 @@ type (
 		HostSignature types.Signature `json:"hostSignature"`
 	}
 
-	// RPCAccountBalanceRequest implements Request.
+	// RPCAccountBalanceRequest implements Object.
 	RPCAccountBalanceRequest struct {
 		Account Account `json:"account"`
 	}
@@ -391,7 +416,7 @@ type (
 		Balance types.Currency `json:"balance"`
 	}
 
-	// RPCVerifySectorRequest implements Request.
+	// RPCVerifySectorRequest implements Object.
 	RPCVerifySectorRequest struct {
 		Prices    HostPrices    `json:"prices"`
 		Token     AccountToken  `json:"token"`
@@ -411,7 +436,7 @@ type (
 		Amount  types.Currency `json:"amount"`
 	}
 
-	// RPCFundAccountsRequest implements Request.
+	// RPCFundAccountsRequest implements Object.
 	RPCFundAccountsRequest struct {
 		ContractID      types.FileContractID `json:"contractID"`
 		Deposits        []AccountDeposit     `json:"deposits"`
@@ -438,6 +463,20 @@ func (r *RPCModifySectorsRequest) ValidChallengeSignature(fc types.V2FileContrac
 	return fc.RenterPublicKey.VerifyHash(r.ChallengeSigHash(fc.RevisionNumber+1), r.ChallengeSignature)
 }
 
+// ChallengeSigHash returns the hash of the challenge signature used for
+// signing.
+func (r *RPCAppendSectorsRequest) ChallengeSigHash(revisionNumber uint64) types.Hash256 {
+	h := types.NewHasher()
+	r.ContractID.EncodeTo(h.E)
+	h.E.WriteUint64(revisionNumber)
+	return h.Sum()
+}
+
+// ValidChallengeSignature checks the challenge signature for validity.
+func (r *RPCAppendSectorsRequest) ValidChallengeSignature(fc types.V2FileContract) bool {
+	return fc.RenterPublicKey.VerifyHash(r.ChallengeSigHash(fc.RevisionNumber+1), r.ChallengeSignature)
+}
+
 // ChallengeSigHash returns the challenge sighash used for proving ownership
 // of a contract for the renew RPC.
 func (r *RPCRenewContractRequest) ChallengeSigHash(lastRevisionNumber uint64) types.Hash256 {
@@ -454,11 +493,11 @@ func (r *RPCRenewContractRequest) ValidChallengeSignature(existing types.V2FileC
 
 // ValidateModifyActions checks the given actions for validity. It returns an
 // error if the actions are invalid.
-func ValidateModifyActions(actions []WriteAction, maxActions uint64) error {
+func ValidateModifyActions(actions []ModifyAction, maxActions uint64) error {
 	var actionCount uint64
 	for _, action := range actions {
 		switch action.Type {
-		case ActionAppend, ActionSwap, ActionUpdate:
+		case ActionSwap, ActionUpdate:
 			actionCount++
 		case ActionTrim:
 			actionCount += action.N
@@ -523,35 +562,35 @@ func PayWithContract(fc *types.V2FileContract, amount, collateral types.Currency
 	fc.RenterOutput.Value = fc.RenterOutput.Value.Sub(amount)
 	fc.HostOutput.Value = fc.HostOutput.Value.Add(amount)
 	fc.MissedHostValue = fc.MissedHostValue.Sub(collateral)
+	// clear signatures
+	fc.RenterSignature = types.Signature{}
+	fc.HostSignature = types.Signature{}
 	return nil
 }
 
 // ReviseForModifySectors creates a contract revision from a modify sectors request
 // and response.
-func ReviseForModifySectors(fc types.V2FileContract, req RPCModifySectorsRequest, resp RPCModifySectorsResponse) (types.V2FileContract, error) {
-	old := fc.Filesize
-	for _, action := range req.Actions {
-		switch action.Type {
-		case ActionAppend:
-			fc.Filesize += SectorSize // NOTE: ingress cost paid via account
-		case ActionTrim:
+func ReviseForModifySectors(fc types.V2FileContract, prices HostPrices, root types.Hash256, actions []ModifyAction) (types.V2FileContract, error) {
+	for _, action := range actions {
+		if action.Type == ActionTrim {
 			fc.Filesize -= SectorSize * action.N
 		}
 	}
-	var cost, collateral types.Currency
-	if fc.Filesize > old {
-		size := fc.Filesize - old
-		duration := fc.ProofHeight - req.Prices.TipHeight
-		cost = req.Prices.StoragePrice.Mul64(size * duration)
-		collateral = req.Prices.Collateral.Mul64(size * duration)
-	}
-
-	// pay with contract is always called because it increments the revision number
-	err := PayWithContract(&fc, cost, collateral)
-	if err != nil {
+	if err := PayWithContract(&fc, prices.RPCModifySectorsCost(actions), types.ZeroCurrency); err != nil {
 		return fc, err
 	}
-	fc.FileMerkleRoot = resp.Proof[len(resp.Proof)-1] // TODO get merkle root
+	fc.FileMerkleRoot = root
+	return fc, nil
+}
+
+// ReviseForAppendSectors creates a contract revision from an append sectors request
+func ReviseForAppendSectors(fc types.V2FileContract, prices HostPrices, root types.Hash256, appended uint64) (types.V2FileContract, error) {
+	cost, collateral := prices.RPCAppendSectorsCost(appended, fc.ExpirationHeight-prices.TipHeight)
+	if err := PayWithContract(&fc, cost, collateral); err != nil {
+		return fc, err
+	}
+	fc.Filesize += SectorSize * appended
+	fc.FileMerkleRoot = root
 	return fc, nil
 }
 
@@ -571,7 +610,7 @@ func ReviseForFundAccount(fc types.V2FileContract, amount types.Currency) (types
 // host collateral.
 func MinRenterAllowance(hp HostPrices, duration uint64, collateral types.Currency) types.Currency {
 	maxCollateralBytes := collateral.Div(hp.Collateral).Div64(duration)
-	return hp.StoragePrice.Mul64(duration).Mul(maxCollateralBytes).Mul64(9).Div64(10) // 10% buffer
+	return hp.StoragePrice.Mul64(duration).Mul(maxCollateralBytes)
 }
 
 // NewRenewal creates a contract renewal from an existing contract revision
