@@ -679,16 +679,6 @@ func validateV2Siafunds(ms *MidState, txn types.V2Transaction) error {
 }
 
 func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
-	// Contract resolutions are height-sensitive, and thus can be invalidated by
-	// shallow reorgs; to minimize disruption, we require that transactions
-	// containing a resolution do not create new outputs. Creating, revising or
-	// resolving contracts *is* permitted, as these effects are generally not
-	// "built upon" as quickly as outputs, and therefore cause less disruption.
-	if len(txn.FileContractResolutions) > 0 &&
-		(len(txn.SiacoinOutputs) > 0 || len(txn.SiafundOutputs) > 0) {
-		return errors.New("transaction both resolves a file contract and creates new outputs")
-	}
-
 	revised := make(map[types.Hash256]int)
 	resolved := make(map[types.Hash256]int)
 	validateParent := func(fce types.V2FileContractElement) error {
