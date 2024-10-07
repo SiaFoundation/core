@@ -321,6 +321,74 @@ func (r *RPCRenewContractThirdResponse) maxLen() int {
 	return reasonableObjectSize
 }
 
+func (r *RPCRefreshContractParams) encodeTo(e *types.Encoder) {
+	r.ContractID.EncodeTo(e)
+	types.V2Currency(r.Allowance).EncodeTo(e)
+	types.V2Currency(r.Collateral).EncodeTo(e)
+}
+
+func (r *RPCRefreshContractParams) decodeFrom(d *types.Decoder) {
+	r.ContractID.DecodeFrom(d)
+	(*types.V2Currency)(&r.Allowance).DecodeFrom(d)
+	(*types.V2Currency)(&r.Collateral).DecodeFrom(d)
+}
+
+func (r *RPCRefreshContractRequest) encodeTo(e *types.Encoder) {
+	r.Prices.EncodeTo(e)
+	r.Refresh.encodeTo(e)
+	types.V2Currency(r.MinerFee).EncodeTo(e)
+	r.Basis.EncodeTo(e)
+	types.EncodeSlice(e, r.RenterInputs)
+	types.EncodeSlice(e, r.RenterParents)
+	r.ChallengeSignature.EncodeTo(e)
+}
+func (r *RPCRefreshContractRequest) decodeFrom(d *types.Decoder) {
+	r.Prices.DecodeFrom(d)
+	r.Refresh.decodeFrom(d)
+	(*types.V2Currency)(&r.MinerFee).DecodeFrom(d)
+	r.Basis.DecodeFrom(d)
+	types.DecodeSlice(d, &r.RenterInputs)
+	types.DecodeSlice(d, &r.RenterParents)
+	r.ChallengeSignature.DecodeFrom(d)
+}
+func (r *RPCRefreshContractRequest) maxLen() int {
+	return reasonableObjectSize
+}
+
+func (r *RPCRefreshContractResponse) encodeTo(e *types.Encoder) {
+	types.EncodeSlice(e, r.HostInputs)
+}
+func (r *RPCRefreshContractResponse) decodeFrom(d *types.Decoder) {
+	types.DecodeSlice(d, &r.HostInputs)
+}
+func (r *RPCRefreshContractResponse) maxLen() int {
+	return reasonableObjectSize
+}
+
+func (r *RPCRefreshContractSecondResponse) encodeTo(e *types.Encoder) {
+	r.RenterRenewalSignature.EncodeTo(e)
+	types.EncodeSlice(e, r.RenterSatisfiedPolicies)
+}
+func (r *RPCRefreshContractSecondResponse) decodeFrom(d *types.Decoder) {
+	r.RenterRenewalSignature.DecodeFrom(d)
+	types.DecodeSlice(d, &r.RenterSatisfiedPolicies)
+}
+func (r *RPCRefreshContractSecondResponse) maxLen() int {
+	return reasonableObjectSize
+}
+
+func (r *RPCRefreshContractThirdResponse) encodeTo(e *types.Encoder) {
+	r.Basis.EncodeTo(e)
+	types.EncodeSlice(e, r.TransactionSet)
+}
+func (r *RPCRefreshContractThirdResponse) decodeFrom(d *types.Decoder) {
+	r.Basis.DecodeFrom(d)
+	types.DecodeSlice(d, &r.TransactionSet)
+}
+func (r *RPCRefreshContractThirdResponse) maxLen() int {
+	return reasonableObjectSize
+}
+
 func (r *RPCModifySectorsRequest) encodeTo(e *types.Encoder) {
 	r.ContractID.EncodeTo(e)
 	r.Prices.EncodeTo(e)
