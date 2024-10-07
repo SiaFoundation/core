@@ -905,8 +905,7 @@ func TestApplyRevertBlockV2(t *testing.T) {
 				r.RenterSignature = renterPrivateKey.SignHash(cs.RenewalSigHash(*r))
 				r.HostSignature = hostPrivateKey.SignHash(cs.RenewalSigHash(*r))
 			case *types.V2FileContractFinalization:
-				r.RenterSignature = renterPrivateKey.SignHash(cs.ContractSigHash(types.V2FileContract(*r)))
-				r.HostSignature = hostPrivateKey.SignHash(cs.ContractSigHash(types.V2FileContract(*r)))
+				*r = types.V2FileContractFinalization(renterPrivateKey.SignHash(cs.ContractSigHash(txn.FileContractResolutions[i].Parent.V2FileContract)))
 			}
 		}
 	}

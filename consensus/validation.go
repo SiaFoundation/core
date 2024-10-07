@@ -551,16 +551,13 @@ func validateV2CurrencyValues(ms *MidState, txn types.V2Transaction) error {
 		addContract(fc.Revision)
 	}
 	for i, fcr := range txn.FileContractResolutions {
-		switch r := fcr.Resolution.(type) {
-		case *types.V2FileContractRenewal:
+		if r, ok := fcr.Resolution.(*types.V2FileContractRenewal); ok {
 			if r.NewContract.RenterOutput.Value.IsZero() && r.NewContract.HostOutput.Value.IsZero() {
 				return fmt.Errorf("file contract renewal %v creates contract with zero value", i)
 			}
 			addContract(r.NewContract)
 			add(r.RenterRollover)
 			add(r.HostRollover)
-		case *types.V2FileContractFinalization:
-			addContract(types.V2FileContract(*r))
 		}
 	}
 	add(txn.MinerFee)
@@ -827,11 +824,10 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 				return fmt.Errorf("file contract renewal %v has invalid host signature", i)
 			}
 		case *types.V2FileContractFinalization:
-			finalRevision := types.V2FileContract(*r)
-			if finalRevision.RevisionNumber != types.MaxRevisionNumber {
-				return fmt.Errorf("file contract finalization %v does not set maximum revision number", i)
-			} else if err := validateRevision(fcr.Parent, finalRevision, false); err != nil {
-				return fmt.Errorf("file contract finalization %v %s", i, err)
+			finalRevision := fcr.Parent.V2FileContract
+			finalRevision.RevisionNumber = types.MaxRevisionNumber
+			if !finalRevision.RenterPublicKey.VerifyHash(ms.base.ContractSigHash(finalRevision), types.Signature(*r)) {
+				return fmt.Errorf("file contract finalization %v has invalid signature", i)
 			}
 		case *types.V2StorageProof:
 			sp := *r
