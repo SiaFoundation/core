@@ -123,8 +123,6 @@ func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.Chain
 		return errors.New("miner fee must be greater than 0")
 	case req.Basis == (types.ChainIndex{}):
 		return errors.New("basis must be set")
-	case len(req.RenterInputs) == 0:
-		return errors.New("renter inputs must not be empty")
 	}
 
 	// validate the contract fields

@@ -1828,3 +1828,109 @@ func TestV2RevisionApply(t *testing.T) {
 	applyContractChanges(au)
 	checkRevision(t, 100)
 }
+
+func TestV2ResolutionRollover(t *testing.T) {
+	n, genesisBlock := testnet()
+
+	n.HardforkOak.Height = 0
+	n.HardforkTax.Height = 0
+	n.HardforkFoundation.Height = 0
+	n.InitialTarget = types.BlockID{0xFF}
+	n.HardforkV2.AllowHeight = 0
+	n.HardforkV2.RequireHeight = 0
+
+	pk := types.GeneratePrivateKey()
+	addr := types.AnyoneCanSpend().Address()
+	fc := types.V2FileContract{
+		ProofHeight:      100,
+		ExpirationHeight: 150,
+		RenterPublicKey:  pk.PublicKey(),
+		HostPublicKey:    pk.PublicKey(),
+		HostOutput: types.SiacoinOutput{
+			Address: addr, Value: types.Siacoins(10),
+		},
+		RenterOutput: types.SiacoinOutput{
+			Address: addr, Value: types.ZeroCurrency,
+		},
+	}
+	cs := n.GenesisState()
+	sigHash := cs.ContractSigHash(fc)
+	fc.HostSignature = pk.SignHash(sigHash)
+	fc.RenterSignature = pk.SignHash(sigHash)
+	contractCost := cs.V2FileContractTax(fc).Add(fc.HostOutput.Value)
+
+	genesisTxn := types.V2Transaction{
+		SiacoinOutputs: []types.SiacoinOutput{
+			{Address: addr, Value: contractCost},
+		},
+		FileContracts: []types.V2FileContract{fc},
+	}
+	genesisBlock.V2 = &types.V2BlockData{
+		Transactions: []types.V2Transaction{genesisTxn},
+	}
+	contractID := genesisTxn.V2FileContractID(genesisTxn.ID(), 0)
+	fces := make(map[types.Hash256]types.V2FileContractElement)
+	applyContractChanges := func(au ApplyUpdate) {
+		au.ForEachV2FileContractElement(func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
+			switch {
+			case res != nil:
+				delete(fces, fce.ID)
+			case rev != nil:
+				fces[fce.ID] = *rev
+			default:
+				fces[fce.ID] = fce
+			}
+		})
+
+		// update proofs
+		for key, fce := range fces {
+			au.UpdateElementProof(&fce.StateElement)
+			fces[key] = fce
+		}
+	}
+
+	cs, au := ApplyBlock(cs, genesisBlock, V1BlockSupplement{}, time.Time{})
+	applyContractChanges(au)
+
+	finalRevision := fc
+	finalRevision.RevisionNumber = types.MaxRevisionNumber
+	finalRevision.RenterSignature = types.Signature{}
+	finalRevision.HostSignature = types.Signature{}
+
+	renewal := types.V2FileContractRenewal{
+		FinalRevision: finalRevision,
+		NewContract: types.V2FileContract{
+			ProofHeight:      100,
+			ExpirationHeight: 150,
+			RenterPublicKey:  pk.PublicKey(),
+			HostPublicKey:    pk.PublicKey(),
+			HostOutput: types.SiacoinOutput{
+				Address: addr, Value: types.Siacoins(1),
+			},
+			RenterOutput: types.SiacoinOutput{
+				Address: addr, Value: types.ZeroCurrency,
+			},
+		},
+		HostRollover: types.Siacoins(10),
+	}
+	newContractCost := cs.V2FileContractTax(renewal.NewContract)
+	escapeAmount := renewal.HostRollover.Sub(renewal.NewContract.HostOutput.Value).Sub(newContractCost)
+	renewTxn := types.V2Transaction{
+		FileContractResolutions: []types.V2FileContractResolution{
+			{
+				Parent:     fces[types.Hash256(contractID)],
+				Resolution: &renewal,
+			},
+		},
+		SiacoinOutputs: []types.SiacoinOutput{
+			{Value: escapeAmount, Address: types.VoidAddress},
+		},
+	}
+
+	ms := NewMidState(cs)
+	if err := ValidateV2Transaction(ms, renewTxn); err == nil {
+		t.Fatalf("expected error")
+	} else if !strings.Contains(err.Error(), "exceeding new contract cost") {
+		t.Fatal(err)
+	}
+}
