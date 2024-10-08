@@ -99,7 +99,7 @@ func (req *RPCFormContractRequest) Validate(pk types.PublicKey, tip types.ChainI
 	case expirationHeight <= tip.Height: // must be validated against tip instead of prices
 		return errors.New("contract expiration height is in the past")
 	case req.Contract.Allowance.IsZero():
-		return errors.New("allowance is zero")
+		return errors.New("allowance must be greater than zero")
 	case req.Contract.Collateral.Cmp(maxCollateral) > 0:
 		return fmt.Errorf("collateral %v exceeds max collateral %v", req.Contract.Collateral, maxCollateral)
 	case duration > maxDuration:
@@ -139,7 +139,7 @@ func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.Chain
 	case expirationHeight <= tip.Height: // must be validated against tip instead of prices
 		return errors.New("contract expiration height is in the past")
 	case req.Renewal.Allowance.IsZero():
-		return errors.New("allowance is zero")
+		return errors.New("allowance must be greater than zero")
 	case req.Renewal.Collateral.Cmp(maxCollateral) > 0:
 		return fmt.Errorf("collateral %v exceeds max collateral %v", req.Renewal.Collateral, maxCollateral)
 	case duration > maxDuration:
@@ -173,7 +173,7 @@ func (req *RPCRefreshContractRequest) Validate(pk types.PublicKey, expirationHei
 
 	switch {
 	case req.Refresh.Allowance.IsZero():
-		return errors.New("allowance is zero")
+		return errors.New("allowance must be greater than zero")
 	case req.Refresh.Collateral.Cmp(maxCollateral) > 0:
 		return fmt.Errorf("collateral %v exceeds max collateral %v", req.Refresh.Collateral, maxCollateral)
 	case req.Refresh.Allowance.Cmp(minRenterAllowance) < 0:
