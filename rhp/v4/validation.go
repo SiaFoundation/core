@@ -151,7 +151,7 @@ func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.Chain
 	}
 }
 
-// Validate validates a renew contract request. Prices are not validated
+// Validate validates a refresh contract request. Prices are not validated
 func (req *RPCRefreshContractRequest) Validate(pk types.PublicKey, expirationHeight uint64, maxCollateral types.Currency) error {
 	if err := req.Prices.Validate(pk); err != nil {
 		return fmt.Errorf("prices are invalid: %w", err)
