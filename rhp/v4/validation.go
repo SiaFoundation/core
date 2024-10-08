@@ -105,7 +105,7 @@ func (req *RPCFormContractRequest) Validate(pk types.PublicKey, tip types.ChainI
 	case duration > maxDuration:
 		return fmt.Errorf("contract duration %v exceeds max duration %v", duration, maxDuration)
 	case req.Contract.Allowance.Cmp(minRenterAllowance) < 0:
-		return fmt.Errorf("allowance %v is less than minimum %v for collateral", req.Contract.Allowance, minRenterAllowance)
+		return fmt.Errorf("allowance %v is less than minimum allowance %v", req.Contract.Allowance, minRenterAllowance)
 	default:
 		return nil
 	}
@@ -145,7 +145,7 @@ func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.Chain
 	case duration > maxDuration:
 		return fmt.Errorf("contract duration %v exceeds max duration %v", duration, maxDuration)
 	case req.Renewal.Allowance.Cmp(minRenterAllowance) < 0:
-		return fmt.Errorf("allowance %v is less than minimum %v for collateral", req.Renewal.Allowance, minRenterAllowance)
+		return fmt.Errorf("allowance %v is less than minimum allowance %v", req.Renewal.Allowance, minRenterAllowance)
 	default:
 		return nil
 	}
@@ -177,7 +177,7 @@ func (req *RPCRefreshContractRequest) Validate(pk types.PublicKey, expirationHei
 	case req.Refresh.Collateral.Cmp(maxCollateral) > 0:
 		return fmt.Errorf("collateral %v exceeds max collateral %v", req.Refresh.Collateral, maxCollateral)
 	case req.Refresh.Allowance.Cmp(minRenterAllowance) < 0:
-		return fmt.Errorf("allowance %v is less than minimum %v for collateral", req.Refresh.Allowance, minRenterAllowance)
+		return fmt.Errorf("allowance %v is less than minimum allowance %v", req.Refresh.Allowance, minRenterAllowance)
 	default:
 		return nil
 	}

@@ -266,8 +266,8 @@ type (
 		TransactionSet []types.V2Transaction `json:"transactionSet"`
 	}
 
-	// RPCRefreshContractParams includes the contract details required to create
-	// a renewal.
+	// RPCRefreshContractParams includes the contract details required to refresh
+	// a contract.
 	RPCRefreshContractParams struct {
 		ContractID types.FileContractID `json:"contractID"`
 		Allowance  types.Currency       `json:"allowance"`
@@ -733,8 +733,6 @@ func RefreshContract(fc types.V2FileContract, prices HostPrices, rp RPCRefreshCo
 	// clear the old contract
 	renewal.FinalRevision = fc
 	renewal.FinalRevision.RevisionNumber = types.MaxRevisionNumber
-	renewal.FinalRevision.Filesize = 0
-	renewal.FinalRevision.FileMerkleRoot = types.Hash256{}
 	renewal.FinalRevision.RenterSignature = types.Signature{}
 	renewal.FinalRevision.HostSignature = types.Signature{}
 
