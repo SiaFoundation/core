@@ -153,10 +153,10 @@ type HostSettings struct {
 // A ModifyAction adds or modifies sectors within a contract.
 type ModifyAction struct {
 	Type uint8         `json:"type"`
-	Root types.Hash256 `json:"root,omitempty"` // Append
+	Root types.Hash256 `json:"root,omitempty"` // Update
 	A    uint64        `json:"a,omitempty"`    // Swap
 	B    uint64        `json:"b,omitempty"`    // Swap
-	N    uint64        `json:"n,omitempty"`    // Trim
+	N    uint64        `json:"n,omitempty"`    // Trim, Update
 }
 
 // WriteAction types.
