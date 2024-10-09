@@ -452,33 +452,15 @@ func (r *RPCAppendSectorsRequest) maxLen() int {
 }
 
 func (r *RPCAppendSectorsResponse) encodeTo(e *types.Encoder) {
-	e.WriteUint64(uint64(len(r.Accepted)))
-
-	var flags uint64
-	for i, accepted := range r.Accepted {
-		if accepted {
-			flags |= uint64(1) << (i % 64)
-		}
-		if (i+1)%64 == 0 {
-			e.WriteUint64(flags)
-			flags = 0
-		}
-	}
-	if len(r.Accepted)%64 != 0 {
-		e.WriteUint64(flags)
-	}
+	types.EncodeSliceFn(e, r.Accepted, func(e *types.Encoder, v bool) {
+		e.WriteBool(v)
+	})
 	types.EncodeSlice(e, r.Proof)
 }
 func (r *RPCAppendSectorsResponse) decodeFrom(d *types.Decoder) {
-	length := d.ReadUint64()
-	r.Accepted = make([]bool, length)
-	var flags uint64
-	for i := range r.Accepted {
-		if i%64 == 0 {
-			flags = d.ReadUint64()
-		}
-		r.Accepted[i] = flags&(uint64(1)<<(i%64)) != 0
-	}
+	types.DecodeSliceFn(d, &r.Accepted, func(d *types.Decoder) bool {
+		return d.ReadBool()
+	})
 	types.DecodeSlice(d, &r.Proof)
 }
 func (r *RPCAppendSectorsResponse) maxLen() int {
