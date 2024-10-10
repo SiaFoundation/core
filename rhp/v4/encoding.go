@@ -406,10 +406,14 @@ func (r *RPCModifySectorsRequest) maxLen() int {
 }
 
 func (r *RPCModifySectorsResponse) encodeTo(e *types.Encoder) {
-	types.EncodeSlice(e, r.Proof)
+	types.EncodeSlice(e, r.OldSubtreeHashes)
+	types.EncodeSlice(e, r.OldLeafHashes)
+	r.NewMerkleRoot.EncodeTo(e)
 }
 func (r *RPCModifySectorsResponse) decodeFrom(d *types.Decoder) {
-	types.DecodeSlice(d, &r.Proof)
+	types.DecodeSlice(d, &r.OldSubtreeHashes)
+	types.DecodeSlice(d, &r.OldLeafHashes)
+	r.NewMerkleRoot.DecodeFrom(d)
 }
 func (r *RPCModifySectorsResponse) maxLen() int {
 	return reasonableObjectSize
@@ -452,16 +456,14 @@ func (r *RPCAppendSectorsRequest) maxLen() int {
 }
 
 func (r *RPCAppendSectorsResponse) encodeTo(e *types.Encoder) {
-	types.EncodeSliceFn(e, r.Accepted, func(e *types.Encoder, v bool) {
-		e.WriteBool(v)
-	})
-	types.EncodeSlice(e, r.Proof)
+	types.EncodeSliceFn(e, r.Accepted, (*types.Encoder).WriteBool)
+	types.EncodeSlice(e, r.SubtreeRoots)
+	r.NewMerkleRoot.EncodeTo(e)
 }
 func (r *RPCAppendSectorsResponse) decodeFrom(d *types.Decoder) {
-	types.DecodeSliceFn(d, &r.Accepted, func(d *types.Decoder) bool {
-		return d.ReadBool()
-	})
-	types.DecodeSlice(d, &r.Proof)
+	types.DecodeSliceFn(d, &r.Accepted, (*types.Decoder).ReadBool)
+	types.DecodeSlice(d, &r.SubtreeRoots)
+	r.NewMerkleRoot.DecodeFrom(d)
 }
 func (r *RPCAppendSectorsResponse) maxLen() int {
 	return reasonableObjectSize

@@ -159,7 +159,7 @@ type ModifyAction struct {
 	N    uint64        `json:"n,omitempty"`    // Trim, Update
 }
 
-// WriteAction types.
+// ModifyAction types.
 const (
 	ActionSwap = iota + 1
 	ActionTrim
@@ -343,7 +343,9 @@ type (
 	}
 	// RPCModifySectorsResponse implements Object.
 	RPCModifySectorsResponse struct {
-		Proof []types.Hash256 `json:"proof"`
+		OldSubtreeHashes []types.Hash256 `json:"oldSubtreeHashes"`
+		OldLeafHashes    []types.Hash256 `json:"oldLeafHashes"`
+		NewMerkleRoot    types.Hash256   `json:"newMerkleRoot"`
 	}
 	// RPCModifySectorsSecondResponse implements Object.
 	RPCModifySectorsSecondResponse struct {
@@ -381,8 +383,9 @@ type (
 	}
 	// RPCAppendSectorsResponse implements Object.
 	RPCAppendSectorsResponse struct {
-		Accepted []bool          `json:"accepted"`
-		Proof    []types.Hash256 `json:"proof"`
+		Accepted      []bool          `json:"accepted"`
+		SubtreeRoots  []types.Hash256 `json:"subtreeRoots"`
+		NewMerkleRoot types.Hash256   `json:"newMerkleRoot"`
 	}
 	// RPCAppendSectorsSecondResponse implements Object.
 	RPCAppendSectorsSecondResponse struct {
