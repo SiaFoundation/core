@@ -335,9 +335,14 @@ func ApplyOrphan(s State, b types.Block, targetTimestamp time.Time) State {
 	return next
 }
 
+func dupProof(se *types.StateElement) {
+	se.MerkleProof = append([]types.Hash256(nil), se.MerkleProof...)
+}
+
 func (ms *MidState) addSiacoinElement(id types.SiacoinOutputID, sco types.SiacoinOutput) {
 	sce := types.SiacoinElement{
-		StateElement:  types.StateElement{ID: types.Hash256(id)},
+		StateElement:  types.StateElement{LeafIndex: types.UnassignedLeafIndex},
+		ID:            id,
 		SiacoinOutput: sco,
 	}
 	ms.sces = append(ms.sces, sce)
@@ -352,14 +357,15 @@ func (ms *MidState) addImmatureSiacoinElement(id types.SiacoinOutputID, sco type
 func (ms *MidState) spendSiacoinElement(sce types.SiacoinElement, txid types.TransactionID) {
 	ms.spends[sce.ID] = txid
 	if !ms.isCreated(sce.ID) {
-		sce.MerkleProof = append([]types.Hash256(nil), sce.MerkleProof...)
+		dupProof(&sce.StateElement)
 		ms.sces = append(ms.sces, sce)
 	}
 }
 
 func (ms *MidState) addSiafundElement(id types.SiafundOutputID, sfo types.SiafundOutput) {
 	sfe := types.SiafundElement{
-		StateElement:  types.StateElement{ID: types.Hash256(id)},
+		StateElement:  types.StateElement{LeafIndex: types.UnassignedLeafIndex},
+		ID:            id,
 		SiafundOutput: sfo,
 		ClaimStart:    ms.siafundPool,
 	}
@@ -370,14 +376,15 @@ func (ms *MidState) addSiafundElement(id types.SiafundOutputID, sfo types.Siafun
 func (ms *MidState) spendSiafundElement(sfe types.SiafundElement, txid types.TransactionID) {
 	ms.spends[sfe.ID] = txid
 	if !ms.isCreated(sfe.ID) {
-		sfe.MerkleProof = append([]types.Hash256(nil), sfe.MerkleProof...)
+		dupProof(&sfe.StateElement)
 		ms.sfes = append(ms.sfes, sfe)
 	}
 }
 
 func (ms *MidState) addFileContractElement(id types.FileContractID, fc types.FileContract) {
 	fce := types.FileContractElement{
-		StateElement: types.StateElement{ID: types.Hash256(id)},
+		StateElement: types.StateElement{LeafIndex: types.UnassignedLeafIndex},
+		ID:           id,
 		FileContract: fc,
 	}
 	ms.fces = append(ms.fces, fce)
@@ -394,10 +401,10 @@ func (ms *MidState) reviseFileContractElement(fce types.FileContractElement, rev
 			r.FileContract = rev
 		} else {
 			// store the original
-			fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
+			dupProof(&fce.StateElement)
 			ms.fces = append(ms.fces, fce)
 			// store the revision
-			fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
+			dupProof(&fce.StateElement)
 			fce.FileContract = rev
 			ms.revs[fce.ID] = &fce
 		}
@@ -407,13 +414,14 @@ func (ms *MidState) reviseFileContractElement(fce types.FileContractElement, rev
 func (ms *MidState) resolveFileContractElement(fce types.FileContractElement, valid bool, txid types.TransactionID) {
 	ms.res[fce.ID] = valid
 	ms.spends[fce.ID] = txid
-	fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
+	dupProof(&fce.StateElement)
 	ms.fces = append(ms.fces, fce)
 }
 
 func (ms *MidState) addV2FileContractElement(id types.FileContractID, fc types.V2FileContract) {
 	fce := types.V2FileContractElement{
-		StateElement:   types.StateElement{ID: types.Hash256(id)},
+		StateElement:   types.StateElement{LeafIndex: types.UnassignedLeafIndex},
+		ID:             id,
 		V2FileContract: fc,
 	}
 	ms.v2fces = append(ms.v2fces, fce)
@@ -429,10 +437,10 @@ func (ms *MidState) reviseV2FileContractElement(fce types.V2FileContractElement,
 			r.V2FileContract = rev
 		} else {
 			// store the original
-			fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
+			dupProof(&fce.StateElement)
 			ms.v2fces = append(ms.v2fces, fce)
 			// store the revision
-			fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
+			dupProof(&fce.StateElement)
 			fce.V2FileContract = rev
 			ms.v2revs[fce.ID] = &fce
 		}
@@ -442,7 +450,7 @@ func (ms *MidState) reviseV2FileContractElement(fce types.V2FileContractElement,
 func (ms *MidState) resolveV2FileContractElement(fce types.V2FileContractElement, res types.V2FileContractResolutionType, txid types.TransactionID) {
 	ms.v2res[fce.ID] = res
 	ms.spends[fce.ID] = txid
-	fce.MerkleProof = append([]types.Hash256(nil), fce.MerkleProof...)
+	dupProof(&fce.StateElement)
 	ms.v2fces = append(ms.v2fces, fce)
 }
 
@@ -521,7 +529,7 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 	for _, sfi := range txn.SiafundInputs {
 		ms.spendSiafundElement(sfi.Parent, txid)
 		claimPortion := ms.siafundPool.Sub(sfi.Parent.ClaimStart).Div64(ms.base.SiafundCount()).Mul64(sfi.Parent.SiafundOutput.Value)
-		ms.addImmatureSiacoinElement(types.SiafundOutputID(sfi.Parent.ID).V2ClaimOutputID(), types.SiacoinOutput{Value: claimPortion, Address: sfi.ClaimAddress})
+		ms.addImmatureSiacoinElement(sfi.Parent.ID.V2ClaimOutputID(), types.SiacoinOutput{Value: claimPortion, Address: sfi.ClaimAddress})
 	}
 	for i, sfo := range txn.SiafundOutputs {
 		ms.addSiafundElement(txn.SiafundOutputID(txid, i), sfo)
@@ -543,7 +551,7 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 			renter, host = r.FinalRevision.RenterOutput, r.FinalRevision.HostOutput
 			renter.Value = renter.Value.Sub(r.RenterRollover)
 			host.Value = host.Value.Sub(r.HostRollover)
-			ms.addV2FileContractElement(types.FileContractID(fce.ID).V2RenewalID(), r.NewContract)
+			ms.addV2FileContractElement(fce.ID.V2RenewalID(), r.NewContract)
 		case *types.V2StorageProof:
 			renter, host = fc.RenterOutput, fc.HostOutput
 		case *types.V2FileContractFinalization:
@@ -551,12 +559,13 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 		case *types.V2FileContractExpiration:
 			renter, host = fc.RenterOutput, fc.MissedHostOutput()
 		}
-		ms.addImmatureSiacoinElement(types.FileContractID(fce.ID).V2RenterOutputID(), renter)
-		ms.addImmatureSiacoinElement(types.FileContractID(fce.ID).V2HostOutputID(), host)
+		ms.addImmatureSiacoinElement(fce.ID.V2RenterOutputID(), renter)
+		ms.addImmatureSiacoinElement(fce.ID.V2HostOutputID(), host)
 	}
 	for i, a := range txn.Attestations {
 		ms.addAttestationElement(types.AttestationElement{
-			StateElement: types.StateElement{ID: txn.AttestationID(txid, i)},
+			StateElement: types.StateElement{LeafIndex: types.UnassignedLeafIndex},
+			ID:           txn.AttestationID(txid, i),
 			Attestation:  a,
 		})
 	}
@@ -587,12 +596,13 @@ func (ms *MidState) ApplyBlock(b types.Block, bs V1BlockSupplement) {
 		}
 		ms.resolveFileContractElement(fce, false, types.TransactionID(bid))
 		for i, sco := range fce.FileContract.MissedProofOutputs {
-			ms.addImmatureSiacoinElement(types.FileContractID(fce.ID).MissedOutputID(i), sco)
+			ms.addImmatureSiacoinElement(fce.ID.MissedOutputID(i), sco)
 		}
 	}
 
 	ms.cie = types.ChainIndexElement{
-		StateElement: types.StateElement{ID: types.Hash256(bid)},
+		StateElement: types.StateElement{LeafIndex: types.UnassignedLeafIndex},
+		ID:           bid,
 		ChainIndex:   types.ChainIndex{Height: ms.base.childHeight(), ID: bid},
 	}
 }
@@ -716,7 +726,7 @@ func (au ApplyUpdate) ForEachTreeNode(fn func(row, col uint64, h types.Hash256))
 // ChainIndexElement returns the chain index element for the applied block.
 func (au ApplyUpdate) ChainIndexElement() types.ChainIndexElement {
 	cie := au.ms.cie
-	cie.MerkleProof = append([]types.Hash256(nil), cie.MerkleProof...)
+	dupProof(&cie.StateElement)
 	return cie
 }
 
@@ -736,7 +746,7 @@ func ApplyBlock(s State, b types.Block, bs V1BlockSupplement, targetTimestamp ti
 	// compute updated and added elements
 	var updated, added []elementLeaf
 	ms.forEachAppliedElement(func(el elementLeaf) {
-		if ms.isCreated(el.ID) {
+		if el.LeafIndex == types.UnassignedLeafIndex {
 			added = append(added, el)
 		} else {
 			updated = append(updated, el)
@@ -834,10 +844,10 @@ func RevertBlock(s State, b types.Block, bs V1BlockSupplement) RevertUpdate {
 	// compute updated elements
 	var updated, added []elementLeaf
 	ms.forEachRevertedElement(func(el elementLeaf) {
-		if !ms.isCreated(el.ID) {
-			updated = append(updated, el)
-		} else {
+		if el.LeafIndex == types.UnassignedLeafIndex {
 			added = append(added, el)
+		} else {
+			updated = append(updated, el)
 		}
 	})
 	eru := s.Elements.revertBlock(updated, added)
@@ -847,19 +857,19 @@ func RevertBlock(s State, b types.Block, bs V1BlockSupplement) RevertUpdate {
 // condensed representation of the update types for JSON marshaling
 type (
 	applyUpdateJSON struct {
-		Created                []types.Hash256                                      `json:"created"`
-		Spent                  []types.Hash256                                      `json:"spent"`
-		ValidProof             []types.Hash256                                      `json:"validProof"`
-		MissedProof            []types.Hash256                                      `json:"missedProof"`
-		Revisions              []types.FileContractElement                          `json:"revisions"`
-		V2Revisions            []types.V2FileContractElement                        `json:"v2Revisions"`
-		V2Resolutions          map[types.Hash256]types.V2FileContractResolutionType `json:"v2Resolutions"`
-		SiacoinElements        []types.SiacoinElement                               `json:"siacoinElements"`
-		SiafundElements        []types.SiafundElement                               `json:"siafundElements"`
-		FileContractElements   []types.FileContractElement                          `json:"fileContractElements"`
-		V2FileContractElements []types.V2FileContractElement                        `json:"v2FileContractElements"`
-		AttestationElements    []types.AttestationElement                           `json:"attestationElements"`
-		ChainIndexElement      types.ChainIndexElement                              `json:"chainIndexElement"`
+		Created                []types.Hash256                                             `json:"created"`
+		Spent                  []types.Hash256                                             `json:"spent"`
+		ValidProof             []types.FileContractID                                      `json:"validProof"`
+		MissedProof            []types.FileContractID                                      `json:"missedProof"`
+		Revisions              []types.FileContractElement                                 `json:"revisions"`
+		V2Revisions            []types.V2FileContractElement                               `json:"v2Revisions"`
+		V2Resolutions          map[types.FileContractID]types.V2FileContractResolutionType `json:"v2Resolutions"`
+		SiacoinElements        []types.SiacoinElement                                      `json:"siacoinElements"`
+		SiafundElements        []types.SiafundElement                                      `json:"siafundElements"`
+		FileContractElements   []types.FileContractElement                                 `json:"fileContractElements"`
+		V2FileContractElements []types.V2FileContractElement                               `json:"v2FileContractElements"`
+		AttestationElements    []types.AttestationElement                                  `json:"attestationElements"`
+		ChainIndexElement      types.ChainIndexElement                                     `json:"chainIndexElement"`
 
 		UpdatedLeaves map[int][]elementLeaf   `json:"updatedLeaves"`
 		TreeGrowth    map[int][]types.Hash256 `json:"treeGrowth"`
@@ -868,19 +878,19 @@ type (
 	}
 
 	revertUpdateJSON struct {
-		Created                []types.Hash256                                      `json:"created"`
-		Spent                  []types.Hash256                                      `json:"spent"`
-		ValidProof             []types.Hash256                                      `json:"validProof"`
-		MissedProof            []types.Hash256                                      `json:"missedProof"`
-		Revisions              []types.FileContractElement                          `json:"revisions"`
-		V2Revisions            []types.V2FileContractElement                        `json:"v2Revisions"`
-		V2Resolutions          map[types.Hash256]types.V2FileContractResolutionType `json:"v2Resolutions"`
-		SiacoinElements        []types.SiacoinElement                               `json:"siacoinElements"`
-		SiafundElements        []types.SiafundElement                               `json:"siafundElements"`
-		FileContractElements   []types.FileContractElement                          `json:"fileContractElements"`
-		V2FileContractElements []types.V2FileContractElement                        `json:"v2FileContractElements"`
-		AttestationElements    []types.AttestationElement                           `json:"attestationElements"`
-		ChainIndexElement      types.ChainIndexElement                              `json:"chainIndexElement"`
+		Created                []types.Hash256                                             `json:"created"`
+		Spent                  []types.Hash256                                             `json:"spent"`
+		ValidProof             []types.FileContractID                                      `json:"validProof"`
+		MissedProof            []types.FileContractID                                      `json:"missedProof"`
+		Revisions              []types.FileContractElement                                 `json:"revisions"`
+		V2Revisions            []types.V2FileContractElement                               `json:"v2Revisions"`
+		V2Resolutions          map[types.FileContractID]types.V2FileContractResolutionType `json:"v2Resolutions"`
+		SiacoinElements        []types.SiacoinElement                                      `json:"siacoinElements"`
+		SiafundElements        []types.SiafundElement                                      `json:"siafundElements"`
+		FileContractElements   []types.FileContractElement                                 `json:"fileContractElements"`
+		V2FileContractElements []types.V2FileContractElement                               `json:"v2FileContractElements"`
+		AttestationElements    []types.AttestationElement                                  `json:"attestationElements"`
+		ChainIndexElement      types.ChainIndexElement                                     `json:"chainIndexElement"`
 
 		UpdatedLeaves map[int][]elementLeaf `json:"updatedLeaves"`
 		NumLeaves     uint64                `json:"numLeaves"`

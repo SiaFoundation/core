@@ -160,6 +160,7 @@ func TestApplyBlock(t *testing.T) {
 				t.Fatal("unexpected spent siacoin element")
 			}
 			sce.StateElement = types.StateElement{}
+			sce.ID = types.SiacoinOutputID{}
 			if !reflect.DeepEqual(sce, (*sces)[0]) {
 				t.Fatalf("siacoin element doesn't match:\n%v\nvs\n%v\n", sce, (*sces)[0])
 			}
@@ -174,6 +175,7 @@ func TestApplyBlock(t *testing.T) {
 				t.Fatal("unexpected spent siafund element")
 			}
 			sfe.StateElement = types.StateElement{}
+			sfe.ID = types.SiafundOutputID{}
 			if !reflect.DeepEqual(sfe, (*sfes)[0]) {
 				t.Fatalf("siafund element doesn't match:\n%v\nvs\n%v\n", sfe, (*sfes)[0])
 			}
@@ -193,6 +195,7 @@ func TestApplyBlock(t *testing.T) {
 				t.Fatal("unexpected spent siacoin element")
 			}
 			sce.StateElement = types.StateElement{}
+			sce.ID = types.SiacoinOutputID{}
 			if !reflect.DeepEqual(sce, (*sces)[len(*sces)-1]) {
 				t.Fatalf("siacoin element doesn't match:\n%v\nvs\n%v\n", sce, (*sces)[len(*sces)-1])
 			}
@@ -207,6 +210,7 @@ func TestApplyBlock(t *testing.T) {
 				t.Fatal("unexpected spent siafund element")
 			}
 			sfe.StateElement = types.StateElement{}
+			sfe.ID = types.SiafundOutputID{}
 			if !reflect.DeepEqual(sfe, (*sfes)[len(*sfes)-1]) {
 				t.Fatalf("siafund element doesn't match:\n%v\nvs\n%v\n", sfe, (*sfes)[len(*sfes)-1])
 			}
@@ -542,6 +546,7 @@ func TestApplyRevertBlockV1(t *testing.T) {
 				t.Fatal("unexpected spent siacoin element")
 			}
 			sce.StateElement = types.StateElement{}
+			sce.ID = types.SiacoinOutputID{}
 			if !reflect.DeepEqual(sce, (*sces)[0]) {
 				t.Fatalf("siacoin element doesn't match:\n%v\nvs\n%v\n", sce, (*sces)[0])
 			}
@@ -556,6 +561,7 @@ func TestApplyRevertBlockV1(t *testing.T) {
 				t.Fatal("unexpected spent siafund element")
 			}
 			sfe.StateElement = types.StateElement{}
+			sfe.ID = types.SiafundOutputID{}
 			if !reflect.DeepEqual(sfe, (*sfes)[0]) {
 				t.Fatalf("siafund element doesn't match:\n%v\nvs\n%v\n", sfe, (*sfes)[0])
 			}
@@ -575,6 +581,7 @@ func TestApplyRevertBlockV1(t *testing.T) {
 				t.Fatal("unexpected spent siacoin element")
 			}
 			sce.StateElement = types.StateElement{}
+			sce.ID = types.SiacoinOutputID{}
 			if !reflect.DeepEqual(sce, (*sces)[len(*sces)-1]) {
 				t.Fatalf("siacoin element doesn't match:\n%v\nvs\n%v\n", sce, (*sces)[len(*sces)-1])
 			}
@@ -589,6 +596,7 @@ func TestApplyRevertBlockV1(t *testing.T) {
 				t.Fatal("unexpected spent siafund element")
 			}
 			sfe.StateElement = types.StateElement{}
+			sfe.ID = types.SiafundOutputID{}
 			if !reflect.DeepEqual(sfe, (*sfes)[len(*sfes)-1]) {
 				t.Fatalf("siafund element doesn't match:\n%v\nvs\n%v\n", sfe, (*sfes)[len(*sfes)-1])
 			}
@@ -932,6 +940,7 @@ func TestApplyRevertBlockV2(t *testing.T) {
 				t.Fatal("unexpected spent siacoin element")
 			}
 			sce.StateElement = types.StateElement{}
+			sce.ID = types.SiacoinOutputID{}
 			if !reflect.DeepEqual(sce, (*sces)[0]) {
 				t.Fatalf("siacoin element doesn't match:\n%v\nvs\n%v\n", sce, (*sces)[0])
 			}
@@ -946,6 +955,7 @@ func TestApplyRevertBlockV2(t *testing.T) {
 				t.Fatal("unexpected spent siafund element")
 			}
 			sfe.StateElement = types.StateElement{}
+			sfe.ID = types.SiafundOutputID{}
 			if !reflect.DeepEqual(sfe, (*sfes)[0]) {
 				t.Fatalf("siafund element doesn't match:\n%v\nvs\n%v\n", sfe, (*sfes)[0])
 			}
@@ -965,6 +975,7 @@ func TestApplyRevertBlockV2(t *testing.T) {
 				t.Fatal("unexpected spent siacoin element")
 			}
 			sce.StateElement = types.StateElement{}
+			sce.ID = types.SiacoinOutputID{}
 			if !reflect.DeepEqual(sce, (*sces)[len(*sces)-1]) {
 				t.Fatalf("siacoin element doesn't match:\n%v\nvs\n%v\n", sce, (*sces)[len(*sces)-1])
 			}
@@ -979,6 +990,7 @@ func TestApplyRevertBlockV2(t *testing.T) {
 				t.Fatal("unexpected spent siafund element")
 			}
 			sfe.StateElement = types.StateElement{}
+			sfe.ID = types.SiafundOutputID{}
 			if !reflect.DeepEqual(sfe, (*sfes)[len(*sfes)-1]) {
 				t.Fatalf("siafund element doesn't match:\n%v\nvs\n%v\n", sfe, (*sfes)[len(*sfes)-1])
 			}
