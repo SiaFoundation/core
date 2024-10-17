@@ -436,11 +436,16 @@ func (txn *Transaction) FileContractID(i int) FileContractID {
 	return hashAll(SpecifierFileContract, (*txnSansSigs)(txn), i)
 }
 
-// TotalFees returns the sum of the transaction's miner fees.
+// TotalFees returns the sum of the transaction's miner fees. If the sum would
+// overflow, TotalFees returns ZeroCurrency.
 func (txn *Transaction) TotalFees() Currency {
 	var sum Currency
+	var overflow bool
 	for _, fee := range txn.MinerFees {
-		sum = sum.Add(fee)
+		sum, overflow = sum.AddWithOverflow(fee)
+		if overflow {
+			return ZeroCurrency
+		}
 	}
 	return sum
 }
