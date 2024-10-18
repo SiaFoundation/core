@@ -52,7 +52,7 @@ func validateMinerPayouts(s State, b types.Block) error {
 		for _, txn := range b.V2.Transactions {
 			expectedSum, overflow = expectedSum.AddWithOverflow(txn.MinerFee)
 			if overflow {
-				return errors.New("transaction fees overflow")
+				return errors.New("v2 transaction fees overflow")
 			}
 		}
 		if len(b.MinerPayouts) != 1 {
@@ -509,7 +509,7 @@ func ValidateTransaction(ms *MidState, txn types.Transaction, ts V1TransactionSu
 	return nil
 }
 
-func validateV2CurrencyValues(ms *MidState, txn types.V2Transaction) error {
+func validateV2CurrencyOverflow(ms *MidState, txn types.V2Transaction) error {
 	// Add up all of the currency values in the transaction and check for
 	// overflow. This allows us to freely add any currency values in later
 	// validation functions without worrying about overflow.
@@ -529,32 +529,20 @@ func validateV2CurrencyValues(ms *MidState, txn types.V2Transaction) error {
 		add(ms.base.V2FileContractTax(fc))
 	}
 
-	for i, sco := range txn.SiacoinOutputs {
-		if sco.Value.IsZero() {
-			return fmt.Errorf("siacoin output %v has zero value", i)
-		}
+	for _, sco := range txn.SiacoinOutputs {
 		add(sco.Value)
 	}
-	for i, sfo := range txn.SiafundOutputs {
-		if sfo.Value == 0 {
-			return fmt.Errorf("siafund output %v has zero value", i)
-		}
+	for _, sfo := range txn.SiafundOutputs {
 		overflow = overflow || sfo.Value > ms.base.SiafundCount()
 	}
-	for i, fc := range txn.FileContracts {
-		if fc.RenterOutput.Value.IsZero() && fc.HostOutput.Value.IsZero() {
-			return fmt.Errorf("file contract %v has zero value", i)
-		}
+	for _, fc := range txn.FileContracts {
 		addContract(fc)
 	}
 	for _, fc := range txn.FileContractRevisions {
 		addContract(fc.Revision)
 	}
-	for i, fcr := range txn.FileContractResolutions {
+	for _, fcr := range txn.FileContractResolutions {
 		if r, ok := fcr.Resolution.(*types.V2FileContractRenewal); ok {
-			if r.NewContract.RenterOutput.Value.IsZero() && r.NewContract.HostOutput.Value.IsZero() {
-				return fmt.Errorf("file contract renewal %v creates contract with zero value", i)
-			}
 			addContract(r.NewContract)
 			add(r.RenterRollover)
 			add(r.HostRollover)
@@ -605,7 +593,10 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 	for _, sci := range txn.SiacoinInputs {
 		inputSum = inputSum.Add(sci.Parent.SiacoinOutput.Value)
 	}
-	for _, out := range txn.SiacoinOutputs {
+	for i, out := range txn.SiacoinOutputs {
+		if out.Value.IsZero() {
+			return fmt.Errorf("siacoin output %v has zero value", i)
+		}
 		outputSum = outputSum.Add(out.Value)
 	}
 	for _, fc := range txn.FileContracts {
@@ -666,7 +657,10 @@ func validateV2Siafunds(ms *MidState, txn types.V2Transaction) error {
 	for _, in := range txn.SiafundInputs {
 		inputSum += in.Parent.SiafundOutput.Value
 	}
-	for _, out := range txn.SiafundOutputs {
+	for i, out := range txn.SiafundOutputs {
+		if out.Value == 0 {
+			return fmt.Errorf("siafund output %v has zero value", i)
+		}
 		outputSum += out.Value
 	}
 	if inputSum != outputSum {
@@ -735,6 +729,8 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 			return fmt.Errorf("has proof height (%v) that has already passed", fc.ProofHeight)
 		case fc.ExpirationHeight <= fc.ProofHeight:
 			return fmt.Errorf("leaves no time between proof height (%v) and expiration height (%v)", fc.ProofHeight, fc.ExpirationHeight)
+		case fc.RenterOutput.Value.IsZero() && fc.HostOutput.Value.IsZero():
+			return fmt.Errorf("has zero value")
 		case fc.MissedHostValue.Cmp(fc.HostOutput.Value) > 0:
 			return fmt.Errorf("has missed host value (%d H) exceeding valid host value (%d H)", fc.MissedHostValue, fc.HostOutput.Value)
 		case fc.TotalCollateral.Cmp(fc.HostOutput.Value) > 0:
@@ -882,7 +878,7 @@ func validateFoundationUpdate(ms *MidState, txn types.V2Transaction) error {
 func ValidateV2Transaction(ms *MidState, txn types.V2Transaction) error {
 	if ms.base.childHeight() < ms.base.Network.HardforkV2.AllowHeight {
 		return errors.New("v2 transactions are not allowed until v2 hardfork begins")
-	} else if err := validateV2CurrencyValues(ms, txn); err != nil {
+	} else if err := validateV2CurrencyOverflow(ms, txn); err != nil {
 		return err
 	} else if err := validateV2Siacoins(ms, txn); err != nil {
 		return err
