@@ -49,7 +49,7 @@ type Usage struct {
 	RiskedCollateral types.Currency `json:"collateral"`
 }
 
-// Cost returns the total cost of executing the RPC.
+// RenterCost returns the total cost of executing the RPC.
 func (u Usage) RenterCost() types.Currency {
 	return u.RPC.Add(u.Storage).Add(u.Egress).Add(u.Ingress).Add(u.AccountFunding)
 }
