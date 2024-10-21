@@ -85,9 +85,7 @@ func (hp HostPrices) RPCVerifySectorCost() types.Currency {
 	return hp.EgressPrice.Mul64(SectorSize)
 }
 
-// RPCRemoveSectorsCost returns the cost of modifying a contract's sectors with the
-// given actions. The duration parameter is the number of blocks until the
-// contract's expiration height.
+// RPCRemoveSectorsCost returns the cost of removing sectors from a contract.
 func (hp HostPrices) RPCRemoveSectorsCost(sectors int) (cost types.Currency) {
 	return hp.RemoveSectorPrice.Mul64(uint64(sectors))
 }
