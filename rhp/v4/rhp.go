@@ -41,12 +41,12 @@ func round4KiB(n uint64) uint64 {
 
 // Usage contains the cost breakdown and collateral of executing an RPC.
 type Usage struct {
-	RPC            types.Currency `json:"rpc"`
-	Storage        types.Currency `json:"storage"`
-	Egress         types.Currency `json:"egress"`
-	Ingress        types.Currency `json:"ingress"`
-	AccountFunding types.Currency `json:"accountFunding"`
-	Collateral     types.Currency `json:"collateral"`
+	RPC              types.Currency `json:"rpc"`
+	Storage          types.Currency `json:"storage"`
+	Egress           types.Currency `json:"egress"`
+	Ingress          types.Currency `json:"ingress"`
+	AccountFunding   types.Currency `json:"accountFunding"`
+	RiskedCollateral types.Currency `json:"collateral"`
 }
 
 // Cost returns the total cost of executing the RPC.
@@ -54,20 +54,20 @@ func (u Usage) RenterCost() types.Currency {
 	return u.RPC.Add(u.Storage).Add(u.Egress).Add(u.Ingress).Add(u.AccountFunding)
 }
 
-// HostCollateral returns the amount of collateral the host must risk
-func (u Usage) HostCollateral() types.Currency {
-	return u.Collateral
+// HostRiskedCollateral returns the amount of collateral the host must risk
+func (u Usage) HostRiskedCollateral() types.Currency {
+	return u.RiskedCollateral
 }
 
 // Add returns the sum of two Usages.
 func (u Usage) Add(b Usage) Usage {
 	return Usage{
-		RPC:            u.RPC.Add(b.RPC),
-		Storage:        u.Storage.Add(b.Storage),
-		Egress:         u.Egress.Add(b.Egress),
-		Ingress:        u.Ingress.Add(b.Ingress),
-		AccountFunding: u.AccountFunding.Add(b.AccountFunding),
-		Collateral:     u.Collateral.Add(b.Collateral),
+		RPC:              u.RPC.Add(b.RPC),
+		Storage:          u.Storage.Add(b.Storage),
+		Egress:           u.Egress.Add(b.Egress),
+		Ingress:          u.Ingress.Add(b.Ingress),
+		AccountFunding:   u.AccountFunding.Add(b.AccountFunding),
+		RiskedCollateral: u.RiskedCollateral.Add(b.RiskedCollateral),
 	}
 }
 
@@ -105,8 +105,8 @@ func (hp HostPrices) RPCWriteSectorCost(sectorLength uint64, duration uint64) Us
 // StoreSectorCost returns the cost of storing a sector for the given duration.
 func (hp HostPrices) StoreSectorCost(duration uint64) Usage {
 	return Usage{
-		Storage:    hp.StoragePrice.Mul64(SectorSize).Mul64(duration),
-		Collateral: hp.Collateral.Mul64(SectorSize).Mul64(duration),
+		Storage:          hp.StoragePrice.Mul64(SectorSize).Mul64(duration),
+		RiskedCollateral: hp.Collateral.Mul64(SectorSize).Mul64(duration),
 	}
 }
 
@@ -137,7 +137,7 @@ func (hp HostPrices) RPCRemoveSectorsCost(sectors int) Usage {
 func (hp HostPrices) RPCAppendSectorsCost(sectors, duration uint64) Usage {
 	usage := hp.StoreSectorCost(duration)
 	usage.Storage = usage.Storage.Mul64(sectors)
-	usage.Collateral = usage.Collateral.Mul64(sectors)
+	usage.RiskedCollateral = usage.RiskedCollateral.Mul64(sectors)
 	return usage
 }
 
@@ -606,7 +606,7 @@ func RefreshCost(cs consensus.State, p HostPrices, r types.V2FileContractRenewal
 // deduct collateral from the host. It returns an RPC error if the contract does not
 // have sufficient funds.
 func PayWithContract(fc *types.V2FileContract, usage Usage) error {
-	amount, collateral := usage.RenterCost(), usage.HostCollateral()
+	amount, collateral := usage.RenterCost(), usage.HostRiskedCollateral()
 	// verify the contract can pay the amount before modifying
 	if fc.RenterOutput.Value.Cmp(amount) < 0 {
 		return NewRPCError(ErrorCodePayment, fmt.Sprintf("insufficient renter funds: %v < %v", fc.RenterOutput.Value, amount))
@@ -671,7 +671,8 @@ func MinRenterAllowance(hp HostPrices, duration uint64, collateral types.Currenc
 }
 
 // RenewContract creates a contract renewal from an existing contract revision
-func RenewContract(fc types.V2FileContract, prices HostPrices, rp RPCRenewContractParams) (renewal types.V2FileContractRenewal) {
+func RenewContract(fc types.V2FileContract, prices HostPrices, rp RPCRenewContractParams) (types.V2FileContractRenewal, Usage) {
+	var renewal types.V2FileContractRenewal
 	// clear the old contract
 	renewal.FinalRevision = fc
 	renewal.FinalRevision.RevisionNumber = types.MaxRevisionNumber
@@ -727,11 +728,17 @@ func RenewContract(fc types.V2FileContract, prices HostPrices, rp RPCRenewContra
 	} else {
 		renewal.RenterRollover = fc.RenterOutput.Value
 	}
-	return
+	return renewal, Usage{
+		RPC:              prices.ContractPrice,
+		Storage:          renewal.NewContract.HostOutput.Value.Sub(renewal.NewContract.TotalCollateral).Sub(prices.ContractPrice),
+		RiskedCollateral: renewal.NewContract.TotalCollateral.Sub(renewal.NewContract.MissedHostValue),
+	}
 }
 
 // RefreshContract creates a new contract renewal from an existing contract revision
-func RefreshContract(fc types.V2FileContract, prices HostPrices, rp RPCRefreshContractParams) (renewal types.V2FileContractRenewal) {
+func RefreshContract(fc types.V2FileContract, prices HostPrices, rp RPCRefreshContractParams) (types.V2FileContractRenewal, Usage) {
+	var renewal types.V2FileContractRenewal
+
 	// clear the old contract
 	renewal.FinalRevision = fc
 	renewal.FinalRevision.RevisionNumber = types.MaxRevisionNumber
@@ -752,5 +759,9 @@ func RefreshContract(fc types.V2FileContract, prices HostPrices, rp RPCRefreshCo
 	// roll over everything from the existing contract
 	renewal.HostRollover = fc.HostOutput.Value
 	renewal.RenterRollover = fc.RenterOutput.Value
-	return
+	return renewal, Usage{
+		RPC:              prices.ContractPrice,
+		Storage:          renewal.NewContract.HostOutput.Value.Sub(renewal.NewContract.TotalCollateral).Sub(prices.ContractPrice),
+		RiskedCollateral: renewal.NewContract.TotalCollateral.Sub(renewal.NewContract.MissedHostValue),
+	}
 }
