@@ -117,11 +117,6 @@ func (hp HostPrices) RPCSectorRootsCost(length uint64) Usage {
 	}
 }
 
-// RPCFundAccountsCost returns the cost of funding the given accounts.
-func (hp HostPrices) RPCFundAccountsCost(deposit types.Currency) Usage {
-	return Usage{AccountFunding: deposit}
-}
-
 // RPCVerifySectorCost returns the cost of building a proof for the specified
 // sector.
 func (hp HostPrices) RPCVerifySectorCost() Usage {
@@ -659,8 +654,8 @@ func ReviseForSectorRoots(fc types.V2FileContract, prices HostPrices, numRoots u
 }
 
 // ReviseForFundAccounts creates a contract revision from a fund account request.
-func ReviseForFundAccounts(fc types.V2FileContract, prices HostPrices, amount types.Currency) (types.V2FileContract, error) {
-	err := PayWithContract(&fc, prices.RPCFundAccountsCost(amount))
+func ReviseForFundAccounts(fc types.V2FileContract, amount types.Currency) (types.V2FileContract, error) {
+	err := PayWithContract(&fc, Usage{AccountFunding: amount})
 	return fc, err
 }
 
