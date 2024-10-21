@@ -76,7 +76,7 @@ func BuildAppendProof(sectorRoots, appended []types.Hash256) ([]types.Hash256, t
 	return subtreeRoots, acc.Root()
 }
 
-// VerifyAppendProof verifies a Merkle proof produced by BuildAppendProof.
+// VerifyAppendSectorsProof verifies a Merkle proof produced by BuildAppendProof.
 func VerifyAppendSectorsProof(numSectors uint64, subtreeRoots []types.Hash256, appended []types.Hash256, oldRoot, newRoot types.Hash256) bool {
 	acc := blake2b.Accumulator{NumLeaves: numSectors}
 	for i := 0; i < bits.Len64(numSectors); i++ {
