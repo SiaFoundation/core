@@ -39,6 +39,38 @@ func round4KiB(n uint64) uint64 {
 	return (n + (1<<12 - 1)) &^ (1<<12 - 1)
 }
 
+// Usage contains the cost breakdown and collateral of executing an RPC.
+type Usage struct {
+	RPC            types.Currency `json:"rpc"`
+	Storage        types.Currency `json:"storage"`
+	Egress         types.Currency `json:"egress"`
+	Ingress        types.Currency `json:"ingress"`
+	AccountFunding types.Currency `json:"accountFunding"`
+	Collateral     types.Currency `json:"collateral"`
+}
+
+// Cost returns the total cost of executing the RPC.
+func (u Usage) RenterCost() types.Currency {
+	return u.RPC.Add(u.Storage).Add(u.Egress).Add(u.Ingress).Add(u.AccountFunding)
+}
+
+// HostCollateral returns the amount of collateral the host must risk
+func (u Usage) HostCollateral() types.Currency {
+	return u.Collateral
+}
+
+// Add returns the sum of two Usages.
+func (u Usage) Add(b Usage) Usage {
+	return Usage{
+		RPC:            u.RPC.Add(b.RPC),
+		Storage:        u.Storage.Add(b.Storage),
+		Egress:         u.Egress.Add(b.Egress),
+		Ingress:        u.Ingress.Add(b.Ingress),
+		AccountFunding: u.AccountFunding.Add(b.AccountFunding),
+		Collateral:     u.Collateral.Add(b.Collateral),
+	}
+}
+
 // HostPrices specify a time-bound set of parameters used to calculate the cost
 // of various RPCs.
 type HostPrices struct {
@@ -56,47 +88,62 @@ type HostPrices struct {
 }
 
 // RPCReadSectorCost returns the cost of reading a sector of the given length.
-func (hp HostPrices) RPCReadSectorCost(length uint64) types.Currency {
-	return hp.EgressPrice.Mul64(round4KiB(length))
+func (hp HostPrices) RPCReadSectorCost(length uint64) Usage {
+	return Usage{
+		Egress: hp.EgressPrice.Mul64(round4KiB(length)),
+	}
 }
 
 // RPCWriteSectorCost returns the cost of executing the WriteSector RPC with the
 // given sector length and duration.
-func (hp HostPrices) RPCWriteSectorCost(sectorLength uint64, duration uint64) types.Currency {
-	storage, _ := hp.StoreSectorCost(duration)
-	return hp.IngressPrice.Mul64(round4KiB(sectorLength)).Add(storage)
+func (hp HostPrices) RPCWriteSectorCost(sectorLength uint64, duration uint64) Usage {
+	return hp.StoreSectorCost(duration).Add(Usage{
+		Ingress: hp.IngressPrice.Mul64(round4KiB(sectorLength)),
+	})
 }
 
 // StoreSectorCost returns the cost of storing a sector for the given duration.
-func (hp HostPrices) StoreSectorCost(duration uint64) (storage types.Currency, collateral types.Currency) {
-	storage = hp.StoragePrice.Mul64(SectorSize).Mul64(duration)
-	collateral = hp.Collateral.Mul64(SectorSize).Mul64(duration)
-	return
+func (hp HostPrices) StoreSectorCost(duration uint64) Usage {
+	return Usage{
+		Storage:    hp.StoragePrice.Mul64(SectorSize).Mul64(duration),
+		Collateral: hp.Collateral.Mul64(SectorSize).Mul64(duration),
+	}
 }
 
 // RPCSectorRootsCost returns the cost of fetching sector roots for the given length.
-func (hp HostPrices) RPCSectorRootsCost(length uint64) types.Currency {
-	return hp.EgressPrice.Mul64(round4KiB(32 * length))
+func (hp HostPrices) RPCSectorRootsCost(length uint64) Usage {
+	return Usage{
+		Egress: hp.EgressPrice.Mul64(round4KiB(32 * length)),
+	}
+}
+
+// RPCFundAccountsCost returns the cost of funding the given accounts.
+func (hp HostPrices) RPCFundAccountsCost(deposit types.Currency) Usage {
+	return Usage{AccountFunding: deposit}
 }
 
 // RPCVerifySectorCost returns the cost of building a proof for the specified
 // sector.
-func (hp HostPrices) RPCVerifySectorCost() types.Currency {
-	return hp.EgressPrice.Mul64(SectorSize)
+func (hp HostPrices) RPCVerifySectorCost() Usage {
+	return Usage{
+		Egress: hp.EgressPrice.Mul64(SectorSize),
+	}
 }
 
 // RPCRemoveSectorsCost returns the cost of removing sectors from a contract.
-func (hp HostPrices) RPCRemoveSectorsCost(sectors int) (cost types.Currency) {
-	return hp.RemoveSectorPrice.Mul64(uint64(sectors))
+func (hp HostPrices) RPCRemoveSectorsCost(sectors int) Usage {
+	return Usage{
+		RPC: hp.RemoveSectorPrice.Mul64(uint64(sectors)),
+	}
 }
 
 // RPCAppendSectorsCost returns the cost of appending sectors to a contract. The duration
 // parameter is the number of blocks until the contract's expiration height.
-func (hp HostPrices) RPCAppendSectorsCost(sectors, duration uint64) (cost, collateral types.Currency) {
-	storage, collateral := hp.StoreSectorCost(duration)
-	storage = storage.Mul64(sectors)
-	collateral = collateral.Mul64(sectors)
-	return storage, collateral
+func (hp HostPrices) RPCAppendSectorsCost(sectors, duration uint64) Usage {
+	usage := hp.StoreSectorCost(duration)
+	usage.Storage = usage.Storage.Mul64(sectors)
+	usage.Collateral = usage.Collateral.Mul64(sectors)
+	return usage
 }
 
 // SigHash returns the hash of the host settings used for signing.
@@ -563,7 +610,8 @@ func RefreshCost(cs consensus.State, p HostPrices, r types.V2FileContractRenewal
 // PayWithContract modifies a contract to transfer the amount from the renter and
 // deduct collateral from the host. It returns an RPC error if the contract does not
 // have sufficient funds.
-func PayWithContract(fc *types.V2FileContract, amount, collateral types.Currency) error {
+func PayWithContract(fc *types.V2FileContract, usage Usage) error {
+	amount, collateral := usage.RenterCost(), usage.HostCollateral()
 	// verify the contract can pay the amount before modifying
 	if fc.RenterOutput.Value.Cmp(amount) < 0 {
 		return NewRPCError(ErrorCodePayment, fmt.Sprintf("insufficient renter funds: %v < %v", fc.RenterOutput.Value, amount))
@@ -584,7 +632,7 @@ func PayWithContract(fc *types.V2FileContract, amount, collateral types.Currency
 // and response.
 func ReviseForRemoveSectors(fc types.V2FileContract, prices HostPrices, newRoot types.Hash256, deletions int) (types.V2FileContract, error) {
 	fc.Filesize -= SectorSize * uint64(deletions)
-	if err := PayWithContract(&fc, prices.RPCRemoveSectorsCost(deletions), types.ZeroCurrency); err != nil {
+	if err := PayWithContract(&fc, prices.RPCRemoveSectorsCost(deletions)); err != nil {
 		return fc, err
 	}
 	fc.FileMerkleRoot = newRoot
@@ -596,8 +644,7 @@ func ReviseForAppendSectors(fc types.V2FileContract, prices HostPrices, root typ
 	sectors := fc.Filesize / SectorSize
 	capacity := fc.Capacity / SectorSize
 	appended -= capacity - sectors // capacity will always be >= sectors
-	cost, collateral := prices.RPCAppendSectorsCost(appended, fc.ExpirationHeight-prices.TipHeight)
-	if err := PayWithContract(&fc, cost, collateral); err != nil {
+	if err := PayWithContract(&fc, prices.RPCAppendSectorsCost(appended, fc.ExpirationHeight-prices.TipHeight)); err != nil {
 		return fc, err
 	}
 	fc.Filesize += SectorSize * appended
@@ -607,13 +654,13 @@ func ReviseForAppendSectors(fc types.V2FileContract, prices HostPrices, root typ
 
 // ReviseForSectorRoots creates a contract revision from a sector roots request
 func ReviseForSectorRoots(fc types.V2FileContract, prices HostPrices, numRoots uint64) (types.V2FileContract, error) {
-	err := PayWithContract(&fc, prices.EgressPrice.Mul64(round4KiB(32*numRoots)), types.ZeroCurrency)
+	err := PayWithContract(&fc, prices.RPCSectorRootsCost(numRoots))
 	return fc, err
 }
 
-// ReviseForFundAccount creates a contract revision from a fund account request.
-func ReviseForFundAccount(fc types.V2FileContract, amount types.Currency) (types.V2FileContract, error) {
-	err := PayWithContract(&fc, amount, types.ZeroCurrency)
+// ReviseForFundAccounts creates a contract revision from a fund account request.
+func ReviseForFundAccounts(fc types.V2FileContract, prices HostPrices, amount types.Currency) (types.V2FileContract, error) {
+	err := PayWithContract(&fc, prices.RPCFundAccountsCost(amount))
 	return fc, err
 }
 
