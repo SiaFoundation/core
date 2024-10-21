@@ -1,6 +1,7 @@
 module go.sia.tech/core
 
-go 1.23.0
+go 1.23.1
+
 toolchain go1.23.2
 
 require (
