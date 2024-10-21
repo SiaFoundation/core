@@ -850,8 +850,7 @@ func TestValidateV2Block(t *testing.T) {
 				r.RenterSignature = renterPrivateKey.SignHash(cs.RenewalSigHash(*r))
 				r.HostSignature = hostPrivateKey.SignHash(cs.RenewalSigHash(*r))
 			case *types.V2FileContractFinalization:
-				r.RenterSignature = renterPrivateKey.SignHash(cs.ContractSigHash(types.V2FileContract(*r)))
-				r.HostSignature = hostPrivateKey.SignHash(cs.ContractSigHash(types.V2FileContract(*r)))
+				*r = types.V2FileContractFinalization(renterPrivateKey.SignHash(cs.ContractSigHash(txn.FileContractResolutions[i].Parent.V2FileContract)))
 			}
 		}
 	}
@@ -1447,25 +1446,10 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			{
-				"file contract finalization that does not set maximum revision number",
+				"file contract finalization with wrong revision number",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
-
-					resolution := types.V2FileContractFinalization(testFces[0].V2FileContract)
-					txn.FileContractResolutions = []types.V2FileContractResolution{{
-						Parent:     testFces[0],
-						Resolution: &resolution,
-					}}
-				},
-			},
-			{
-				"file contract finalization with invalid revision",
-				func(b *types.Block) {
-					txn := &b.V2.Transactions[0]
-
-					resolution := types.V2FileContractFinalization(testFces[0].V2FileContract)
-					resolution.RevisionNumber = types.MaxRevisionNumber
-					resolution.TotalCollateral = types.ZeroCurrency
+					resolution := types.V2FileContractFinalization(renterPrivateKey.SignHash(cs.ContractSigHash((testFces[0].V2FileContract))))
 					txn.FileContractResolutions = []types.V2FileContractResolution{{
 						Parent:     testFces[0],
 						Resolution: &resolution,

@@ -436,11 +436,16 @@ func (txn *Transaction) FileContractID(i int) FileContractID {
 	return hashAll(SpecifierFileContract, (*txnSansSigs)(txn), i)
 }
 
-// TotalFees returns the sum of the transaction's miner fees.
+// TotalFees returns the sum of the transaction's miner fees. If the sum would
+// overflow, TotalFees returns ZeroCurrency.
 func (txn *Transaction) TotalFees() Currency {
 	var sum Currency
+	var overflow bool
 	for _, fee := range txn.MinerFees {
-		sum = sum.Add(fee)
+		sum, overflow = sum.AddWithOverflow(fee)
+		if overflow {
+			return ZeroCurrency
+		}
 	}
 	return sum
 }
@@ -502,8 +507,8 @@ type V2FileContractRevision struct {
 // A V2FileContractResolution closes a v2 file contract's payment channel. There
 // are four ways a contract can be resolved:
 //
-// 1) The renter and host can sign a final contract revision (a "finalization"),
-// after which the contract cannot be revised further.
+// 1) The renter can finalize the contract's current state, preventing further
+// revisions and immediately creating its outputs.
 //
 // 2) The renter and host can jointly renew the contract. The old contract is
 // finalized, and a portion of its funds are "rolled over" into a new contract.
@@ -547,7 +552,7 @@ func (*V2FileContractExpiration) isV2FileContractResolution()   {}
 
 // A V2FileContractFinalization finalizes a contract, preventing further
 // revisions and immediately creating its valid outputs.
-type V2FileContractFinalization V2FileContract
+type V2FileContractFinalization Signature
 
 // A V2FileContractRenewal renews a file contract.
 type V2FileContractRenewal struct {

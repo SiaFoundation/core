@@ -547,7 +547,7 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 		case *types.V2StorageProof:
 			renter, host = fc.RenterOutput, fc.HostOutput
 		case *types.V2FileContractFinalization:
-			renter, host = r.RenterOutput, r.HostOutput
+			renter, host = fc.RenterOutput, fc.HostOutput
 		case *types.V2FileContractExpiration:
 			renter, host = fc.RenterOutput, fc.MissedHostOutput()
 		}
