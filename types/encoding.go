@@ -651,6 +651,7 @@ func (sfe SiafundElement) EncodeTo(e *Encoder) {
 
 // EncodeTo implements types.EncoderTo.
 func (fc V2FileContract) EncodeTo(e *Encoder) {
+	e.WriteUint64(fc.Capacity)
 	e.WriteUint64(fc.Filesize)
 	fc.FileMerkleRoot.EncodeTo(e)
 	e.WriteUint64(fc.ProofHeight)
@@ -1246,6 +1247,7 @@ func (sfe *SiafundElement) DecodeFrom(d *Decoder) {
 
 // DecodeFrom implements types.DecoderFrom.
 func (fc *V2FileContract) DecodeFrom(d *Decoder) {
+	fc.Capacity = d.ReadUint64()
 	fc.Filesize = d.ReadUint64()
 	fc.FileMerkleRoot.DecodeFrom(d)
 	fc.ProofHeight = d.ReadUint64()
