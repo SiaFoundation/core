@@ -455,6 +455,7 @@ func (txn *Transaction) TotalFees() Currency {
 // or "missed" depending on whether a valid StorageProof is submitted for the
 // contract.
 type V2FileContract struct {
+	Capacity         uint64        `json:"capacity"`
 	Filesize         uint64        `json:"filesize"`
 	FileMerkleRoot   Hash256       `json:"fileMerkleRoot"`
 	ProofHeight      uint64        `json:"proofHeight"`

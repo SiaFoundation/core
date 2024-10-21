@@ -715,6 +715,8 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 
 	validateContract := func(fc types.V2FileContract, renewal bool) error {
 		switch {
+		case fc.Filesize > fc.Capacity:
+			return fmt.Errorf("has filesize (%v) exceeding capacity (%v)", fc.Filesize, fc.Capacity)
 		case fc.ProofHeight < ms.base.childHeight():
 			return fmt.Errorf("has proof height (%v) that has already passed", fc.ProofHeight)
 		case fc.ExpirationHeight <= fc.ProofHeight:
@@ -737,6 +739,10 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 		curOutputSum := cur.RenterOutput.Value.Add(cur.HostOutput.Value)
 		revOutputSum := rev.RenterOutput.Value.Add(rev.HostOutput.Value)
 		switch {
+		case rev.Capacity < cur.Capacity:
+			return fmt.Errorf("decreases capacity")
+		case rev.Filesize > rev.Capacity:
+			return fmt.Errorf("has filesize (%v) exceeding capacity (%v)", rev.Filesize, rev.Capacity)
 		case cur.ProofHeight < ms.base.childHeight():
 			return fmt.Errorf("revises contract after its proof window has opened")
 		case rev.RevisionNumber <= cur.RevisionNumber:
