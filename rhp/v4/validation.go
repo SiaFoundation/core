@@ -48,15 +48,17 @@ func (req *RPCWriteSectorStreamingRequest) Validate(pk types.PublicKey, maxDurat
 }
 
 // Validate validates a modify sectors request. Signatures are not validated.
-func (req *RPCModifySectorsRequest) Validate(pk types.PublicKey, maxActions uint64) error {
+func (req *RPCRemoveSectorsRequest) Validate(pk types.PublicKey, maxActions uint64) error {
 	if err := req.Prices.Validate(pk); err != nil {
 		return fmt.Errorf("prices are invalid: %w", err)
+	} else if uint64(len(req.Indices)) > maxActions {
+		return fmt.Errorf("removing to many sectors at once: %d > %d", len(req.Indices), maxActions)
 	}
-	return ValidateModifyActions(req.Actions, maxActions)
+	return nil
 }
 
 // Validate validates a sector roots request. Signatures are not validated.
-func (req *RPCSectorRootsRequest) Validate(pk types.PublicKey, fc types.V2FileContract) error {
+func (req *RPCSectorRootsRequest) Validate(pk types.PublicKey, fc types.V2FileContract, maxSectors uint64) error {
 	if err := req.Prices.Validate(pk); err != nil {
 		return fmt.Errorf("prices are invalid: %w", err)
 	}
@@ -67,6 +69,8 @@ func (req *RPCSectorRootsRequest) Validate(pk types.PublicKey, fc types.V2FileCo
 		return errors.New("length must be greater than 0")
 	case req.Length+req.Offset > contractSectors:
 		return fmt.Errorf("read request range exceeds contract sectors: %d > %d", req.Length+req.Offset, contractSectors)
+	case req.Length > maxSectors:
+		return fmt.Errorf("read request range exceeds maximum sectors: %d > %d", req.Length, maxSectors)
 	}
 	return nil
 }
