@@ -625,38 +625,42 @@ func PayWithContract(fc *types.V2FileContract, usage Usage) error {
 
 // ReviseForRemoveSectors creates a contract revision from a modify sectors request
 // and response.
-func ReviseForRemoveSectors(fc types.V2FileContract, prices HostPrices, newRoot types.Hash256, deletions int) (types.V2FileContract, error) {
+func ReviseForRemoveSectors(fc types.V2FileContract, prices HostPrices, newRoot types.Hash256, deletions int) (types.V2FileContract, Usage, error) {
 	fc.Filesize -= SectorSize * uint64(deletions)
-	if err := PayWithContract(&fc, prices.RPCRemoveSectorsCost(deletions)); err != nil {
-		return fc, err
+	usage := prices.RPCRemoveSectorsCost(deletions)
+	if err := PayWithContract(&fc, usage); err != nil {
+		return fc, Usage{}, err
 	}
 	fc.FileMerkleRoot = newRoot
-	return fc, nil
+	return fc, usage, nil
 }
 
 // ReviseForAppendSectors creates a contract revision from an append sectors request
-func ReviseForAppendSectors(fc types.V2FileContract, prices HostPrices, root types.Hash256, appended uint64) (types.V2FileContract, error) {
+func ReviseForAppendSectors(fc types.V2FileContract, prices HostPrices, root types.Hash256, appended uint64) (types.V2FileContract, Usage, error) {
 	sectors := fc.Filesize / SectorSize
 	capacity := fc.Capacity / SectorSize
 	appended -= capacity - sectors // capacity will always be >= sectors
-	if err := PayWithContract(&fc, prices.RPCAppendSectorsCost(appended, fc.ExpirationHeight-prices.TipHeight)); err != nil {
-		return fc, err
+	usage := prices.RPCAppendSectorsCost(appended, fc.ExpirationHeight-prices.TipHeight)
+	if err := PayWithContract(&fc, usage); err != nil {
+		return fc, Usage{}, err
 	}
 	fc.Filesize += SectorSize * appended
 	fc.FileMerkleRoot = root
-	return fc, nil
+	return fc, usage, nil
 }
 
 // ReviseForSectorRoots creates a contract revision from a sector roots request
-func ReviseForSectorRoots(fc types.V2FileContract, prices HostPrices, numRoots uint64) (types.V2FileContract, error) {
-	err := PayWithContract(&fc, prices.RPCSectorRootsCost(numRoots))
-	return fc, err
+func ReviseForSectorRoots(fc types.V2FileContract, prices HostPrices, numRoots uint64) (types.V2FileContract, Usage, error) {
+	usage := prices.RPCSectorRootsCost(numRoots)
+	err := PayWithContract(&fc, usage)
+	return fc, usage, err
 }
 
 // ReviseForFundAccounts creates a contract revision from a fund account request.
-func ReviseForFundAccounts(fc types.V2FileContract, amount types.Currency) (types.V2FileContract, error) {
-	err := PayWithContract(&fc, Usage{AccountFunding: amount})
-	return fc, err
+func ReviseForFundAccounts(fc types.V2FileContract, amount types.Currency) (types.V2FileContract, Usage, error) {
+	usage := Usage{AccountFunding: amount}
+	err := PayWithContract(&fc, usage)
+	return fc, usage, err
 }
 
 // MinRenterAllowance returns the minimum allowance required to justify the given
