@@ -54,11 +54,15 @@ func (req *RPCRemoveSectorsRequest) Validate(pk types.PublicKey, fc types.V2File
 	} else if uint64(len(req.Indices)) > maxActions {
 		return fmt.Errorf("removing to many sectors at once: %d > %d", len(req.Indices), maxActions)
 	}
+	seen := make(map[uint64]bool)
 	sectors := fc.Filesize / SectorSize
 	for _, index := range req.Indices {
 		if index >= sectors {
 			return fmt.Errorf("sector index %d exceeds contract sectors %d", index, sectors)
+		} else if seen[index] {
+			return fmt.Errorf("duplicate sector index %d", index)
 		}
+		seen[index] = true
 	}
 	return nil
 }
