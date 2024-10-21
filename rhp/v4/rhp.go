@@ -594,8 +594,8 @@ func ReviseForRemoveSectors(fc types.V2FileContract, prices HostPrices, newRoot 
 // ReviseForAppendSectors creates a contract revision from an append sectors request
 func ReviseForAppendSectors(fc types.V2FileContract, prices HostPrices, root types.Hash256, appended uint64) (types.V2FileContract, error) {
 	sectors := fc.Filesize / SectorSize
-	capacity := fc.Filesize / SectorSize // TODO: use Capacity field
-	appended -= capacity - sectors       // capacity will always be >= sectors
+	capacity := fc.Capacity / SectorSize
+	appended -= capacity - sectors // capacity will always be >= sectors
 	cost, collateral := prices.RPCAppendSectorsCost(appended, fc.ExpirationHeight-prices.TipHeight)
 	if err := PayWithContract(&fc, cost, collateral); err != nil {
 		return fc, err
