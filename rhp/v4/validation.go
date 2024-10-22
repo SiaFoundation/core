@@ -52,7 +52,7 @@ func (req *RPCRemoveSectorsRequest) Validate(pk types.PublicKey, fc types.V2File
 	if err := req.Prices.Validate(pk); err != nil {
 		return fmt.Errorf("prices are invalid: %w", err)
 	} else if uint64(len(req.Indices)) > maxActions {
-		return fmt.Errorf("removing to many sectors at once: %d > %d", len(req.Indices), maxActions)
+		return fmt.Errorf("removing too many sectors at once: %d > %d", len(req.Indices), maxActions)
 	}
 	seen := make(map[uint64]bool)
 	sectors := fc.Filesize / SectorSize
