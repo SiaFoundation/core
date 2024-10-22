@@ -48,7 +48,7 @@ func (req *RPCWriteSectorStreamingRequest) Validate(pk types.PublicKey, maxDurat
 }
 
 // Validate validates a modify sectors request. Signatures are not validated.
-func (req *RPCRemoveSectorsRequest) Validate(pk types.PublicKey, fc types.V2FileContract, maxActions uint64) error {
+func (req *RPCFreeSectorsRequest) Validate(pk types.PublicKey, fc types.V2FileContract, maxActions uint64) error {
 	if err := req.Prices.Validate(pk); err != nil {
 		return fmt.Errorf("prices are invalid: %w", err)
 	} else if uint64(len(req.Indices)) > maxActions {

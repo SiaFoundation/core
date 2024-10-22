@@ -25,7 +25,7 @@ func (hp HostPrices) EncodeTo(e *types.Encoder) {
 	types.V2Currency(hp.StoragePrice).EncodeTo(e)
 	types.V2Currency(hp.IngressPrice).EncodeTo(e)
 	types.V2Currency(hp.EgressPrice).EncodeTo(e)
-	types.V2Currency(hp.RemoveSectorPrice).EncodeTo(e)
+	types.V2Currency(hp.FreeSectorPrice).EncodeTo(e)
 	e.WriteUint64(hp.TipHeight)
 	e.WriteTime(hp.ValidUntil)
 	hp.Signature.EncodeTo(e)
@@ -38,7 +38,7 @@ func (hp *HostPrices) DecodeFrom(d *types.Decoder) {
 	(*types.V2Currency)(&hp.StoragePrice).DecodeFrom(d)
 	(*types.V2Currency)(&hp.IngressPrice).DecodeFrom(d)
 	(*types.V2Currency)(&hp.EgressPrice).DecodeFrom(d)
-	(*types.V2Currency)(&hp.RemoveSectorPrice).DecodeFrom(d)
+	(*types.V2Currency)(&hp.FreeSectorPrice).DecodeFrom(d)
 	hp.TipHeight = d.ReadUint64()
 	hp.ValidUntil = d.ReadTime()
 	hp.Signature.DecodeFrom(d)
@@ -354,7 +354,7 @@ func (r *RPCRefreshContractThirdResponse) maxLen() int {
 	return reasonableObjectSize
 }
 
-func (r *RPCRemoveSectorsRequest) encodeTo(e *types.Encoder) {
+func (r *RPCFreeSectorsRequest) encodeTo(e *types.Encoder) {
 	r.ContractID.EncodeTo(e)
 	r.Prices.EncodeTo(e)
 	types.EncodeSliceFn(e, r.Indices, func(e *types.Encoder, v uint64) {
@@ -362,7 +362,7 @@ func (r *RPCRemoveSectorsRequest) encodeTo(e *types.Encoder) {
 	})
 	r.ChallengeSignature.EncodeTo(e)
 }
-func (r *RPCRemoveSectorsRequest) decodeFrom(d *types.Decoder) {
+func (r *RPCFreeSectorsRequest) decodeFrom(d *types.Decoder) {
 	r.ContractID.DecodeFrom(d)
 	r.Prices.DecodeFrom(d)
 	types.DecodeSliceFn(d, &r.Indices, func(d *types.Decoder) uint64 {
@@ -370,41 +370,41 @@ func (r *RPCRemoveSectorsRequest) decodeFrom(d *types.Decoder) {
 	})
 	r.ChallengeSignature.DecodeFrom(d)
 }
-func (r *RPCRemoveSectorsRequest) maxLen() int {
+func (r *RPCFreeSectorsRequest) maxLen() int {
 	return reasonableObjectSize
 }
 
-func (r *RPCRemoveSectorsResponse) encodeTo(e *types.Encoder) {
+func (r *RPCFreeSectorsResponse) encodeTo(e *types.Encoder) {
 	types.EncodeSlice(e, r.OldSubtreeHashes)
 	types.EncodeSlice(e, r.OldLeafHashes)
 	r.NewMerkleRoot.EncodeTo(e)
 }
-func (r *RPCRemoveSectorsResponse) decodeFrom(d *types.Decoder) {
+func (r *RPCFreeSectorsResponse) decodeFrom(d *types.Decoder) {
 	types.DecodeSlice(d, &r.OldSubtreeHashes)
 	types.DecodeSlice(d, &r.OldLeafHashes)
 	r.NewMerkleRoot.DecodeFrom(d)
 }
-func (r *RPCRemoveSectorsResponse) maxLen() int {
+func (r *RPCFreeSectorsResponse) maxLen() int {
 	return reasonableObjectSize
 }
 
-func (r *RPCRemoveSectorsSecondResponse) encodeTo(e *types.Encoder) {
+func (r *RPCFreeSectorsSecondResponse) encodeTo(e *types.Encoder) {
 	r.RenterSignature.EncodeTo(e)
 }
-func (r *RPCRemoveSectorsSecondResponse) decodeFrom(d *types.Decoder) {
+func (r *RPCFreeSectorsSecondResponse) decodeFrom(d *types.Decoder) {
 	r.RenterSignature.DecodeFrom(d)
 }
-func (r *RPCRemoveSectorsSecondResponse) maxLen() int {
+func (r *RPCFreeSectorsSecondResponse) maxLen() int {
 	return sizeofSignature
 }
 
-func (r *RPCRemoveSectorsThirdResponse) encodeTo(e *types.Encoder) {
+func (r *RPCFreeSectorsThirdResponse) encodeTo(e *types.Encoder) {
 	r.HostSignature.EncodeTo(e)
 }
-func (r *RPCRemoveSectorsThirdResponse) decodeFrom(d *types.Decoder) {
+func (r *RPCFreeSectorsThirdResponse) decodeFrom(d *types.Decoder) {
 	r.HostSignature.DecodeFrom(d)
 }
-func (r *RPCRemoveSectorsThirdResponse) maxLen() int {
+func (r *RPCFreeSectorsThirdResponse) maxLen() int {
 	return sizeofSignature
 }
 
