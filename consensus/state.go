@@ -50,6 +50,8 @@ type Network struct {
 	InitialCoinbase types.Currency `json:"initialCoinbase"`
 	MinimumCoinbase types.Currency `json:"minimumCoinbase"`
 	InitialTarget   types.BlockID  `json:"initialTarget"`
+	BlockInterval   time.Duration  `json:"blockInterval"`
+	MaturityDelay   uint64         `json:"maturityDelay"`
 
 	HardforkDevAddr struct {
 		Height     uint64        `json:"height"`
@@ -225,7 +227,7 @@ func (s State) SufficientlyHeavierThan(t State) bool {
 
 // BlockInterval is the expected wall clock time between consecutive blocks.
 func (s State) BlockInterval() time.Duration {
-	return 10 * time.Minute
+	return s.Network.BlockInterval
 }
 
 // BlockReward returns the reward for mining a child block.
@@ -240,7 +242,7 @@ func (s State) BlockReward() types.Currency {
 // MaturityHeight is the height at which various outputs created in the child
 // block will "mature" (become spendable).
 func (s State) MaturityHeight() uint64 {
-	return s.childHeight() + 144
+	return s.childHeight() + s.Network.MaturityDelay
 }
 
 // SiafundCount is the number of siafunds in existence.
@@ -260,8 +262,8 @@ func (s State) FoundationSubsidy() (sco types.SiacoinOutput, exists bool) {
 	sco.Address = s.FoundationPrimaryAddress
 
 	subsidyPerBlock := types.Siacoins(30000)
-	const blocksPerYear = 144 * 365
-	const blocksPerMonth = blocksPerYear / 12
+	blocksPerYear := uint64(365 * 24 * time.Hour / s.BlockInterval())
+	blocksPerMonth := blocksPerYear / 12
 	hardforkHeight := s.Network.HardforkFoundation.Height
 	if s.childHeight() < hardforkHeight || (s.childHeight()-hardforkHeight)%blocksPerMonth != 0 {
 		sco.Value = types.ZeroCurrency

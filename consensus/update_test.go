@@ -818,8 +818,8 @@ func TestApplyRevertBlockV1(t *testing.T) {
 		}
 	}
 	addedSCEs = []types.SiacoinElement{
-		{SiacoinOutput: txnB3.FileContracts[0].ValidProofOutputs[1], MaturityHeight: 148},
-		{SiacoinOutput: txnB3.FileContracts[0].ValidProofOutputs[0], MaturityHeight: 148},
+		{SiacoinOutput: txnB3.FileContracts[0].ValidProofOutputs[1], MaturityHeight: cs.MaturityHeight()},
+		{SiacoinOutput: txnB3.FileContracts[0].ValidProofOutputs[0], MaturityHeight: cs.MaturityHeight()},
 		{SiacoinOutput: b5.MinerPayouts[0], MaturityHeight: cs.MaturityHeight()},
 	}
 	spentSCEs = nil
@@ -1242,8 +1242,8 @@ func TestApplyRevertBlockV2(t *testing.T) {
 	}
 
 	addedSCEs = []types.SiacoinElement{
-		{SiacoinOutput: txnB3.FileContracts[0].RenterOutput, MaturityHeight: 148},
-		{SiacoinOutput: txnB3.FileContracts[0].HostOutput, MaturityHeight: 148},
+		{SiacoinOutput: txnB3.FileContracts[0].RenterOutput, MaturityHeight: cs.MaturityHeight()},
+		{SiacoinOutput: txnB3.FileContracts[0].HostOutput, MaturityHeight: cs.MaturityHeight()},
 		{SiacoinOutput: b5.MinerPayouts[0], MaturityHeight: cs.MaturityHeight()},
 	}
 	spentSCEs = nil

@@ -20,6 +20,8 @@ func testnet() (*Network, types.Block) {
 		InitialCoinbase: types.Siacoins(300000),
 		MinimumCoinbase: types.Siacoins(300000),
 		InitialTarget:   types.BlockID{0xFF},
+		BlockInterval:   10 * time.Millisecond,
+		MaturityDelay:   5,
 	}
 	n.HardforkDevAddr.Height = 1
 	n.HardforkTax.Height = 2
@@ -713,8 +715,6 @@ func TestValidateBlock(t *testing.T) {
 
 			if err := ValidateBlock(cs, corruptBlock, db.supplementTipBlock(corruptBlock)); err == nil {
 				t.Fatalf("accepted block with %v", test.desc)
-			} else {
-				t.Log(test.desc, err)
 			}
 		}
 	}
@@ -1626,7 +1626,9 @@ func TestV2ImmatureSiacoinOutput(t *testing.T) {
 	}
 
 	// check for immature payout error
-	if err := mineBlock(types.VoidAddress, []types.V2Transaction{txn}); !strings.Contains(err.Error(), "has immature parent") {
+	if err := mineBlock(types.VoidAddress, []types.V2Transaction{txn}); err == nil {
+		t.Fatal("expected immature output error, got nil")
+	} else if !strings.Contains(err.Error(), "has immature parent") {
 		t.Fatalf("expected immature output err, got %v", err)
 	}
 }
