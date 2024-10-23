@@ -1084,6 +1084,7 @@ func TestApplyRevertBlockV2(t *testing.T) {
 	v1FC.Filesize = 65
 	v1FC.FileMerkleRoot = blake2b.SumPair((State{}).StorageProofLeafHash([]byte{1}), (State{}).StorageProofLeafHash([]byte{2}))
 	v2FC := types.V2FileContract{
+		Capacity:         v1FC.Filesize,
 		Filesize:         v1FC.Filesize,
 		FileMerkleRoot:   v1FC.FileMerkleRoot,
 		ProofHeight:      20,

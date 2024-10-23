@@ -861,6 +861,7 @@ func TestValidateV2Block(t *testing.T) {
 	v1GiftFC.Filesize = 65
 	v1GiftFC.FileMerkleRoot = blake2b.SumPair((State{}).StorageProofLeafHash([]byte{1}), (State{}).StorageProofLeafHash([]byte{2}))
 	v2GiftFC := types.V2FileContract{
+		Capacity:         v1GiftFC.Filesize,
 		Filesize:         v1GiftFC.Filesize,
 		FileMerkleRoot:   v1GiftFC.FileMerkleRoot,
 		ProofHeight:      20,

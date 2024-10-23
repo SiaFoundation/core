@@ -2,7 +2,6 @@ package rhp
 
 import (
 	"bytes"
-	"fmt"
 
 	"go.sia.tech/core/types"
 )
@@ -26,7 +25,7 @@ func (hp HostPrices) EncodeTo(e *types.Encoder) {
 	types.V2Currency(hp.StoragePrice).EncodeTo(e)
 	types.V2Currency(hp.IngressPrice).EncodeTo(e)
 	types.V2Currency(hp.EgressPrice).EncodeTo(e)
-	types.V2Currency(hp.ModifySectorActionPrice).EncodeTo(e)
+	types.V2Currency(hp.FreeSectorPrice).EncodeTo(e)
 	e.WriteUint64(hp.TipHeight)
 	e.WriteTime(hp.ValidUntil)
 	hp.Signature.EncodeTo(e)
@@ -39,7 +38,7 @@ func (hp *HostPrices) DecodeFrom(d *types.Decoder) {
 	(*types.V2Currency)(&hp.StoragePrice).DecodeFrom(d)
 	(*types.V2Currency)(&hp.IngressPrice).DecodeFrom(d)
 	(*types.V2Currency)(&hp.EgressPrice).DecodeFrom(d)
-	(*types.V2Currency)(&hp.ModifySectorActionPrice).DecodeFrom(d)
+	(*types.V2Currency)(&hp.FreeSectorPrice).DecodeFrom(d)
 	hp.TipHeight = d.ReadUint64()
 	hp.ValidUntil = d.ReadTime()
 	hp.Signature.DecodeFrom(d)
@@ -54,7 +53,7 @@ func (hs HostSettings) EncodeTo(e *types.Encoder) {
 	types.V2Currency(hs.MaxCollateral).EncodeTo(e)
 	e.WriteUint64(hs.MaxContractDuration)
 	e.WriteUint64(hs.MaxSectorDuration)
-	e.WriteUint64(hs.MaxModifyActions)
+	e.WriteUint64(hs.MaxSectorBatchSize)
 	e.WriteUint64(hs.RemainingStorage)
 	e.WriteUint64(hs.TotalStorage)
 	hs.Prices.EncodeTo(e)
@@ -69,44 +68,10 @@ func (hs *HostSettings) DecodeFrom(d *types.Decoder) {
 	(*types.V2Currency)(&hs.MaxCollateral).DecodeFrom(d)
 	hs.MaxContractDuration = d.ReadUint64()
 	hs.MaxSectorDuration = d.ReadUint64()
-	hs.MaxModifyActions = d.ReadUint64()
+	hs.MaxSectorBatchSize = d.ReadUint64()
 	hs.RemainingStorage = d.ReadUint64()
 	hs.TotalStorage = d.ReadUint64()
 	hs.Prices.DecodeFrom(d)
-}
-
-// EncodeTo implements types.EncoderTo.
-func (m ModifyAction) EncodeTo(e *types.Encoder) {
-	e.WriteUint8(m.Type)
-	switch m.Type {
-	case ActionSwap:
-		e.WriteUint64(m.A)
-		e.WriteUint64(m.B)
-	case ActionTrim:
-		e.WriteUint64(m.N)
-	case ActionUpdate:
-		m.Root.EncodeTo(e)
-		e.WriteUint64(m.A)
-	default:
-		panic("invalid action type")
-	}
-}
-
-// DecodeFrom implements types.DecoderFrom.
-func (m *ModifyAction) DecodeFrom(d *types.Decoder) {
-	m.Type = d.ReadUint8()
-	switch m.Type {
-	case ActionSwap:
-		m.A = d.ReadUint64()
-		m.B = d.ReadUint64()
-	case ActionTrim:
-		m.N = d.ReadUint64()
-	case ActionUpdate:
-		m.Root.DecodeFrom(d)
-		m.A = d.ReadUint64()
-	default:
-		d.SetErr(fmt.Errorf("invalid action type (%v)", m.Type))
-	}
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -389,53 +354,57 @@ func (r *RPCRefreshContractThirdResponse) maxLen() int {
 	return reasonableObjectSize
 }
 
-func (r *RPCModifySectorsRequest) encodeTo(e *types.Encoder) {
+func (r *RPCFreeSectorsRequest) encodeTo(e *types.Encoder) {
 	r.ContractID.EncodeTo(e)
 	r.Prices.EncodeTo(e)
-	types.EncodeSlice(e, r.Actions)
+	types.EncodeSliceFn(e, r.Indices, func(e *types.Encoder, v uint64) {
+		e.WriteUint64(v)
+	})
 	r.ChallengeSignature.EncodeTo(e)
 }
-func (r *RPCModifySectorsRequest) decodeFrom(d *types.Decoder) {
+func (r *RPCFreeSectorsRequest) decodeFrom(d *types.Decoder) {
 	r.ContractID.DecodeFrom(d)
 	r.Prices.DecodeFrom(d)
-	types.DecodeSlice(d, &r.Actions)
+	types.DecodeSliceFn(d, &r.Indices, func(d *types.Decoder) uint64 {
+		return d.ReadUint64()
+	})
 	r.ChallengeSignature.DecodeFrom(d)
 }
-func (r *RPCModifySectorsRequest) maxLen() int {
+func (r *RPCFreeSectorsRequest) maxLen() int {
 	return reasonableObjectSize
 }
 
-func (r *RPCModifySectorsResponse) encodeTo(e *types.Encoder) {
+func (r *RPCFreeSectorsResponse) encodeTo(e *types.Encoder) {
 	types.EncodeSlice(e, r.OldSubtreeHashes)
 	types.EncodeSlice(e, r.OldLeafHashes)
 	r.NewMerkleRoot.EncodeTo(e)
 }
-func (r *RPCModifySectorsResponse) decodeFrom(d *types.Decoder) {
+func (r *RPCFreeSectorsResponse) decodeFrom(d *types.Decoder) {
 	types.DecodeSlice(d, &r.OldSubtreeHashes)
 	types.DecodeSlice(d, &r.OldLeafHashes)
 	r.NewMerkleRoot.DecodeFrom(d)
 }
-func (r *RPCModifySectorsResponse) maxLen() int {
+func (r *RPCFreeSectorsResponse) maxLen() int {
 	return reasonableObjectSize
 }
 
-func (r *RPCModifySectorsSecondResponse) encodeTo(e *types.Encoder) {
+func (r *RPCFreeSectorsSecondResponse) encodeTo(e *types.Encoder) {
 	r.RenterSignature.EncodeTo(e)
 }
-func (r *RPCModifySectorsSecondResponse) decodeFrom(d *types.Decoder) {
+func (r *RPCFreeSectorsSecondResponse) decodeFrom(d *types.Decoder) {
 	r.RenterSignature.DecodeFrom(d)
 }
-func (r *RPCModifySectorsSecondResponse) maxLen() int {
+func (r *RPCFreeSectorsSecondResponse) maxLen() int {
 	return sizeofSignature
 }
 
-func (r *RPCModifySectorsThirdResponse) encodeTo(e *types.Encoder) {
+func (r *RPCFreeSectorsThirdResponse) encodeTo(e *types.Encoder) {
 	r.HostSignature.EncodeTo(e)
 }
-func (r *RPCModifySectorsThirdResponse) decodeFrom(d *types.Decoder) {
+func (r *RPCFreeSectorsThirdResponse) decodeFrom(d *types.Decoder) {
 	r.HostSignature.DecodeFrom(d)
 }
-func (r *RPCModifySectorsThirdResponse) maxLen() int {
+func (r *RPCFreeSectorsThirdResponse) maxLen() int {
 	return sizeofSignature
 }
 

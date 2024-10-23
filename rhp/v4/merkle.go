@@ -76,7 +76,7 @@ func BuildAppendProof(sectorRoots, appended []types.Hash256) ([]types.Hash256, t
 	return subtreeRoots, acc.Root()
 }
 
-// VerifyAppendProof verifies a Merkle proof produced by BuildAppendProof.
+// VerifyAppendSectorsProof verifies a Merkle proof produced by BuildAppendProof.
 func VerifyAppendSectorsProof(numSectors uint64, subtreeRoots []types.Hash256, appended []types.Hash256, oldRoot, newRoot types.Hash256) bool {
 	acc := blake2b.Accumulator{NumLeaves: numSectors}
 	for i := 0; i < bits.Len64(numSectors); i++ {
@@ -106,6 +106,8 @@ func VerifySectorRootsProof(proof, sectorRoots []types.Hash256, numSectors, star
 	return rhp2.VerifySectorRangeProof(proof, sectorRoots, start, end, numSectors, root)
 }
 
+/*
+TODO: implement for RPC remove
 func convertActions(actions []ModifyAction) []rhp2.RPCWriteAction {
 	rhp2Actions := make([]rhp2.RPCWriteAction, len(actions))
 	for i, a := range actions {
@@ -142,3 +144,4 @@ func BuildModifySectorsProof(actions []ModifyAction, sectorRoots []types.Hash256
 func VerifyModifySectorsProof(actions []ModifyAction, numSectors uint64, treeHashes, leafHashes []types.Hash256, oldRoot types.Hash256, newRoot types.Hash256) bool {
 	return rhp2.VerifyDiffProof(convertActions(actions), numSectors, treeHashes, leafHashes, oldRoot, newRoot, nil)
 }
+*/
