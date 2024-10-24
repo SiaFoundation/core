@@ -104,7 +104,10 @@ func (r *RPCError) maxLen() int {
 	return 1024
 }
 
-const reasonableObjectSize = 10 * 1024
+const (
+	reasonableObjectSize         = 10 * 1024
+	reasonableTransactionSetSize = 100 * 1024
+)
 
 func sizeof(v types.EncoderTo) int {
 	var buf bytes.Buffer
@@ -213,7 +216,7 @@ func (r *RPCFormContractThirdResponse) decodeFrom(d *types.Decoder) {
 	types.DecodeSlice(d, &r.TransactionSet)
 }
 func (r *RPCFormContractThirdResponse) maxLen() int {
-	return reasonableObjectSize
+	return reasonableTransactionSetSize
 }
 
 func (r *RPCRenewContractParams) encodeTo(e *types.Encoder) {
@@ -283,7 +286,7 @@ func (r *RPCRenewContractThirdResponse) decodeFrom(d *types.Decoder) {
 	types.DecodeSlice(d, &r.TransactionSet)
 }
 func (r *RPCRenewContractThirdResponse) maxLen() int {
-	return reasonableObjectSize
+	return reasonableTransactionSetSize
 }
 
 func (r *RPCRefreshContractParams) encodeTo(e *types.Encoder) {
@@ -351,7 +354,7 @@ func (r *RPCRefreshContractThirdResponse) decodeFrom(d *types.Decoder) {
 	types.DecodeSlice(d, &r.TransactionSet)
 }
 func (r *RPCRefreshContractThirdResponse) maxLen() int {
-	return reasonableObjectSize
+	return reasonableTransactionSetSize
 }
 
 func (r *RPCFreeSectorsRequest) encodeTo(e *types.Encoder) {
