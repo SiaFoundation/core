@@ -2,7 +2,6 @@ package rhp
 
 import (
 	"io"
-	"log"
 
 	"go.sia.tech/core/types"
 )
@@ -22,9 +21,6 @@ func withDecoder(r io.Reader, maxLen int, fn func(*types.Decoder)) error {
 // ReadID reads an RPC ID from the stream.
 func ReadID(r io.Reader) (id types.Specifier, err error) {
 	err = withDecoder(r, 16, id.DecodeFrom)
-	if err == nil {
-		log.Println("read request id")
-	}
 	return
 }
 
