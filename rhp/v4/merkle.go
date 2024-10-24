@@ -106,42 +106,30 @@ func VerifySectorRootsProof(proof, sectorRoots []types.Hash256, numSectors, star
 	return rhp2.VerifySectorRangeProof(proof, sectorRoots, start, end, numSectors, root)
 }
 
-/*
-TODO: implement for RPC remove
-func convertActions(actions []ModifyAction) []rhp2.RPCWriteAction {
-	rhp2Actions := make([]rhp2.RPCWriteAction, len(actions))
-	for i, a := range actions {
-		switch a.Type {
-		case ActionSwap:
-			rhp2Actions[i] = rhp2.RPCWriteAction{
-				Type: rhp2.RPCWriteActionSwap,
-				A:    a.A,
-				B:    a.B,
-			}
-		case ActionTrim:
-			rhp2Actions[i] = rhp2.RPCWriteAction{
-				Type: rhp2.RPCWriteActionTrim,
-				A:    a.N,
-			}
-		case ActionUpdate:
-			rhp2Actions[i] = rhp2.RPCWriteAction{
-				Type: rhp2.RPCWriteActionUpdate,
-				A:    a.N,
-				Data: nil, // TODO
-			}
-		}
+func convertFreeActions(freed []uint64, numSectors uint64) []rhp2.RPCWriteAction {
+	as := make([]rhp2.RPCWriteAction, 0, len(freed)+1)
+	// swap
+	for i, n := range freed {
+		as = append(as, rhp2.RPCWriteAction{
+			Type: rhp2.RPCWriteActionSwap,
+			A:    n,
+			B:    numSectors - uint64(i) - 1,
+		})
 	}
-	return rhp2Actions
+	// trim
+	return append(as, rhp2.RPCWriteAction{
+		Type: rhp2.RPCWriteActionTrim,
+		A:    uint64(len(freed)),
+	})
 }
 
-// BuildModifySectorsProof builds a Merkle proof for modifying a set of sectors.
-func BuildModifySectorsProof(actions []ModifyAction, sectorRoots []types.Hash256) (treeHashes, leafHashes []types.Hash256) {
-	return rhp2.BuildDiffProof(convertActions(actions), sectorRoots)
+// BuildFreeSectorsProof builds a Merkle proof for freeing a set of sectors.
+func BuildFreeSectorsProof(sectorRoots []types.Hash256, freed []uint64) (treeHashes, leafHashes []types.Hash256) {
+	return rhp2.BuildDiffProof(convertFreeActions(freed, uint64(len(sectorRoots))), sectorRoots)
 }
 
-// VerifyModifySectorsProof verifies a Merkle proof produced by
-// BuildModifySectorsProof.
-func VerifyModifySectorsProof(actions []ModifyAction, numSectors uint64, treeHashes, leafHashes []types.Hash256, oldRoot types.Hash256, newRoot types.Hash256) bool {
-	return rhp2.VerifyDiffProof(convertActions(actions), numSectors, treeHashes, leafHashes, oldRoot, newRoot, nil)
+// VerifyFreeSectorsProof verifies a Merkle proof produced by
+// BuildFreeSectorsProof.
+func VerifyFreeSectorsProof(treeHashes, leafHashes []types.Hash256, freed []uint64, numSectors uint64, oldRoot types.Hash256, newRoot types.Hash256) bool {
+	return rhp2.VerifyDiffProof(convertFreeActions(freed, numSectors), numSectors, treeHashes, leafHashes, oldRoot, newRoot, nil)
 }
-*/

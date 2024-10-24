@@ -638,15 +638,14 @@ func ReviseForFreeSectors(fc types.V2FileContract, prices HostPrices, newRoot ty
 
 // ReviseForAppendSectors creates a contract revision for the append sectors RPC
 func ReviseForAppendSectors(fc types.V2FileContract, prices HostPrices, root types.Hash256, appended uint64) (types.V2FileContract, Usage, error) {
-	sectors := fc.Filesize / SectorSize
-	capacity := fc.Capacity / SectorSize
-	appended -= capacity - sectors // capacity will always be >= sectors
-	usage := prices.RPCAppendSectorsCost(appended, fc.ExpirationHeight-prices.TipHeight)
+	growth := appended - min(appended, (fc.Capacity-fc.Filesize)/SectorSize)
+	fc.Filesize += SectorSize * appended
+	fc.Capacity += SectorSize * growth
+	fc.FileMerkleRoot = root
+	usage := prices.RPCAppendSectorsCost(growth, fc.ExpirationHeight-prices.TipHeight)
 	if err := PayWithContract(&fc, usage); err != nil {
 		return fc, Usage{}, err
 	}
-	fc.Filesize += SectorSize * appended
-	fc.FileMerkleRoot = root
 	return fc, usage, nil
 }
 
