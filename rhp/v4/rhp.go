@@ -12,7 +12,9 @@ import (
 )
 
 const (
-	proofWindow = 144 // 24 hours
+	// ProofWindow is the number of blocks a host has to submit a proof after
+	// the contract expires.
+	ProofWindow = 144 // 24 hours
 
 	// SectorSize is the size of one sector in bytes.
 	SectorSize = 1 << 22 // 4 MiB
@@ -564,7 +566,7 @@ func NewContract(p HostPrices, cp RPCFormContractParams, hostKey types.PublicKey
 			Filesize:         0,
 			FileMerkleRoot:   types.Hash256{},
 			ProofHeight:      cp.ProofHeight,
-			ExpirationHeight: cp.ProofHeight + proofWindow,
+			ExpirationHeight: cp.ProofHeight + ProofWindow,
 			RenterOutput: types.SiacoinOutput{
 				Value:   cp.Allowance,
 				Address: cp.RenterAddress,
@@ -686,7 +688,7 @@ func RenewContract(fc types.V2FileContract, prices HostPrices, rp RPCRenewContra
 	renewal.NewContract.RevisionNumber = 0
 	renewal.NewContract.RenterSignature = types.Signature{}
 	renewal.NewContract.HostSignature = types.Signature{}
-	renewal.NewContract.ExpirationHeight = rp.ProofHeight + proofWindow
+	renewal.NewContract.ExpirationHeight = rp.ProofHeight + ProofWindow
 	renewal.NewContract.ProofHeight = rp.ProofHeight
 	// the renter output value only needs to cover the new allowance
 	renewal.NewContract.RenterOutput.Value = rp.Allowance

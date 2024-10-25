@@ -35,14 +35,14 @@ func (req *RPCWriteSectorStreamingRequest) Validate(pk types.PublicKey, maxDurat
 	switch {
 	case req.Duration == 0:
 		return errors.New("duration must be greater than 0")
+	case req.Duration > maxDuration:
+		return fmt.Errorf("duration exceeds maximum: %d > %d", req.Duration, maxDuration)
 	case req.DataLength == 0:
 		return errors.New("sector must not be empty")
 	case req.DataLength%LeafSize != 0:
 		return errors.New("sector must be segment aligned")
 	case req.DataLength > SectorSize:
 		return errors.New("sector exceeds sector bounds")
-	case req.Duration > maxDuration:
-		return fmt.Errorf("duration exceeds maximum: %d > %d", req.Duration, maxDuration)
 	}
 	return nil
 }
@@ -103,7 +103,7 @@ func (req *RPCFormContractRequest) Validate(pk types.PublicKey, tip types.ChainI
 
 	// validate the contract fields
 	hp := req.Prices
-	expirationHeight := req.Contract.ProofHeight + proofWindow
+	expirationHeight := req.Contract.ProofHeight + ProofWindow
 	duration := expirationHeight - hp.TipHeight
 	// calculate the minimum allowance required for the contract based on the
 	// host's locked collateral and the contract duration
@@ -143,7 +143,7 @@ func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.Chain
 
 	// validate the contract fields
 	hp := req.Prices
-	expirationHeight := req.Renewal.ProofHeight + proofWindow
+	expirationHeight := req.Renewal.ProofHeight + ProofWindow
 	duration := expirationHeight - hp.TipHeight
 	// calculate the minimum allowance required for the contract based on the
 	// host's locked collateral and the contract duration
