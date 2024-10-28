@@ -493,6 +493,8 @@ func ValidateTransaction(ms *MidState, txn types.Transaction, ts V1TransactionSu
 		return errors.New("v1 transactions are not allowed after v2 hardfork is complete")
 	} else if err := validateCurrencyOverflow(ms, txn); err != nil {
 		return err
+	} else if weight := ms.base.TransactionWeight(txn); weight > ms.base.MaxBlockWeight() {
+		return fmt.Errorf("transaction exceeds maximum block weight (%v > %v)", weight, ms.base.MaxBlockWeight())
 	} else if err := validateMinimumValues(ms, txn); err != nil {
 		return err
 	} else if err := validateSiacoins(ms, txn, ts); err != nil {
@@ -878,6 +880,8 @@ func ValidateV2Transaction(ms *MidState, txn types.V2Transaction) error {
 		return errors.New("v2 transactions are not allowed until v2 hardfork begins")
 	} else if err := validateV2CurrencyOverflow(ms, txn); err != nil {
 		return err
+	} else if weight := ms.base.V2TransactionWeight(txn); weight > ms.base.MaxBlockWeight() {
+		return fmt.Errorf("transaction exceeds maximum block weight (%v > %v)", weight, ms.base.MaxBlockWeight())
 	} else if err := validateV2Siacoins(ms, txn); err != nil {
 		return err
 	} else if err := validateV2Siafunds(ms, txn); err != nil {
