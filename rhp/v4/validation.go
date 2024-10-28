@@ -26,7 +26,7 @@ func (req *RPCReadSectorRequest) Validate(pk types.PublicKey) error {
 }
 
 // Validate validates a write sector request.
-func (req *RPCWriteSectorStreamingRequest) Validate(pk types.PublicKey, maxDuration uint64) error {
+func (req *RPCWriteSectorRequest) Validate(pk types.PublicKey, maxDuration uint64) error {
 	if err := req.Prices.Validate(pk); err != nil {
 		return fmt.Errorf("prices are invalid: %w", err)
 	} else if err := req.Token.Validate(); err != nil {
