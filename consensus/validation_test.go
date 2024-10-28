@@ -1815,3 +1815,251 @@ func TestV2RevisionApply(t *testing.T) {
 	applyContractChanges(au)
 	checkRevision(t, 100)
 }
+
+func TestV2RenewalResolution(t *testing.T) {
+	n, genesisBlock := testnet()
+
+	n.HardforkOak.Height = 0
+	n.HardforkTax.Height = 0
+	n.HardforkFoundation.Height = 0
+	n.InitialTarget = types.BlockID{0xFF}
+	n.HardforkV2.AllowHeight = 0
+	n.HardforkV2.RequireHeight = 0
+
+	pk := types.GeneratePrivateKey()
+	addr := types.AnyoneCanSpend().Address()
+	fc := types.V2FileContract{
+		ProofHeight:      100,
+		ExpirationHeight: 150,
+		RenterPublicKey:  pk.PublicKey(),
+		HostPublicKey:    pk.PublicKey(),
+		HostOutput: types.SiacoinOutput{
+			Address: addr, Value: types.Siacoins(10),
+		},
+		RenterOutput: types.SiacoinOutput{
+			Address: addr, Value: types.Siacoins(10),
+		},
+		MissedHostValue: types.Siacoins(10),
+	}
+	cs := n.GenesisState()
+	sigHash := cs.ContractSigHash(fc)
+	fc.HostSignature = pk.SignHash(sigHash)
+	fc.RenterSignature = pk.SignHash(sigHash)
+
+	genesisTxn := types.V2Transaction{
+		SiacoinOutputs: []types.SiacoinOutput{
+			{Address: addr, Value: types.Siacoins(1000)},
+		},
+		FileContracts: []types.V2FileContract{fc},
+	}
+	genesisBlock.V2 = &types.V2BlockData{
+		Transactions: []types.V2Transaction{genesisTxn},
+	}
+	contractID := genesisTxn.V2FileContractID(genesisTxn.ID(), 0)
+	fces := make(map[types.Hash256]types.V2FileContractElement)
+	genesisOutput := genesisTxn.EphemeralSiacoinOutput(0)
+	applyChanges := func(au ApplyUpdate) {
+		au.ForEachV2FileContractElement(func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
+			switch {
+			case res != nil:
+				delete(fces, fce.ID)
+			case rev != nil:
+				fces[fce.ID] = *rev
+			default:
+				fces[fce.ID] = fce
+			}
+		})
+
+		au.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
+			if sce.ID == genesisOutput.ID {
+				genesisOutput = sce
+			}
+		})
+
+		// update proofs
+		au.UpdateElementProof(&genesisOutput.StateElement)
+		for key, fce := range fces {
+			au.UpdateElementProof(&fce.StateElement)
+			fces[key] = fce
+		}
+	}
+
+	// confirm the contract
+	cs, au := ApplyBlock(cs, genesisBlock, V1BlockSupplement{}, time.Time{})
+	applyChanges(au)
+
+	tests := []struct {
+		desc      string
+		renewFn   func(*types.V2Transaction)
+		errors    bool
+		errString string
+	}{
+		{
+			desc:    "valid renewal",
+			renewFn: func(vt *types.V2Transaction) {}, // no changes should be a valid renewal
+		},
+		{
+			desc: "valid renewal - no renter rollover",
+			renewFn: func(txn *types.V2Transaction) {
+				renewal := txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
+				renewal.RenterRollover = types.ZeroCurrency
+				// subtract the renter cost from the change output
+				txn.SiacoinOutputs[0].Value = txn.SiacoinInputs[0].Parent.SiacoinOutput.Value.Sub(renewal.NewContract.RenterOutput.Value).Sub(cs.V2FileContractTax(renewal.NewContract))
+			},
+		},
+		{
+			desc: "valid renewal - no host rollover",
+			renewFn: func(txn *types.V2Transaction) {
+				renewal := txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
+				renewal.HostRollover = types.ZeroCurrency
+				// subtract the host cost from the change output
+				txn.SiacoinOutputs[0].Value = txn.SiacoinInputs[0].Parent.SiacoinOutput.Value.Sub(renewal.NewContract.HostOutput.Value).Sub(cs.V2FileContractTax(renewal.NewContract))
+			},
+		},
+		{
+			desc: "valid renewal - partial host rollover",
+			renewFn: func(txn *types.V2Transaction) {
+				renewal := txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
+				renewal.HostRollover = renewal.NewContract.MissedHostValue.Div64(2)
+				// subtract the host cost from the change output
+				txn.SiacoinOutputs[0].Value = txn.SiacoinInputs[0].Parent.SiacoinOutput.Value.Sub(renewal.NewContract.HostOutput.Value.Div64(2)).Sub(cs.V2FileContractTax(renewal.NewContract))
+			},
+		},
+		{
+			desc: "valid renewal - partial renter rollover",
+			renewFn: func(txn *types.V2Transaction) {
+				renewal := txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
+				renewal.RenterRollover = renewal.NewContract.RenterOutput.Value.Div64(2)
+				// subtract the host cost from the change output
+				txn.SiacoinOutputs[0].Value = txn.SiacoinInputs[0].Parent.SiacoinOutput.Value.Sub(renewal.NewContract.RenterOutput.Value.Div64(2)).Sub(cs.V2FileContractTax(renewal.NewContract))
+			},
+		},
+		{
+			desc: "invalid renewal - not enough host funds",
+			renewFn: func(txn *types.V2Transaction) {
+				renewal := txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
+				renewal.HostRollover = renewal.NewContract.MissedHostValue.Div64(2)
+				// do not adjust the change output
+			},
+			errors:    true,
+			errString: "do not equal outputs",
+		},
+		{
+			desc: "invalid renewal - not enough renter funds",
+			renewFn: func(txn *types.V2Transaction) {
+				renewal := txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
+				renewal.RenterRollover = renewal.NewContract.RenterOutput.Value.Div64(2)
+				// do not adjust the change output
+			},
+			errors:    true,
+			errString: "do not equal outputs",
+		},
+		{
+			desc: "invalid renewal - host rollover escape",
+			renewFn: func(txn *types.V2Transaction) {
+				// tests that the file contract renewal rollover cannot be used
+				// outside of the new file contract. i.e. a siacoin output should
+				// not be able to be created using the funds from a rollover. This
+				// ensures that the maturity delay is enforced for renewals.
+				renewal := txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
+				renewal.NewContract.HostOutput.Value = types.Siacoins(1)
+				renewal.NewContract.MissedHostValue = types.Siacoins(1)
+				// adjust the file contract tax
+				txn.SiacoinOutputs[0].Value = txn.SiacoinInputs[0].Parent.SiacoinOutput.Value.Sub(cs.V2FileContractTax(renewal.NewContract))
+				escapeAmount := renewal.HostRollover.Sub(renewal.NewContract.HostOutput.Value)
+				txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{Value: escapeAmount, Address: types.VoidAddress})
+			},
+			errors:    true,
+			errString: "exceeding new contract cost",
+		},
+		{
+			desc: "invalid renewal - renter rollover escape",
+			renewFn: func(txn *types.V2Transaction) {
+				// tests that the file contract renewal rollover cannot be used
+				// outside of the new file contract. i.e. a siacoin output should
+				// not be able to be created using the funds from a rollover. This
+				// ensures that the maturity delay is enforced for renewals.
+				renewal := txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
+				renewal.NewContract.RenterOutput.Value = types.Siacoins(1)
+				// adjust the file contract tax
+				txn.SiacoinOutputs[0].Value = txn.SiacoinInputs[0].Parent.SiacoinOutput.Value.Sub(cs.V2FileContractTax(renewal.NewContract))
+				escapeAmount := renewal.RenterRollover.Sub(renewal.NewContract.RenterOutput.Value)
+				txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{Value: escapeAmount, Address: types.VoidAddress})
+			},
+			errors:    true,
+			errString: "exceeding new contract cost",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.desc, func(t *testing.T) {
+			finalRevision := fc
+			finalRevision.RevisionNumber = types.MaxRevisionNumber
+			finalRevision.RenterSignature = types.Signature{}
+			finalRevision.HostSignature = types.Signature{}
+
+			fc := types.V2FileContract{
+				ProofHeight:      100,
+				ExpirationHeight: 150,
+				RenterPublicKey:  pk.PublicKey(),
+				HostPublicKey:    pk.PublicKey(),
+				HostOutput: types.SiacoinOutput{
+					Address: addr, Value: types.Siacoins(10),
+				},
+				RenterOutput: types.SiacoinOutput{
+					Address: addr, Value: types.Siacoins(10),
+				},
+				MissedHostValue: types.Siacoins(10),
+			}
+			tax := cs.V2FileContractTax(fc)
+			renewTxn := types.V2Transaction{
+				FileContractResolutions: []types.V2FileContractResolution{
+					{
+						Parent: fces[types.Hash256(contractID)],
+						Resolution: &types.V2FileContractRenewal{
+							FinalRevision:  finalRevision,
+							NewContract:    fc,
+							RenterRollover: types.Siacoins(10),
+							HostRollover:   types.Siacoins(10),
+						},
+					},
+				},
+				SiacoinInputs: []types.V2SiacoinInput{
+					{
+						Parent: genesisOutput,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: types.AnyoneCanSpend(),
+						},
+					},
+				},
+				SiacoinOutputs: []types.SiacoinOutput{
+					{Address: addr, Value: genesisOutput.SiacoinOutput.Value.Sub(tax)},
+				},
+			}
+			resolution, ok := renewTxn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
+			if !ok {
+				t.Fatal("expected renewal resolution")
+			}
+
+			// modify the renewal
+			test.renewFn(&renewTxn)
+
+			// sign the renewal
+			sigHash := cs.RenewalSigHash(*resolution)
+			resolution.RenterSignature = pk.SignHash(sigHash)
+			resolution.HostSignature = pk.SignHash(sigHash)
+			// apply the renewal
+			ms := NewMidState(cs)
+			err := ValidateV2Transaction(ms, renewTxn)
+			switch {
+			case test.errors && err == nil:
+				t.Fatal("expected error")
+			case test.errors && test.errString == "":
+				t.Fatalf("received error %q, missing error string to compare", err)
+			case test.errors && !strings.Contains(err.Error(), test.errString):
+				t.Fatalf("expected error %q to contain %q", err, test.errString)
+			case !test.errors && err != nil:
+				t.Fatalf("unexpected error: %q", err)
+			}
+		})
+	}
+}
