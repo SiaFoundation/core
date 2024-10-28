@@ -416,30 +416,16 @@ type (
 
 	// RPCReadSectorResponse implements Object.
 	RPCReadSectorResponse struct {
-		Proof  []types.Hash256 `json:"proof"`
-		Sector []byte          `json:"sector"`
-	}
-
-	// RPCReadSectorStreamedResponse implements Object.
-	RPCReadSectorStreamedResponse struct {
 		Proof      []types.Hash256 `json:"proof"`
 		DataLength uint64          `json:"dataLength"`
 	}
 
-	// RPCWriteSectorStreamingRequest implements Object.
-	RPCWriteSectorStreamingRequest struct {
+	// RPCWriteSectorRequest implements Object.
+	RPCWriteSectorRequest struct {
 		Prices     HostPrices   `json:"prices"`
 		Token      AccountToken `json:"token"`
 		Duration   uint64       `json:"duration"`
 		DataLength uint64       `json:"dataLength"` // extended to SectorSize by host
-	}
-
-	// RPCWriteSectorRequest implements Object.
-	RPCWriteSectorRequest struct {
-		Prices   HostPrices   `json:"prices"`
-		Token    AccountToken `json:"token"`
-		Duration uint64       `json:"duration"`
-		Sector   []byte       `json:"sector"` // extended to SectorSize by host
 	}
 
 	// RPCWriteSectorResponse implements Object.
