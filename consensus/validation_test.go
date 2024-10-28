@@ -989,6 +989,12 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			{
+				"empty v2 transaction",
+				func(b *types.Block) {
+					b.V2.Transactions = append(b.V2.Transactions, types.V2Transaction{})
+				},
+			},
+			{
 				"wrong parent ID",
 				func(b *types.Block) {
 					b.ParentID[0] ^= 255

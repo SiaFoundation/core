@@ -880,7 +880,9 @@ func ValidateV2Transaction(ms *MidState, txn types.V2Transaction) error {
 		return errors.New("v2 transactions are not allowed until v2 hardfork begins")
 	} else if err := validateV2CurrencyOverflow(ms, txn); err != nil {
 		return err
-	} else if weight := ms.base.V2TransactionWeight(txn); weight > ms.base.MaxBlockWeight() {
+	} else if weight := ms.base.V2TransactionWeight(txn); weight == 0 {
+		return errors.New("transactions cannot be empty")
+	} else if weight > ms.base.MaxBlockWeight() {
 		return fmt.Errorf("transaction exceeds maximum block weight (%v > %v)", weight, ms.base.MaxBlockWeight())
 	} else if err := validateV2Siacoins(ms, txn); err != nil {
 		return err
