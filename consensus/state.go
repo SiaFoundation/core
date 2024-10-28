@@ -341,7 +341,8 @@ func (s State) V2TransactionWeight(txn types.V2Transaction) uint64 {
 	for _, a := range txn.Attestations {
 		a.EncodeTo(e)
 	}
-	e.WriteBytes(txn.ArbitraryData)
+	e.Write(txn.ArbitraryData)
+	e.Flush()
 	return uint64(wc.n)
 }
 
