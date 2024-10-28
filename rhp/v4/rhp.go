@@ -678,7 +678,6 @@ func RenewContract(fc types.V2FileContract, prices HostPrices, rp RPCRenewContra
 	// clear the old contract
 	renewal.FinalRevision = fc
 	renewal.FinalRevision.RevisionNumber = types.MaxRevisionNumber
-	renewal.FinalRevision.Filesize = 0
 	renewal.FinalRevision.FileMerkleRoot = types.Hash256{}
 	renewal.FinalRevision.RenterSignature = types.Signature{}
 	renewal.FinalRevision.HostSignature = types.Signature{}
@@ -686,6 +685,7 @@ func RenewContract(fc types.V2FileContract, prices HostPrices, rp RPCRenewContra
 	// create the new contract
 	renewal.NewContract = fc
 	renewal.NewContract.RevisionNumber = 0
+	renewal.NewContract.Capacity = fc.Filesize
 	renewal.NewContract.RenterSignature = types.Signature{}
 	renewal.NewContract.HostSignature = types.Signature{}
 	renewal.NewContract.ExpirationHeight = rp.ProofHeight + ProofWindow
