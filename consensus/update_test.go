@@ -1,6 +1,7 @@
 package consensus
 
 import (
+	"encoding/hex"
 	"reflect"
 	"strings"
 	"testing"
@@ -8,6 +9,7 @@ import (
 
 	"go.sia.tech/core/internal/blake2b"
 	"go.sia.tech/core/types"
+	"lukechampine.com/frand"
 )
 
 func checkApplyUpdate(t *testing.T, cs State, au ApplyUpdate) {
@@ -893,6 +895,9 @@ func TestApplyRevertBlockV2(t *testing.T) {
 	db, cs := newConsensusDB(n, genesisBlock)
 
 	signTxn := func(cs State, txn *types.V2Transaction) {
+		for i := range txn.Attestations {
+			txn.Attestations[i].Signature = giftPrivateKey.SignHash(cs.AttestationSigHash(txn.Attestations[i]))
+		}
 		for i := range txn.SiacoinInputs {
 			txn.SiacoinInputs[i].SatisfiedPolicy.Signatures = []types.Signature{giftPrivateKey.SignHash(cs.InputSigHash(*txn))}
 		}
@@ -1023,9 +1028,15 @@ func TestApplyRevertBlockV2(t *testing.T) {
 		checkApplyUpdate(t, cs, au)
 		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
-
 	// block that spends part of the gift transaction
 	txnB2 := types.V2Transaction{
+		Attestations: []types.Attestation{
+			{
+				PublicKey: giftPublicKey,
+				Key:       hex.EncodeToString(frand.Bytes(16)),
+				Value:     frand.Bytes(16),
+			},
+		},
 		SiacoinInputs: []types.V2SiacoinInput{{
 			Parent:          db.sces[giftTxn.SiacoinOutputID(0)],
 			SatisfiedPolicy: satisfiedPolicy(types.StandardUnlockConditions(giftPublicKey)),
