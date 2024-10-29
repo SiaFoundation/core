@@ -99,16 +99,9 @@ func (hp HostPrices) RPCReadSectorCost(length uint64) Usage {
 // RPCWriteSectorCost returns the cost of executing the WriteSector RPC with the
 // given sector length and duration.
 func (hp HostPrices) RPCWriteSectorCost(sectorLength uint64, duration uint64) Usage {
-	return hp.StoreSectorCost(duration).Add(Usage{
-		Ingress: hp.IngressPrice.Mul64(round4KiB(sectorLength)),
-	})
-}
-
-// StoreSectorCost returns the cost of storing a sector for the given duration.
-func (hp HostPrices) StoreSectorCost(duration uint64) Usage {
 	return Usage{
-		Storage:          hp.StoragePrice.Mul64(SectorSize).Mul64(duration),
-		RiskedCollateral: hp.Collateral.Mul64(SectorSize).Mul64(duration),
+		Storage: hp.StoragePrice.Mul64(SectorSize).Mul64(duration),
+		Ingress: hp.IngressPrice.Mul64(round4KiB(sectorLength)),
 	}
 }
 
@@ -137,10 +130,11 @@ func (hp HostPrices) RPCFreeSectorsCost(sectors int) Usage {
 // RPCAppendSectorsCost returns the cost of appending sectors to a contract. The duration
 // parameter is the number of blocks until the contract's expiration height.
 func (hp HostPrices) RPCAppendSectorsCost(sectors, duration uint64) Usage {
-	usage := hp.StoreSectorCost(duration)
-	usage.Storage = usage.Storage.Mul64(sectors)
-	usage.RiskedCollateral = usage.RiskedCollateral.Mul64(sectors)
-	return usage
+	return Usage{
+		Storage:          hp.StoragePrice.Mul64(SectorSize).Mul64(sectors).Mul64(duration),
+		Ingress:          hp.IngressPrice.Mul64(round4KiB(32 * sectors)),
+		RiskedCollateral: hp.Collateral.Mul64(SectorSize).Mul64(sectors).Mul64(duration),
+	}
 }
 
 // SigHash returns the hash of the host settings used for signing.
