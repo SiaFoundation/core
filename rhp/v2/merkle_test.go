@@ -45,16 +45,16 @@ func recNodeRoot(roots []types.Hash256) types.Hash256 {
 func TestSectorRoot(t *testing.T) {
 	// test some known roots
 	var sector [SectorSize]byte
-	if SectorRoot(&sector).String() != "h:50ed59cecd5ed3ca9e65cec0797202091dbba45272dafa3faa4e27064eedd52c" {
+	if SectorRoot(&sector).String() != "50ed59cecd5ed3ca9e65cec0797202091dbba45272dafa3faa4e27064eedd52c" {
 		t.Error("wrong Merkle root for empty sector")
 	}
 	sector[0] = 1
-	if SectorRoot(&sector).String() != "h:8c20a2c90a733a5139cc57e45755322e304451c3434b0c0a0aad87f2f89a44ab" {
+	if SectorRoot(&sector).String() != "8c20a2c90a733a5139cc57e45755322e304451c3434b0c0a0aad87f2f89a44ab" {
 		t.Error("wrong Merkle root for sector[0] = 1")
 	}
 	sector[0] = 0
 	sector[SectorSize-1] = 1
-	if SectorRoot(&sector).String() != "h:d0ab6691d76750618452e920386e5f6f98fdd1219a70a06f06ef622ac6c6373c" {
+	if SectorRoot(&sector).String() != "d0ab6691d76750618452e920386e5f6f98fdd1219a70a06f06ef622ac6c6373c" {
 		t.Error("wrong Merkle root for sector[SectorSize-1] = 1")
 	}
 
@@ -95,11 +95,11 @@ func TestMetaRoot(t *testing.T) {
 		t.Error("wrong Merkle root for single root")
 	}
 	roots = make([]types.Hash256, 32)
-	if MetaRoot(roots).String() != "h:1c23727030051d1bba1c887273addac2054afbd6926daddef6740f4f8bf1fb7f" {
+	if MetaRoot(roots).String() != "1c23727030051d1bba1c887273addac2054afbd6926daddef6740f4f8bf1fb7f" {
 		t.Error("wrong Merkle root for 32 empty roots")
 	}
 	roots[0][0] = 1
-	if MetaRoot(roots).String() != "h:c5da05749139505704ea18a5d92d46427f652ac79c5f5712e4aefb68e20dffb8" {
+	if MetaRoot(roots).String() != "c5da05749139505704ea18a5d92d46427f652ac79c5f5712e4aefb68e20dffb8" {
 		t.Error("wrong Merkle root for roots[0][0] = 1")
 	}
 
@@ -161,7 +161,7 @@ func TestProofAccumulator(t *testing.T) {
 	for _, root := range roots {
 		pa.insertNode(root, 0)
 	}
-	if pa.root().String() != "h:1c23727030051d1bba1c887273addac2054afbd6926daddef6740f4f8bf1fb7f" {
+	if pa.root().String() != "1c23727030051d1bba1c887273addac2054afbd6926daddef6740f4f8bf1fb7f" {
 		t.Error("wrong root for 32 empty roots")
 	}
 
@@ -170,7 +170,7 @@ func TestProofAccumulator(t *testing.T) {
 	for _, root := range roots {
 		pa.insertNode(root, 0)
 	}
-	if pa.root().String() != "h:c5da05749139505704ea18a5d92d46427f652ac79c5f5712e4aefb68e20dffb8" {
+	if pa.root().String() != "c5da05749139505704ea18a5d92d46427f652ac79c5f5712e4aefb68e20dffb8" {
 		t.Error("wrong root for roots[0][0] = 1")
 	}
 

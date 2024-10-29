@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strings"
 	"time"
 
 	"go.sia.tech/core/types"
@@ -91,7 +90,7 @@ func (hs HostSettings) MarshalJSON() ([]byte, error) {
 		"remainingstorage":           hs.RemainingStorage,
 		"sectorsize":                 hs.SectorSize,
 		"totalstorage":               hs.TotalStorage,
-		"unlockhash":                 strings.TrimPrefix(hs.Address.String(), "addr:"), // trim the "addr:" prefix for compatibility with siad
+		"unlockhash":                 hs.Address.String(),
 		"windowsize":                 hs.WindowSize,
 		"collateral":                 hs.Collateral,
 		"maxcollateral":              hs.MaxCollateral,
