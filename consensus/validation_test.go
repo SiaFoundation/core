@@ -1238,14 +1238,14 @@ func TestValidateV2Block(t *testing.T) {
 				"spends siacoin output not in accumulator",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
-					txn.SiacoinInputs[0].Parent.StateElement.ID[0] ^= 255
+					txn.SiacoinInputs[0].Parent.ID[0] ^= 255
 				},
 			},
 			{
 				"spends siafund output not in accumulator",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
-					txn.SiafundInputs[0].Parent.StateElement.ID[0] ^= 255
+					txn.SiafundInputs[0].Parent.ID[0] ^= 255
 				},
 			},
 			{
@@ -1741,7 +1741,7 @@ func TestV2RevisionApply(t *testing.T) {
 		Transactions: []types.V2Transaction{genesisTxn},
 	}
 	contractID := genesisTxn.V2FileContractID(genesisTxn.ID(), 0)
-	fces := make(map[types.Hash256]types.V2FileContractElement)
+	fces := make(map[types.FileContractID]types.V2FileContractElement)
 	applyContractChanges := func(au ApplyUpdate) {
 		au.ForEachV2FileContractElement(func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
 			switch {
@@ -1763,7 +1763,7 @@ func TestV2RevisionApply(t *testing.T) {
 
 	checkRevision := func(t *testing.T, expected uint64) {
 		t.Helper()
-		fce, ok := fces[types.Hash256(contractID)]
+		fce, ok := fces[contractID]
 		if !ok {
 			t.Fatal("missing revision")
 		} else if fce.V2FileContract.RevisionNumber != expected {
@@ -1785,7 +1785,7 @@ func TestV2RevisionApply(t *testing.T) {
 
 	txn1 := types.V2Transaction{
 		FileContractRevisions: []types.V2FileContractRevision{
-			{Parent: fces[types.Hash256(contractID)], Revision: rev1},
+			{Parent: fces[contractID], Revision: rev1},
 		},
 	}
 
@@ -1802,7 +1802,7 @@ func TestV2RevisionApply(t *testing.T) {
 
 	txn2 := types.V2Transaction{
 		FileContractRevisions: []types.V2FileContractRevision{
-			{Parent: fces[types.Hash256(contractID)], Revision: rev2},
+			{Parent: fces[contractID], Revision: rev2},
 		},
 	}
 	if err := ValidateV2Transaction(ms, txn2); err == nil {
@@ -1862,7 +1862,7 @@ func TestV2RenewalResolution(t *testing.T) {
 		Transactions: []types.V2Transaction{genesisTxn},
 	}
 	contractID := genesisTxn.V2FileContractID(genesisTxn.ID(), 0)
-	fces := make(map[types.Hash256]types.V2FileContractElement)
+	fces := make(map[types.FileContractID]types.V2FileContractElement)
 	genesisOutput := genesisTxn.EphemeralSiacoinOutput(0)
 	applyChanges := func(au ApplyUpdate) {
 		au.ForEachV2FileContractElement(func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
@@ -2020,7 +2020,7 @@ func TestV2RenewalResolution(t *testing.T) {
 			renewTxn := types.V2Transaction{
 				FileContractResolutions: []types.V2FileContractResolution{
 					{
-						Parent: fces[types.Hash256(contractID)],
+						Parent: fces[contractID],
 						Resolution: &types.V2FileContractRenewal{
 							FinalRevision:  finalRevision,
 							NewContract:    fc,
