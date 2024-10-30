@@ -1016,6 +1016,19 @@ func (tid TransactionID) MarshalText() ([]byte, error) {
 func (tid *TransactionID) UnmarshalText(b []byte) error { return unmarshalHex(tid[:], b) }
 
 // String implements fmt.Stringer.
+func (aid AttestationID) String() string { return hex.EncodeToString(aid[:]) }
+
+// MarshalText implements encoding.TextMarshaler.
+func (aid AttestationID) MarshalText() ([]byte, error) {
+	return []byte(hex.EncodeToString(aid[:])), nil
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (aid *AttestationID) UnmarshalText(b []byte) error {
+	return unmarshalHex(aid[:], b)
+}
+
+// String implements fmt.Stringer.
 func (scoid SiacoinOutputID) String() string { return hex.EncodeToString(scoid[:]) }
 
 // MarshalText implements encoding.TextMarshaler.

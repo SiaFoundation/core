@@ -377,6 +377,9 @@ func (index ChainIndex) EncodeTo(e *Encoder) {
 	index.ID.EncodeTo(e)
 }
 
+// EncodeTo implements types.EncoderTo.
+func (id AttestationID) EncodeTo(e *Encoder) { e.Write(id[:]) }
+
 // V1SiacoinOutput provides v1 encoding for SiacoinOutput.
 type V1SiacoinOutput SiacoinOutput
 
@@ -914,6 +917,9 @@ func (id *BlockID) DecodeFrom(d *Decoder) { d.Read(id[:]) }
 
 // DecodeFrom implements types.DecoderFrom.
 func (id *TransactionID) DecodeFrom(d *Decoder) { d.Read(id[:]) }
+
+// DecodeFrom implements types.DecoderFrom.
+func (id *AttestationID) DecodeFrom(d *Decoder) { d.Read(id[:]) }
 
 // DecodeFrom implements types.DecoderFrom.
 func (a *Address) DecodeFrom(d *Decoder) { d.Read(a[:]) }
