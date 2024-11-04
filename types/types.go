@@ -555,6 +555,16 @@ func (*V2FileContractExpiration) isV2FileContractResolution()   {}
 // revisions and immediately creating its valid outputs.
 type V2FileContractFinalization Signature
 
+// MarshalText implements encoding.TextMarshaler.
+func (fcf V2FileContractFinalization) MarshalText() ([]byte, error) {
+	return []byte(hex.EncodeToString(fcf[:])), nil
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (fcf *V2FileContractFinalization) UnmarshalText(data []byte) error {
+	return unmarshalHex(fcf[:], data)
+}
+
 // A V2FileContractRenewal renews a file contract.
 type V2FileContractRenewal struct {
 	FinalRevision  V2FileContract `json:"finalRevision"`
