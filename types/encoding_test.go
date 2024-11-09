@@ -11,6 +11,26 @@ import (
 	"lukechampine.com/frand"
 )
 
+func TestEncodePtrCast(t *testing.T) {
+	var buf bytes.Buffer
+	e := types.NewEncoder(&buf)
+	c := types.Siacoins(1)
+	types.EncodePtrCast[types.V1Currency](e, &c)
+	types.EncodePtrCast[types.V2Currency](e, &c)
+	types.EncodePtrCast[types.V2Currency](e, nil)
+	e.Flush()
+	var c1, c2, c3 *types.Currency
+	d := types.NewBufDecoder(buf.Bytes())
+	types.DecodePtrCast[types.V1Currency](d, &c1)
+	types.DecodePtrCast[types.V2Currency](d, &c2)
+	types.DecodePtrCast[types.V2Currency](d, &c3)
+	if err := d.Err(); err != nil {
+		t.Fatal(err)
+	} else if *c1 != c || *c2 != c || c3 != nil {
+		t.Fatal("mismatch:", c1, c2, c3)
+	}
+}
+
 func TestEncodeSlice(t *testing.T) {
 	txns := multiproofTxns(10, 10)
 	var buf bytes.Buffer

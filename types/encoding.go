@@ -117,6 +117,18 @@ func EncodePtr[T any, P interface {
 	}
 }
 
+// EncodePtrCast encodes a pointer to an object by casting it to V.
+func EncodePtrCast[V interface {
+	Cast() T
+	EncoderTo
+}, T any](e *Encoder, p *T) {
+	e.WriteBool(p != nil)
+	if p != nil {
+		vp := *(*V)(unsafe.Pointer(p))
+		vp.EncodeTo(e)
+	}
+}
+
 // EncodeSlice encodes a slice of objects that implement EncoderTo.
 func EncodeSlice[T EncoderTo](e *Encoder, s []T) {
 	e.WriteUint64(uint64(len(s)))
@@ -251,6 +263,22 @@ func DecodePtr[T any, TP interface {
 		TP(*v).DecodeFrom(d)
 	} else {
 		*v = nil
+	}
+}
+
+// DecodePtrCast decodes a pointer to an object by casting it to V.
+func DecodePtrCast[T interface {
+	Cast() V
+}, TP interface {
+	*T
+	DecoderFrom
+}, V any](d *Decoder, p **V) {
+	tp := (**T)(unsafe.Pointer(p))
+	if d.ReadBool() {
+		*tp = new(T)
+		TP(*tp).DecodeFrom(d)
+	} else {
+		*tp = nil
 	}
 }
 
