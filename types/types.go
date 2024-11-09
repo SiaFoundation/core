@@ -804,7 +804,26 @@ type V2BlockData struct {
 	Transactions []V2Transaction `json:"transactions"`
 }
 
-// A Block is a set of transactions grouped under a header.
+// A BlockHeader is the preimage of a Block's ID.
+type BlockHeader struct {
+	ParentID   BlockID   `json:"parentID"`
+	Nonce      uint64    `json:"nonce"`
+	Timestamp  time.Time `json:"timestamp"`
+	Commitment Hash256   `json:"commitment"`
+}
+
+// ID returns the hash of the header data.
+func (bh BlockHeader) ID() BlockID {
+	buf := make([]byte, 32+8+8+32)
+	copy(buf[:32], bh.ParentID[:])
+	binary.LittleEndian.PutUint64(buf[32:], bh.Nonce)
+	binary.LittleEndian.PutUint64(buf[40:], uint64(bh.Timestamp.Unix()))
+	copy(buf[48:], bh.Commitment[:])
+	return BlockID(HashBytes(buf))
+}
+
+// A Block is a timestamped set of transactions, immutably linked to a previous
+// block, secured by proof-of-work.
 type Block struct {
 	ParentID     BlockID         `json:"parentID"`
 	Nonce        uint64          `json:"nonce"`
@@ -815,12 +834,6 @@ type Block struct {
 	V2 *V2BlockData `json:"v2,omitempty"`
 }
 
-// MerkleRoot returns the Merkle root of the block's miner payouts and
-// transactions.
-func (b *Block) MerkleRoot() Hash256 {
-	return blockMerkleRoot(b.MinerPayouts, b.Transactions)
-}
-
 // V2Transactions returns the block's v2 transactions, if present.
 func (b *Block) V2Transactions() []V2Transaction {
 	if b.V2 != nil {
@@ -829,20 +842,26 @@ func (b *Block) V2Transactions() []V2Transaction {
 	return nil
 }
 
+// Header returns the block's header.
+func (b *Block) Header() BlockHeader {
+	var commitment Hash256
+	if b.V2 == nil {
+		// NOTE: expensive!
+		commitment = blockMerkleRoot(b.MinerPayouts, b.Transactions)
+	} else {
+		commitment = b.V2.Commitment
+	}
+	return BlockHeader{
+		ParentID:   b.ParentID,
+		Nonce:      b.Nonce,
+		Timestamp:  b.Timestamp,
+		Commitment: commitment,
+	}
+}
+
 // ID returns a hash that uniquely identifies a block.
 func (b *Block) ID() BlockID {
-	buf := make([]byte, 32+8+8+32)
-	binary.LittleEndian.PutUint64(buf[32:], b.Nonce)
-	binary.LittleEndian.PutUint64(buf[40:], uint64(b.Timestamp.Unix()))
-	if b.V2 != nil {
-		copy(buf[:32], "sia/id/block|")
-		copy(buf[48:], b.V2.Commitment[:])
-	} else {
-		root := b.MerkleRoot() // NOTE: expensive!
-		copy(buf[:32], b.ParentID[:])
-		copy(buf[48:], root[:])
-	}
-	return BlockID(HashBytes(buf))
+	return b.Header().ID()
 }
 
 func unmarshalHex(dst []byte, data []byte) error {

@@ -880,6 +880,14 @@ func (b V2BlockData) EncodeTo(e *Encoder) {
 	V2TransactionsMultiproof(b.Transactions).EncodeTo(e)
 }
 
+// EncodeTo implements types.EncoderTo.
+func (h BlockHeader) EncodeTo(e *Encoder) {
+	h.ParentID.EncodeTo(e)
+	e.WriteUint64(h.Nonce)
+	e.WriteTime(h.Timestamp)
+	h.Commitment.EncodeTo(e)
+}
+
 // V1Block provides v1 encoding for Block.
 type V1Block Block
 
@@ -1355,6 +1363,14 @@ func (b *V2BlockData) DecodeFrom(d *Decoder) {
 	b.Height = d.ReadUint64()
 	b.Commitment.DecodeFrom(d)
 	(*V2TransactionsMultiproof)(&b.Transactions).DecodeFrom(d)
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (h *BlockHeader) DecodeFrom(d *Decoder) {
+	h.ParentID.DecodeFrom(d)
+	h.Nonce = d.ReadUint64()
+	h.Timestamp = d.ReadTime()
+	h.Commitment.DecodeFrom(d)
 }
 
 // DecodeFrom implements types.DecoderFrom.
