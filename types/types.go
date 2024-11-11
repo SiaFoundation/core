@@ -257,7 +257,7 @@ type FileContract struct {
 	Payout             Currency        `json:"payout"`
 	ValidProofOutputs  []SiacoinOutput `json:"validProofOutputs"`
 	MissedProofOutputs []SiacoinOutput `json:"missedProofOutputs"`
-	UnlockHash         Hash256         `json:"unlockHash"`
+	UnlockHash         Address         `json:"unlockHash"`
 	RevisionNumber     uint64          `json:"revisionNumber"`
 }
 
@@ -1096,7 +1096,7 @@ func (fcr FileContractRevision) MarshalJSON() ([]byte, error) {
 		// Payout omitted; see FileContractRevision docstring
 		ValidProofOutputs  []SiacoinOutput `json:"validProofOutputs"`
 		MissedProofOutputs []SiacoinOutput `json:"missedProofOutputs"`
-		UnlockHash         Hash256         `json:"unlockHash"`
+		UnlockHash         Address         `json:"unlockHash"`
 		RevisionNumber     uint64          `json:"revisionNumber"`
 	}{
 		fcr.ParentID,
