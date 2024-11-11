@@ -629,9 +629,9 @@ type StateElement struct {
 
 // A ChainIndexElement is a record of a ChainIndex within the state accumulator.
 type ChainIndexElement struct {
-	ID           BlockID `json:"id"`
-	StateElement StateElement
-	ChainIndex   ChainIndex `json:"chainIndex"`
+	ID           BlockID      `json:"id"`
+	StateElement StateElement `json:"stateElement"`
+	ChainIndex   ChainIndex   `json:"chainIndex"`
 }
 
 // A SiacoinElement is a record of a SiacoinOutput within the state accumulator.
