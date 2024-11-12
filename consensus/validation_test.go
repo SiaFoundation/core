@@ -248,7 +248,7 @@ func prepareContractFormation(renterPubKey types.PublicKey, hostKey types.Public
 		WindowStart:    endHeight,
 		WindowEnd:      endHeight + windowSize,
 		Payout:         payout,
-		UnlockHash:     types.Hash256(uc.UnlockHash()),
+		UnlockHash:     uc.UnlockHash(),
 		RevisionNumber: 0,
 		ValidProofOutputs: []types.SiacoinOutput{
 			{Value: renterPayout, Address: refundAddr},
@@ -1658,7 +1658,7 @@ func TestWindowRevision(t *testing.T) {
 	fc := types.FileContract{
 		WindowStart: 0,
 		WindowEnd:   3,
-		UnlockHash:  types.Hash256(uc.UnlockHash()),
+		UnlockHash:  uc.UnlockHash(),
 	}
 	genesisBlock.Transactions = []types.Transaction{{
 		FileContracts: []types.FileContract{fc},

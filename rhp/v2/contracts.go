@@ -46,7 +46,7 @@ func PrepareContractFormation(renterPubKey types.PublicKey, hostKey types.Public
 		WindowStart:    uint64(endHeight),
 		WindowEnd:      uint64(endHeight + host.WindowSize),
 		Payout:         payout,
-		UnlockHash:     types.Hash256(uc.UnlockHash()),
+		UnlockHash:     uc.UnlockHash(),
 		RevisionNumber: 0,
 		ValidProofOutputs: []types.SiacoinOutput{
 			// outputs need to account for tax

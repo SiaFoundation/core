@@ -257,7 +257,7 @@ type FileContract struct {
 	Payout             Currency        `json:"payout"`
 	ValidProofOutputs  []SiacoinOutput `json:"validProofOutputs"`
 	MissedProofOutputs []SiacoinOutput `json:"missedProofOutputs"`
-	UnlockHash         Hash256         `json:"unlockHash"`
+	UnlockHash         Address         `json:"unlockHash"`
 	RevisionNumber     uint64          `json:"revisionNumber"`
 }
 
@@ -629,9 +629,9 @@ type StateElement struct {
 
 // A ChainIndexElement is a record of a ChainIndex within the state accumulator.
 type ChainIndexElement struct {
-	ID           BlockID `json:"id"`
-	StateElement StateElement
-	ChainIndex   ChainIndex `json:"chainIndex"`
+	ID           BlockID      `json:"id"`
+	StateElement StateElement `json:"stateElement"`
+	ChainIndex   ChainIndex   `json:"chainIndex"`
 }
 
 // A SiacoinElement is a record of a SiacoinOutput within the state accumulator.
@@ -1096,7 +1096,7 @@ func (fcr FileContractRevision) MarshalJSON() ([]byte, error) {
 		// Payout omitted; see FileContractRevision docstring
 		ValidProofOutputs  []SiacoinOutput `json:"validProofOutputs"`
 		MissedProofOutputs []SiacoinOutput `json:"missedProofOutputs"`
-		UnlockHash         Hash256         `json:"unlockHash"`
+		UnlockHash         Address         `json:"unlockHash"`
 		RevisionNumber     uint64          `json:"revisionNumber"`
 	}{
 		fcr.ParentID,

@@ -275,7 +275,7 @@ func validateFileContracts(ms *MidState, txn types.Transaction, ts V1Transaction
 			return fmt.Errorf("file contract revision %v revises contract after its proof window has opened", i)
 		} else if fcr.FileContract.RevisionNumber <= parent.FileContract.RevisionNumber {
 			return fmt.Errorf("file contract revision %v does not have a higher revision number than its parent", i)
-		} else if types.Hash256(fcr.UnlockConditions.UnlockHash()) != parent.FileContract.UnlockHash {
+		} else if fcr.UnlockConditions.UnlockHash() != parent.FileContract.UnlockHash {
 			return fmt.Errorf("file contract revision %v claims incorrect unlock conditions", i)
 		}
 		outputSum := func(outputs []types.SiacoinOutput) (sum types.Currency) {
