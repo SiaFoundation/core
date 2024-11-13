@@ -404,7 +404,7 @@ type Transaction struct {
 //
 // For convenience, the transaction's ID is also calculated and included. This field is ignored during unmarshalling.
 func (txn Transaction) MarshalJSON() ([]byte, error) {
-	type jsonTxn Transaction
+	type jsonTxn Transaction // prevent recursion
 	return json.Marshal(struct {
 		ID TransactionID `json:"id"`
 		jsonTxn
@@ -704,7 +704,7 @@ type V2Transaction struct {
 //
 // For convenience, the transaction's ID is also calculated and included. This field is ignored during unmarshalling.
 func (txn V2Transaction) MarshalJSON() ([]byte, error) {
-	type jsonTxn V2Transaction
+	type jsonTxn V2Transaction // prevent recursion
 	return json.Marshal(struct {
 		ID TransactionID `json:"id"`
 		jsonTxn
