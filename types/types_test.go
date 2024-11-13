@@ -759,6 +759,80 @@ func TestParseCurrency(t *testing.T) {
 	}
 }
 
+func TestTransactionJSONMarshalling(t *testing.T) {
+	txn := Transaction{
+		SiacoinOutputs: []SiacoinOutput{
+			{Address: frand.Entropy256(), Value: Siacoins(uint32(frand.Uint64n(math.MaxUint32)))},
+		},
+		SiacoinInputs: []SiacoinInput{
+			{
+				ParentID: frand.Entropy256(),
+				UnlockConditions: UnlockConditions{
+					PublicKeys: []UnlockKey{
+						PublicKey(frand.Entropy256()).UnlockKey(),
+					},
+					SignaturesRequired: 1,
+				},
+			},
+		},
+	}
+	expectedID := txn.ID()
+
+	buf, err := json.Marshal(txn)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	txnMap := make(map[string]any)
+	if err := json.Unmarshal(buf, &txnMap); err != nil {
+		t.Fatal(err)
+	} else if txnMap["id"] != expectedID.String() {
+		t.Fatalf("expected ID %q, got %q", expectedID.String(), txnMap["id"].(string))
+	}
+
+	var txn2 Transaction
+	if err := json.Unmarshal(buf, &txn2); err != nil {
+		t.Fatal(err)
+	} else if txn2.ID() != expectedID {
+		t.Fatalf("expected unmarshalled ID to be %q, got %q", expectedID, txn2.ID())
+	}
+}
+
+func TestV2TransactionJSONMarshalling(t *testing.T) {
+	txn := V2Transaction{
+		SiacoinInputs: []V2SiacoinInput{
+			{
+				Parent: SiacoinElement{
+					ID: frand.Entropy256(),
+					StateElement: StateElement{
+						LeafIndex: frand.Uint64n(math.MaxUint64),
+					},
+				},
+			},
+		},
+	}
+	expectedID := txn.ID()
+
+	buf, err := json.Marshal(txn)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	txnMap := make(map[string]any)
+	if err := json.Unmarshal(buf, &txnMap); err != nil {
+		t.Fatal(err)
+	} else if txnMap["id"] != expectedID.String() {
+		t.Fatalf("expected ID %q, got %q", expectedID.String(), txnMap["id"].(string))
+	}
+
+	var txn2 V2Transaction
+	if err := json.Unmarshal(buf, &txn2); err != nil {
+		t.Fatal(err)
+	} else if txn2.ID() != expectedID {
+		t.Fatalf("expected unmarshalled ID to be %q, got %q", expectedID, txn2.ID())
+	}
+}
+
 func TestUnmarshalHex(t *testing.T) {
 	for _, test := range []struct {
 		data   string
