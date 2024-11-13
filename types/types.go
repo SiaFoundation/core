@@ -402,34 +402,13 @@ type Transaction struct {
 
 // MarshalJSON implements json.Marshaller.
 //
-// json.Umarshaller is not implemented because the ID should be discarded.
+// For convenience, the transaction's ID is also calculated and included. This field is ignored during unmarshalling.
 func (txn Transaction) MarshalJSON() ([]byte, error) {
-	jsonTxn := struct {
-		ID                    TransactionID          `json:"id"`
-		SiacoinInputs         []SiacoinInput         `json:"siacoinInputs,omitempty"`
-		SiacoinOutputs        []SiacoinOutput        `json:"siacoinOutputs,omitempty"`
-		FileContracts         []FileContract         `json:"fileContracts,omitempty"`
-		FileContractRevisions []FileContractRevision `json:"fileContractRevisions,omitempty"`
-		StorageProofs         []StorageProof         `json:"storageProofs,omitempty"`
-		SiafundInputs         []SiafundInput         `json:"siafundInputs,omitempty"`
-		SiafundOutputs        []SiafundOutput        `json:"siafundOutputs,omitempty"`
-		MinerFees             []Currency             `json:"minerFees,omitempty"`
-		ArbitraryData         [][]byte               `json:"arbitraryData,omitempty"`
-		Signatures            []TransactionSignature `json:"signatures,omitempty"`
-	}{
-		ID:                    txn.ID(),
-		SiacoinInputs:         txn.SiacoinInputs,
-		SiacoinOutputs:        txn.SiacoinOutputs,
-		FileContracts:         txn.FileContracts,
-		FileContractRevisions: txn.FileContractRevisions,
-		StorageProofs:         txn.StorageProofs,
-		SiafundInputs:         txn.SiafundInputs,
-		SiafundOutputs:        txn.SiafundOutputs,
-		MinerFees:             txn.MinerFees,
-		ArbitraryData:         txn.ArbitraryData,
-		Signatures:            txn.Signatures,
-	}
-	return json.Marshal(jsonTxn)
+	type jsonTxn Transaction
+	return json.Marshal(struct {
+		ID TransactionID `json:"id"`
+		jsonTxn
+	}{txn.ID(), jsonTxn(txn)})
 }
 
 // ID returns the "semantic hash" of the transaction, covering all of the
@@ -723,36 +702,13 @@ type V2Transaction struct {
 
 // MarshalJSON implements json.Marshaller.
 //
-// json.Umarshaller is not implemented because the ID should be discarded.
+// For convenience, the transaction's ID is also calculated and included. This field is ignored during unmarshalling.
 func (txn V2Transaction) MarshalJSON() ([]byte, error) {
-	jsonTxn := struct {
-		ID                      TransactionID              `json:"id"`
-		SiacoinInputs           []V2SiacoinInput           `json:"siacoinInputs,omitempty"`
-		SiacoinOutputs          []SiacoinOutput            `json:"siacoinOutputs,omitempty"`
-		SiafundInputs           []V2SiafundInput           `json:"siafundInputs,omitempty"`
-		SiafundOutputs          []SiafundOutput            `json:"siafundOutputs,omitempty"`
-		FileContracts           []V2FileContract           `json:"fileContracts,omitempty"`
-		FileContractRevisions   []V2FileContractRevision   `json:"fileContractRevisions,omitempty"`
-		FileContractResolutions []V2FileContractResolution `json:"fileContractResolutions,omitempty"`
-		Attestations            []Attestation              `json:"attestations,omitempty"`
-		ArbitraryData           []byte                     `json:"arbitraryData,omitempty"`
-		NewFoundationAddress    *Address                   `json:"newFoundationAddress,omitempty"`
-		MinerFee                Currency                   `json:"minerFee"`
-	}{
-		ID:                      txn.ID(),
-		SiacoinInputs:           txn.SiacoinInputs,
-		SiacoinOutputs:          txn.SiacoinOutputs,
-		SiafundInputs:           txn.SiafundInputs,
-		SiafundOutputs:          txn.SiafundOutputs,
-		FileContracts:           txn.FileContracts,
-		FileContractRevisions:   txn.FileContractRevisions,
-		FileContractResolutions: txn.FileContractResolutions,
-		Attestations:            txn.Attestations,
-		ArbitraryData:           txn.ArbitraryData,
-		NewFoundationAddress:    txn.NewFoundationAddress,
-		MinerFee:                txn.MinerFee,
-	}
-	return json.Marshal(jsonTxn)
+	type jsonTxn V2Transaction
+	return json.Marshal(struct {
+		ID TransactionID `json:"id"`
+		jsonTxn
+	}{txn.ID(), jsonTxn(txn)})
 }
 
 // ID returns the "semantic hash" of the transaction, covering all of the
