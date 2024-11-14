@@ -400,6 +400,17 @@ type Transaction struct {
 	Signatures            []TransactionSignature `json:"signatures,omitempty"`
 }
 
+// MarshalJSON implements json.Marshaller.
+//
+// For convenience, the transaction's ID is also calculated and included. This field is ignored during unmarshalling.
+func (txn Transaction) MarshalJSON() ([]byte, error) {
+	type jsonTxn Transaction // prevent recursion
+	return json.Marshal(struct {
+		ID TransactionID `json:"id"`
+		jsonTxn
+	}{txn.ID(), jsonTxn(txn)})
+}
+
 // ID returns the "semantic hash" of the transaction, covering all of the
 // transaction's effects, but not incidental data such as signatures. This
 // ensures that the ID will remain stable (i.e. non-malleable).
@@ -687,6 +698,17 @@ type V2Transaction struct {
 	ArbitraryData           []byte                     `json:"arbitraryData,omitempty"`
 	NewFoundationAddress    *Address                   `json:"newFoundationAddress,omitempty"`
 	MinerFee                Currency                   `json:"minerFee"`
+}
+
+// MarshalJSON implements json.Marshaller.
+//
+// For convenience, the transaction's ID is also calculated and included. This field is ignored during unmarshalling.
+func (txn V2Transaction) MarshalJSON() ([]byte, error) {
+	type jsonTxn V2Transaction // prevent recursion
+	return json.Marshal(struct {
+		ID TransactionID `json:"id"`
+		jsonTxn
+	}{txn.ID(), jsonTxn(txn)})
 }
 
 // ID returns the "semantic hash" of the transaction, covering all of the
