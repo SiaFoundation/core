@@ -16,7 +16,13 @@ const (
 	// the contract expires.
 	ProofWindow = 144 // 24 hours
 
+	// TempSectorDuration is the number of blocks that temp sectors are expected to be stored
+	// before being removed
 	TempSectorDuration = 144 * 3
+
+	// MaxSectorBatchSize is the number of sector operations that can be batched into a single RPC.
+	// For example, the number of sectors appended to a contract within a single RPC append call or the
+	// number of sectors removed in a single RPC free call.
 	MaxSectorBatchSize = (1 << 40) / (SectorSize)
 
 	// SectorSize is the size of one sector in bytes.
