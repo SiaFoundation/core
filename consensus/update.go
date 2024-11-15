@@ -554,8 +554,6 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 			ms.addV2FileContractElement(fce.ID.V2RenewalID(), r.NewContract)
 		case *types.V2StorageProof:
 			renter, host = fc.RenterOutput, fc.HostOutput
-		case *types.V2FileContractFinalization:
-			renter, host = fc.RenterOutput, fc.HostOutput
 		case *types.V2FileContractExpiration:
 			renter, host = fc.RenterOutput, fc.MissedHostOutput()
 		}

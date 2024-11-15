@@ -847,13 +847,12 @@ func TestValidateV2Block(t *testing.T) {
 			txn.FileContractRevisions[i].Revision.HostSignature = hostPrivateKey.SignHash(cs.ContractSigHash(txn.FileContractRevisions[i].Revision))
 		}
 		for i := range txn.FileContractResolutions {
-			switch r := txn.FileContractResolutions[i].Resolution.(type) {
-			case *types.V2FileContractRenewal:
-				r.RenterSignature = renterPrivateKey.SignHash(cs.RenewalSigHash(*r))
-				r.HostSignature = hostPrivateKey.SignHash(cs.RenewalSigHash(*r))
-			case *types.V2FileContractFinalization:
-				*r = types.V2FileContractFinalization(renterPrivateKey.SignHash(cs.ContractSigHash(txn.FileContractResolutions[i].Parent.V2FileContract)))
+			r, ok := txn.FileContractResolutions[i].Resolution.(*types.V2FileContractRenewal)
+			if !ok {
+				continue
 			}
+			r.RenterSignature = renterPrivateKey.SignHash(cs.RenewalSigHash(*r))
+			r.HostSignature = hostPrivateKey.SignHash(cs.RenewalSigHash(*r))
 		}
 	}
 
@@ -1451,17 +1450,6 @@ func TestValidateV2Block(t *testing.T) {
 					txn.FileContractResolutions = []types.V2FileContractResolution{{
 						Parent:     testFces[0],
 						Resolution: &types.V2FileContractExpiration{},
-					}}
-				},
-			},
-			{
-				"file contract finalization with wrong revision number",
-				func(b *types.Block) {
-					txn := &b.V2.Transactions[0]
-					resolution := types.V2FileContractFinalization(renterPrivateKey.SignHash(cs.ContractSigHash((testFces[0].V2FileContract))))
-					txn.FileContractResolutions = []types.V2FileContractResolution{{
-						Parent:     testFces[0],
-						Resolution: &resolution,
 					}}
 				},
 			},
