@@ -20,7 +20,6 @@ import (
 const (
 	v2ResolutionRenewal      = "renewal"
 	v2ResolutionStorageProof = "storageProof"
-	v2ResolutionFinalization = "finalization"
 	v2ResolutionExpiration   = "expiration"
 )
 
@@ -528,15 +527,14 @@ type V2FileContractRevision struct {
 // 3) The host can submit a storage proof, asserting that it has faithfully
 // stored the contract data for the agreed-upon duration. Typically, a storage
 // proof is only required if the renter is unable or unwilling to sign a
-// finalization or renewal. A storage proof can only be submitted after the
-// contract's ProofHeight; this allows the renter (or host) to broadcast the
+// renewal. A storage proof can only be submitted after the contract's
+// ProofHeight; this allows the renter (or host) to broadcast the
 // latest contract revision prior to the proof.
 //
-// 4) Lastly, anyone can submit a contract expiration. Typically, an expiration
-// is only required if the host is unable or unwilling to sign a finalization or
-// renewal. An expiration can only be submitted after the contract's
-// ExpirationHeight; this gives the host a reasonable window of time after the
-// ProofHeight in which to submit a storage proof.
+// 4) Lastly, anyone can submit a contract expiration. An expiration can only
+// be submitted after the contract's ExpirationHeight; this gives the host a
+// reasonable window of time after the ProofHeight in which to submit a storage
+// proof.
 //
 // Once a contract has been resolved, it cannot be altered or resolved again.
 // When a contract is resolved, its RenterOutput and HostOutput are created
@@ -557,24 +555,9 @@ type V2FileContractResolutionType interface {
 	isV2FileContractResolution()
 }
 
-func (*V2FileContractFinalization) isV2FileContractResolution() {}
-func (*V2FileContractRenewal) isV2FileContractResolution()      {}
-func (*V2StorageProof) isV2FileContractResolution()             {}
-func (*V2FileContractExpiration) isV2FileContractResolution()   {}
-
-// A V2FileContractFinalization finalizes a contract, preventing further
-// revisions and immediately creating its valid outputs.
-type V2FileContractFinalization Signature
-
-// MarshalText implements encoding.TextMarshaler.
-func (fcf V2FileContractFinalization) MarshalText() ([]byte, error) {
-	return []byte(hex.EncodeToString(fcf[:])), nil
-}
-
-// UnmarshalText implements encoding.TextUnmarshaler.
-func (fcf *V2FileContractFinalization) UnmarshalText(data []byte) error {
-	return unmarshalHex(fcf[:], data)
-}
+func (*V2FileContractRenewal) isV2FileContractResolution()    {}
+func (*V2StorageProof) isV2FileContractResolution()           {}
+func (*V2FileContractExpiration) isV2FileContractResolution() {}
 
 // A V2FileContractRenewal renews a file contract.
 type V2FileContractRenewal struct {
@@ -1207,8 +1190,6 @@ func (res V2FileContractResolution) MarshalJSON() ([]byte, error) {
 		typ = v2ResolutionRenewal
 	case *V2StorageProof:
 		typ = v2ResolutionStorageProof
-	case *V2FileContractFinalization:
-		typ = v2ResolutionFinalization
 	case *V2FileContractExpiration:
 		typ = v2ResolutionExpiration
 	default:
@@ -1236,8 +1217,6 @@ func (res *V2FileContractResolution) UnmarshalJSON(b []byte) error {
 		res.Resolution = new(V2FileContractRenewal)
 	case v2ResolutionStorageProof:
 		res.Resolution = new(V2StorageProof)
-	case v2ResolutionFinalization:
-		res.Resolution = new(V2FileContractFinalization)
 	case v2ResolutionExpiration:
 		res.Resolution = new(V2FileContractExpiration)
 	default:

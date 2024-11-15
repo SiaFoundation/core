@@ -819,12 +819,6 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 			} else if !fc.HostPublicKey.VerifyHash(renewalHash, renewal.HostSignature) {
 				return fmt.Errorf("file contract renewal %v has invalid host signature", i)
 			}
-		case *types.V2FileContractFinalization:
-			finalRevision := fcr.Parent.V2FileContract
-			finalRevision.RevisionNumber = types.MaxRevisionNumber
-			if !finalRevision.RenterPublicKey.VerifyHash(ms.base.ContractSigHash(finalRevision), types.Signature(*r)) {
-				return fmt.Errorf("file contract finalization %v has invalid signature", i)
-			}
 		case *types.V2StorageProof:
 			sp := *r
 			if ms.base.childHeight() < fc.ProofHeight {
