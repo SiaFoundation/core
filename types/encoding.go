@@ -587,29 +587,10 @@ func (p SpendPolicy) EncodeTo(e *Encoder) {
 // EncodeTo implements types.EncoderTo.
 func (sp SatisfiedPolicy) EncodeTo(e *Encoder) {
 	sp.Policy.EncodeTo(e)
-	var sigi, prei int
-	var rec func(SpendPolicy)
-	rec = func(p SpendPolicy) {
-		switch p := p.Type.(type) {
-		case PolicyTypePublicKey:
-			sp.Signatures[sigi].EncodeTo(e)
-			sigi++
-		case PolicyTypeHash:
-			e.Write(sp.Preimages[prei][:])
-			prei++
-		case PolicyTypeThreshold:
-			for i := range p.Of {
-				rec(p.Of[i])
-			}
-		case PolicyTypeUnlockConditions:
-			for i := range p.PublicKeys {
-				rec(PolicyPublicKey(*(*PublicKey)(p.PublicKeys[i].Key)))
-			}
-		default:
-			// nothing to do
-		}
-	}
-	rec(sp.Policy)
+	EncodeSlice(e, sp.Signatures)
+	EncodeSliceFn(e, sp.Preimages, func(e *Encoder, pre [32]byte) {
+		Hash256(pre).EncodeTo(e)
+	})
 }
 
 // EncodeTo implements types.EncoderTo.
@@ -1165,43 +1146,11 @@ func (p *SpendPolicy) DecodeFrom(d *Decoder) {
 // DecodeFrom implements types.DecoderFrom.
 func (sp *SatisfiedPolicy) DecodeFrom(d *Decoder) {
 	sp.Policy.DecodeFrom(d)
-	// if policy decoding fails, the code below (namely the array cast) may
-	// panic, so abort early
-	if d.Err() != nil {
+	DecodeSlice(d, &sp.Signatures)
+	DecodeSliceFn(d, &sp.Preimages, func(d *Decoder) (pre [32]byte) {
+		(*Hash256)(&pre).DecodeFrom(d)
 		return
-	}
-
-	var rec func(SpendPolicy)
-	rec = func(p SpendPolicy) {
-		switch p := p.Type.(type) {
-		case PolicyTypePublicKey:
-			var s Signature
-			s.DecodeFrom(d)
-			sp.Signatures = append(sp.Signatures, s)
-		case PolicyTypeHash:
-			var pre [32]byte
-			d.Read(pre[:])
-			sp.Preimages = append(sp.Preimages, pre)
-		case PolicyTypeThreshold:
-			for i := range p.Of {
-				rec(p.Of[i])
-			}
-		case PolicyTypeUnlockConditions:
-			for _, uk := range p.PublicKeys {
-				if len(uk.Key) != 32 {
-					d.SetErr(fmt.Errorf("invalid public key length: %d", len(uk.Key)))
-					return
-				} else if uk.Algorithm != SpecifierEd25519 {
-					d.SetErr(fmt.Errorf("invalid specifier: %v", uk.Algorithm))
-					return
-				}
-				rec(PolicyPublicKey(*(*PublicKey)(uk.Key)))
-			}
-		default:
-			// nothing to do
-		}
-	}
-	rec(sp.Policy)
+	})
 }
 
 // DecodeFrom implements types.DecoderFrom.
