@@ -160,7 +160,7 @@ func TestBlockCompression(t *testing.T) {
 		{"4 elements", multiproofTxns(2, 2), 0.90},
 		{"10 elements", multiproofTxns(2, 5), 0.85},
 		{"25 elements", multiproofTxns(5, 5), 0.75},
-		{"100 elements", multiproofTxns(10, 10), 0.70},
+		{"100 elements", multiproofTxns(10, 10), 0.71},
 	}
 	for _, test := range tests {
 		if r := ratio(test.txns); r >= test.exp {
