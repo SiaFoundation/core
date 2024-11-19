@@ -106,7 +106,7 @@ func (hp HostPrices) RPCReadSectorCost(length uint64) Usage {
 }
 
 // RPCWriteSectorCost returns the cost of executing the WriteSector RPC with the
-// given sector length and duration.
+// given sector length.
 func (hp HostPrices) RPCWriteSectorCost(sectorLength uint64) Usage {
 	return Usage{
 		Storage: hp.StoragePrice.Mul64(SectorSize).Mul64(TempSectorDuration),
