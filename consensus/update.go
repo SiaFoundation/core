@@ -367,7 +367,7 @@ func (ms *MidState) addSiafundElement(id types.SiafundOutputID, sfo types.Siafun
 		StateElement:  types.StateElement{LeafIndex: types.UnassignedLeafIndex},
 		ID:            id,
 		SiafundOutput: sfo,
-		ClaimStart:    ms.siafundPool,
+		ClaimStart:    ms.siafundTaxRevenue,
 	}
 	ms.sfes = append(ms.sfes, sfe)
 	ms.created[ms.sfes[len(ms.sfes)-1].ID] = len(ms.sfes) - 1
@@ -389,7 +389,7 @@ func (ms *MidState) addFileContractElement(id types.FileContractID, fc types.Fil
 	}
 	ms.fces = append(ms.fces, fce)
 	ms.created[ms.fces[len(ms.fces)-1].ID] = len(ms.fces) - 1
-	ms.siafundPool = ms.siafundPool.Add(ms.base.FileContractTax(fce.FileContract))
+	ms.siafundTaxRevenue = ms.siafundTaxRevenue.Add(ms.base.FileContractTax(fce.FileContract))
 }
 
 func (ms *MidState) reviseFileContractElement(fce types.FileContractElement, rev types.FileContract) {
@@ -426,7 +426,7 @@ func (ms *MidState) addV2FileContractElement(id types.FileContractID, fc types.V
 	}
 	ms.v2fces = append(ms.v2fces, fce)
 	ms.created[ms.v2fces[len(ms.v2fces)-1].ID] = len(ms.v2fces) - 1
-	ms.siafundPool = ms.siafundPool.Add(ms.base.V2FileContractTax(fce.V2FileContract))
+	ms.siafundTaxRevenue = ms.siafundTaxRevenue.Add(ms.base.V2FileContractTax(fce.V2FileContract))
 }
 
 func (ms *MidState) reviseV2FileContractElement(fce types.V2FileContractElement, rev types.V2FileContract) {
@@ -477,7 +477,7 @@ func (ms *MidState) ApplyTransaction(txn types.Transaction, ts V1TransactionSupp
 		if !ok {
 			panic("missing SiafundElement")
 		}
-		claimPortion := ms.siafundPool.Sub(sfe.ClaimStart).Div64(ms.base.SiafundCount()).Mul64(sfe.SiafundOutput.Value)
+		claimPortion := ms.siafundTaxRevenue.Sub(sfe.ClaimStart).Div64(ms.base.SiafundCount()).Mul64(sfe.SiafundOutput.Value)
 		ms.spendSiafundElement(sfe, txid)
 		ms.addImmatureSiacoinElement(sfi.ParentID.ClaimOutputID(), types.SiacoinOutput{Value: claimPortion, Address: sfi.ClaimAddress})
 	}
@@ -528,7 +528,7 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 	}
 	for _, sfi := range txn.SiafundInputs {
 		ms.spendSiafundElement(sfi.Parent, txid)
-		claimPortion := ms.siafundPool.Sub(sfi.Parent.ClaimStart).Div64(ms.base.SiafundCount()).Mul64(sfi.Parent.SiafundOutput.Value)
+		claimPortion := ms.siafundTaxRevenue.Sub(sfi.Parent.ClaimStart).Div64(ms.base.SiafundCount()).Mul64(sfi.Parent.SiafundOutput.Value)
 		ms.addImmatureSiacoinElement(sfi.Parent.ID.V2ClaimOutputID(), types.SiacoinOutput{Value: claimPortion, Address: sfi.ClaimAddress})
 	}
 	for i, sfo := range txn.SiafundOutputs {
@@ -736,7 +736,7 @@ func ApplyBlock(s State, b types.Block, bs V1BlockSupplement, targetTimestamp ti
 
 	ms := NewMidState(s)
 	ms.ApplyBlock(b, bs)
-	s.SiafundPool = ms.siafundPool
+	s.SiafundTaxRevenue = ms.siafundTaxRevenue
 	s.Attestations += uint64(len(ms.aes))
 	s.FoundationPrimaryAddress = ms.foundationPrimary
 	s.FoundationFailsafeAddress = ms.foundationFailsafe

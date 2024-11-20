@@ -641,7 +641,7 @@ type SiafundElement struct {
 	ID            SiafundOutputID `json:"id"`
 	StateElement  StateElement    `json:"stateElement"`
 	SiafundOutput SiafundOutput   `json:"siafundOutput"`
-	ClaimStart    Currency        `json:"claimStart"` // value of SiafundPool when element was created
+	ClaimStart    Currency        `json:"claimStart"` // value of SiafundTaxRevenue when element was created
 }
 
 // A FileContractElement is a record of a FileContract within the state

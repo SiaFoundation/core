@@ -91,11 +91,11 @@ func (n *Network) GenesisState() State {
 	return State{
 		Network: n,
 
-		Index:          types.ChainIndex{Height: ^uint64(0)},
-		PrevTimestamps: [11]time.Time{},
-		Depth:          intToTarget(maxTarget),
-		ChildTarget:    n.InitialTarget,
-		SiafundPool:    types.ZeroCurrency,
+		Index:             types.ChainIndex{Height: ^uint64(0)},
+		PrevTimestamps:    [11]time.Time{},
+		Depth:             intToTarget(maxTarget),
+		ChildTarget:       n.InitialTarget,
+		SiafundTaxRevenue: types.ZeroCurrency,
 
 		OakTime:                   0,
 		OakTarget:                 intToTarget(maxTarget),
@@ -111,11 +111,11 @@ func (n *Network) GenesisState() State {
 type State struct {
 	Network *Network `json:"-"` // network parameters are not encoded
 
-	Index          types.ChainIndex `json:"index"`
-	PrevTimestamps [11]time.Time    `json:"prevTimestamps"` // newest -> oldest
-	Depth          types.BlockID    `json:"depth"`
-	ChildTarget    types.BlockID    `json:"childTarget"`
-	SiafundPool    types.Currency   `json:"siafundPool"`
+	Index             types.ChainIndex `json:"index"`
+	PrevTimestamps    [11]time.Time    `json:"prevTimestamps"` // newest -> oldest
+	Depth             types.BlockID    `json:"depth"`
+	ChildTarget       types.BlockID    `json:"childTarget"`
+	SiafundTaxRevenue types.Currency   `json:"siafundTaxRevenue"`
 
 	// Oak hardfork state
 	OakTime   time.Duration `json:"oakTime"`
@@ -139,7 +139,7 @@ func (s State) EncodeTo(e *types.Encoder) {
 	}
 	s.Depth.EncodeTo(e)
 	s.ChildTarget.EncodeTo(e)
-	types.V2Currency(s.SiafundPool).EncodeTo(e)
+	types.V2Currency(s.SiafundTaxRevenue).EncodeTo(e)
 
 	e.WriteUint64(uint64(s.OakTime))
 	s.OakTarget.EncodeTo(e)
@@ -160,7 +160,7 @@ func (s *State) DecodeFrom(d *types.Decoder) {
 	}
 	s.Depth.DecodeFrom(d)
 	s.ChildTarget.DecodeFrom(d)
-	(*types.V2Currency)(&s.SiafundPool).DecodeFrom(d)
+	(*types.V2Currency)(&s.SiafundTaxRevenue).DecodeFrom(d)
 
 	s.OakTime = time.Duration(d.ReadUint64())
 	s.OakTarget.DecodeFrom(d)
@@ -533,7 +533,7 @@ func (s State) PartialSigHash(txn types.Transaction, cf types.CoveredFields) typ
 
 // TransactionsCommitment returns the commitment hash covering the transactions
 // that comprise a child block.
-func (s *State) TransactionsCommitment(txns []types.Transaction, v2txns []types.V2Transaction) types.Hash256 {
+func (s State) TransactionsCommitment(txns []types.Transaction, v2txns []types.V2Transaction) types.Hash256 {
 	var acc blake2b.Accumulator
 	for _, txn := range txns {
 		acc.AddLeaf(txn.FullHash())
@@ -595,7 +595,7 @@ type MidState struct {
 	res                map[types.FileContractID]bool
 	v2revs             map[types.FileContractID]*types.V2FileContractElement
 	v2res              map[types.FileContractID]types.V2FileContractResolutionType
-	siafundPool        types.Currency
+	siafundTaxRevenue  types.Currency
 	foundationPrimary  types.Address
 	foundationFailsafe types.Address
 
@@ -657,7 +657,7 @@ func NewMidState(s State) *MidState {
 		res:                make(map[types.FileContractID]bool),
 		v2revs:             make(map[types.FileContractID]*types.V2FileContractElement),
 		v2res:              make(map[types.FileContractID]types.V2FileContractResolutionType),
-		siafundPool:        s.SiafundPool,
+		siafundTaxRevenue:  s.SiafundTaxRevenue,
 		foundationPrimary:  s.FoundationPrimaryAddress,
 		foundationFailsafe: s.FoundationFailsafeAddress,
 	}
