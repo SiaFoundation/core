@@ -264,7 +264,7 @@ func TestPolicyVerify(t *testing.T) {
 		if err := test.p.Verify(test.height, time.Time{}, sigHash, test.sigs, nil); err != nil && test.valid {
 			t.Fatalf("%v: %v", test.desc, err)
 		} else if err == nil && !test.valid {
-			t.Fatal("expected error")
+			t.Fatalf("%v: expected error", test.desc)
 		}
 	}
 }
