@@ -609,7 +609,7 @@ type MidState struct {
 }
 
 func (ms *MidState) siacoinElement(ts V1TransactionSupplement, id types.SiacoinOutputID) (types.SiacoinElement, bool) {
-	if i, ok := ms.created[types.Hash256(id)]; ok {
+	if i, ok := ms.created[id]; ok {
 		return ms.sces[i], true
 	}
 	return ts.siacoinElement(id)
@@ -714,7 +714,7 @@ func (ts *V1TransactionSupplement) DecodeFrom(d *types.Decoder) {
 
 func (ts V1TransactionSupplement) siacoinElement(id types.SiacoinOutputID) (sce types.SiacoinElement, ok bool) {
 	for _, sce := range ts.SiacoinInputs {
-		if types.SiacoinOutputID(sce.ID) == id {
+		if sce.ID == id {
 			return sce, true
 		}
 	}
@@ -723,7 +723,7 @@ func (ts V1TransactionSupplement) siacoinElement(id types.SiacoinOutputID) (sce 
 
 func (ts V1TransactionSupplement) siafundElement(id types.SiafundOutputID) (sfe types.SiafundElement, ok bool) {
 	for _, sfe := range ts.SiafundInputs {
-		if types.SiafundOutputID(sfe.ID) == id {
+		if sfe.ID == id {
 			return sfe, true
 		}
 	}
@@ -732,7 +732,7 @@ func (ts V1TransactionSupplement) siafundElement(id types.SiafundOutputID) (sfe 
 
 func (ts V1TransactionSupplement) revision(id types.FileContractID) (fce types.FileContractElement, ok bool) {
 	for _, fce := range ts.RevisedFileContracts {
-		if types.FileContractID(fce.ID) == id {
+		if fce.ID == id {
 			return fce, true
 		}
 	}
@@ -741,7 +741,7 @@ func (ts V1TransactionSupplement) revision(id types.FileContractID) (fce types.F
 
 func (ts V1TransactionSupplement) storageProof(id types.FileContractID) (sps V1StorageProofSupplement, ok bool) {
 	for _, sps := range ts.StorageProofs {
-		if types.FileContractID(sps.FileContract.ID) == id {
+		if sps.FileContract.ID == id {
 			return sps, true
 		}
 	}

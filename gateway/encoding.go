@@ -53,36 +53,6 @@ func (h *Header) decodeFrom(d *types.Decoder) {
 	h.NetAddress = d.ReadString()
 }
 
-func (h *BlockHeader) encodeTo(e *types.Encoder) {
-	h.ParentID.EncodeTo(e)
-	e.WriteUint64(h.Nonce)
-	e.WriteTime(h.Timestamp)
-	h.MerkleRoot.EncodeTo(e)
-}
-
-func (h *BlockHeader) decodeFrom(d *types.Decoder) {
-	h.ParentID.DecodeFrom(d)
-	h.Nonce = d.ReadUint64()
-	h.Timestamp = d.ReadTime()
-	h.MerkleRoot.DecodeFrom(d)
-}
-
-func (h *V2BlockHeader) encodeTo(e *types.Encoder) {
-	h.Parent.EncodeTo(e)
-	e.WriteUint64(h.Nonce)
-	e.WriteTime(h.Timestamp)
-	h.TransactionsRoot.EncodeTo(e)
-	h.MinerAddress.EncodeTo(e)
-}
-
-func (h *V2BlockHeader) decodeFrom(d *types.Decoder) {
-	h.Parent.DecodeFrom(d)
-	h.Nonce = d.ReadUint64()
-	h.Timestamp = d.ReadTime()
-	h.TransactionsRoot.DecodeFrom(d)
-	h.MinerAddress.DecodeFrom(d)
-}
-
 func (ob *V2BlockOutline) encodeTo(e *types.Encoder) {
 	e.WriteUint64(ob.Height)
 	ob.ParentID.EncodeTo(e)
@@ -261,12 +231,12 @@ func (r *RPCSendBlk) maxResponseLen() int             { return 5e6 }
 
 // RPCRelayHeader relays a header.
 type RPCRelayHeader struct {
-	Header BlockHeader
+	Header types.BlockHeader
 	emptyResponse
 }
 
-func (r *RPCRelayHeader) encodeRequest(e *types.Encoder) { r.Header.encodeTo(e) }
-func (r *RPCRelayHeader) decodeRequest(d *types.Decoder) { r.Header.decodeFrom(d) }
+func (r *RPCRelayHeader) encodeRequest(e *types.Encoder) { r.Header.EncodeTo(e) }
+func (r *RPCRelayHeader) decodeRequest(d *types.Decoder) { r.Header.DecodeFrom(d) }
 func (r *RPCRelayHeader) maxRequestLen() int             { return 32 + 8 + 8 + 32 }
 
 // RPCRelayTransactionSet relays a transaction set.
@@ -364,13 +334,13 @@ func (r *RPCSendCheckpoint) maxResponseLen() int { return 5e6 + 4e3 }
 
 // RPCRelayV2Header relays a v2 block header.
 type RPCRelayV2Header struct {
-	Header V2BlockHeader
+	Header types.BlockHeader
 	emptyResponse
 }
 
-func (r *RPCRelayV2Header) encodeRequest(e *types.Encoder) { r.Header.encodeTo(e) }
-func (r *RPCRelayV2Header) decodeRequest(d *types.Decoder) { r.Header.decodeFrom(d) }
-func (r *RPCRelayV2Header) maxRequestLen() int             { return 8 + 32 + 8 + 8 + 32 + 32 }
+func (r *RPCRelayV2Header) encodeRequest(e *types.Encoder) { r.Header.EncodeTo(e) }
+func (r *RPCRelayV2Header) decodeRequest(d *types.Decoder) { r.Header.DecodeFrom(d) }
+func (r *RPCRelayV2Header) maxRequestLen() int             { return 8 + 32 + 32 + 8 }
 
 // RPCRelayV2BlockOutline relays a v2 block outline.
 type RPCRelayV2BlockOutline struct {

@@ -1,49 +1,12 @@
 package gateway
 
 import (
-	"encoding/binary"
 	"time"
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/internal/blake2b"
 	"go.sia.tech/core/types"
 )
-
-// A BlockHeader contains a Block's non-transaction data.
-type BlockHeader struct {
-	ParentID   types.BlockID
-	Nonce      uint64
-	Timestamp  time.Time
-	MerkleRoot types.Hash256
-}
-
-// ID returns a hash that uniquely identifies the block.
-func (h BlockHeader) ID() types.BlockID {
-	buf := make([]byte, 32+8+8+32)
-	copy(buf[:32], h.ParentID[:])
-	binary.LittleEndian.PutUint64(buf[32:], h.Nonce)
-	binary.LittleEndian.PutUint64(buf[40:], uint64(h.Timestamp.Unix()))
-	copy(buf[48:], h.MerkleRoot[:])
-	return types.BlockID(types.HashBytes(buf))
-}
-
-// A V2BlockHeader contains a V2Block's non-transaction data.
-type V2BlockHeader struct {
-	Parent           types.ChainIndex
-	Nonce            uint64
-	Timestamp        time.Time
-	TransactionsRoot types.Hash256
-	MinerAddress     types.Address
-}
-
-// ID returns a hash that uniquely identifies the block.
-func (h V2BlockHeader) ID(cs consensus.State) types.BlockID {
-	return (&types.Block{
-		Nonce:     h.Nonce,
-		Timestamp: h.Timestamp,
-		V2:        &types.V2BlockData{Commitment: cs.Commitment(h.TransactionsRoot, h.MinerAddress)},
-	}).ID()
-}
 
 // An OutlineTransaction identifies a transaction by its full hash. The actual
 // transaction data may or may not be present.
@@ -75,11 +38,12 @@ func (bo V2BlockOutline) commitment(cs consensus.State) types.Hash256 {
 
 // ID returns a hash that uniquely identifies the block.
 func (bo V2BlockOutline) ID(cs consensus.State) types.BlockID {
-	return (&types.Block{
-		Nonce:     bo.Nonce,
-		Timestamp: bo.Timestamp,
-		V2:        &types.V2BlockData{Commitment: bo.commitment(cs)},
-	}).ID()
+	return types.BlockHeader{
+		ParentID:   bo.ParentID,
+		Nonce:      bo.Nonce,
+		Timestamp:  bo.Timestamp,
+		Commitment: bo.commitment(cs),
+	}.ID()
 }
 
 // Missing returns the hashes of transactions that are missing from the block.

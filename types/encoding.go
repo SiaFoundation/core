@@ -117,6 +117,18 @@ func EncodePtr[T any, P interface {
 	}
 }
 
+// EncodePtrCast encodes a pointer to an object by casting it to V.
+func EncodePtrCast[V interface {
+	Cast() T
+	EncoderTo
+}, T any](e *Encoder, p *T) {
+	e.WriteBool(p != nil)
+	if p != nil {
+		vp := *(*V)(unsafe.Pointer(p))
+		vp.EncodeTo(e)
+	}
+}
+
 // EncodeSlice encodes a slice of objects that implement EncoderTo.
 func EncodeSlice[T EncoderTo](e *Encoder, s []T) {
 	e.WriteUint64(uint64(len(s)))
@@ -251,6 +263,22 @@ func DecodePtr[T any, TP interface {
 		TP(*v).DecodeFrom(d)
 	} else {
 		*v = nil
+	}
+}
+
+// DecodePtrCast decodes a pointer to an object by casting it to V.
+func DecodePtrCast[T interface {
+	Cast() V
+}, TP interface {
+	*T
+	DecoderFrom
+}, V any](d *Decoder, p **V) {
+	tp := (**T)(unsafe.Pointer(p))
+	if d.ReadBool() {
+		*tp = new(T)
+		TP(*tp).DecodeFrom(d)
+	} else {
+		*tp = nil
 	}
 }
 
@@ -852,6 +880,14 @@ func (b V2BlockData) EncodeTo(e *Encoder) {
 	V2TransactionsMultiproof(b.Transactions).EncodeTo(e)
 }
 
+// EncodeTo implements types.EncoderTo.
+func (h BlockHeader) EncodeTo(e *Encoder) {
+	h.ParentID.EncodeTo(e)
+	e.WriteUint64(h.Nonce)
+	e.WriteTime(h.Timestamp)
+	h.Commitment.EncodeTo(e)
+}
+
 // V1Block provides v1 encoding for Block.
 type V1Block Block
 
@@ -1327,6 +1363,14 @@ func (b *V2BlockData) DecodeFrom(d *Decoder) {
 	b.Height = d.ReadUint64()
 	b.Commitment.DecodeFrom(d)
 	(*V2TransactionsMultiproof)(&b.Transactions).DecodeFrom(d)
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (h *BlockHeader) DecodeFrom(d *Decoder) {
+	h.ParentID.DecodeFrom(d)
+	h.Nonce = d.ReadUint64()
+	h.Timestamp = d.ReadTime()
+	h.Commitment.DecodeFrom(d)
 }
 
 // DecodeFrom implements types.DecoderFrom.
