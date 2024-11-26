@@ -142,12 +142,12 @@ func (p SpendPolicy) Verify(height uint64, medianTimestamp time.Time, sigHash Ha
 			if height >= uint64(p) {
 				return nil
 			}
-			return fmt.Errorf("height not above %v", uint64(p))
+			return fmt.Errorf("height (%v) not above %v", height, uint64(p))
 		case PolicyTypeAfter:
 			if medianTimestamp.After(time.Time(p)) {
 				return nil
 			}
-			return fmt.Errorf("median timestamp not after %v", time.Time(p))
+			return fmt.Errorf("median timestamp (%v) not after %v", medianTimestamp, time.Time(p))
 		case PolicyTypePublicKey:
 			if sig, ok := nextSig(); ok && PublicKey(p).VerifyHash(sigHash, sig) {
 				return nil
