@@ -97,13 +97,13 @@ func (n *Network) GenesisState() State {
 		ChildTarget:    n.InitialTarget,
 		SiafundPool:    types.ZeroCurrency,
 
-		OakTime:                   0,
-		OakTarget:                 intToTarget(maxTarget),
-		FoundationPrimaryAddress:  n.HardforkFoundation.PrimaryAddress,
-		FoundationFailsafeAddress: n.HardforkFoundation.FailsafeAddress,
-		TotalWork:                 Work{invTarget(intToTarget(maxTarget))},
-		Difficulty:                Work{invTarget(n.InitialTarget)},
-		OakWork:                   Work{invTarget(intToTarget(maxTarget))},
+		OakTime:                     0,
+		OakTarget:                   intToTarget(maxTarget),
+		FoundationSubsidyAddress:    n.HardforkFoundation.PrimaryAddress,
+		FoundationManagementAddress: n.HardforkFoundation.FailsafeAddress,
+		TotalWork:                   Work{invTarget(intToTarget(maxTarget))},
+		Difficulty:                  Work{invTarget(n.InitialTarget)},
+		OakWork:                     Work{invTarget(intToTarget(maxTarget))},
 	}
 }
 
@@ -121,8 +121,8 @@ type State struct {
 	OakTime   time.Duration `json:"oakTime"`
 	OakTarget types.BlockID `json:"oakTarget"`
 	// Foundation hardfork state
-	FoundationPrimaryAddress  types.Address `json:"foundationPrimaryAddress"`
-	FoundationFailsafeAddress types.Address `json:"foundationFailsafeAddress"`
+	FoundationSubsidyAddress    types.Address `json:"foundationSubsidyAddress"`
+	FoundationManagementAddress types.Address `json:"foundationManagementAddress"`
 	// v2 hardfork state
 	TotalWork    Work               `json:"totalWork"`
 	Difficulty   Work               `json:"difficulty"`
@@ -143,8 +143,8 @@ func (s State) EncodeTo(e *types.Encoder) {
 
 	e.WriteUint64(uint64(s.OakTime))
 	s.OakTarget.EncodeTo(e)
-	s.FoundationPrimaryAddress.EncodeTo(e)
-	s.FoundationFailsafeAddress.EncodeTo(e)
+	s.FoundationSubsidyAddress.EncodeTo(e)
+	s.FoundationManagementAddress.EncodeTo(e)
 	s.TotalWork.EncodeTo(e)
 	s.Difficulty.EncodeTo(e)
 	s.OakWork.EncodeTo(e)
@@ -164,8 +164,8 @@ func (s *State) DecodeFrom(d *types.Decoder) {
 
 	s.OakTime = time.Duration(d.ReadUint64())
 	s.OakTarget.DecodeFrom(d)
-	s.FoundationPrimaryAddress.DecodeFrom(d)
-	s.FoundationFailsafeAddress.DecodeFrom(d)
+	s.FoundationSubsidyAddress.DecodeFrom(d)
+	s.FoundationManagementAddress.DecodeFrom(d)
 	s.TotalWork.DecodeFrom(d)
 	s.Difficulty.DecodeFrom(d)
 	s.OakWork.DecodeFrom(d)
@@ -258,10 +258,10 @@ func (s State) AncestorDepth() uint64 {
 
 // FoundationSubsidy returns the Foundation subsidy output for the child block.
 func (s State) FoundationSubsidy() (sco types.SiacoinOutput, exists bool) {
-	if s.FoundationPrimaryAddress == types.VoidAddress {
+	if s.FoundationSubsidyAddress == types.VoidAddress {
 		return types.SiacoinOutput{}, false
 	}
-	sco.Address = s.FoundationPrimaryAddress
+	sco.Address = s.FoundationSubsidyAddress
 	subsidyPerBlock := types.Siacoins(30000)
 	blocksPerYear := uint64(365 * 24 * time.Hour / s.BlockInterval())
 	blocksPerMonth := blocksPerYear / 12
@@ -589,16 +589,16 @@ func (s State) AttestationSigHash(a types.Attestation) types.Hash256 {
 
 // A MidState represents the state of the chain within a block.
 type MidState struct {
-	base               State
-	created            map[types.ElementID]int // indices into element slices
-	spends             map[types.ElementID]types.TransactionID
-	revs               map[types.FileContractID]*types.FileContractElement
-	res                map[types.FileContractID]bool
-	v2revs             map[types.FileContractID]*types.V2FileContractElement
-	v2res              map[types.FileContractID]types.V2FileContractResolutionType
-	siafundPool        types.Currency
-	foundationPrimary  types.Address
-	foundationFailsafe types.Address
+	base                 State
+	created              map[types.ElementID]int // indices into element slices
+	spends               map[types.ElementID]types.TransactionID
+	revs                 map[types.FileContractID]*types.FileContractElement
+	res                  map[types.FileContractID]bool
+	v2revs               map[types.FileContractID]*types.V2FileContractElement
+	v2res                map[types.FileContractID]types.V2FileContractResolutionType
+	siafundPool          types.Currency
+	foundationSubsidy    types.Address
+	foundationManagement types.Address
 
 	// elements created/updated by block
 	sces   []types.SiacoinElement
@@ -651,16 +651,16 @@ func (ms *MidState) isCreated(id types.ElementID) bool {
 // NewMidState constructs a MidState initialized to the provided base state.
 func NewMidState(s State) *MidState {
 	return &MidState{
-		base:               s,
-		created:            make(map[types.ElementID]int),
-		spends:             make(map[types.ElementID]types.TransactionID),
-		revs:               make(map[types.FileContractID]*types.FileContractElement),
-		res:                make(map[types.FileContractID]bool),
-		v2revs:             make(map[types.FileContractID]*types.V2FileContractElement),
-		v2res:              make(map[types.FileContractID]types.V2FileContractResolutionType),
-		siafundPool:        s.SiafundPool,
-		foundationPrimary:  s.FoundationPrimaryAddress,
-		foundationFailsafe: s.FoundationFailsafeAddress,
+		base:                 s,
+		created:              make(map[types.ElementID]int),
+		spends:               make(map[types.ElementID]types.TransactionID),
+		revs:                 make(map[types.FileContractID]*types.FileContractElement),
+		res:                  make(map[types.FileContractID]bool),
+		v2revs:               make(map[types.FileContractID]*types.V2FileContractElement),
+		v2res:                make(map[types.FileContractID]types.V2FileContractResolutionType),
+		siafundPool:          s.SiafundPool,
+		foundationSubsidy:    s.FoundationSubsidyAddress,
+		foundationManagement: s.FoundationManagementAddress,
 	}
 }
 

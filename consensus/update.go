@@ -509,8 +509,8 @@ func (ms *MidState) ApplyTransaction(txn types.Transaction, ts V1TransactionSupp
 			if bytes.HasPrefix(arb, types.SpecifierFoundation[:]) {
 				var update types.FoundationAddressUpdate
 				update.DecodeFrom(types.NewBufDecoder(arb[len(types.SpecifierFoundation):]))
-				ms.foundationPrimary = update.NewPrimary
-				ms.foundationFailsafe = update.NewFailsafe
+				ms.foundationSubsidy = update.NewPrimary
+				ms.foundationManagement = update.NewFailsafe
 			}
 		}
 	}
@@ -568,9 +568,12 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 		})
 	}
 	if txn.NewFoundationAddress != nil {
-		ms.foundationPrimary = *txn.NewFoundationAddress
+		// The subsidy may be waived by sending it to the void address. In this
+		// case, the management address is not updated (as this would
+		// permanently disable the subsidy).
+		ms.foundationSubsidy = *txn.NewFoundationAddress
 		if *txn.NewFoundationAddress != types.VoidAddress {
-			ms.foundationFailsafe = *txn.NewFoundationAddress
+			ms.foundationManagement = *txn.NewFoundationAddress
 		}
 	}
 }
@@ -740,8 +743,8 @@ func ApplyBlock(s State, b types.Block, bs V1BlockSupplement, targetTimestamp ti
 	ms.ApplyBlock(b, bs)
 	s.SiafundPool = ms.siafundPool
 	s.Attestations += uint64(len(ms.aes))
-	s.FoundationPrimaryAddress = ms.foundationPrimary
-	s.FoundationFailsafeAddress = ms.foundationFailsafe
+	s.FoundationSubsidyAddress = ms.foundationSubsidy
+	s.FoundationManagementAddress = ms.foundationManagement
 
 	// compute updated and added elements
 	var updated, added []elementLeaf

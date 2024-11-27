@@ -387,7 +387,7 @@ func validateArbitraryData(ms *MidState, txn types.Transaction) error {
 			// check that the transaction is signed by a current key
 			var signed bool
 			for _, sci := range txn.SiacoinInputs {
-				if uh := sci.UnlockConditions.UnlockHash(); uh != ms.base.FoundationPrimaryAddress && uh != ms.base.FoundationFailsafeAddress {
+				if uh := sci.UnlockConditions.UnlockHash(); uh != ms.base.FoundationSubsidyAddress && uh != ms.base.FoundationManagementAddress {
 					continue
 				}
 				for _, sig := range txn.Signatures {
@@ -861,7 +861,7 @@ func validateFoundationUpdate(ms *MidState, txn types.V2Transaction) error {
 		return nil
 	}
 	for _, in := range txn.SiacoinInputs {
-		if in.Parent.SiacoinOutput.Address == ms.base.FoundationFailsafeAddress {
+		if in.Parent.SiacoinOutput.Address == ms.base.FoundationManagementAddress {
 			return nil
 		}
 	}
