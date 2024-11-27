@@ -132,8 +132,9 @@ func (p SpendPolicy) Verify(height uint64, medianTimestamp time.Time, sigHash Ha
 		}
 		return
 	}
-	errInvalidSignature := errors.New("invalid signature")
-	errInvalidPreimage := errors.New("invalid preimage")
+	const maxPolicies = 1024
+	var totalPolicies int
+	errOpaque := errors.New("opaque policy")
 	var verify func(SpendPolicy) error
 	verify = func(p SpendPolicy) error {
 		switch p := p.Type.(type) {
@@ -141,38 +142,48 @@ func (p SpendPolicy) Verify(height uint64, medianTimestamp time.Time, sigHash Ha
 			if height >= uint64(p) {
 				return nil
 			}
-			return fmt.Errorf("height not above %v", uint64(p))
+			return fmt.Errorf("height (%v) not above %v", height, uint64(p))
 		case PolicyTypeAfter:
 			if medianTimestamp.After(time.Time(p)) {
 				return nil
 			}
-			return fmt.Errorf("median timestamp not after %v", time.Time(p))
+			return fmt.Errorf("median timestamp (%v) not after %v", medianTimestamp, time.Time(p))
 		case PolicyTypePublicKey:
 			if sig, ok := nextSig(); ok && PublicKey(p).VerifyHash(sigHash, sig) {
 				return nil
 			}
-			return errInvalidSignature
+			return errors.New("invalid signature")
 		case PolicyTypeHash:
 			if preimage, ok := nextPreimage(); ok && p == sha256.Sum256(preimage[:]) {
 				return nil
 			}
-			return errInvalidPreimage
+			return errors.New("invalid preimage")
 		case PolicyTypeThreshold:
-			for i := 0; i < len(p.Of) && p.N > 0 && len(p.Of[i:]) >= int(p.N); i++ {
-				if _, ok := p.Of[i].Type.(PolicyTypeUnlockConditions); ok {
+			if totalPolicies += len(p.Of); totalPolicies > maxPolicies || len(p.Of) > 255 {
+				return errors.New("policy is too complex")
+			}
+			var satisfied uint8
+			for _, sp := range p.Of {
+				switch sp.Type.(type) {
+				case PolicyTypeUnlockConditions:
 					return errors.New("unlock conditions cannot be sub-policies")
-				} else if err := verify(p.Of[i]); err == errInvalidSignature || err == errInvalidPreimage {
-					return err // fatal; should have been opaque
-				} else if err == nil {
-					p.N--
+				case PolicyTypeOpaque:
+					continue
+				default:
+					if satisfied == p.N {
+						return errors.New("threshold exceeded")
+					} else if err := verify(sp); err != nil {
+						return err // fatal; should have been opaque
+					}
+					satisfied++
 				}
 			}
-			if p.N == 0 {
+			if satisfied == p.N {
 				return nil
 			}
 			return errors.New("threshold not reached")
 		case PolicyTypeOpaque:
-			return errors.New("opaque policy")
+			return errOpaque
 		case PolicyTypeUnlockConditions:
 			if err := verify(PolicyAbove(p.Timelock)); err != nil {
 				return err

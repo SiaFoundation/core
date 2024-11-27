@@ -1113,10 +1113,7 @@ func (txn *Transaction) DecodeFrom(d *Decoder) {
 
 // DecodeFrom implements types.DecoderFrom.
 func (p *SpendPolicy) DecodeFrom(d *Decoder) {
-	const (
-		version     = 1
-		maxPolicies = 1024
-	)
+	const version = 1
 	const (
 		opInvalid = iota
 		opAbove
@@ -1128,7 +1125,6 @@ func (p *SpendPolicy) DecodeFrom(d *Decoder) {
 		opUnlockConditions
 	)
 
-	var totalPolicies int
 	var readPolicy func() (SpendPolicy, error)
 	readPolicy = func() (SpendPolicy, error) {
 		switch op := d.ReadUint8(); op {
@@ -1147,9 +1143,6 @@ func (p *SpendPolicy) DecodeFrom(d *Decoder) {
 		case opThreshold:
 			n := d.ReadUint8()
 			of := make([]SpendPolicy, d.ReadUint8())
-			if totalPolicies += len(of); totalPolicies > maxPolicies {
-				return SpendPolicy{}, errors.New("policy is too complex")
-			}
 			var err error
 			for i := range of {
 				if of[i], err = readPolicy(); err != nil {

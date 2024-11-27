@@ -2,9 +2,11 @@ package types
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,236 +37,293 @@ func TestPolicyVerify(t *testing.T) {
 	key := GeneratePrivateKey()
 	pk := key.PublicKey()
 	sigHash := Hash256{1, 2, 3}
-
+	currentTime := CurrentTimestamp()
 	for _, test := range []struct {
-		desc   string
-		p      SpendPolicy
-		height uint64
-		sigs   []Signature
-		valid  bool
+		desc      string
+		p         SpendPolicy
+		height    uint64
+		sigs      []Signature
+		preimages [][32]byte
+		err       string
 	}{
 		{
-			"above 0",
-			PolicyAbove(0),
-			0,
-			nil,
-			true,
+			desc: "above 0",
+			p:    PolicyAbove(0),
 		},
 		{
-			"below 1",
-			PolicyAbove(1),
-			0,
-			nil,
-			false,
+			desc: "below 1",
+			p:    PolicyAbove(1),
+			err:  "not above 1",
 		},
 		{
-			"above 1",
-			PolicyAbove(1),
-			1,
-			nil,
-			true,
+			desc:   "above 1",
+			p:      PolicyAbove(1),
+			height: 1,
 		},
 		{
-			"no signature",
-			PolicyPublicKey(pk),
-			1,
-			nil,
-			false,
+			desc: "after now",
+			p:    PolicyAfter(currentTime),
+			err:  "not after",
 		},
 		{
-			"invalid signature",
-			PolicyPublicKey(pk),
-			1,
-			[]Signature{key.SignHash(Hash256{})},
-			false,
+			desc: "after before",
+			p:    PolicyAfter(currentTime.Add(-time.Second)),
 		},
 		{
-			"valid signature",
-			PolicyPublicKey(pk),
-			1,
-			[]Signature{key.SignHash(sigHash)},
-			true,
+			desc: "opaque",
+			p:    PolicyOpaque(AnyoneCanSpend()),
+			err:  "opaque",
 		},
 		{
-			"valid signature, invalid height",
-			PolicyThreshold(2, []SpendPolicy{
+			desc: "no signature",
+			p:    PolicyPublicKey(pk),
+			err:  "invalid signature",
+		},
+		{
+			desc: "invalid signature",
+			p:    PolicyPublicKey(pk),
+			sigs: []Signature{key.SignHash(Hash256{})},
+			err:  "invalid signature",
+		},
+		{
+			desc: "valid signature",
+			p:    PolicyPublicKey(pk),
+			sigs: []Signature{key.SignHash(sigHash)},
+		},
+		{
+			desc:      "invalid preimage",
+			p:         PolicyHash(sha256.Sum256([]byte{31: 1})),
+			preimages: [][32]byte{{31: 2}},
+			err:       "invalid preimage",
+		},
+		{
+			desc:      "valid preimage",
+			p:         PolicyHash(sha256.Sum256([]byte{31: 1})),
+			preimages: [][32]byte{{31: 1}},
+		},
+		{
+			desc:      "superfluous preimage",
+			p:         PolicyHash(sha256.Sum256([]byte{31: 1})),
+			preimages: [][32]byte{{31: 1}, {31: 1}},
+			err:       "superfluous preimage(s)",
+		},
+		{
+			desc: "valid signature, invalid height",
+			p: PolicyThreshold(2, []SpendPolicy{
 				PolicyAbove(10),
 				PolicyPublicKey(pk),
 			}),
-			1,
-			[]Signature{key.SignHash(sigHash)},
-			false,
+			sigs: []Signature{key.SignHash(sigHash)},
+			err:  "not above 10",
 		},
 		{
-			"valid height, invalid signature",
-			PolicyThreshold(2, []SpendPolicy{
+			desc: "valid height, invalid signature",
+			p: PolicyThreshold(2, []SpendPolicy{
 				PolicyAbove(10),
 				PolicyPublicKey(pk),
 			}),
-			11,
-			nil,
-			false,
+			height: 11,
+			err:    "invalid signature",
 		},
 		{
-			"valid height, valid signature",
-			PolicyThreshold(2, []SpendPolicy{
+			desc: "valid height, valid signature",
+			p: PolicyThreshold(2, []SpendPolicy{
 				PolicyAbove(10),
 				PolicyPublicKey(pk),
 			}),
-			11,
-			[]Signature{key.SignHash(sigHash)},
-			true,
+			height: 11,
+			sigs:   []Signature{key.SignHash(sigHash)},
 		},
 		{
-			"lower threshold, valid height",
-			PolicyThreshold(1, []SpendPolicy{
+			desc: "lower threshold, valid height",
+			p: PolicyThreshold(1, []SpendPolicy{
 				PolicyAbove(10),
 				PolicyOpaque(PolicyPublicKey(pk)),
 			}),
-			11,
-			nil,
-			true,
+			height: 11,
 		},
 		{
-			"lower threshold, valid signature",
-			PolicyThreshold(1, []SpendPolicy{
+			desc: "lower threshold, valid signature",
+			p: PolicyThreshold(1, []SpendPolicy{
 				PolicyOpaque(PolicyAbove(10)),
 				PolicyPublicKey(pk),
 			}),
-			11,
-			[]Signature{key.SignHash(sigHash)},
-			true,
+			height: 11,
+			sigs:   []Signature{key.SignHash(sigHash)},
 		},
 		{
-			"exceed threshold",
-			PolicyThreshold(1, []SpendPolicy{
+			desc: "exceed threshold",
+			p: PolicyThreshold(1, []SpendPolicy{
 				PolicyAbove(10),
 				PolicyPublicKey(pk),
 			}),
-			11,
-			[]Signature{key.SignHash(sigHash)},
-			false,
+			height: 11,
+			sigs:   []Signature{key.SignHash(sigHash)},
+			err:    "threshold exceeded",
 		},
 		{
-			"exceed threshold with keys",
-			PolicyThreshold(1, []SpendPolicy{
+			desc: "exceed threshold with keys",
+			p: PolicyThreshold(1, []SpendPolicy{
 				PolicyPublicKey(pk),
 				PolicyPublicKey(pk),
 			}),
-			11,
-			[]Signature{key.SignHash(sigHash), key.SignHash(sigHash)},
-			false,
+			height: 11,
+			sigs:   []Signature{key.SignHash(sigHash), key.SignHash(sigHash)},
+			err:    "threshold exceeded",
 		},
 		{
-			"lower threshold, neither valid",
-			PolicyThreshold(1, []SpendPolicy{
+			desc: "exceed threshold with above",
+			p: PolicyThreshold(1, []SpendPolicy{
+				PolicyAbove(10),
+				PolicyAfter(currentTime.Add(-time.Second)),
+			}),
+			height: 11,
+			err:    "threshold exceeded",
+		},
+		{
+			desc: "opaque above subpolicy",
+			p: PolicyThreshold(1, []SpendPolicy{
+				PolicyOpaque(PolicyAbove(10)),
+				PolicyAfter(currentTime.Add(-time.Second)),
+			}),
+		},
+		{
+			desc: "lower threshold, neither valid",
+			p: PolicyThreshold(1, []SpendPolicy{
 				PolicyOpaque(PolicyAbove(10)),
 				PolicyOpaque(PolicyPublicKey(pk)),
 			}),
-			11,
-			[]Signature{key.SignHash(sigHash)},
-			false,
+			height: 11,
+			sigs:   []Signature{key.SignHash(sigHash)},
+			err:    "threshold not reached",
 		},
 		{
-			"unlock conditions within threshold",
-			PolicyThreshold(1, []SpendPolicy{
+			desc: "too many subpolicies",
+			p:    PolicyThreshold(1, make([]SpendPolicy, 256)),
+			err:  "too complex",
+		},
+		{
+			desc: "too many cumulative subpolicies",
+			p: PolicyThreshold(1, append([]SpendPolicy{
+				PolicyThreshold(1, append([]SpendPolicy{
+					PolicyThreshold(1, append([]SpendPolicy{
+						PolicyThreshold(1, append([]SpendPolicy{
+							PolicyThreshold(1, append([]SpendPolicy{
+								PolicyAbove(0),
+							}, make([]SpendPolicy, 250)...)),
+						}, make([]SpendPolicy, 250)...)),
+					}, make([]SpendPolicy, 250)...)),
+				}, make([]SpendPolicy, 250)...)),
+			}, make([]SpendPolicy, 250)...)),
+			err: "too complex",
+		},
+		{
+			desc: "unlock conditions within threshold",
+			p: PolicyThreshold(1, []SpendPolicy{
 				{PolicyTypeUnlockConditions{
 					PublicKeys:         []UnlockKey{pk.UnlockKey()},
 					SignaturesRequired: 1,
 				}},
 			}),
-			1,
-			[]Signature{key.SignHash(sigHash)},
-			false,
+			height: 1,
+			sigs:   []Signature{key.SignHash(sigHash)},
+			err:    "unlock conditions cannot be sub-policies",
 		},
 		{
-			"unlock conditions, invalid height",
-			SpendPolicy{PolicyTypeUnlockConditions{
+			desc: "unlock conditions, invalid height",
+			p: SpendPolicy{PolicyTypeUnlockConditions{
 				Timelock: 10,
 			}},
-			1,
-			nil,
-			false,
+			err: "not above 10",
 		},
 		{
-			"unlock conditions, insufficient signatures",
-			SpendPolicy{PolicyTypeUnlockConditions{
+			desc: "unlock conditions, insufficient signatures",
+			p: SpendPolicy{PolicyTypeUnlockConditions{
 				SignaturesRequired: 1000,
 			}},
-			1,
-			nil,
-			false,
+			height: 1,
+			sigs:   nil,
+			err:    "threshold not reached",
 		},
 		{
-			"unlock conditions, superfluous signatures",
-			SpendPolicy{PolicyTypeUnlockConditions{
+			desc: "unlock conditions, superfluous signatures",
+			p: SpendPolicy{PolicyTypeUnlockConditions{
 				SignaturesRequired: 0,
 			}},
-			1,
-			[]Signature{key.SignHash(sigHash)},
-			false,
+			height: 1,
+			sigs:   []Signature{key.SignHash(sigHash)},
+			err:    "superfluous signature(s)",
 		},
 		{
-			"unlock conditions, wrong signature algorithm",
-			SpendPolicy{PolicyTypeUnlockConditions{
+			desc: "unlock conditions, wrong signature algorithm",
+			p: SpendPolicy{PolicyTypeUnlockConditions{
 				PublicKeys: []UnlockKey{{
 					Algorithm: SpecifierEntropy,
 					Key:       nil,
 				}},
 				SignaturesRequired: 1,
 			}},
-			1,
-			[]Signature{key.SignHash(sigHash)},
-			false,
+			height: 1,
+			sigs:   []Signature{key.SignHash(sigHash)},
+			err:    "entropy public key",
 		},
 		{
-			"unlock conditions, wrong pubkey",
-			SpendPolicy{PolicyTypeUnlockConditions{
+			desc: "unlock conditions, unknown signature algorithm",
+			p: SpendPolicy{PolicyTypeUnlockConditions{
+				PublicKeys: []UnlockKey{{
+					Algorithm: NewSpecifier("trust me bro"),
+				}},
+				SignaturesRequired: 1,
+			}},
+			height: 1,
+			sigs:   []Signature{key.SignHash(sigHash)},
+		},
+		{
+			desc: "unlock conditions, wrong pubkey",
+			p: SpendPolicy{PolicyTypeUnlockConditions{
 				PublicKeys: []UnlockKey{{
 					Algorithm: SpecifierEd25519,
 					Key:       nil,
 				}},
 				SignaturesRequired: 1,
 			}},
-			1,
-			[]Signature{key.SignHash(sigHash)},
-			false,
+			height: 1,
+			sigs:   []Signature{key.SignHash(sigHash)},
+			err:    "threshold not reached",
 		},
 		{
-			"unlock conditions, insufficient signatures",
-			SpendPolicy{PolicyTypeUnlockConditions{
+			desc: "unlock conditions, insufficient signatures",
+			p: SpendPolicy{PolicyTypeUnlockConditions{
 				PublicKeys:         []UnlockKey{pk.UnlockKey()},
 				SignaturesRequired: 2,
 			}},
-			1,
-			[]Signature{key.SignHash(sigHash)},
-			false,
+			height: 1,
+			sigs:   []Signature{key.SignHash(sigHash)},
+			err:    "threshold not reached",
 		},
 		{
-			"unlock conditions, valid",
-			SpendPolicy{PolicyTypeUnlockConditions{
+			desc: "unlock conditions, valid",
+			p: SpendPolicy{PolicyTypeUnlockConditions{
 				PublicKeys:         []UnlockKey{pk.UnlockKey()},
 				SignaturesRequired: 1,
 			}},
-			1,
-			[]Signature{key.SignHash(sigHash)},
-			true,
+			height: 1,
+			sigs:   []Signature{key.SignHash(sigHash)},
 		},
 		{
-			"unlock conditions, valid with extra pubkeys",
-			SpendPolicy{PolicyTypeUnlockConditions{
+			desc: "unlock conditions, valid with extra pubkeys",
+			p: SpendPolicy{PolicyTypeUnlockConditions{
 				PublicKeys:         []UnlockKey{pk.UnlockKey(), PublicKey{1, 2, 3}.UnlockKey(), pk.UnlockKey()},
 				SignaturesRequired: 2,
 			}},
-			1,
-			[]Signature{key.SignHash(sigHash), key.SignHash(sigHash)},
-			true,
+			height: 1,
+			sigs:   []Signature{key.SignHash(sigHash), key.SignHash(sigHash)},
 		},
 	} {
-		if err := test.p.Verify(test.height, time.Time{}, sigHash, test.sigs, nil); err != nil && test.valid {
+		if err := test.p.Verify(test.height, currentTime, sigHash, test.sigs, test.preimages); test.err == "" && err != nil {
 			t.Fatalf("%v: %v", test.desc, err)
-		} else if err == nil && !test.valid {
-			t.Fatal("expected error")
+		} else if test.err != "" && (err == nil || !strings.Contains(err.Error(), test.err)) {
+			t.Fatalf("%v: expected error containing %q, got %v", test.desc, test.err, err)
 		}
 	}
 }
