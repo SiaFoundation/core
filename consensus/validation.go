@@ -861,7 +861,7 @@ func validateFoundationUpdate(ms *MidState, txn types.V2Transaction) error {
 		return nil
 	}
 	for _, in := range txn.SiacoinInputs {
-		if in.Parent.SiacoinOutput.Address == ms.base.FoundationPrimaryAddress {
+		if in.Parent.SiacoinOutput.Address == ms.base.FoundationFailsafeAddress {
 			return nil
 		}
 	}

@@ -569,7 +569,9 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 	}
 	if txn.NewFoundationAddress != nil {
 		ms.foundationPrimary = *txn.NewFoundationAddress
-		ms.foundationFailsafe = *txn.NewFoundationAddress
+		if *txn.NewFoundationAddress != types.VoidAddress {
+			ms.foundationFailsafe = *txn.NewFoundationAddress
+		}
 	}
 }
 
