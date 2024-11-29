@@ -343,6 +343,9 @@ func (s State) V2TransactionWeight(txn types.V2Transaction) uint64 {
 		a.EncodeTo(e)
 	}
 	e.Write(txn.ArbitraryData)
+	if txn.NewFoundationAddress != nil {
+		txn.NewFoundationAddress.EncodeTo(e)
+	}
 	e.Flush()
 	return uint64(wc.n)
 }
