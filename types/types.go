@@ -555,10 +555,11 @@ func (*V2FileContractExpiration) isV2FileContractResolution() {}
 
 // A V2FileContractRenewal renews a file contract.
 type V2FileContractRenewal struct {
-	FinalRevision  V2FileContract `json:"finalRevision"`
-	NewContract    V2FileContract `json:"newContract"`
-	RenterRollover Currency       `json:"renterRollover"`
-	HostRollover   Currency       `json:"hostRollover"`
+	FinalRenterOutput SiacoinOutput  `json:"finalRenterOutput"`
+	FinalHostOutput   SiacoinOutput  `json:"finalHostOutput"`
+	RenterRollover    Currency       `json:"renterRollover"`
+	HostRollover      Currency       `json:"hostRollover"`
+	NewContract       V2FileContract `json:"newContract"`
 
 	// signatures cover above fields
 	RenterSignature Signature `json:"renterSignature"`

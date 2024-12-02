@@ -548,9 +548,7 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 		var renter, host types.SiacoinOutput
 		switch r := fcr.Resolution.(type) {
 		case *types.V2FileContractRenewal:
-			renter, host = r.FinalRevision.RenterOutput, r.FinalRevision.HostOutput
-			renter.Value = renter.Value.Sub(r.RenterRollover)
-			host.Value = host.Value.Sub(r.HostRollover)
+			renter, host = r.FinalRenterOutput, r.FinalHostOutput
 			ms.addV2FileContractElement(fce.ID.V2RenewalID(), r.NewContract)
 		case *types.V2StorageProof:
 			renter, host = fc.RenterOutput, fc.HostOutput

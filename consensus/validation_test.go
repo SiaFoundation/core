@@ -1454,26 +1454,6 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			{
-				"file contract renewal that does not finalize old contract",
-				func(b *types.Block) {
-					txn := &b.V2.Transactions[0]
-					txn.SiacoinInputs = []types.V2SiacoinInput{{
-						Parent:          sces[1],
-						SatisfiedPolicy: types.SatisfiedPolicy{Policy: giftPolicy},
-					}}
-
-					rev := testFces[0].V2FileContract
-					resolution := types.V2FileContractRenewal{
-						FinalRevision: rev,
-						NewContract:   testFces[0].V2FileContract,
-					}
-					txn.FileContractResolutions = []types.V2FileContractResolution{{
-						Parent:     testFces[0],
-						Resolution: &resolution,
-					}}
-				},
-			},
-			{
 				"file contract renewal with invalid final revision",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
@@ -1482,12 +1462,9 @@ func TestValidateV2Block(t *testing.T) {
 						SatisfiedPolicy: types.SatisfiedPolicy{Policy: giftPolicy},
 					}}
 
-					rev := testFces[0].V2FileContract
-					rev.RevisionNumber = types.MaxRevisionNumber
-					rev.TotalCollateral = types.ZeroCurrency
 					resolution := types.V2FileContractRenewal{
-						FinalRevision: rev,
-						NewContract:   testFces[0].V2FileContract,
+						FinalRenterOutput: types.SiacoinOutput{Value: types.Siacoins(1e6)},
+						NewContract:       testFces[0].V2FileContract,
 					}
 					txn.FileContractResolutions = []types.V2FileContractResolution{{
 						Parent:     testFces[0],
@@ -1506,11 +1483,10 @@ func TestValidateV2Block(t *testing.T) {
 
 					rev := testFces[0].V2FileContract
 					rev.ExpirationHeight = rev.ProofHeight
-					finalRev := testFces[0].V2FileContract
-					finalRev.RevisionNumber = types.MaxRevisionNumber
 					resolution := types.V2FileContractRenewal{
-						FinalRevision: finalRev,
-						NewContract:   rev,
+						FinalRenterOutput: rev.RenterOutput,
+						FinalHostOutput:   rev.HostOutput,
+						NewContract:       rev,
 					}
 					txn.FileContractResolutions = []types.V2FileContractResolution{{
 						Parent:     testFces[0],
@@ -1885,7 +1861,6 @@ func TestV2RenewalResolution(t *testing.T) {
 	tests := []struct {
 		desc      string
 		renewFn   func(*types.V2Transaction)
-		errors    bool
 		errString string
 	}{
 		{
@@ -1896,6 +1871,7 @@ func TestV2RenewalResolution(t *testing.T) {
 			desc: "valid renewal - no renter rollover",
 			renewFn: func(txn *types.V2Transaction) {
 				renewal := txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
+				renewal.FinalRenterOutput.Value = renewal.RenterRollover
 				renewal.RenterRollover = types.ZeroCurrency
 				// subtract the renter cost from the change output
 				txn.SiacoinOutputs[0].Value = txn.SiacoinInputs[0].Parent.SiacoinOutput.Value.Sub(renewal.NewContract.RenterOutput.Value).Sub(cs.V2FileContractTax(renewal.NewContract))
@@ -1905,6 +1881,7 @@ func TestV2RenewalResolution(t *testing.T) {
 			desc: "valid renewal - no host rollover",
 			renewFn: func(txn *types.V2Transaction) {
 				renewal := txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
+				renewal.FinalHostOutput.Value = renewal.HostRollover
 				renewal.HostRollover = types.ZeroCurrency
 				// subtract the host cost from the change output
 				txn.SiacoinOutputs[0].Value = txn.SiacoinInputs[0].Parent.SiacoinOutput.Value.Sub(renewal.NewContract.HostOutput.Value).Sub(cs.V2FileContractTax(renewal.NewContract))
@@ -1914,19 +1891,39 @@ func TestV2RenewalResolution(t *testing.T) {
 			desc: "valid renewal - partial host rollover",
 			renewFn: func(txn *types.V2Transaction) {
 				renewal := txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
-				renewal.HostRollover = renewal.NewContract.MissedHostValue.Div64(2)
+				partial := renewal.NewContract.MissedHostValue.Div64(2)
+				renewal.FinalHostOutput.Value = partial
+				renewal.HostRollover = renewal.HostRollover.Sub(partial)
 				// subtract the host cost from the change output
-				txn.SiacoinOutputs[0].Value = txn.SiacoinInputs[0].Parent.SiacoinOutput.Value.Sub(renewal.NewContract.HostOutput.Value.Div64(2)).Sub(cs.V2FileContractTax(renewal.NewContract))
+				txn.SiacoinOutputs[0].Value = txn.SiacoinInputs[0].Parent.SiacoinOutput.Value.Sub(partial).Sub(cs.V2FileContractTax(renewal.NewContract))
 			},
 		},
 		{
 			desc: "valid renewal - partial renter rollover",
 			renewFn: func(txn *types.V2Transaction) {
 				renewal := txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
-				renewal.RenterRollover = renewal.NewContract.RenterOutput.Value.Div64(2)
+				partial := renewal.NewContract.RenterOutput.Value.Div64(2)
+				renewal.FinalRenterOutput.Value = partial
+				renewal.RenterRollover = renewal.RenterRollover.Sub(partial)
 				// subtract the host cost from the change output
-				txn.SiacoinOutputs[0].Value = txn.SiacoinInputs[0].Parent.SiacoinOutput.Value.Sub(renewal.NewContract.RenterOutput.Value.Div64(2)).Sub(cs.V2FileContractTax(renewal.NewContract))
+				txn.SiacoinOutputs[0].Value = txn.SiacoinInputs[0].Parent.SiacoinOutput.Value.Sub(partial).Sub(cs.V2FileContractTax(renewal.NewContract))
 			},
+		},
+		{
+			desc: "invalid renewal - bad new contract renter signature",
+			renewFn: func(txn *types.V2Transaction) {
+				renewal := txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
+				renewal.NewContract.RenterSignature[0] ^= 1
+			},
+			errString: "invalid renter signature",
+		},
+		{
+			desc: "invalid renewal - bad new contract host signature",
+			renewFn: func(txn *types.V2Transaction) {
+				renewal := txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
+				renewal.NewContract.HostSignature[0] ^= 1
+			},
+			errString: "invalid host signature",
 		},
 		{
 			desc: "invalid renewal - not enough host funds",
@@ -1935,7 +1932,6 @@ func TestV2RenewalResolution(t *testing.T) {
 				renewal.HostRollover = renewal.NewContract.MissedHostValue.Div64(2)
 				// do not adjust the change output
 			},
-			errors:    true,
 			errString: "do not equal outputs",
 		},
 		{
@@ -1945,7 +1941,6 @@ func TestV2RenewalResolution(t *testing.T) {
 				renewal.RenterRollover = renewal.NewContract.RenterOutput.Value.Div64(2)
 				// do not adjust the change output
 			},
-			errors:    true,
 			errString: "do not equal outputs",
 		},
 		{
@@ -1963,7 +1958,6 @@ func TestV2RenewalResolution(t *testing.T) {
 				escapeAmount := renewal.HostRollover.Sub(renewal.NewContract.HostOutput.Value)
 				txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{Value: escapeAmount, Address: types.VoidAddress})
 			},
-			errors:    true,
 			errString: "exceeding new contract cost",
 		},
 		{
@@ -1980,18 +1974,12 @@ func TestV2RenewalResolution(t *testing.T) {
 				escapeAmount := renewal.RenterRollover.Sub(renewal.NewContract.RenterOutput.Value)
 				txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{Value: escapeAmount, Address: types.VoidAddress})
 			},
-			errors:    true,
 			errString: "exceeding new contract cost",
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
-			finalRevision := fc
-			finalRevision.RevisionNumber = types.MaxRevisionNumber
-			finalRevision.RenterSignature = types.Signature{}
-			finalRevision.HostSignature = types.Signature{}
-
-			fc := types.V2FileContract{
+			newContract := types.V2FileContract{
 				ProofHeight:      100,
 				ExpirationHeight: 150,
 				RenterPublicKey:  pk.PublicKey(),
@@ -2004,30 +1992,30 @@ func TestV2RenewalResolution(t *testing.T) {
 				},
 				MissedHostValue: types.Siacoins(10),
 			}
-			tax := cs.V2FileContractTax(fc)
+			newContract.RenterSignature = pk.SignHash(cs.ContractSigHash(newContract))
+			newContract.HostSignature = pk.SignHash(cs.ContractSigHash(newContract))
+
 			renewTxn := types.V2Transaction{
-				FileContractResolutions: []types.V2FileContractResolution{
-					{
-						Parent: fces[contractID],
-						Resolution: &types.V2FileContractRenewal{
-							FinalRevision:  finalRevision,
-							NewContract:    fc,
-							RenterRollover: types.Siacoins(10),
-							HostRollover:   types.Siacoins(10),
-						},
+				FileContractResolutions: []types.V2FileContractResolution{{
+					Parent: fces[contractID],
+					Resolution: &types.V2FileContractRenewal{
+						FinalRenterOutput: types.SiacoinOutput{Address: fc.RenterOutput.Address, Value: types.ZeroCurrency},
+						FinalHostOutput:   types.SiacoinOutput{Address: fc.HostOutput.Address, Value: types.ZeroCurrency},
+						NewContract:       newContract,
+						RenterRollover:    types.Siacoins(10),
+						HostRollover:      types.Siacoins(10),
 					},
-				},
-				SiacoinInputs: []types.V2SiacoinInput{
-					{
-						Parent: genesisOutput,
-						SatisfiedPolicy: types.SatisfiedPolicy{
-							Policy: types.AnyoneCanSpend(),
-						},
+				}},
+				SiacoinInputs: []types.V2SiacoinInput{{
+					Parent: genesisOutput,
+					SatisfiedPolicy: types.SatisfiedPolicy{
+						Policy: types.AnyoneCanSpend(),
 					},
-				},
-				SiacoinOutputs: []types.SiacoinOutput{
-					{Address: addr, Value: genesisOutput.SiacoinOutput.Value.Sub(tax)},
-				},
+				}},
+				SiacoinOutputs: []types.SiacoinOutput{{
+					Address: addr,
+					Value:   genesisOutput.SiacoinOutput.Value.Sub(cs.V2FileContractTax(newContract)),
+				}},
 			}
 			resolution, ok := renewTxn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
 			if !ok {
@@ -2038,9 +2026,6 @@ func TestV2RenewalResolution(t *testing.T) {
 			test.renewFn(&renewTxn)
 
 			// sign the renewal
-			newContract := &renewTxn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal).NewContract
-			newContract.RenterSignature = pk.SignHash(cs.ContractSigHash(*newContract))
-			newContract.HostSignature = pk.SignHash(cs.ContractSigHash(*newContract))
 			sigHash := cs.RenewalSigHash(*resolution)
 			resolution.RenterSignature = pk.SignHash(sigHash)
 			resolution.HostSignature = pk.SignHash(sigHash)
@@ -2048,13 +2033,13 @@ func TestV2RenewalResolution(t *testing.T) {
 			ms := NewMidState(cs)
 			err := ValidateV2Transaction(ms, renewTxn)
 			switch {
-			case test.errors && err == nil:
+			case test.errString != "" && err == nil:
 				t.Fatal("expected error")
-			case test.errors && test.errString == "":
+			case test.errString != "" && test.errString == "":
 				t.Fatalf("received error %q, missing error string to compare", err)
-			case test.errors && !strings.Contains(err.Error(), test.errString):
+			case test.errString != "" && !strings.Contains(err.Error(), test.errString):
 				t.Fatalf("expected error %q to contain %q", err, test.errString)
-			case !test.errors && err != nil:
+			case test.errString == "" && err != nil:
 				t.Fatalf("unexpected error: %q", err)
 			}
 		})
