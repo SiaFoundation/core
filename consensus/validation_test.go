@@ -2038,6 +2038,9 @@ func TestV2RenewalResolution(t *testing.T) {
 			test.renewFn(&renewTxn)
 
 			// sign the renewal
+			newContract := &renewTxn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal).NewContract
+			newContract.RenterSignature = pk.SignHash(cs.ContractSigHash(*newContract))
+			newContract.HostSignature = pk.SignHash(cs.ContractSigHash(*newContract))
 			sigHash := cs.RenewalSigHash(*resolution)
 			resolution.RenterSignature = pk.SignHash(sigHash)
 			resolution.HostSignature = pk.SignHash(sigHash)

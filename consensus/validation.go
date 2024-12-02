@@ -799,7 +799,7 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 				return fmt.Errorf("file contract renewal %v does not finalize old contract", i)
 			} else if err := validateRevision(fcr.Parent, old, true); err != nil {
 				return fmt.Errorf("file contract renewal %v final revision %s", i, err)
-			} else if err := validateContract(renewed, true); err != nil {
+			} else if err := validateContract(renewed, false); err != nil {
 				return fmt.Errorf("file contract renewal %v initial revision %s", i, err)
 			}
 
