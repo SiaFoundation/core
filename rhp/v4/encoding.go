@@ -510,13 +510,11 @@ func (r *RPCReadSectorResponse) maxLen() int {
 func (r RPCWriteSectorRequest) encodeTo(e *types.Encoder) {
 	r.Prices.EncodeTo(e)
 	r.Token.encodeTo(e)
-	e.WriteUint64(r.Duration)
 	e.WriteUint64(r.DataLength)
 }
 func (r *RPCWriteSectorRequest) decodeFrom(d *types.Decoder) {
 	r.Prices.DecodeFrom(d)
 	r.Token.decodeFrom(d)
-	r.Duration = d.ReadUint64()
 	r.DataLength = d.ReadUint64()
 }
 func (r *RPCWriteSectorRequest) maxLen() int {
