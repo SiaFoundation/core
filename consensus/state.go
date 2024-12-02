@@ -370,12 +370,7 @@ func (s State) FileContractTax(fc types.FileContract) types.Currency {
 
 // V2FileContractTax computes the tax levied on a given v2 contract.
 func (s State) V2FileContractTax(fc types.V2FileContract) types.Currency {
-	sum := fc.RenterOutput.Value.Add(fc.HostOutput.Value)
-	tax := sum.Div64(25) // 4%
-	// round down to nearest multiple of SiafundCount
-	_, r := bits.Div64(0, tax.Hi, s.SiafundCount())
-	_, r = bits.Div64(r, tax.Lo, s.SiafundCount())
-	return tax.Sub(types.NewCurrency64(r))
+	return fc.RenterOutput.Value.Add(fc.HostOutput.Value).Div64(25) // 4%
 }
 
 // StorageProofLeafIndex returns the leaf index used when computing or
