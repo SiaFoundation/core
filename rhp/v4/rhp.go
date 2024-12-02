@@ -425,7 +425,6 @@ type (
 	RPCWriteSectorRequest struct {
 		Prices     HostPrices   `json:"prices"`
 		Token      AccountToken `json:"token"`
-		Duration   uint64       `json:"duration"`
 		DataLength uint64       `json:"dataLength"` // extended to SectorSize by host
 	}
 

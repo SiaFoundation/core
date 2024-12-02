@@ -26,17 +26,13 @@ func (req *RPCReadSectorRequest) Validate(pk types.PublicKey) error {
 }
 
 // Validate validates a write sector request.
-func (req *RPCWriteSectorRequest) Validate(pk types.PublicKey, maxDuration uint64) error {
+func (req *RPCWriteSectorRequest) Validate(pk types.PublicKey) error {
 	if err := req.Prices.Validate(pk); err != nil {
 		return fmt.Errorf("prices are invalid: %w", err)
 	} else if err := req.Token.Validate(); err != nil {
 		return fmt.Errorf("token is invalid: %w", err)
 	}
 	switch {
-	case req.Duration == 0:
-		return errors.New("duration must be greater than 0")
-	case req.Duration > maxDuration:
-		return fmt.Errorf("duration exceeds maximum: %d > %d", req.Duration, maxDuration)
 	case req.DataLength == 0:
 		return errors.New("sector must not be empty")
 	case req.DataLength%LeafSize != 0:
