@@ -516,25 +516,19 @@ type V2FileContractRevision struct {
 }
 
 // A V2FileContractResolution closes a v2 file contract's payment channel. There
-// are four ways a contract can be resolved:
+// are three ways a contract can be resolved:
 //
-// 1) The renter can finalize the contract's current state, preventing further
-// revisions and immediately creating its outputs.
-//
-// 2) The renter and host can jointly renew the contract. The old contract is
+// 1) The renter and host can jointly renew the contract. The old contract is
 // finalized, and a portion of its funds are "rolled over" into a new contract.
+// Renewals must be submitted prior to the contract's ProofHeight.
 //
-// 3) The host can submit a storage proof, asserting that it has faithfully
-// stored the contract data for the agreed-upon duration. Typically, a storage
-// proof is only required if the renter is unable or unwilling to sign a
-// renewal. A storage proof can only be submitted after the contract's
-// ProofHeight; this allows the renter (or host) to broadcast the
-// latest contract revision prior to the proof.
+// 2) If the renter is unwilling or unable to sign a renewal, the host can
+// submit a storage proof, asserting that it has faithfully stored the contract
+// data for the agreed-upon duration. Storage proofs must be submitted after the
+// contract's ProofHeight and prior to its ExpirationHeight.
 //
-// 4) Lastly, anyone can submit a contract expiration. An expiration can only
-// be submitted after the contract's ExpirationHeight; this gives the host a
-// reasonable window of time after the ProofHeight in which to submit a storage
-// proof.
+// 3) Lastly, anyone can submit a contract expiration. An expiration can only be
+// submitted after the contract's ExpirationHeight.
 //
 // Once a contract has been resolved, it cannot be altered or resolved again.
 // When a contract is resolved, its RenterOutput and HostOutput are created
@@ -561,10 +555,11 @@ func (*V2FileContractExpiration) isV2FileContractResolution() {}
 
 // A V2FileContractRenewal renews a file contract.
 type V2FileContractRenewal struct {
-	FinalRevision  V2FileContract `json:"finalRevision"`
-	NewContract    V2FileContract `json:"newContract"`
-	RenterRollover Currency       `json:"renterRollover"`
-	HostRollover   Currency       `json:"hostRollover"`
+	FinalRenterOutput SiacoinOutput  `json:"finalRenterOutput"`
+	FinalHostOutput   SiacoinOutput  `json:"finalHostOutput"`
+	RenterRollover    Currency       `json:"renterRollover"`
+	HostRollover      Currency       `json:"hostRollover"`
+	NewContract       V2FileContract `json:"newContract"`
 
 	// signatures cover above fields
 	RenterSignature Signature `json:"renterSignature"`

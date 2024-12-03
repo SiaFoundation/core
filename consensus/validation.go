@@ -387,7 +387,7 @@ func validateArbitraryData(ms *MidState, txn types.Transaction) error {
 			// check that the transaction is signed by a current key
 			var signed bool
 			for _, sci := range txn.SiacoinInputs {
-				if uh := sci.UnlockConditions.UnlockHash(); uh != ms.base.FoundationPrimaryAddress && uh != ms.base.FoundationFailsafeAddress {
+				if uh := sci.UnlockConditions.UnlockHash(); uh != ms.base.FoundationSubsidyAddress && uh != ms.base.FoundationManagementAddress {
 					continue
 				}
 				for _, sig := range txn.Signatures {
@@ -690,32 +690,17 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 		return nil
 	}
 
-	validateSignatures := func(fc types.V2FileContract, renter, host types.PublicKey, renewal bool) error {
-		if renewal {
-			// The sub-contracts of a renewal must have empty signatures;
-			// otherwise they would be independently valid, i.e. the atomicity
-			// of the renewal could be violated. Consider a host who has lost or
-			// deleted their contract data; all they have to do is wait for a
-			// renter to initiate a renewal, then broadcast just the
-			// finalization of the old contract, allowing them to successfully
-			// resolve the contract without a storage proof.
-			if fc.RenterSignature != (types.Signature{}) {
-				return errors.New("has non-empty renter signature")
-			} else if fc.HostSignature != (types.Signature{}) {
-				return errors.New("has non-empty host signature")
-			}
-		} else {
-			contractHash := ms.base.ContractSigHash(fc)
-			if !renter.VerifyHash(contractHash, fc.RenterSignature) {
-				return errors.New("has invalid renter signature")
-			} else if !host.VerifyHash(contractHash, fc.HostSignature) {
-				return errors.New("has invalid host signature")
-			}
+	validateSignatures := func(fc types.V2FileContract, renter, host types.PublicKey) error {
+		contractHash := ms.base.ContractSigHash(fc)
+		if !renter.VerifyHash(contractHash, fc.RenterSignature) {
+			return errors.New("has invalid renter signature")
+		} else if !host.VerifyHash(contractHash, fc.HostSignature) {
+			return errors.New("has invalid host signature")
 		}
 		return nil
 	}
 
-	validateContract := func(fc types.V2FileContract, renewal bool) error {
+	validateContract := func(fc types.V2FileContract) error {
 		switch {
 		case fc.Filesize > fc.Capacity:
 			return fmt.Errorf("has filesize (%v) exceeding capacity (%v)", fc.Filesize, fc.Capacity)
@@ -730,10 +715,10 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 		case fc.TotalCollateral.Cmp(fc.HostOutput.Value) > 0:
 			return fmt.Errorf("has total collateral (%d H) exceeding valid host value (%d H)", fc.TotalCollateral, fc.HostOutput.Value)
 		}
-		return validateSignatures(fc, fc.RenterPublicKey, fc.HostPublicKey, renewal)
+		return validateSignatures(fc, fc.RenterPublicKey, fc.HostPublicKey)
 	}
 
-	validateRevision := func(fce types.V2FileContractElement, rev types.V2FileContract, renewal bool) error {
+	validateRevision := func(fce types.V2FileContractElement, rev types.V2FileContract) error {
 		cur := fce.V2FileContract
 		if priorRev, ok := ms.v2revs[fce.ID]; ok {
 			cur = priorRev.V2FileContract
@@ -761,11 +746,11 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 			return fmt.Errorf("leaves no time between proof height (%v) and expiration height (%v)", rev.ProofHeight, rev.ExpirationHeight)
 		}
 		// NOTE: very important that we verify with the *current* keys!
-		return validateSignatures(rev, cur.RenterPublicKey, cur.HostPublicKey, renewal)
+		return validateSignatures(rev, cur.RenterPublicKey, cur.HostPublicKey)
 	}
 
 	for i, fc := range txn.FileContracts {
-		if err := validateContract(fc, false); err != nil {
+		if err := validateContract(fc); err != nil {
 			return fmt.Errorf("file contract %v %s", i, err)
 		}
 	}
@@ -780,7 +765,7 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 			// NOTE: disallowing this means that resolutions always take
 			// precedence over revisions
 			return fmt.Errorf("file contract revision %v resolves contract", i)
-		} else if err := validateRevision(fcr.Parent, rev, false); err != nil {
+		} else if err := validateRevision(fcr.Parent, rev); err != nil {
 			return fmt.Errorf("file contract revision %v %s", i, err)
 		}
 		revised[fcr.Parent.ID] = i
@@ -794,25 +779,17 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 		switch r := fcr.Resolution.(type) {
 		case *types.V2FileContractRenewal:
 			renewal := *r
-			old, renewed := renewal.FinalRevision, renewal.NewContract
-			if old.RevisionNumber != types.MaxRevisionNumber {
-				return fmt.Errorf("file contract renewal %v does not finalize old contract", i)
-			} else if err := validateRevision(fcr.Parent, old, true); err != nil {
-				return fmt.Errorf("file contract renewal %v final revision %s", i, err)
-			} else if err := validateContract(renewed, true); err != nil {
+
+			newContractCost := renewal.NewContract.RenterOutput.Value.Add(renewal.NewContract.HostOutput.Value).Add(ms.base.V2FileContractTax(renewal.NewContract))
+			if totalRenter := renewal.FinalRenterOutput.Value.Add(renewal.RenterRollover); totalRenter != fc.RenterOutput.Value {
+				return fmt.Errorf("file contract renewal %v renter payout plus rollover (%d H) does not match old contract payout (%d H)", i, totalRenter, fc.RenterOutput.Value)
+			} else if totalHost := renewal.FinalHostOutput.Value.Add(renewal.HostRollover); totalHost != fc.HostOutput.Value {
+				return fmt.Errorf("file contract renewal %v host payout plus rollover (%d H) does not match old contract payout (%d H)", i, totalHost, fc.HostOutput.Value)
+			} else if rollover := renewal.RenterRollover.Add(renewal.HostRollover); rollover.Cmp(newContractCost) > 0 {
+				return fmt.Errorf("file contract renewal %v has rollover (%d H) exceeding new contract cost (%d H)", i, rollover, newContractCost)
+			} else if err := validateContract(renewal.NewContract); err != nil {
 				return fmt.Errorf("file contract renewal %v initial revision %s", i, err)
 			}
-
-			rollover := renewal.RenterRollover.Add(renewal.HostRollover)
-			newContractCost := renewed.RenterOutput.Value.Add(renewed.HostOutput.Value).Add(ms.base.V2FileContractTax(renewed))
-			if renewal.RenterRollover.Cmp(old.RenterOutput.Value) > 0 {
-				return fmt.Errorf("file contract renewal %v has renter rollover (%d H) exceeding old output (%d H)", i, renewal.RenterRollover, old.RenterOutput.Value)
-			} else if renewal.HostRollover.Cmp(old.HostOutput.Value) > 0 {
-				return fmt.Errorf("file contract renewal %v has host rollover (%d H) exceeding old output (%d H)", i, renewal.HostRollover, old.HostOutput.Value)
-			} else if rollover.Cmp(newContractCost) > 0 {
-				return fmt.Errorf("file contract renewal %v has rollover (%d H) exceeding new contract cost (%d H)", i, rollover, newContractCost)
-			}
-
 			renewalHash := ms.base.RenewalSigHash(renewal)
 			if !fc.RenterPublicKey.VerifyHash(renewalHash, renewal.RenterSignature) {
 				return fmt.Errorf("file contract renewal %v has invalid renter signature", i)
@@ -861,7 +838,7 @@ func validateFoundationUpdate(ms *MidState, txn types.V2Transaction) error {
 		return nil
 	}
 	for _, in := range txn.SiacoinInputs {
-		if in.Parent.SiacoinOutput.Address == ms.base.FoundationPrimaryAddress {
+		if in.Parent.SiacoinOutput.Address == ms.base.FoundationManagementAddress {
 			return nil
 		}
 	}

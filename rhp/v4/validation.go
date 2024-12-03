@@ -44,11 +44,11 @@ func (req *RPCWriteSectorRequest) Validate(pk types.PublicKey) error {
 }
 
 // Validate validates a modify sectors request. Signatures are not validated.
-func (req *RPCFreeSectorsRequest) Validate(pk types.PublicKey, fc types.V2FileContract, maxActions uint64) error {
+func (req *RPCFreeSectorsRequest) Validate(pk types.PublicKey, fc types.V2FileContract) error {
 	if err := req.Prices.Validate(pk); err != nil {
 		return fmt.Errorf("prices are invalid: %w", err)
-	} else if uint64(len(req.Indices)) > maxActions {
-		return fmt.Errorf("removing too many sectors at once: %d > %d", len(req.Indices), maxActions)
+	} else if uint64(len(req.Indices)) > MaxSectorBatchSize {
+		return fmt.Errorf("removing too many sectors at once: %d > %d", len(req.Indices), MaxSectorBatchSize)
 	}
 	seen := make(map[uint64]bool)
 	sectors := fc.Filesize / SectorSize
@@ -64,7 +64,7 @@ func (req *RPCFreeSectorsRequest) Validate(pk types.PublicKey, fc types.V2FileCo
 }
 
 // Validate validates a sector roots request. Signatures are not validated.
-func (req *RPCSectorRootsRequest) Validate(pk types.PublicKey, fc types.V2FileContract, maxSectors uint64) error {
+func (req *RPCSectorRootsRequest) Validate(pk types.PublicKey, fc types.V2FileContract) error {
 	if err := req.Prices.Validate(pk); err != nil {
 		return fmt.Errorf("prices are invalid: %w", err)
 	}
@@ -75,8 +75,8 @@ func (req *RPCSectorRootsRequest) Validate(pk types.PublicKey, fc types.V2FileCo
 		return errors.New("length must be greater than 0")
 	case req.Length+req.Offset > contractSectors:
 		return fmt.Errorf("read request range exceeds contract sectors: %d > %d", req.Length+req.Offset, contractSectors)
-	case req.Length > maxSectors:
-		return fmt.Errorf("read request range exceeds maximum sectors: %d > %d", req.Length, maxSectors)
+	case req.Length > MaxSectorBatchSize:
+		return fmt.Errorf("read request range exceeds maximum sectors: %d > %d", req.Length, MaxSectorBatchSize)
 	}
 	return nil
 }
@@ -122,7 +122,7 @@ func (req *RPCFormContractRequest) Validate(pk types.PublicKey, tip types.ChainI
 }
 
 // Validate validates a renew contract request. Prices are not validated
-func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.ChainIndex, existingProofHeight uint64, maxCollateral types.Currency, maxDuration uint64) error {
+func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.ChainIndex, existingSize uint64, existingProofHeight uint64, maxCollateral types.Currency, maxDuration uint64) error {
 	if err := req.Prices.Validate(pk); err != nil {
 		return fmt.Errorf("prices are invalid: %w", err)
 	}
@@ -144,14 +144,18 @@ func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.Chain
 	// calculate the minimum allowance required for the contract based on the
 	// host's locked collateral and the contract duration
 	minRenterAllowance := MinRenterAllowance(hp, duration, req.Renewal.Collateral)
+	// collateral is risked for the entire contract duration
+	riskedCollateral := req.Prices.Collateral.Mul64(existingSize).Mul64(expirationHeight - req.Prices.TipHeight)
+	// renewals add collateral on top of the required risked collateral
+	totalCollateral := req.Renewal.Collateral.Add(riskedCollateral)
 
 	switch {
 	case expirationHeight <= tip.Height: // must be validated against tip instead of prices
 		return errors.New("contract expiration height is in the past")
 	case req.Renewal.Allowance.IsZero():
 		return errors.New("allowance must be greater than zero")
-	case req.Renewal.Collateral.Cmp(maxCollateral) > 0:
-		return fmt.Errorf("collateral %v exceeds max collateral %v", req.Renewal.Collateral, maxCollateral)
+	case totalCollateral.Cmp(maxCollateral) > 0:
+		return fmt.Errorf("required collateral %v exceeds max collateral %v", totalCollateral, maxCollateral)
 	case duration > maxDuration:
 		return fmt.Errorf("contract duration %v exceeds max duration %v", duration, maxDuration)
 	case req.Renewal.Allowance.Cmp(minRenterAllowance) < 0:
@@ -162,7 +166,7 @@ func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.Chain
 }
 
 // Validate validates a refresh contract request. Prices are not validated
-func (req *RPCRefreshContractRequest) Validate(pk types.PublicKey, expirationHeight uint64, maxCollateral types.Currency) error {
+func (req *RPCRefreshContractRequest) Validate(pk types.PublicKey, existingTotalCollateral types.Currency, expirationHeight uint64, maxCollateral types.Currency) error {
 	if err := req.Prices.Validate(pk); err != nil {
 		return fmt.Errorf("prices are invalid: %w", err)
 	}
@@ -180,12 +184,14 @@ func (req *RPCRefreshContractRequest) Validate(pk types.PublicKey, expirationHei
 	// calculate the minimum allowance required for the contract based on the
 	// host's locked collateral and the contract duration
 	minRenterAllowance := MinRenterAllowance(hp, expirationHeight-req.Prices.TipHeight, req.Refresh.Collateral)
+	// refreshes add collateral on top of the existing collateral
+	totalCollateral := req.Refresh.Collateral.Add(existingTotalCollateral)
 
 	switch {
 	case req.Refresh.Allowance.IsZero():
 		return errors.New("allowance must be greater than zero")
-	case req.Refresh.Collateral.Cmp(maxCollateral) > 0:
-		return fmt.Errorf("collateral %v exceeds max collateral %v", req.Refresh.Collateral, maxCollateral)
+	case totalCollateral.Cmp(maxCollateral) > 0:
+		return fmt.Errorf("required collateral %v exceeds max collateral %v", totalCollateral, maxCollateral)
 	case req.Refresh.Allowance.Cmp(minRenterAllowance) < 0:
 		return fmt.Errorf("allowance %v is less than minimum allowance %v", req.Refresh.Allowance, minRenterAllowance)
 	default:
@@ -206,13 +212,13 @@ func (req *RPCVerifySectorRequest) Validate(pk types.PublicKey) error {
 }
 
 // Validate checks that the request is valid
-func (req *RPCAppendSectorsRequest) Validate(pk types.PublicKey, maxActions uint64) error {
+func (req *RPCAppendSectorsRequest) Validate(pk types.PublicKey) error {
 	if err := req.Prices.Validate(pk); err != nil {
 		return fmt.Errorf("prices are invalid: %w", err)
 	} else if len(req.Sectors) == 0 {
 		return errors.New("no sectors to append")
-	} else if uint64(len(req.Sectors)) > maxActions {
-		return fmt.Errorf("too many sectors to append: %d > %d", len(req.Sectors), maxActions)
+	} else if uint64(len(req.Sectors)) > MaxSectorBatchSize {
+		return fmt.Errorf("too many sectors to append: %d > %d", len(req.Sectors), MaxSectorBatchSize)
 	}
 	return nil
 }

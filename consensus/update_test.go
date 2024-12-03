@@ -1420,3 +1420,123 @@ func TestSiafunds(t *testing.T) {
 		}
 	}
 }
+
+func TestFoundationSubsidy(t *testing.T) {
+	key := types.GeneratePrivateKey()
+	addr := types.StandardAddress(key.PublicKey())
+	n, genesisBlock := testnet()
+	n.HardforkFoundation.Height = 1
+	n.HardforkFoundation.PrimaryAddress = addr
+	n.HardforkFoundation.FailsafeAddress = addr
+	n.HardforkV2.AllowHeight = 1
+	n.HardforkV2.RequireHeight = 1
+	n.BlockInterval = 10 * time.Hour // subsidies every 10 blocks
+	subsidyInterval := uint64(365 * 24 * time.Hour / n.BlockInterval / 12)
+	genesisBlock.Transactions = []types.Transaction{{
+		SiacoinOutputs: []types.SiacoinOutput{{
+			Address: addr,
+			Value:   types.Siacoins(1), // funds for changing address later
+		}},
+	}}
+	scoid := genesisBlock.Transactions[0].SiacoinOutputID(0)
+
+	db, cs := newConsensusDB(n, genesisBlock)
+	mineBlock := func(txns []types.V2Transaction) (subsidy types.SiacoinElement, exists bool) {
+		b := types.Block{
+			ParentID:     cs.Index.ID,
+			Timestamp:    types.CurrentTimestamp(),
+			MinerPayouts: []types.SiacoinOutput{{Address: types.VoidAddress, Value: cs.BlockReward()}},
+			V2: &types.V2BlockData{
+				Height:       cs.Index.Height + 1,
+				Commitment:   cs.Commitment(cs.TransactionsCommitment(nil, txns), types.VoidAddress),
+				Transactions: txns,
+			},
+		}
+		bs := db.supplementTipBlock(b)
+		findBlockNonce(cs, &b)
+		if err := ValidateBlock(cs, b, bs); err != nil {
+			t.Fatal(err)
+			return
+		}
+		var au ApplyUpdate
+		cs, au = ApplyBlock(cs, b, bs, db.ancestorTimestamp(b.ParentID))
+		db.applyBlock(au)
+		au.ForEachSiacoinElement(func(sce types.SiacoinElement, created, _ bool) {
+			if created && sce.SiacoinOutput.Address == addr {
+				subsidy = sce
+				exists = true
+			}
+		})
+		return
+	}
+
+	// receive initial subsidy
+	initialSubsidy, ok := mineBlock(nil)
+	if !ok {
+		t.Fatal("expected subsidy")
+	}
+
+	// mine until we receive a normal subsidy
+	for range subsidyInterval - 1 {
+		if _, ok := mineBlock(nil); ok {
+			t.Fatal("unexpected subsidy")
+		}
+	}
+	subsidy, ok := mineBlock(nil)
+	if !ok {
+		t.Fatal("expected subsidy")
+	} else if subsidy.SiacoinOutput.Value != initialSubsidy.SiacoinOutput.Value.Div64(12) {
+		t.Fatal("expected subsidy to be 1/12 of initial subsidy")
+	}
+	// disable subsidy
+	txn := types.V2Transaction{
+		SiacoinInputs: []types.V2SiacoinInput{{
+			Parent: db.sces[scoid],
+			SatisfiedPolicy: types.SatisfiedPolicy{
+				Policy: types.PolicyPublicKey(key.PublicKey()),
+			},
+		}},
+		SiacoinOutputs: []types.SiacoinOutput{{
+			Address: addr,
+			Value:   db.sces[scoid].SiacoinOutput.Value,
+		}},
+		NewFoundationAddress: &types.VoidAddress,
+	}
+	txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{key.SignHash(cs.InputSigHash(txn))}
+	scoid = txn.SiacoinOutputID(txn.ID(), 0)
+	mineBlock([]types.V2Transaction{txn})
+
+	// mine until we would receive another subsidy
+	for range subsidyInterval {
+		if _, ok := mineBlock(nil); ok {
+			t.Fatal("unexpected subsidy")
+		}
+	}
+
+	// re-enable subsidy
+	txn = types.V2Transaction{
+		SiacoinInputs: []types.V2SiacoinInput{{
+			Parent: db.sces[scoid],
+			SatisfiedPolicy: types.SatisfiedPolicy{
+				Policy: types.PolicyPublicKey(key.PublicKey()),
+			},
+		}},
+		SiacoinOutputs: []types.SiacoinOutput{{
+			Address: addr,
+			Value:   db.sces[scoid].SiacoinOutput.Value,
+		}},
+		NewFoundationAddress: &addr,
+	}
+	txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{key.SignHash(cs.InputSigHash(txn))}
+	mineBlock([]types.V2Transaction{txn})
+
+	// mine until we would receive another subsidy
+	for range subsidyInterval - 3 {
+		if _, ok := mineBlock(nil); ok {
+			t.Fatal("unexpected subsidy")
+		}
+	}
+	if _, ok := mineBlock(nil); !ok {
+		t.Fatal("expected subsidy")
+	}
+}
