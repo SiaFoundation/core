@@ -703,10 +703,11 @@ func (rev V2FileContractRevision) EncodeTo(e *Encoder) {
 
 // EncodeTo implements types.EncoderTo.
 func (ren V2FileContractRenewal) EncodeTo(e *Encoder) {
-	ren.FinalRevision.EncodeTo(e)
-	ren.NewContract.EncodeTo(e)
+	V2SiacoinOutput(ren.FinalRenterOutput).EncodeTo(e)
+	V2SiacoinOutput(ren.FinalHostOutput).EncodeTo(e)
 	V2Currency(ren.RenterRollover).EncodeTo(e)
 	V2Currency(ren.HostRollover).EncodeTo(e)
+	ren.NewContract.EncodeTo(e)
 	ren.RenterSignature.EncodeTo(e)
 	ren.HostSignature.EncodeTo(e)
 }
@@ -853,7 +854,6 @@ func (txn V2TransactionSemantics) EncodeTo(e *Encoder) {
 			renewal := *res
 			nilSigs(
 				&renewal.NewContract.RenterSignature, &renewal.NewContract.HostSignature,
-				&renewal.FinalRevision.RenterSignature, &renewal.FinalRevision.HostSignature,
 				&renewal.RenterSignature, &renewal.HostSignature,
 			)
 			fcr.Resolution = &renewal
@@ -1264,10 +1264,11 @@ func (rev *V2FileContractRevision) DecodeFrom(d *Decoder) {
 
 // DecodeFrom implements types.DecoderFrom.
 func (ren *V2FileContractRenewal) DecodeFrom(d *Decoder) {
-	ren.FinalRevision.DecodeFrom(d)
-	ren.NewContract.DecodeFrom(d)
+	(*V2SiacoinOutput)(&ren.FinalRenterOutput).DecodeFrom(d)
+	(*V2SiacoinOutput)(&ren.FinalHostOutput).DecodeFrom(d)
 	(*V2Currency)(&ren.RenterRollover).DecodeFrom(d)
 	(*V2Currency)(&ren.HostRollover).DecodeFrom(d)
+	ren.NewContract.DecodeFrom(d)
 	ren.RenterSignature.DecodeFrom(d)
 	ren.HostSignature.DecodeFrom(d)
 }

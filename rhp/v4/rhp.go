@@ -661,12 +661,8 @@ func MinRenterAllowance(hp HostPrices, duration uint64, collateral types.Currenc
 // RenewContract creates a contract renewal for the renew RPC
 func RenewContract(fc types.V2FileContract, prices HostPrices, rp RPCRenewContractParams) (types.V2FileContractRenewal, Usage) {
 	var renewal types.V2FileContractRenewal
-	// clear the old contract
-	renewal.FinalRevision = fc
-	renewal.FinalRevision.RevisionNumber = types.MaxRevisionNumber
-	renewal.FinalRevision.FileMerkleRoot = types.Hash256{}
-	renewal.FinalRevision.RenterSignature = types.Signature{}
-	renewal.FinalRevision.HostSignature = types.Signature{}
+	renewal.FinalRenterOutput = fc.RenterOutput
+	renewal.FinalHostOutput = fc.HostOutput
 
 	// create the new contract
 	renewal.NewContract = fc
@@ -708,6 +704,7 @@ func RenewContract(fc types.V2FileContract, prices HostPrices, rp RPCRenewContra
 	} else {
 		renewal.HostRollover = fc.TotalCollateral
 	}
+	renewal.FinalHostOutput.Value = renewal.FinalHostOutput.Value.Sub(renewal.HostRollover)
 
 	// if the remaining renter output is greater than the required allowance,
 	// only roll over the new allowance. Otherwise, roll over the remaining
@@ -717,6 +714,8 @@ func RenewContract(fc types.V2FileContract, prices HostPrices, rp RPCRenewContra
 	} else {
 		renewal.RenterRollover = fc.RenterOutput.Value
 	}
+	renewal.FinalRenterOutput.Value = renewal.FinalRenterOutput.Value.Sub(renewal.RenterRollover)
+
 	return renewal, Usage{
 		RPC:              prices.ContractPrice,
 		Storage:          renewal.NewContract.HostOutput.Value.Sub(renewal.NewContract.TotalCollateral).Sub(prices.ContractPrice),
@@ -727,12 +726,13 @@ func RenewContract(fc types.V2FileContract, prices HostPrices, rp RPCRenewContra
 // RefreshContract creates a contract renewal for the refresh RPC.
 func RefreshContract(fc types.V2FileContract, prices HostPrices, rp RPCRefreshContractParams) (types.V2FileContractRenewal, Usage) {
 	var renewal types.V2FileContractRenewal
-
-	// clear the old contract
-	renewal.FinalRevision = fc
-	renewal.FinalRevision.RevisionNumber = types.MaxRevisionNumber
-	renewal.FinalRevision.RenterSignature = types.Signature{}
-	renewal.FinalRevision.HostSignature = types.Signature{}
+	// roll over everything from the existing contract
+	renewal.FinalRenterOutput = fc.RenterOutput
+	renewal.FinalHostOutput = fc.HostOutput
+	renewal.FinalRenterOutput.Value = types.ZeroCurrency
+	renewal.FinalHostOutput.Value = types.ZeroCurrency
+	renewal.HostRollover = fc.HostOutput.Value
+	renewal.RenterRollover = fc.RenterOutput.Value
 
 	// create the new contract
 	renewal.NewContract = fc
@@ -745,9 +745,6 @@ func RefreshContract(fc types.V2FileContract, prices HostPrices, rp RPCRefreshCo
 	renewal.NewContract.MissedHostValue = fc.MissedHostValue.Add(rp.Collateral)
 	// total collateral includes the additional requested collateral
 	renewal.NewContract.TotalCollateral = fc.TotalCollateral.Add(rp.Collateral)
-	// roll over everything from the existing contract
-	renewal.HostRollover = fc.HostOutput.Value
-	renewal.RenterRollover = fc.RenterOutput.Value
 	return renewal, Usage{
 		RPC:              prices.ContractPrice,
 		Storage:          renewal.NewContract.HostOutput.Value.Sub(renewal.NewContract.TotalCollateral).Sub(prices.ContractPrice),
