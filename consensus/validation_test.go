@@ -1910,6 +1910,68 @@ func TestV2RenewalResolution(t *testing.T) {
 			},
 		},
 		{
+			desc: "valid renewal - changed host payout",
+			renewFn: func(txn *types.V2Transaction) {
+				// transfers part of the renter payout to the host
+				renewal := txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
+				renewal.FinalHostOutput.Value = renewal.HostRollover
+				renewal.HostRollover = types.ZeroCurrency
+				renewal.FinalRenterOutput.Value = renewal.RenterRollover
+				renewal.RenterRollover = types.ZeroCurrency
+				partial := renewal.FinalRenterOutput.Value.Div64(2)
+				renewal.FinalRenterOutput.Value = partial
+				renewal.FinalHostOutput.Value = renewal.FinalHostOutput.Value.Add(partial)
+				// subtract the cost from the change output
+				txn.SiacoinOutputs[0].Value = txn.SiacoinInputs[0].Parent.SiacoinOutput.Value.Sub(renewal.NewContract.RenterOutput.Value).Sub(renewal.NewContract.HostOutput.Value).Sub(cs.V2FileContractTax(renewal.NewContract))
+			},
+		},
+		{
+			desc: "valid renewal - changed renter payout",
+			renewFn: func(txn *types.V2Transaction) {
+				// transfers part of the host payout to the renter
+				renewal := txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
+				renewal.FinalHostOutput.Value = renewal.HostRollover
+				renewal.HostRollover = types.ZeroCurrency
+				renewal.FinalRenterOutput.Value = renewal.RenterRollover
+				renewal.RenterRollover = types.ZeroCurrency
+				partial := renewal.FinalHostOutput.Value.Div64(2)
+				renewal.FinalRenterOutput.Value = partial
+				renewal.FinalRenterOutput.Value = renewal.FinalRenterOutput.Value.Add(partial)
+				// subtract the cost from the change output
+				txn.SiacoinOutputs[0].Value = txn.SiacoinInputs[0].Parent.SiacoinOutput.Value.Sub(renewal.NewContract.RenterOutput.Value).Sub(renewal.NewContract.HostOutput.Value).Sub(cs.V2FileContractTax(renewal.NewContract))
+			},
+		},
+		{
+			desc: "invalid renewal - total payout exceeding parent",
+			renewFn: func(txn *types.V2Transaction) {
+				// transfers part of the renter payout to the host
+				renewal := txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
+				renewal.FinalRenterOutput.Value = renewal.FinalRenterOutput.Value.Add(types.Siacoins(1))
+			},
+			errString: "does not match existing contract payout",
+		},
+		{
+			desc: "invalid renewal - total payout less than parent",
+			renewFn: func(txn *types.V2Transaction) {
+				renewal := txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
+				renewal.RenterRollover = renewal.RenterRollover.Sub(types.Siacoins(1))
+				txn.SiacoinOutputs[0].Value = txn.SiacoinInputs[0].Parent.SiacoinOutput.Value.Sub(types.Siacoins(1)).Sub(cs.V2FileContractTax(renewal.NewContract))
+			},
+			errString: "does not match existing contract payout",
+		},
+		{
+			desc: "invalid renewal - total payout less than parent - no rollover",
+			renewFn: func(txn *types.V2Transaction) {
+				renewal := txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
+				renewal.FinalRenterOutput.Value = renewal.RenterRollover.Sub(types.Siacoins(1))
+				renewal.FinalHostOutput.Value = renewal.HostRollover
+				renewal.RenterRollover = types.ZeroCurrency
+				renewal.HostRollover = types.ZeroCurrency
+				txn.SiacoinOutputs[0].Value = txn.SiacoinInputs[0].Parent.SiacoinOutput.Value.Sub(renewal.FinalRenterOutput.Value).Sub(renewal.FinalHostOutput.Value).Sub(cs.V2FileContractTax(renewal.NewContract))
+			},
+			errString: "siacoin inputs (1000000000000000000000000000 H) do not equal outputs (1001000000000000000000000000 H)", // this is an inputs != outputs error because the renewal is validated there first
+		},
+		{
 			desc: "invalid renewal - bad new contract renter signature",
 			renewFn: func(txn *types.V2Transaction) {
 				renewal := txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
