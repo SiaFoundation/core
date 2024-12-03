@@ -1926,6 +1926,28 @@ func TestV2RenewalResolution(t *testing.T) {
 			errString: "invalid host signature",
 		},
 		{
+			desc: "invalid renewal - different host key",
+			renewFn: func(txn *types.V2Transaction) {
+				renewal := txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
+				sk := types.GeneratePrivateKey()
+				renewal.NewContract.HostPublicKey = sk.PublicKey()
+				contractSigHash := cs.ContractSigHash(renewal.NewContract)
+				renewal.NewContract.HostSignature = sk.SignHash(contractSigHash)
+			},
+			errString: "changes host public key",
+		},
+		{
+			desc: "invalid renewal - different renter key",
+			renewFn: func(txn *types.V2Transaction) {
+				renewal := txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
+				sk := types.GeneratePrivateKey()
+				renewal.NewContract.RenterPublicKey = sk.PublicKey()
+				contractSigHash := cs.ContractSigHash(renewal.NewContract)
+				renewal.NewContract.RenterSignature = sk.SignHash(contractSigHash)
+			},
+			errString: "changes renter public key",
+		},
+		{
 			desc: "invalid renewal - not enough host funds",
 			renewFn: func(txn *types.V2Transaction) {
 				renewal := txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)

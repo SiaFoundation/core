@@ -310,6 +310,7 @@ type (
 	// RPCRefreshContractSecondResponse implements Object.
 	RPCRefreshContractSecondResponse struct {
 		RenterRenewalSignature  types.Signature         `json:"renterRenewalSignature"`
+		RenterContractSignature types.Signature         `json:"renterContractSignature"`
 		RenterSatisfiedPolicies []types.SatisfiedPolicy `json:"renterSatisfiedPolicies"`
 	}
 	// RPCRefreshContractThirdResponse implements Object.
@@ -344,6 +345,7 @@ type (
 	// RPCRenewContractSecondResponse implements Object.
 	RPCRenewContractSecondResponse struct {
 		RenterRenewalSignature  types.Signature         `json:"renterRenewalSignature"`
+		RenterContractSignature types.Signature         `json:"renterContractSignature"`
 		RenterSatisfiedPolicies []types.SatisfiedPolicy `json:"renterSatisfiedPolicies"`
 	}
 	// RPCRenewContractThirdResponse implements Object.
