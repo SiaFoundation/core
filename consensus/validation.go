@@ -780,12 +780,24 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 		case *types.V2FileContractRenewal:
 			renewal := *r
 
+			if fc.RenterPublicKey != renewal.NewContract.RenterPublicKey {
+				return fmt.Errorf("file contract renewal %v changes renter public key", i)
+			} else if fc.HostPublicKey != renewal.NewContract.HostPublicKey {
+				return fmt.Errorf("file contract renewal %v changes host public key", i)
+			}
+
+			// validate that the renewal value is equal to existing contract's value.
+			// This must be done as a sum of the outputs, since the individual payouts may have
+			// changed in an unbroadcast revision.
+			totalPayout := renewal.FinalRenterOutput.Value.Add(renewal.RenterRollover).
+				Add(renewal.FinalHostOutput.Value).Add(renewal.HostRollover)
+			existingPayout := fc.RenterOutput.Value.Add(fc.HostOutput.Value)
+			if totalPayout != existingPayout {
+				return fmt.Errorf("file contract renewal %d renewal payout (%s) does not match existing contract payout %s", i, totalPayout, existingPayout)
+			}
+
 			newContractCost := renewal.NewContract.RenterOutput.Value.Add(renewal.NewContract.HostOutput.Value).Add(ms.base.V2FileContractTax(renewal.NewContract))
-			if totalRenter := renewal.FinalRenterOutput.Value.Add(renewal.RenterRollover); totalRenter != fc.RenterOutput.Value {
-				return fmt.Errorf("file contract renewal %v renter payout plus rollover (%d H) does not match old contract payout (%d H)", i, totalRenter, fc.RenterOutput.Value)
-			} else if totalHost := renewal.FinalHostOutput.Value.Add(renewal.HostRollover); totalHost != fc.HostOutput.Value {
-				return fmt.Errorf("file contract renewal %v host payout plus rollover (%d H) does not match old contract payout (%d H)", i, totalHost, fc.HostOutput.Value)
-			} else if rollover := renewal.RenterRollover.Add(renewal.HostRollover); rollover.Cmp(newContractCost) > 0 {
+			if rollover := renewal.RenterRollover.Add(renewal.HostRollover); rollover.Cmp(newContractCost) > 0 {
 				return fmt.Errorf("file contract renewal %v has rollover (%d H) exceeding new contract cost (%d H)", i, rollover, newContractCost)
 			} else if err := validateContract(renewal.NewContract); err != nil {
 				return fmt.Errorf("file contract renewal %v initial revision %s", i, err)

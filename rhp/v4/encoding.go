@@ -263,10 +263,12 @@ func (r *RPCRenewContractResponse) maxLen() int {
 
 func (r *RPCRenewContractSecondResponse) encodeTo(e *types.Encoder) {
 	r.RenterRenewalSignature.EncodeTo(e)
+	r.RenterContractSignature.EncodeTo(e)
 	types.EncodeSlice(e, r.RenterSatisfiedPolicies)
 }
 func (r *RPCRenewContractSecondResponse) decodeFrom(d *types.Decoder) {
 	r.RenterRenewalSignature.DecodeFrom(d)
+	r.RenterContractSignature.DecodeFrom(d)
 	types.DecodeSlice(d, &r.RenterSatisfiedPolicies)
 }
 func (r *RPCRenewContractSecondResponse) maxLen() int {
@@ -331,10 +333,12 @@ func (r *RPCRefreshContractResponse) maxLen() int {
 
 func (r *RPCRefreshContractSecondResponse) encodeTo(e *types.Encoder) {
 	r.RenterRenewalSignature.EncodeTo(e)
+	r.RenterContractSignature.EncodeTo(e)
 	types.EncodeSlice(e, r.RenterSatisfiedPolicies)
 }
 func (r *RPCRefreshContractSecondResponse) decodeFrom(d *types.Decoder) {
 	r.RenterRenewalSignature.DecodeFrom(d)
+	r.RenterContractSignature.DecodeFrom(d)
 	types.DecodeSlice(d, &r.RenterSatisfiedPolicies)
 }
 func (r *RPCRefreshContractSecondResponse) maxLen() int {
