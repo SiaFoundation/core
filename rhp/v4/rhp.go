@@ -588,6 +588,9 @@ func RenewalCost(cs consensus.State, p HostPrices, r types.V2FileContractRenewal
 // RefreshCost calculates the cost to the host and renter for refreshing a contract.
 func RefreshCost(cs consensus.State, p HostPrices, r types.V2FileContractRenewal, minerFee types.Currency) (renter, host types.Currency) {
 	renter = r.NewContract.RenterOutput.Value.Add(p.ContractPrice).Add(minerFee).Add(cs.V2FileContractTax(r.NewContract)).Sub(r.RenterRollover)
+	// the calculation is different from renewal because the host's revenue is also rolled into the refresh.
+	// This calculates the new collateral the host is expected to put up:
+	// new collateral = (new revenue + existing revenue + new collateral + existing collateral) - new revenue - (existing revenue + existing collateral)
 	host = r.NewContract.HostOutput.Value.Sub(p.ContractPrice).Sub(r.HostRollover)
 	return
 }
@@ -746,8 +749,8 @@ func RefreshContract(fc types.V2FileContract, prices HostPrices, rp RPCRefreshCo
 	// total collateral includes the additional requested collateral
 	renewal.NewContract.TotalCollateral = fc.TotalCollateral.Add(rp.Collateral)
 	return renewal, Usage{
+		// Refresh usage is only the contract price since duration is not increased
 		RPC:              prices.ContractPrice,
-		Storage:          renewal.NewContract.HostOutput.Value.Sub(renewal.NewContract.TotalCollateral).Sub(prices.ContractPrice),
 		RiskedCollateral: renewal.NewContract.TotalCollateral.Sub(renewal.NewContract.MissedHostValue),
 	}
 }
