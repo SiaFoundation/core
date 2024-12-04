@@ -1,5 +1,0 @@
----
-default: patch
----
-
-# Automate releases
