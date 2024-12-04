@@ -1,3 +1,4 @@
+name: Release
 on:
   pull_request:
     types:
@@ -8,7 +9,6 @@ on:
 permissions:
   contents: write
 
-name: Create Release PR
 jobs:
   prepare-release:
     runs-on: ubuntu-latest
