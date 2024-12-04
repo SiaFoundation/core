@@ -1,0 +1,27 @@
+on:
+  pull_request:
+    types:
+      - closed
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+name: Create Release PR
+jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Configure Git
+        run: |
+          git config --global user.name github-actions[bot]
+          git config --global user.email 41898282+github-actions[bot]@users.noreply.github.com
+      - uses: knope-dev/action@407e9ef7c272d2dd53a4e71e39a7839e29933c48
+      - run: knope release --verbose
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
