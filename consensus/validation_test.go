@@ -1129,13 +1129,6 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			{
-				"revision that resolves contract",
-				func(b *types.Block) {
-					txn := &b.V2.Transactions[0]
-					txn.FileContractRevisions[0].Revision.RevisionNumber = types.MaxRevisionNumber
-				},
-			},
-			{
 				"revision with window that starts in past",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
