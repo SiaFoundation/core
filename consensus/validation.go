@@ -761,10 +761,6 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 			return fmt.Errorf("file contract revision %v parent (%v) %s", i, fcr.Parent.ID, err)
 		} else if cur.ProofHeight < ms.base.childHeight() {
 			return fmt.Errorf("file contract revision %v cannot be applied to contract after proof height (%v)", i, cur.ProofHeight)
-		} else if rev.RevisionNumber == types.MaxRevisionNumber {
-			// NOTE: disallowing this means that resolutions always take
-			// precedence over revisions
-			return fmt.Errorf("file contract revision %v resolves contract", i)
 		} else if err := validateRevision(fcr.Parent, rev); err != nil {
 			return fmt.Errorf("file contract revision %v %s", i, err)
 		}
