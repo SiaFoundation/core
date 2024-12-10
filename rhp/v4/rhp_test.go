@@ -78,3 +78,61 @@ func TestRenewalCost(t *testing.T) {
 		t.Fatalf("expected %v, got %v", inputSum, outputSum)
 	}
 }
+
+func TestRefreshCost(t *testing.T) {
+	// contract for renewal
+	contract := types.V2FileContract{
+		Capacity:         1000 * SectorSize,
+		Filesize:         900 * SectorSize,
+		FileMerkleRoot:   types.Hash256{1, 1, 1},
+		ProofHeight:      500000,        // block 500k
+		ExpirationHeight: 500000 + 1000, // 1000 block window
+		RenterOutput:     types.SiacoinOutput{Value: types.Siacoins(300)},
+		HostOutput:       types.SiacoinOutput{Value: types.Siacoins(400)},
+		MissedHostValue:  types.Siacoins(700),
+		TotalCollateral:  types.Siacoins(1000),
+		RevisionNumber:   99999999,
+	}
+
+	cs := consensus.State{}
+	prices := HostPrices{
+		TipHeight:       40000,
+		ContractPrice:   types.NewCurrency64(100),
+		Collateral:      types.NewCurrency64(200),
+		StoragePrice:    types.NewCurrency64(300),
+		IngressPrice:    types.NewCurrency64(400),
+		EgressPrice:     types.NewCurrency64(500),
+		FreeSectorPrice: types.NewCurrency64(600),
+	}
+
+	// renew contract
+	renewal, _ := RefreshContract(contract, prices, RPCRefreshContractParams{
+		Allowance:  contract.RenterOutput.Value.Add(types.Siacoins(20)), // 20 SC more than renter output
+		Collateral: contract.TotalCollateral.Add(types.Siacoins(10)),
+	})
+
+	minerFee := types.NewCurrency64(700)
+
+	// assert expected results
+	renter, host := RefreshCost(cs, prices, renewal, minerFee)
+	expectedRenter := types.NewCurrency(10700203959496213284, 21749095)
+	expectedHost := types.NewCurrency(13106743224624480256, 54752209)
+	if !renter.Equals(expectedRenter) {
+		t.Fatalf("expected %v, got %v", expectedRenter, renter)
+	} else if !host.Equals(expectedHost) {
+		t.Fatalf("expected %v, got %v", expectedHost, host)
+	}
+
+	// make sure the sums match
+	fc := renewal.NewContract
+	inputSum := renter.Add(host)
+	outputSum := fc.RenterOutput.Value.
+		Add(fc.HostOutput.Value).
+		Add(cs.V2FileContractTax(fc)).
+		Add(minerFee).
+		Sub(renewal.RenterRollover).
+		Sub(renewal.HostRollover)
+	if !inputSum.Equals(outputSum) {
+		t.Fatalf("expected %v, got %v", inputSum, outputSum)
+	}
+}
