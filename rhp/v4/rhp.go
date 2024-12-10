@@ -581,9 +581,10 @@ func ContractCost(cs consensus.State, p HostPrices, fc types.V2FileContract, min
 }
 
 // RenewalCost calculates the cost to the host and renter for renewing a contract.
-func RenewalCost(cs consensus.State, p HostPrices, r types.V2FileContractRenewal, minerFee types.Currency) (renter, host types.Currency) {
-	renter = r.NewContract.RenterOutput.Value.Add(p.ContractPrice).Add(minerFee).Add(cs.V2FileContractTax(r.NewContract)).Sub(r.RenterRollover)
-	host = r.NewContract.TotalCollateral.Sub(r.HostRollover)
+func RenewalCost(cs consensus.State, p HostPrices, r types.V2FileContractRenewal, minerFee types.Currency, prevExpirationHeight uint64) (renter, host types.Currency) {
+	storageCost := p.StoragePrice.Mul64(r.NewContract.Filesize).Mul64(r.NewContract.ExpirationHeight - prevExpirationHeight)
+	renter = r.NewContract.RenterOutput.Value.Add(storageCost).Add(p.ContractPrice).Add(minerFee).Add(cs.V2FileContractTax(r.NewContract)).Sub(r.RenterRollover)
+	host = r.NewContract.HostOutput.Value.Add(r.NewContract.TotalCollateral).Sub(r.HostRollover)
 	return
 }
 
