@@ -90,6 +90,16 @@ func TestRenewalCost(t *testing.T) {
 			HostCost:   types.ZeroCurrency,                                                               // collateral lock up is less than rollover
 		},
 		{
+			Description: "renewed storage - greater capacity",
+			Modify: func(rev *types.V2FileContract, p *RPCRenewContractParams) {
+				// add storage
+				rev.Capacity = SectorSize * 2
+				rev.Filesize = SectorSize
+			},
+			RenterCost: prices.ContractPrice.Add(prices.StoragePrice.Mul64(SectorSize).Mul64(extension)), // storage cost is calculated for just the filesize & extension
+			HostCost:   types.ZeroCurrency,                                                               // collateral lock up is less than rollover
+		},
+		{
 			Description: "renewed storage",
 			Modify: func(rev *types.V2FileContract, p *RPCRenewContractParams) {
 				// add storage
@@ -147,8 +157,13 @@ func TestRenewalCost(t *testing.T) {
 
 			contractTotal := renewal.NewContract.HostOutput.Value.Add(renewal.NewContract.RenterOutput.Value)
 			totalCost := renter.Add(host).Add(renewal.HostRollover).Add(renewal.RenterRollover).Sub(tax).Sub(minerFee)
-			if !contractTotal.Equals(totalCost) {
+			switch {
+			case !contractTotal.Equals(totalCost):
 				t.Fatalf("expected contract sum %v, got %v", contractTotal, totalCost)
+			case contract.Filesize != renewal.NewContract.Filesize:
+				t.Fatalf("expected contract size %d, got %d", contract.Filesize, renewal.NewContract.Filesize)
+			case contract.Filesize != renewal.NewContract.Capacity: // renewals reset capacity
+				t.Fatalf("expected contract capacity %d, got %d", contract.Filesize, renewal.NewContract.Capacity)
 			}
 		})
 	}
@@ -191,6 +206,14 @@ func TestRefreshCost(t *testing.T) {
 			Modify: func(rev *types.V2FileContract) {
 				// add storage
 				rev.Capacity = SectorSize
+				rev.Filesize = SectorSize
+			},
+		},
+		{
+			Description: "renewed storage - greater capacity",
+			Modify: func(rev *types.V2FileContract) {
+				// add storage
+				rev.Capacity = SectorSize * 4
 				rev.Filesize = SectorSize
 			},
 		},
@@ -239,8 +262,14 @@ func TestRefreshCost(t *testing.T) {
 
 			contractTotal := refresh.NewContract.HostOutput.Value.Add(refresh.NewContract.RenterOutput.Value)
 			totalCost := renter.Add(host).Add(refresh.HostRollover).Add(refresh.RenterRollover).Sub(tax).Sub(minerFee)
-			if !contractTotal.Equals(totalCost) {
+
+			switch {
+			case !contractTotal.Equals(totalCost):
 				t.Fatalf("expected contract sum %v, got %v", contractTotal, totalCost)
+			case contract.Filesize != refresh.NewContract.Filesize:
+				t.Fatalf("expected contract size %d, got %d", contract.Filesize, refresh.NewContract.Filesize)
+			case contract.Capacity != refresh.NewContract.Capacity:
+				t.Fatalf("expected contract capacity %d, got %d", contract.Capacity, refresh.NewContract.Capacity)
 			}
 		})
 	}
