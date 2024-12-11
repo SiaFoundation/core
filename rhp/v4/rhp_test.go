@@ -1,10 +1,12 @@
 package rhp
 
 import (
+	"math"
 	"testing"
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
+	"lukechampine.com/frand"
 )
 
 func TestMinRenterAllowance(t *testing.T) {
@@ -41,6 +43,7 @@ func TestRenewalCost(t *testing.T) {
 		EgressPrice:     types.NewCurrency64(500),
 		FreeSectorPrice: types.NewCurrency64(600),
 	}
+	minerFee := types.NewCurrency64(frand.Uint64n(math.MaxUint64))
 	renterKey, hostKey := types.GeneratePrivateKey().PublicKey(), types.GeneratePrivateKey().PublicKey()
 
 	type testCase struct {
@@ -135,11 +138,17 @@ func TestRenewalCost(t *testing.T) {
 			prices.TipHeight = renewalHeight
 			renewal, _ := RenewContract(contract, prices, params)
 			tax := cs.V2FileContractTax(renewal.NewContract)
-			renter, host := RenewalCost(cs, prices, renewal, types.ZeroCurrency)
-			if !renter.Equals(tc.RenterCost.Add(tax)) {
-				t.Errorf("expected renter cost %v, got %v", tc.RenterCost, renter.Sub(tax))
+			renter, host := RenewalCost(cs, prices, renewal, minerFee)
+			if !renter.Equals(tc.RenterCost.Add(tax).Add(minerFee)) {
+				t.Errorf("expected renter cost %v, got %v", tc.RenterCost, renter.Sub(tax).Sub(minerFee))
 			} else if !host.Equals(tc.HostCost) {
 				t.Errorf("expected host cost %v, got %v", tc.HostCost, host)
+			}
+
+			contractTotal := renewal.NewContract.HostOutput.Value.Add(renewal.NewContract.RenterOutput.Value)
+			totalCost := renter.Add(host).Add(renewal.HostRollover).Add(renewal.RenterRollover).Sub(tax).Sub(minerFee)
+			if !contractTotal.Equals(totalCost) {
+				t.Fatalf("expected contract sum %v, got %v", contractTotal, totalCost)
 			}
 		})
 	}
@@ -158,6 +167,7 @@ func TestRefreshCost(t *testing.T) {
 		FreeSectorPrice: types.NewCurrency64(600),
 	}
 	renterKey, hostKey := types.GeneratePrivateKey().PublicKey(), types.GeneratePrivateKey().PublicKey()
+	minerFee := types.NewCurrency64(frand.Uint64n(math.MaxUint64))
 
 	type testCase struct {
 		Description string
@@ -220,11 +230,17 @@ func TestRefreshCost(t *testing.T) {
 
 			refresh, _ := RefreshContract(contract, prices, params)
 			tax := cs.V2FileContractTax(refresh.NewContract)
-			renter, host := RefreshCost(cs, prices, refresh, types.ZeroCurrency)
-			if !renter.Equals(renterCost.Add(tax)) {
-				t.Errorf("expected renter cost %v, got %v", renterCost, renter.Sub(tax))
+			renter, host := RefreshCost(cs, prices, refresh, minerFee)
+			if !renter.Equals(renterCost.Add(tax).Add(minerFee)) {
+				t.Errorf("expected renter cost %v, got %v", renterCost, renter.Sub(tax).Sub(minerFee))
 			} else if !host.Equals(hostCost) {
 				t.Errorf("expected host cost %v, got %v", hostCost, host)
+			}
+
+			contractTotal := refresh.NewContract.HostOutput.Value.Add(refresh.NewContract.RenterOutput.Value)
+			totalCost := renter.Add(host).Add(refresh.HostRollover).Add(refresh.RenterRollover).Sub(tax).Sub(minerFee)
+			if !contractTotal.Equals(totalCost) {
+				t.Fatalf("expected contract sum %v, got %v", contractTotal, totalCost)
 			}
 		})
 	}
