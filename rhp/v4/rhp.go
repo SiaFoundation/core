@@ -383,7 +383,9 @@ type (
 	}
 	// RPCLatestRevisionResponse implements Object.
 	RPCLatestRevisionResponse struct {
-		Contract types.V2FileContract `json:"contract"`
+		Contract  types.V2FileContract `json:"contract"`
+		Revisable bool                 `json:"revisable"`
+		Renewed   bool                 `json:"renewed"`
 	}
 
 	// RPCReadSectorRequest implements Object.
