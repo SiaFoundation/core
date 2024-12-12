@@ -1,3 +1,9 @@
+## 0.7.3 (2024-12-12)
+
+### Features
+
+- Update `golang.org/x/crypto` from 0.30.0 to 0.31.0
+
 ## 0.7.2 (2024-12-12)
 
 ### Features
