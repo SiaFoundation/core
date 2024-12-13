@@ -473,9 +473,13 @@ func (r *RPCLatestRevisionRequest) maxLen() int {
 
 func (r *RPCLatestRevisionResponse) encodeTo(e *types.Encoder) {
 	r.Contract.EncodeTo(e)
+	e.WriteBool(r.Revisable)
+	e.WriteBool(r.Renewed)
 }
 func (r *RPCLatestRevisionResponse) decodeFrom(d *types.Decoder) {
 	r.Contract.DecodeFrom(d)
+	r.Revisable = d.ReadBool()
+	r.Renewed = d.ReadBool()
 }
 func (r *RPCLatestRevisionResponse) maxLen() int {
 	return sizeofContract
