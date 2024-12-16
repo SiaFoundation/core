@@ -668,14 +668,20 @@ func (au ApplyUpdate) UpdateElementProof(e *types.StateElement) {
 	au.eau.updateElementProof(e)
 }
 
-// ForEachSiacoinElement calls fn on each siacoin element related to au.
+// ForEachSiacoinElement calls fn on each siacoin element related to the applied
+// block. The created and spent flags indicate whether the element was newly
+// created in the block and/or spent in the block. Note that an element may be
+// both created and spent in the the same block.
 func (au ApplyUpdate) ForEachSiacoinElement(fn func(sce types.SiacoinElement, created, spent bool)) {
 	for _, sce := range au.ms.sces {
 		fn(sce, au.ms.isCreated(sce.ID), au.ms.isSpent(sce.ID))
 	}
 }
 
-// ForEachSiafundElement calls fn on each siafund element related to au.
+// ForEachSiafundElement calls fn on each siafund element related to the applied
+// block. The created and spent flags indicate whether the element was newly
+// created in the block and/or spent in the block. Note that an element may be
+// both created and spent in the the same block.
 func (au ApplyUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, created, spent bool)) {
 	for _, sfe := range au.ms.sfes {
 		fn(sfe, au.ms.isCreated(sfe.ID), au.ms.isSpent(sfe.ID))
@@ -683,16 +689,28 @@ func (au ApplyUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, cr
 }
 
 // ForEachFileContractElement calls fn on each file contract element related to
-// au. If the contract was revised, rev is non-nil.
+// the applied block. The created flag indicates whether the contract was newly
+// created. If the contract was revised, rev is non-nil and represents the state
+// of the element post-application. If the block revised the contract multiple
+// times, rev is the revision with the highest revision number. The resolved and
+// valid flags indicate whether the contract was resolved, and if so, whether it
+// was resolved via storage proof. Note that a contract may be created, revised,
+// and resolved all within the same block.
 func (au ApplyUpdate) ForEachFileContractElement(fn func(fce types.FileContractElement, created bool, rev *types.FileContractElement, resolved, valid bool)) {
 	for _, fce := range au.ms.fces {
 		fn(fce, au.ms.isCreated(fce.ID), au.ms.revs[fce.ID], au.ms.isSpent(fce.ID), au.ms.res[fce.ID])
 	}
 }
 
-// ForEachV2FileContractElement calls fn on each V2 file contract element
-// related to au. If the contract was revised, rev is non-nil. If the contract
-// was resolved, res is non-nil.
+// ForEachV2FileContractElement calls fn on each v2 file contract element
+// related to the applied block. The created flag indicates whether the contract
+// was newly created. If the contract was revised, rev is non-nil and represents
+// the state of the element post-application. If the block revised the contract
+// multiple times, rev is the revision with the highest revision number. The
+// resolved and valid flags indicate whether the contract was resolved, and if
+// so, whether it was resolved via storage proof. Note that, within a block, a
+// contract may be created and revised, or revised and resolved, but not created
+// and resolved.
 func (au ApplyUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType)) {
 	for _, fce := range au.ms.v2fces {
 		fn(fce, au.ms.isCreated(fce.ID), au.ms.v2revs[fce.ID], au.ms.v2res[fce.ID])
@@ -758,7 +776,11 @@ func ApplyBlock(s State, b types.Block, bs V1BlockSupplement, targetTimestamp ti
 	return s, ApplyUpdate{ms, eau}
 }
 
-// A RevertUpdate represents the effects of reverting to a prior state.
+// A RevertUpdate represents the effects of reverting to a prior state. These
+// are the same effects seen as when applying the block, but should be processed
+// inversely. For example, if ForEachSiacoinElement reports an element with the
+// created flag set, it means the block created that element when it was
+// applied; thus, when the block is reverted, the element no longer exists.
 type RevertUpdate struct {
 	ms  *MidState
 	eru elementRevertUpdate
@@ -771,7 +793,10 @@ func (ru RevertUpdate) UpdateElementProof(e *types.StateElement) {
 	ru.eru.updateElementProof(e)
 }
 
-// ForEachSiacoinElement calls fn on each siacoin element related to ru.
+// ForEachSiacoinElement calls fn on each siacoin element related to the reverted
+// block. The created and spent flags indicate whether the element was newly
+// created in the block and/or spent in the block. Note that an element may be
+// both created and spent in the the same block.
 func (ru RevertUpdate) ForEachSiacoinElement(fn func(sce types.SiacoinElement, created, spent bool)) {
 	for i := range ru.ms.sces {
 		sce := ru.ms.sces[len(ru.ms.sces)-i-1]
@@ -779,7 +804,10 @@ func (ru RevertUpdate) ForEachSiacoinElement(fn func(sce types.SiacoinElement, c
 	}
 }
 
-// ForEachSiafundElement calls fn on each siafund element related to ru.
+// ForEachSiafundElement calls fn on each siafund element related to the
+// reverted block. The created and spent flags indicate whether the element was
+// newly created in the block and/or spent in the block. Note that an element
+// may be both created and spent in the the same block.
 func (ru RevertUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, created, spent bool)) {
 	for i := range ru.ms.sfes {
 		sfe := ru.ms.sfes[len(ru.ms.sfes)-i-1]
@@ -788,7 +816,13 @@ func (ru RevertUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, c
 }
 
 // ForEachFileContractElement calls fn on each file contract element related to
-// ru. If the contract was revised, rev is non-nil.
+// the reverted block. The created flag indicates whether the contract was newly
+// created. If the contract was revised, rev is non-nil and represents the state
+// of the element post-application. If the block revised the contract multiple
+// times, rev is the revision with the highest revision number. The resolved and
+// valid flags indicate whether the contract was resolved, and if so, whether it
+// was resolved via storage proof. Note that a contract may be created, revised,
+// and resolved all within the same block.
 func (ru RevertUpdate) ForEachFileContractElement(fn func(fce types.FileContractElement, created bool, rev *types.FileContractElement, resolved, valid bool)) {
 	for i := range ru.ms.fces {
 		fce := ru.ms.fces[len(ru.ms.fces)-i-1]
@@ -796,9 +830,15 @@ func (ru RevertUpdate) ForEachFileContractElement(fn func(fce types.FileContract
 	}
 }
 
-// ForEachV2FileContractElement calls fn on each V2 file contract element
-// related to au. If the contract was revised, rev is non-nil. If the contract
-// was resolved, res is non-nil.
+// ForEachV2FileContractElement calls fn on each v2 file contract element
+// related to the reverted block. The created flag indicates whether the
+// contract was newly created. If the contract was revised, rev is non-nil and
+// represents the state of the element post-application. If the block revised
+// the contract multiple times, rev is the revision with the highest revision
+// number. The resolved and valid flags indicate whether the contract was
+// resolved, and if so, whether it was resolved via storage proof. Note that,
+// within a block, a contract may be created and revised, or revised and
+// resolved, but not created and resolved.
 func (ru RevertUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType)) {
 	for i := range ru.ms.v2fces {
 		fce := ru.ms.v2fces[len(ru.ms.v2fces)-i-1]
