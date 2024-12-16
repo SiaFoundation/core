@@ -77,12 +77,14 @@ func (a Account) EncodeTo(e *types.Encoder) { e.Write(a[:]) }
 func (a *Account) DecodeFrom(d *types.Decoder) { d.Read(a[:]) }
 
 func (at AccountToken) encodeTo(e *types.Encoder) {
+	at.HostKey.EncodeTo(e)
 	at.Account.EncodeTo(e)
 	e.WriteTime(at.ValidUntil)
 	at.Signature.EncodeTo(e)
 }
 
 func (at *AccountToken) decodeFrom(d *types.Decoder) {
+	at.HostKey.DecodeFrom(d)
 	at.Account.DecodeFrom(d)
 	at.ValidUntil = d.ReadTime()
 	at.Signature.DecodeFrom(d)
