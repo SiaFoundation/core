@@ -3,6 +3,7 @@ package consensus
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"math"
 	"math/bits"
 	"strings"
@@ -42,10 +43,11 @@ func testnet() (*Network, types.Block) {
 }
 
 type consensusDB struct {
-	sces   map[types.SiacoinOutputID]types.SiacoinElement
-	sfes   map[types.SiafundOutputID]types.SiafundElement
-	fces   map[types.FileContractID]types.FileContractElement
-	v2fces map[types.FileContractID]types.V2FileContractElement
+	sces     map[types.SiacoinOutputID]types.SiacoinElement
+	sfes     map[types.SiafundOutputID]types.SiafundElement
+	fces     map[types.FileContractID]types.FileContractElement
+	v2fces   map[types.FileContractID]types.V2FileContractElement
+	blockIDs []types.BlockID
 }
 
 func (db *consensusDB) applyBlock(au ApplyUpdate) {
@@ -97,6 +99,7 @@ func (db *consensusDB) applyBlock(au ApplyUpdate) {
 			delete(db.v2fces, types.FileContractID(fce.ID))
 		}
 	})
+	db.blockIDs = append(db.blockIDs, au.ms.cie.ID)
 }
 
 func (db *consensusDB) revertBlock(ru RevertUpdate) {
@@ -169,6 +172,14 @@ func (db *consensusDB) supplementTipBlock(b types.Block) (bs V1BlockSupplement) 
 		for _, fcr := range txn.FileContractRevisions {
 			if fce, ok := db.fces[fcr.ParentID]; ok {
 				ts.RevisedFileContracts = append(ts.RevisedFileContracts, fce)
+			}
+		}
+		for _, sp := range txn.StorageProofs {
+			if fce, ok := db.fces[sp.ParentID]; ok {
+				ts.StorageProofs = append(ts.StorageProofs, V1StorageProofSupplement{
+					FileContract: fce,
+					WindowID:     db.blockIDs[fce.FileContract.WindowStart],
+				})
 			}
 		}
 	}
@@ -324,40 +335,48 @@ func TestValidateBlock(t *testing.T) {
 	b := types.Block{
 		ParentID:  genesisBlock.ID(),
 		Timestamp: types.CurrentTimestamp(),
-		Transactions: []types.Transaction{{
-			SiacoinInputs: []types.SiacoinInput{{
-				ParentID:         giftTxn.SiacoinOutputID(0),
-				UnlockConditions: types.StandardUnlockConditions(giftPublicKey),
-			}},
-			SiafundInputs: []types.SiafundInput{{
-				ParentID:         giftTxn.SiafundOutputID(0),
-				ClaimAddress:     types.VoidAddress,
-				UnlockConditions: types.StandardUnlockConditions(giftPublicKey),
-			}},
-			SiacoinOutputs: []types.SiacoinOutput{
-				{Value: giftAmountSC.Sub(fc.Payout), Address: giftAddress},
-			},
-			SiafundOutputs: []types.SiafundOutput{
-				{Value: giftAmountSF / 2, Address: giftAddress},
-				{Value: giftAmountSF / 2, Address: types.VoidAddress},
-			},
-			FileContracts: []types.FileContract{fc},
-			FileContractRevisions: []types.FileContractRevision{
-				{
-					ParentID: giftTxn.FileContractID(0),
-					UnlockConditions: types.UnlockConditions{
-						PublicKeys:         []types.UnlockKey{renterPublicKey.UnlockKey(), hostPublicKey.UnlockKey()},
-						SignaturesRequired: 2,
+		Transactions: []types.Transaction{
+			{
+				SiacoinInputs: []types.SiacoinInput{{
+					ParentID:         giftTxn.SiacoinOutputID(0),
+					UnlockConditions: types.StandardUnlockConditions(giftPublicKey),
+				}},
+				SiafundInputs: []types.SiafundInput{{
+					ParentID:         giftTxn.SiafundOutputID(0),
+					ClaimAddress:     types.VoidAddress,
+					UnlockConditions: types.StandardUnlockConditions(giftPublicKey),
+				}},
+				SiacoinOutputs: []types.SiacoinOutput{
+					{Value: giftAmountSC.Sub(fc.Payout), Address: giftAddress},
+				},
+				SiafundOutputs: []types.SiafundOutput{
+					{Value: giftAmountSF / 2, Address: giftAddress},
+					{Value: giftAmountSF / 2, Address: types.VoidAddress},
+				},
+				FileContracts: []types.FileContract{fc},
+				FileContractRevisions: []types.FileContractRevision{
+					{
+						ParentID: giftTxn.FileContractID(0),
+						UnlockConditions: types.UnlockConditions{
+							PublicKeys:         []types.UnlockKey{renterPublicKey.UnlockKey(), hostPublicKey.UnlockKey()},
+							SignaturesRequired: 2,
+						},
+						FileContract: revision,
 					},
-					FileContract: revision,
 				},
 			},
-		}},
+		},
 		MinerPayouts: []types.SiacoinOutput{{
 			Address: types.VoidAddress,
 			Value:   cs.BlockReward(),
 		}},
 	}
+	b.Transactions[0].FileContracts[0].FileMerkleRoot = types.HashBytes(make([]byte, 65))
+	b.Transactions = append(b.Transactions, types.Transaction{
+		StorageProofs: []types.StorageProof{{
+			ParentID: b.Transactions[0].FileContractID(0),
+		}},
+	})
 
 	// block should be valid
 	validBlock := deepCopyBlock(b)
@@ -373,11 +392,11 @@ func TestValidateBlock(t *testing.T) {
 	// tests with correct signatures
 	{
 		tests := []struct {
-			desc    string
-			corrupt func(*types.Block)
+			errString string
+			corrupt   func(*types.Block)
 		}{
 			{
-				"weight that exceeds the limit",
+				"block exceeds maximum weight",
 				func(b *types.Block) {
 					data := make([]byte, cs.MaxBlockWeight())
 					b.Transactions = append(b.Transactions, types.Transaction{
@@ -386,25 +405,25 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
-				"wrong parent ID",
+				"block has wrong parent ID",
 				func(b *types.Block) {
 					b.ParentID[0] ^= 255
 				},
 			},
 			{
-				"wrong timestamp",
+				"block has timestamp too far in the past",
 				func(b *types.Block) {
 					b.Timestamp = cs.PrevTimestamps[0].AddDate(-1, 0, 0)
 				},
 			},
 			{
-				"no miner payout",
+				"miner payout sum (0 SC) does not match block reward + fees (300 KS)",
 				func(b *types.Block) {
 					b.MinerPayouts = nil
 				},
 			},
 			{
-				"zero miner payout",
+				"miner payout has zero value",
 				func(b *types.Block) {
 					b.MinerPayouts = []types.SiacoinOutput{{
 						Address: types.VoidAddress,
@@ -413,7 +432,7 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
-				"incorrect miner payout",
+				"miner payout sum (150 KS) does not match block reward + fees (300 KS)",
 				func(b *types.Block) {
 					b.MinerPayouts = []types.SiacoinOutput{{
 						Address: types.VoidAddress,
@@ -422,7 +441,7 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
-				"overflowing miner payout",
+				"miner payouts overflow",
 				func(b *types.Block) {
 					b.MinerPayouts = []types.SiacoinOutput{
 						{Address: types.VoidAddress, Value: types.MaxCurrency},
@@ -431,7 +450,7 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
-				"overflowing siacoin outputs",
+				"transaction outputs exceed inputs",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.SiacoinOutputs = []types.SiacoinOutput{
@@ -441,7 +460,7 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
-				"zero-valued SiacoinOutput",
+				"transaction creates a zero-valued output",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					for i := range txn.SiacoinOutputs {
@@ -452,7 +471,7 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
-				"zero-valued SiafundOutput",
+				"transaction creates a zero-valued output",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					for i := range txn.SiafundOutputs {
@@ -462,14 +481,14 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
-				"zero-valued MinerFee",
+				"transaction fee has zero value",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.MinerFees = append(txn.MinerFees, types.ZeroCurrency)
 				},
 			},
 			{
-				"overflowing MinerFees",
+				"transaction fees overflow",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.MinerFees = append(txn.MinerFees, types.MaxCurrency)
@@ -477,56 +496,58 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
-				"siacoin outputs exceed inputs",
+				"siacoin inputs (100 SC) do not equal outputs (100.000000000000000000000001 SC)",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.SiacoinOutputs[0].Value = txn.SiacoinOutputs[0].Value.Add(types.NewCurrency64(1))
 				},
 			},
 			{
-				"siacoin outputs less than inputs",
+				"siacoin inputs (100 SC) do not equal outputs (99.999999999999999999999999 SC)",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.SiacoinOutputs[0].Value = txn.SiacoinOutputs[0].Value.Sub(types.NewCurrency64(1))
 				},
 			},
 			{
-				"siafund outputs exceed inputs",
+				"siafund inputs (100) do not equal outputs (101)",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.SiafundOutputs[0].Value++
 				},
 			},
 			{
-				"siafund outputs less than inputs",
+				"siafund inputs (100) do not equal outputs (99)",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.SiafundOutputs[0].Value--
 				},
 			},
 			{
-				"two of the same siacoin input",
+				fmt.Sprintf("transaction spends siacoin input %v more than once", giftTxn.SiacoinOutputID(0)),
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.SiacoinInputs = append(txn.SiacoinInputs, txn.SiacoinInputs[0])
+					txn.SiacoinOutputs[0].Value = txn.SiacoinOutputs[0].Value.Add(giftAmountSC)
 				},
 			},
 			{
-				"two of the same siafund input",
+				fmt.Sprintf("transaction spends siafund input %v more than once", giftTxn.SiafundOutputID(0)),
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.SiafundInputs = append(txn.SiafundInputs, txn.SiafundInputs[0])
+					txn.SiafundOutputs[0].Value += giftAmountSF
 				},
 			},
 			{
-				"siacoin input claiming incorrect unlock conditions",
+				"siacoin input 0 claims incorrect unlock conditions",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.SiacoinInputs[0].UnlockConditions.PublicKeys[0].Key[0] ^= 255
 				},
 			},
 			{
-				"siafund input claiming incorrect unlock conditions",
+				"siafund input 0 claims incorrect unlock conditions",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.SiafundInputs[0].UnlockConditions.PublicKeys[0].Key[0] ^= 255
@@ -565,10 +586,29 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
-				"window that starts in the past",
+				"file contract 0 has window that starts in the past",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.FileContracts[0].WindowStart = 0
+				},
+			},
+			{
+				"storage proof 0 references nonexistent file contract",
+				func(b *types.Block) {
+					b.Transactions = append(b.Transactions, types.Transaction{
+						StorageProofs: []types.StorageProof{{}},
+					})
+				},
+			},
+			{
+				"storage proof 0 conflicts with previous proof",
+				func(b *types.Block) {
+					txn := &b.Transactions[0]
+					b.Transactions = append(b.Transactions, types.Transaction{
+						StorageProofs: []types.StorageProof{{
+							ParentID: txn.FileContractID(0),
+						}},
+					})
 				},
 			},
 			{
@@ -586,7 +626,7 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
-				"incorrect payout tax",
+				"payout with incorrect tax",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.SiacoinOutputs[0].Value = txn.SiacoinOutputs[0].Value.Add(types.Siacoins(1))
@@ -594,42 +634,43 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
-				"revision of nonexistent file contract",
+				"revises nonexistent file contract",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.FileContractRevisions[0].ParentID[0] ^= 255
 				},
 			},
 			{
-				"revision with window that starts in past",
+				"file contract revision 0 has window that starts in the past",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.FileContractRevisions[0].WindowStart = cs.Index.Height
 				},
 			},
 			{
-				"revision with window that ends before it begins",
+				"file contract revision 0 has window that ends before it begins",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.FileContractRevisions[0].WindowStart = txn.FileContractRevisions[0].WindowEnd
 				},
 			},
 			{
-				"revision with lower revision number than its parent",
+				"file contract revision 0 does not have a higher revision number than its parent",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.FileContractRevisions[0].RevisionNumber = 0
+					b.Transactions = b.Transactions[:1]
 				},
 			},
 			{
-				"revision claiming incorrect unlock conditions",
+				"file contract revision 0 claims incorrect unlock conditions",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.FileContractRevisions[0].UnlockConditions.PublicKeys[0].Key[0] ^= 255
 				},
 			},
 			{
-				"revision having different valid payout sum",
+				"file contract revision 0 changes valid payout sum",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.FileContractRevisions[0].ValidProofOutputs = append(txn.FileContractRevisions[0].ValidProofOutputs, types.SiacoinOutput{
@@ -638,7 +679,7 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
-				"revision having different missed payout sum",
+				"file contract revision 0 changes missed payout sum",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.FileContractRevisions[0].MissedProofOutputs = append(txn.FileContractRevisions[0].MissedProofOutputs, types.SiacoinOutput{
@@ -647,7 +688,7 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
-				"conflicting revisions in same transaction",
+				fmt.Sprintf("transaction revises file contract %v more than once", giftTxn.FileContractID(0)),
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					newRevision := txn.FileContractRevisions[0]
@@ -656,12 +697,12 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
-				"misordered revisions",
+				"file contract revision 0 does not have a higher revision number than its parent",
 				func(b *types.Block) {
 					newRevision := b.Transactions[0].FileContractRevisions[0]
 					newRevision.RevisionNumber = 99
 
-					b.Transactions = append(b.Transactions, types.Transaction{
+					b.Transactions = append(b.Transactions[:1], types.Transaction{
 						FileContractRevisions: []types.FileContractRevision{newRevision},
 					})
 
@@ -671,34 +712,18 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
-				"duplicate revisions in same block",
+				"file contract revision 0 does not have a higher revision number than its parent",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					newRevision := txn.FileContractRevisions[0]
 
-					b.Transactions = append(b.Transactions, types.Transaction{
+					b.Transactions = append(b.Transactions[:1], types.Transaction{
 						FileContractRevisions: []types.FileContractRevision{newRevision},
 					})
 				},
 			},
 			{
-				"double-spent siacoin input",
-				func(b *types.Block) {
-					txn := &b.Transactions[0]
-					txn.SiacoinInputs = append(txn.SiacoinInputs, txn.SiacoinInputs[0])
-					txn.SiacoinOutputs[0].Value = txn.SiacoinOutputs[0].Value.Add(types.Siacoins(100))
-				},
-			},
-			{
-				"double-spent siafund input",
-				func(b *types.Block) {
-					txn := &b.Transactions[0]
-					txn.SiafundInputs = append(txn.SiafundInputs, txn.SiafundInputs[0])
-					txn.SiafundOutputs[0].Value += 100
-				},
-			},
-			{
-				"transaction contains a storage proof and creates new outputs",
+				"transaction contains both a storage proof and other outputs",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.StorageProofs = append(txn.StorageProofs, types.StorageProof{})
@@ -713,8 +738,8 @@ func TestValidateBlock(t *testing.T) {
 			}
 			findBlockNonce(cs, &corruptBlock)
 
-			if err := ValidateBlock(cs, corruptBlock, db.supplementTipBlock(corruptBlock)); err == nil {
-				t.Fatalf("accepted block with %v", test.desc)
+			if err := ValidateBlock(cs, corruptBlock, db.supplementTipBlock(corruptBlock)); err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
 			}
 		}
 	}
@@ -963,23 +988,23 @@ func TestValidateV2Block(t *testing.T) {
 
 	{
 		tests := []struct {
-			desc    string
-			corrupt func(*types.Block)
+			errString string
+			corrupt   func(*types.Block)
 		}{
 			{
-				"v1 transaction after v2 hardfork",
+				"v1 transactions are not allowed after v2 hardfork",
 				func(b *types.Block) {
 					b.Transactions = []types.Transaction{{}}
 				},
 			},
 			{
-				"block height that does not increment parent height",
+				"block height does not increment parent height",
 				func(b *types.Block) {
 					b.V2.Height = 0
 				},
 			},
 			{
-				"weight that exceeds the limit",
+				"block exceeds maximum weight",
 				func(b *types.Block) {
 					data := make([]byte, cs.MaxBlockWeight())
 					b.V2.Transactions = append(b.V2.Transactions, types.V2Transaction{
@@ -988,7 +1013,7 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			{
-				"empty v2 transaction",
+				"transactions cannot be empty",
 				func(b *types.Block) {
 					b.V2.Transactions = append(b.V2.Transactions, types.V2Transaction{})
 				},
@@ -1000,19 +1025,19 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			{
-				"wrong timestamp",
+				"block has timestamp too far in the past",
 				func(b *types.Block) {
 					b.Timestamp = cs.PrevTimestamps[0].AddDate(-1, 0, 0)
 				},
 			},
 			{
-				"no miner payout",
+				"must have exactly one miner payout",
 				func(b *types.Block) {
 					b.MinerPayouts = nil
 				},
 			},
 			{
-				"zero miner payout",
+				"miner payout has zero value",
 				func(b *types.Block) {
 					b.MinerPayouts = []types.SiacoinOutput{{
 						Address: types.VoidAddress,
@@ -1021,7 +1046,7 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			{
-				"incorrect miner payout",
+				"miner payout sum (150 KS) does not match block reward + fees (300.001 KS)",
 				func(b *types.Block) {
 					b.MinerPayouts = []types.SiacoinOutput{{
 						Address: types.VoidAddress,
@@ -1030,7 +1055,7 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			{
-				"zero-valued SiacoinOutput",
+				"siacoin output 0 has zero value",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					for i := range txn.SiacoinOutputs {
@@ -1041,7 +1066,7 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			{
-				"zero-valued SiafundOutput",
+				"siafund output 0 has zero value",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					for i := range txn.SiafundOutputs {
@@ -1051,77 +1076,77 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			{
-				"zero-valued MinerFee",
+				"miner payout sum (300.001 KS) does not match block reward + fees (300 KS)",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.MinerFee = types.ZeroCurrency
 				},
 			},
 			{
-				"overflowing MinerFees",
+				"v2 transaction fees overflow",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.MinerFee = types.MaxCurrency
 				},
 			},
 			{
-				"siacoin outputs exceed inputs",
+				"siacoin inputs (100 SC) do not equal outputs",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.SiacoinOutputs[0].Value = txn.SiacoinOutputs[0].Value.Add(types.NewCurrency64(1))
 				},
 			},
 			{
-				"siacoin outputs less than inputs",
+				"siacoin inputs (100 SC) do not equal outputs",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.SiacoinOutputs[0].Value = txn.SiacoinOutputs[0].Value.Sub(types.NewCurrency64(1))
 				},
 			},
 			{
-				"siafund outputs exceed inputs",
+				"siafund inputs (100 SF) do not equal outputs",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.SiafundOutputs[0].Value++
 				},
 			},
 			{
-				"siafund outputs less than inputs",
+				"siafund inputs (100 SF) do not equal outputs",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.SiafundOutputs[0].Value--
 				},
 			},
 			{
-				"two of the same siacoin input",
+				"siacoin input 1 double-spends parent output",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.SiacoinInputs = append(txn.SiacoinInputs, txn.SiacoinInputs[0])
 				},
 			},
 			{
-				"two of the same siafund input",
+				"siafund input 1 double-spends parent output",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.SiafundInputs = append(txn.SiafundInputs, txn.SiafundInputs[0])
 				},
 			},
 			{
-				"siacoin input claiming incorrect policy",
+				"siacoin input 0 claims incorrect policy",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.SiacoinInputs[0].SatisfiedPolicy.Policy = types.AnyoneCanSpend()
 				},
 			},
 			{
-				"siafund input claiming incorrect policy",
+				"siafund input 0 claims incorrect policy",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.SiafundInputs[0].SatisfiedPolicy.Policy = types.AnyoneCanSpend()
 				},
 			},
 			{
-				"invalid FoundationAddressUpdate",
+				"transaction changes Foundation address, but does not spend an input controlled by current address",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					addr := types.VoidAddress
@@ -1129,28 +1154,28 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			{
-				"revision with window that starts in past",
+				"file contract revision 0 has proof height (0) that has already passed",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.FileContractRevisions[0].Revision.ProofHeight = cs.Index.Height
 				},
 			},
 			{
-				"revision with window that ends before it begins",
+				"file contract revision 0 leaves no time between proof height (20) and expiration height (20)",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.FileContractRevisions[0].Revision.ExpirationHeight = txn.FileContractRevisions[0].Revision.ProofHeight
 				},
 			},
 			{
-				"revision with lower revision number than its parent",
+				"file contract revision 0 does not increase revision number (0 -> 0)",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.FileContractRevisions[0].Revision.RevisionNumber = 0
 				},
 			},
 			{
-				"misordered revisions",
+				"file contract revision 0 does not increase revision number (100 -> 99)",
 				func(b *types.Block) {
 					// create a revision
 					b.V2.Transactions[0].FileContractRevisions[0].Revision.RevisionNumber = 100
@@ -1168,14 +1193,14 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			{
-				"revision having different valid payout sum",
+				"file contract revision 0 modifies output sum (2 SC -> 3 SC)",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.FileContractRevisions[0].Revision.HostOutput.Value = txn.FileContractRevisions[0].Revision.HostOutput.Value.Add(types.Siacoins(1))
 				},
 			},
 			{
-				"conflicting revisions in same transaction",
+				fmt.Sprintf("file contract revision 1 parent (%v) has already been revised", fces[0].ID),
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					newRevision := txn.FileContractRevisions[0]
@@ -1184,28 +1209,28 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			{
-				"window that starts in the past",
+				"file contract 0 has proof height (0) that has already passed",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.FileContracts[0].ProofHeight = 0
 				},
 			},
 			{
-				"window that ends before it begins",
+				"file contract 0 leaves no time between proof height (30) and expiration height (30)",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.FileContracts[0].ProofHeight = txn.FileContracts[0].ExpirationHeight
 				},
 			},
 			{
-				"valid payout that does not equal missed payout",
+				"siacoin inputs (100 SC) do not equal outputs (101.04 SC)",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.FileContracts[0].HostOutput.Value = txn.FileContracts[0].HostOutput.Value.Add(types.Siacoins(1))
 				},
 			},
 			{
-				"incorrect payout tax",
+				"siacoin inputs (100 SC) do not equal outputs (101 SC)",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.SiacoinOutputs[0].Value = txn.SiacoinOutputs[0].Value.Add(types.Siacoins(1))
@@ -1213,49 +1238,49 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			{
-				"missed host value exceeding valid host value",
+				"file contract 0 has missed host value (2 SC) exceeding valid host value (1 SC)",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.FileContracts[0].MissedHostValue = txn.FileContracts[0].HostOutput.Value.Add(types.Siacoins(1))
 				},
 			},
 			{
-				"total collateral exceeding valid host value",
+				"file contract 0 has total collateral (2 SC) exceeding valid host value (1 SC)",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.FileContracts[0].TotalCollateral = txn.FileContracts[0].HostOutput.Value.Add(types.Siacoins(1))
 				},
 			},
 			{
-				"spends siacoin output not in accumulator",
+				fmt.Sprintf("siacoin input 0 spends output (%v) not present in the accumulator", sces[0].ID),
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
-					txn.SiacoinInputs[0].Parent.ID[0] ^= 255
+					txn.SiacoinInputs[0].Parent.StateElement.LeafIndex ^= 1
 				},
 			},
 			{
-				"spends siafund output not in accumulator",
+				fmt.Sprintf("siafund input 0 spends output (%v) not present in the accumulator", sfes[0].ID),
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
-					txn.SiafundInputs[0].Parent.ID[0] ^= 255
+					txn.SiafundInputs[0].Parent.StateElement.LeafIndex ^= 1
 				},
 			},
 			{
-				"superfluous siacoin spend policy preimage(s)",
+				"siacoin input 0 failed to satisfy spend policy: superfluous preimage(s)",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.SiacoinInputs[0].SatisfiedPolicy.Preimages = [][32]byte{{1}}
 				},
 			},
 			{
-				"superfluous siafund spend policy preimage(s)",
+				"siafund input 0 failed to satisfy spend policy: superfluous preimage(s)",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.SiafundInputs[0].SatisfiedPolicy.Preimages = [][32]byte{{1}}
 				},
 			},
 			{
-				"transaction both resolves a file contract and creates new outputs",
+				fmt.Sprintf("file contract renewal 0 parent (%v) has already been revised by contract revision", fces[0].ID),
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.FileContractResolutions = append(txn.FileContractResolutions, types.V2FileContractResolution{
@@ -1265,14 +1290,14 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			{
-				"attestation with an empty key",
+				"attestation 0 has empty key",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.Attestations = append(txn.Attestations, types.Attestation{})
 				},
 			},
 			{
-				"attestation with invalid signature",
+				"attestation 0 has invalid signature",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.Attestations = append(txn.Attestations, types.Attestation{
@@ -1291,8 +1316,8 @@ func TestValidateV2Block(t *testing.T) {
 			}
 			findBlockNonce(cs, &corruptBlock)
 
-			if err := ValidateBlock(cs, corruptBlock, db.supplementTipBlock(corruptBlock)); err == nil {
-				t.Fatalf("accepted block with %v", test.desc)
+			if err := ValidateBlock(cs, corruptBlock, db.supplementTipBlock(corruptBlock)); err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
 			}
 		}
 	}
@@ -1962,7 +1987,7 @@ func TestV2RenewalResolution(t *testing.T) {
 				renewal.HostRollover = types.ZeroCurrency
 				txn.SiacoinOutputs[0].Value = txn.SiacoinInputs[0].Parent.SiacoinOutput.Value.Sub(renewal.FinalRenterOutput.Value).Sub(renewal.FinalHostOutput.Value).Sub(cs.V2FileContractTax(renewal.NewContract))
 			},
-			errString: "siacoin inputs (1000000000000000000000000000 H) do not equal outputs (1001000000000000000000000000 H)", // this is an inputs != outputs error because the renewal is validated there first
+			errString: "siacoin inputs (1 KS) do not equal outputs (1.001 KS)", // this is an inputs != outputs error because the renewal is validated there first
 		},
 		{
 			desc: "invalid renewal - bad new contract renter signature",

@@ -495,7 +495,7 @@ func (ms *MidState) ApplyTransaction(txn types.Transaction, ts V1TransactionSupp
 		ms.reviseFileContractElement(fce, fcr.FileContract)
 	}
 	for _, sp := range txn.StorageProofs {
-		sps, ok := ts.storageProof(sp.ParentID)
+		sps, ok := ms.storageProof(ts, sp.ParentID)
 		if !ok {
 			panic("missing V1StorageProofSupplement")
 		}

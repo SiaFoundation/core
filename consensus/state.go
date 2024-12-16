@@ -630,6 +630,13 @@ func (ms *MidState) fileContractElement(ts V1TransactionSupplement, id types.Fil
 	return ts.revision(id)
 }
 
+func (ms *MidState) storageProof(ts V1TransactionSupplement, id types.FileContractID) (V1StorageProofSupplement, bool) {
+	if i, ok := ms.created[id]; ok && ms.fces[i].FileContract.WindowStart == ms.base.childHeight() {
+		return V1StorageProofSupplement{FileContract: ms.fces[i], WindowID: ms.base.Index.ID}, true
+	}
+	return ts.storageProof(id)
+}
+
 func (ms *MidState) spent(id types.ElementID) (types.TransactionID, bool) {
 	txid, ok := ms.spends[id]
 	return txid, ok
