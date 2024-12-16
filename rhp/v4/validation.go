@@ -3,15 +3,42 @@ package rhp
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"go.sia.tech/core/types"
 )
 
+// Validate checks the host prices for validity. It returns an error if the
+// prices have expired or the signature is invalid.
+func (hp *HostPrices) Validate(pk types.PublicKey) error {
+	if time.Until(hp.ValidUntil) <= 0 {
+		return ErrPricesExpired
+	}
+	if !pk.VerifyHash(hp.SigHash(), hp.Signature) {
+		return ErrInvalidSignature
+	}
+	return nil
+}
+
+// Validate verifies the account token is valid for use. It returns an error if
+// the token has expired or the signature is invalid.
+func (at AccountToken) Validate(hostKey types.PublicKey) error {
+	switch {
+	case at.HostKey != hostKey:
+		return NewRPCError(ErrorCodeBadRequest, "host key mismatch")
+	case time.Now().After(at.ValidUntil):
+		return NewRPCError(ErrorCodeBadRequest, "account token expired")
+	case !types.PublicKey(at.Account).VerifyHash(at.SigHash(), at.Signature):
+		return ErrInvalidSignature
+	}
+	return nil
+}
+
 // Validate validates a read sector request.
-func (req *RPCReadSectorRequest) Validate(pk types.PublicKey) error {
-	if err := req.Prices.Validate(pk); err != nil {
+func (req *RPCReadSectorRequest) Validate(hostKey types.PublicKey) error {
+	if err := req.Prices.Validate(hostKey); err != nil {
 		return fmt.Errorf("prices are invalid: %w", err)
-	} else if err := req.Token.Validate(); err != nil {
+	} else if err := req.Token.Validate(hostKey); err != nil {
 		return fmt.Errorf("token is invalid: %w", err)
 	}
 	switch {
@@ -26,10 +53,10 @@ func (req *RPCReadSectorRequest) Validate(pk types.PublicKey) error {
 }
 
 // Validate validates a write sector request.
-func (req *RPCWriteSectorRequest) Validate(pk types.PublicKey) error {
-	if err := req.Prices.Validate(pk); err != nil {
+func (req *RPCWriteSectorRequest) Validate(hostKey types.PublicKey) error {
+	if err := req.Prices.Validate(hostKey); err != nil {
 		return fmt.Errorf("prices are invalid: %w", err)
-	} else if err := req.Token.Validate(); err != nil {
+	} else if err := req.Token.Validate(hostKey); err != nil {
 		return fmt.Errorf("token is invalid: %w", err)
 	}
 	switch {
@@ -200,10 +227,10 @@ func (req *RPCRefreshContractRequest) Validate(pk types.PublicKey, existingTotal
 }
 
 // Validate checks that the request is valid
-func (req *RPCVerifySectorRequest) Validate(pk types.PublicKey) error {
-	if err := req.Prices.Validate(pk); err != nil {
+func (req *RPCVerifySectorRequest) Validate(hostKey types.PublicKey) error {
+	if err := req.Prices.Validate(hostKey); err != nil {
 		return fmt.Errorf("prices are invalid: %w", err)
-	} else if err := req.Token.Validate(); err != nil {
+	} else if err := req.Token.Validate(hostKey); err != nil {
 		return fmt.Errorf("token is invalid: %w", err)
 	} else if req.LeafIndex >= LeavesPerSector {
 		return fmt.Errorf("leaf index must be less than %d", LeavesPerSector)

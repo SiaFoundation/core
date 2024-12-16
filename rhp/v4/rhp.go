@@ -160,18 +160,6 @@ func (hp HostPrices) SigHash() types.Hash256 {
 	return h.Sum()
 }
 
-// Validate checks the host prices for validity. It returns an error if the
-// prices have expired or the signature is invalid.
-func (hp *HostPrices) Validate(pk types.PublicKey) error {
-	if time.Until(hp.ValidUntil) <= 0 {
-		return ErrPricesExpired
-	}
-	if !pk.VerifyHash(hp.SigHash(), hp.Signature) {
-		return ErrInvalidSignature
-	}
-	return nil
-}
-
 // HostSettings specify the settings of a host.
 type HostSettings struct {
 	ProtocolVersion     [3]uint8       `json:"protocolVersion"`
@@ -208,6 +196,7 @@ func (a *Account) UnmarshalText(b []byte) error {
 
 // An AccountToken authorizes an account action.
 type AccountToken struct {
+	HostKey    types.PublicKey `json:"hostKey"`
 	Account    Account         `json:"account"`
 	ValidUntil time.Time       `json:"validUntil"`
 	Signature  types.Signature `json:"signature"`
@@ -216,20 +205,10 @@ type AccountToken struct {
 // SigHash returns the hash of the account token used for signing.
 func (at *AccountToken) SigHash() types.Hash256 {
 	h := types.NewHasher()
+	at.HostKey.EncodeTo(h.E)
 	at.Account.EncodeTo(h.E)
 	h.E.WriteTime(at.ValidUntil)
 	return h.Sum()
-}
-
-// Validate verifies the account token is valid for use. It returns an error if
-// the token has expired or the signature is invalid.
-func (at AccountToken) Validate() error {
-	if time.Now().After(at.ValidUntil) {
-		return NewRPCError(ErrorCodeBadRequest, "account token expired")
-	} else if !types.PublicKey(at.Account).VerifyHash(at.SigHash(), at.Signature) {
-		return ErrInvalidSignature
-	}
-	return nil
 }
 
 // GenerateAccount generates a pair of private key and Account from a secure
