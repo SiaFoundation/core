@@ -18,19 +18,16 @@ func TestValidateAccountToken(t *testing.T) {
 	ac := AccountToken{
 		HostKey:    hostKey,
 		Account:    account,
-		ValidUntil: time.Now(),
+		ValidUntil: time.Now().Add(-time.Minute),
 	}
 
 	if err := ac.Validate(frand.Entropy256()); !strings.Contains(err.Error(), "host key mismatch") {
 		t.Fatalf("expected host key mismatch, got %v", err)
-	}
-
-	if err := ac.Validate(hostKey); !strings.Contains(err.Error(), "token expired") {
+	} else if err := ac.Validate(hostKey); !strings.Contains(err.Error(), "token expired") {
 		t.Fatalf("expected token expired, got %v", err)
 	}
 
 	ac.ValidUntil = time.Now().Add(time.Minute)
-
 	if err := ac.Validate(hostKey); !errors.Is(err, ErrInvalidSignature) {
 		t.Fatalf("expected ErrInvalidSignature, got %v", err)
 	}
