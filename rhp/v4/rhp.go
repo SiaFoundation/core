@@ -194,6 +194,18 @@ func (a *Account) UnmarshalText(b []byte) error {
 	return nil
 }
 
+// Token returns a signed account token authorizing spending from the account on the
+// host.
+func (a *Account) Token(renterKey types.PrivateKey, hostKey types.PublicKey) AccountToken {
+	token := AccountToken{
+		HostKey:    hostKey,
+		Account:    Account(renterKey.PublicKey()),
+		ValidUntil: time.Now().Add(5 * time.Minute),
+	}
+	token.Signature = renterKey.SignHash(token.SigHash())
+	return token
+}
+
 // An AccountToken authorizes an account action.
 type AccountToken struct {
 	HostKey    types.PublicKey `json:"hostKey"`
