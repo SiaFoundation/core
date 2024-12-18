@@ -623,18 +623,21 @@ func (ms *MidState) siafundElement(ts V1TransactionSupplement, id types.SiafundO
 func (ms *MidState) fileContractElement(ts V1TransactionSupplement, id types.FileContractID) (types.FileContractElement, bool) {
 	if rev, ok := ms.revs[id]; ok {
 		return *rev, true
-	}
-	if i, ok := ms.created[id]; ok {
+	} else if i, ok := ms.created[id]; ok {
 		return ms.fces[i], true
+	} else if rev, ok := ts.revision(id); ok {
+		return rev, true
 	}
-	return ts.revision(id)
+	sps, ok := ts.storageProof(id)
+	return sps.FileContract, ok
 }
 
-func (ms *MidState) storageProof(ts V1TransactionSupplement, id types.FileContractID) (V1StorageProofSupplement, bool) {
-	if i, ok := ms.created[id]; ok {
-		return V1StorageProofSupplement{FileContract: ms.fces[i], WindowID: ms.base.Index.ID}, true
+func (ms *MidState) storageProofWindowID(ts V1TransactionSupplement, id types.FileContractID) (types.BlockID, bool) {
+	if i, ok := ms.created[id]; ok && ms.fces[i].FileContract.WindowStart == ms.base.childHeight() {
+		return ms.base.Index.ID, true
 	}
-	return ts.storageProof(id)
+	sps, ok := ts.storageProof(id)
+	return sps.WindowID, ok
 }
 
 func (ms *MidState) spent(id types.ElementID) (types.TransactionID, bool) {

@@ -607,6 +607,19 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
+				"file contract revision 0 conflicts with previous proof or revision",
+				func(b *types.Block) {
+					rev := revision
+					rev.RevisionNumber++
+					b.Transactions = append(b.Transactions, types.Transaction{
+						FileContractRevisions: []types.FileContractRevision{{
+							ParentID:     b.Transactions[1].StorageProofs[0].ParentID,
+							FileContract: rev,
+						}},
+					})
+				},
+			},
+			{
 				fmt.Sprintf("storage proof 1 resolves contract (%v) already resolved by storage proof 0", b.Transactions[0].FileContractID(0)),
 				func(b *types.Block) {
 					txn := &b.Transactions[1]
