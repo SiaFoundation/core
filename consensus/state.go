@@ -610,14 +610,24 @@ func (ms *MidState) siacoinElement(ts V1TransactionSupplement, id types.SiacoinO
 	if i, ok := ms.created[id]; ok {
 		return ms.sces[i], true
 	}
-	return ts.siacoinElement(id)
+	for _, sce := range ts.SiacoinInputs {
+		if sce.ID == id {
+			return sce, true
+		}
+	}
+	return types.SiacoinElement{}, false
 }
 
 func (ms *MidState) siafundElement(ts V1TransactionSupplement, id types.SiafundOutputID) (types.SiafundElement, bool) {
 	if i, ok := ms.created[id]; ok {
 		return ms.sfes[i], true
 	}
-	return ts.siafundElement(id)
+	for _, sfe := range ts.SiafundInputs {
+		if sfe.ID == id {
+			return sfe, true
+		}
+	}
+	return types.SiafundElement{}, false
 }
 
 func (ms *MidState) fileContractElement(ts V1TransactionSupplement, id types.FileContractID) (types.FileContractElement, bool) {
@@ -625,19 +635,30 @@ func (ms *MidState) fileContractElement(ts V1TransactionSupplement, id types.Fil
 		return *rev, true
 	} else if i, ok := ms.created[id]; ok {
 		return ms.fces[i], true
-	} else if rev, ok := ts.revision(id); ok {
-		return rev, true
 	}
-	sps, ok := ts.storageProof(id)
-	return sps.FileContract, ok
+	for _, fce := range ts.RevisedFileContracts {
+		if fce.ID == id {
+			return fce, true
+		}
+	}
+	for _, sps := range ts.StorageProofs {
+		if sps.FileContract.ID == id {
+			return sps.FileContract, true
+		}
+	}
+	return types.FileContractElement{}, false
 }
 
 func (ms *MidState) storageProofWindowID(ts V1TransactionSupplement, id types.FileContractID) (types.BlockID, bool) {
 	if i, ok := ms.created[id]; ok && ms.fces[i].FileContract.WindowStart == ms.base.childHeight() {
 		return ms.base.Index.ID, true
 	}
-	sps, ok := ts.storageProof(id)
-	return sps.WindowID, ok
+	for _, sps := range ts.StorageProofs {
+		if sps.FileContract.ID == id {
+			return sps.WindowID, true
+		}
+	}
+	return types.BlockID{}, false
 }
 
 func (ms *MidState) spent(id types.ElementID) (types.TransactionID, bool) {
@@ -718,42 +739,6 @@ func (ts *V1TransactionSupplement) DecodeFrom(d *types.Decoder) {
 	types.DecodeSlice(d, &ts.SiafundInputs)
 	types.DecodeSlice(d, &ts.RevisedFileContracts)
 	types.DecodeSlice(d, &ts.StorageProofs)
-}
-
-func (ts V1TransactionSupplement) siacoinElement(id types.SiacoinOutputID) (sce types.SiacoinElement, ok bool) {
-	for _, sce := range ts.SiacoinInputs {
-		if sce.ID == id {
-			return sce, true
-		}
-	}
-	return
-}
-
-func (ts V1TransactionSupplement) siafundElement(id types.SiafundOutputID) (sfe types.SiafundElement, ok bool) {
-	for _, sfe := range ts.SiafundInputs {
-		if sfe.ID == id {
-			return sfe, true
-		}
-	}
-	return
-}
-
-func (ts V1TransactionSupplement) revision(id types.FileContractID) (fce types.FileContractElement, ok bool) {
-	for _, fce := range ts.RevisedFileContracts {
-		if fce.ID == id {
-			return fce, true
-		}
-	}
-	return
-}
-
-func (ts V1TransactionSupplement) storageProof(id types.FileContractID) (sps V1StorageProofSupplement, ok bool) {
-	for _, sps := range ts.StorageProofs {
-		if sps.FileContract.ID == id {
-			return sps, true
-		}
-	}
-	return
 }
 
 // A V1BlockSupplement contains elements that are associated with a v1 block,
