@@ -90,7 +90,7 @@ func ValidateOrphan(s State, b types.Block) error {
 	} else if err := validateMinerPayouts(s, b); err != nil {
 		return err
 	} else if err := validateHeader(s, b.ParentID, b.Timestamp, b.Nonce, b.ID()); err != nil {
-		return fmt.Errorf("block has %v", err)
+		return fmt.Errorf("block has %w", err)
 	}
 	if b.V2 != nil {
 		if b.V2.Height != s.Index.Height+1 {
