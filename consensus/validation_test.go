@@ -595,19 +595,37 @@ func TestValidateBlock(t *testing.T) {
 			{
 				"storage proof 0 references nonexistent file contract",
 				func(b *types.Block) {
+					txn := &b.Transactions[1]
+					txn.StorageProofs[0].ParentID = types.FileContractID{}
+				},
+			},
+			{
+				"storage proof 0 cannot be submitted until after window start (100)",
+				func(b *types.Block) {
+					b.Transactions[0].FileContracts[0].WindowStart = 100
+					b.Transactions[1].StorageProofs[0].ParentID = b.Transactions[0].FileContractID(0)
+				},
+			},
+			{
+				fmt.Sprintf("storage proof 1 resolves contract (%v) already resolved by storage proof 0", b.Transactions[0].FileContractID(0)),
+				func(b *types.Block) {
+					txn := &b.Transactions[1]
+					txn.StorageProofs = append(txn.StorageProofs, txn.StorageProofs[0])
+				},
+			},
+			{
+				fmt.Sprintf("storage proof 0 conflicts with previous proof (in %v)", b.Transactions[1].ID()),
+				func(b *types.Block) {
 					b.Transactions = append(b.Transactions, types.Transaction{
-						StorageProofs: []types.StorageProof{{}},
+						StorageProofs: b.Transactions[1].StorageProofs,
 					})
 				},
 			},
 			{
-				"storage proof 0 conflicts with previous proof",
+				fmt.Sprintf("storage proof 0 conflicts with previous proof (in %v)", b.Transactions[1].ID()),
 				func(b *types.Block) {
-					txn := &b.Transactions[0]
 					b.Transactions = append(b.Transactions, types.Transaction{
-						StorageProofs: []types.StorageProof{{
-							ParentID: txn.FileContractID(0),
-						}},
+						StorageProofs: b.Transactions[1].StorageProofs,
 					})
 				},
 			},
