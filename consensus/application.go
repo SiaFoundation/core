@@ -495,12 +495,12 @@ func (ms *MidState) ApplyTransaction(txn types.Transaction, ts V1TransactionSupp
 		ms.reviseFileContractElement(fce, fcr.FileContract)
 	}
 	for _, sp := range txn.StorageProofs {
-		sps, ok := ms.storageProof(ts, sp.ParentID)
+		fce, ok := ms.fileContractElement(ts, sp.ParentID)
 		if !ok {
 			panic("missing V1StorageProofSupplement")
 		}
-		ms.resolveFileContractElement(sps.FileContract, true, txid)
-		for i, sco := range sps.FileContract.FileContract.ValidProofOutputs {
+		ms.resolveFileContractElement(fce, true, txid)
+		for i, sco := range fce.FileContract.ValidProofOutputs {
 			ms.addImmatureSiacoinElement(sp.ParentID.ValidOutputID(i), sco)
 		}
 	}

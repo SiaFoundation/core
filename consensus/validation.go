@@ -354,15 +354,16 @@ func validateFileContracts(ms *MidState, txn types.Transaction, ts V1Transaction
 		if txid, ok := ms.spent(sp.ParentID); ok {
 			return fmt.Errorf("storage proof %v conflicts with previous proof (in %v)", i, txid)
 		}
-		sps, ok := ms.storageProof(ts, sp.ParentID)
+		fce, ok := ms.fileContractElement(ts, sp.ParentID)
 		if !ok {
 			return fmt.Errorf("storage proof %v references nonexistent file contract", i)
 		}
-		fc := sps.FileContract.FileContract
-		if ms.base.childHeight() < fc.WindowStart {
+		fc := fce.FileContract
+		windowID, ok := ms.storageProofWindowID(ts, sp.ParentID)
+		if !ok {
 			return fmt.Errorf("storage proof %v cannot be submitted until after window start (%v)", i, fc.WindowStart)
 		}
-		leafIndex := ms.base.StorageProofLeafIndex(fc.Filesize, sps.WindowID, sp.ParentID)
+		leafIndex := ms.base.StorageProofLeafIndex(fc.Filesize, windowID, sp.ParentID)
 		leaf := storageProofLeaf(leafIndex, fc.Filesize, sp.Leaf)
 		if leaf == nil {
 			continue
