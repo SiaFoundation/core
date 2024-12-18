@@ -1,3 +1,17 @@
+## 0.9.0 (2024-12-18)
+
+### Breaking Changes
+
+- Add host public key to AccountToken
+
+### Features
+
+- Add helper for generating account tokens
+
+### Fixes
+
+- Allow v1 contracts to be resolved immediately
+
 ## 0.8.0 (2024-12-13)
 
 ### Breaking Changes
