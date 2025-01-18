@@ -1,3 +1,9 @@
+## 0.9.1 (2025-01-18)
+
+### Fixes
+
+- Fix account JSON encoding
+
 ## 0.9.0 (2024-12-18)
 
 ### Breaking Changes
