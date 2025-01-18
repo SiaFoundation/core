@@ -178,10 +178,10 @@ type HostSettings struct {
 type Account types.PublicKey
 
 // String implements fmt.Stringer.
-func (a Account) String() string { return fmt.Sprintf("acct:%x", a[:]) }
+func (a Account) String() string { return hex.EncodeToString(a[:]) }
 
 // MarshalText implements encoding.TextMarshaler.
-func (a Account) MarshalText() []byte { return []byte(a.String()) }
+func (a Account) MarshalText() ([]byte, error) { return []byte(a.String()), nil }
 
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (a *Account) UnmarshalText(b []byte) error {
