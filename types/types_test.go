@@ -6,6 +6,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"lukechampine.com/frand"
 )
@@ -807,6 +808,9 @@ func TestV2TransactionJSONMarshalling(t *testing.T) {
 					StateElement: StateElement{
 						LeafIndex: frand.Uint64n(math.MaxUint64),
 					},
+				},
+				SatisfiedPolicy: SatisfiedPolicy{
+					Policy: PolicyAfter(time.Now()),
 				},
 			},
 		},
