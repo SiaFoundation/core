@@ -6,7 +6,6 @@ import (
 	"math"
 	"strings"
 	"testing"
-	"time"
 
 	"lukechampine.com/frand"
 )
@@ -810,7 +809,7 @@ func TestV2TransactionJSONMarshalling(t *testing.T) {
 					},
 				},
 				SatisfiedPolicy: SatisfiedPolicy{
-					Policy: PolicyAfter(time.Now()),
+					Policy: AnyoneCanSpend(),
 				},
 			},
 		},
