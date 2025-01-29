@@ -808,6 +808,9 @@ func TestV2TransactionJSONMarshalling(t *testing.T) {
 						LeafIndex: frand.Uint64n(math.MaxUint64),
 					},
 				},
+				SatisfiedPolicy: SatisfiedPolicy{
+					Policy: AnyoneCanSpend(),
+				},
 			},
 		},
 	}

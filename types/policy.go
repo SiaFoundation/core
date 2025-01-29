@@ -496,6 +496,8 @@ func (p *SpendPolicy) UnmarshalJSON(b []byte) (err error) {
 		var pt PolicyTypeUnlockConditions
 		err = json.Unmarshal(v.Policy, (*UnlockConditions)(&pt))
 		p.Type = pt
+	default:
+		err = fmt.Errorf("unknown policy type %q", v.Type)
 	}
 	return
 }
