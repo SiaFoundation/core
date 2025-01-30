@@ -105,7 +105,6 @@ func (db *consensusDB) applyBlock(au ApplyUpdate) {
 }
 
 func (db *consensusDB) revertBlock(ru RevertUpdate) {
-
 	for _, sce := range ru.sces {
 		if sce.Spent {
 			db.sces[sce.SiacoinElement.ID] = sce.SiacoinElement

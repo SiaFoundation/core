@@ -481,11 +481,10 @@ func (ms *MidState) resolveV2FileContractElement(fce types.V2FileContractElement
 	fced := ms.recordV2FileContractElement(fce.ID)
 	if fced.Created {
 		panic("consensus: resolved a newly-created v2 contract")
-	} else {
-		fced.Resolution = res
-		dupProof(&fce.StateElement)
-		fced.V2FileContractElement = fce
 	}
+	fced.Resolution = res
+	dupProof(&fce.StateElement)
+	fced.V2FileContractElement = fce
 	ms.spends[fce.ID] = txid
 }
 
@@ -784,9 +783,13 @@ func ApplyBlock(s State, b types.Block, bs V1BlockSupplement, targetTimestamp ti
 
 // A RevertUpdate represents the effects of reverting to a prior state. These
 // are the same effects seen as when applying the block, but should be processed
-// inversely. For example, if ForEachSiacoinElement reports an element with the
-// created flag set, it means the block created that element when it was
+// inversely. For example, if SiacoinElementDiffs reports an element with the
+// Created flag set, it means the block created that element when it was
 // applied; thus, when the block is reverted, the element no longer exists.
+//
+// Furthermore, the order of all diffs is reversed: if the block first created a
+// siacoin element, then later spent it, SiacoinElementDiffs will show the
+// element being spent, then later created. This simplifies diff processing.
 type RevertUpdate struct {
 	sces   []SiacoinElementDiff
 	sfes   []SiafundElementDiff
