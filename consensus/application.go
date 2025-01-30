@@ -651,29 +651,29 @@ func (ms *MidState) ApplyBlock(b types.Block, bs V1BlockSupplement) {
 	}
 }
 
-func (ms *MidState) forEachAppliedElement(fn func(elementLeaf)) {
-	for i := range ms.sces {
-		sce := &ms.sces[i]
-		fn(siacoinLeaf(&sce.SiacoinElement, ms.isSpent(sce.SiacoinElement.ID)))
+func forEachAppliedElement(sces []UpdatedSiacoinElement, sfes []UpdatedSiafundElement, fces []UpdatedFileContractElement, v2fces []UpdatedV2FileContractElement, aes []types.AttestationElement, cie *types.ChainIndexElement, fn func(elementLeaf)) {
+	for i := range sces {
+		sce := &sces[i]
+		fn(siacoinLeaf(&sce.SiacoinElement, sce.Spent))
 	}
-	for i := range ms.sfes {
-		sfe := &ms.sfes[i]
-		fn(siafundLeaf(&sfe.SiafundElement, ms.isSpent(sfe.SiafundElement.ID)))
+	for i := range sfes {
+		sfe := &sfes[i]
+		fn(siafundLeaf(&sfe.SiafundElement, sfe.Spent))
 	}
-	for i := range ms.fces {
-		fce := &ms.fces[i]
+	for i := range fces {
+		fce := &fces[i]
 		if fce.Revision != nil {
-			fn(fileContractLeaf(fce.Revision, ms.isSpent(fce.FileContractElement.ID)))
+			fn(fileContractLeaf(fce.Revision, fce.Resolved))
 		} else {
-			fn(fileContractLeaf(&fce.FileContractElement, ms.isSpent(fce.FileContractElement.ID)))
+			fn(fileContractLeaf(&fce.FileContractElement, fce.Resolved))
 		}
 	}
-	for i := range ms.v2fces {
-		v2fce := &ms.v2fces[i]
+	for i := range v2fces {
+		v2fce := &v2fces[i]
 		if v2fce.Revision != nil {
-			fn(v2FileContractLeaf(v2fce.Revision, ms.isSpent(v2fce.V2FileContractElement.ID)))
+			fn(v2FileContractLeaf(v2fce.Revision, v2fce.Resolution != nil))
 		} else {
-			fn(v2FileContractLeaf(&v2fce.V2FileContractElement, ms.isSpent(v2fce.V2FileContractElement.ID)))
+			fn(v2FileContractLeaf(&v2fce.V2FileContractElement, v2fce.Resolution != nil))
 		}
 		// NOTE: Although it is an element, we do not process the ProofIndex
 		// field of V2StorageProofs. These are a special case, as they are not
@@ -681,46 +681,52 @@ func (ms *MidState) forEachAppliedElement(fn func(elementLeaf)) {
 		// (like e.g. attestations). In other words, they have no effect on the
 		// accumulator, and thus including them would only cause confusion.
 	}
-	for i := range ms.aes {
-		fn(attestationLeaf(&ms.aes[i]))
+	for i := range aes {
+		fn(attestationLeaf(&aes[i]))
 	}
-	fn(chainIndexLeaf(&ms.cie))
+	fn(chainIndexLeaf(cie))
 }
 
-func (ms *MidState) forEachRevertedElement(fn func(elementLeaf)) {
-	for i := range ms.sces {
-		fn(siacoinLeaf(&ms.sces[i].SiacoinElement, false))
+func forEachRevertedElement(sces []UpdatedSiacoinElement, sfes []UpdatedSiafundElement, fces []UpdatedFileContractElement, v2fces []UpdatedV2FileContractElement, fn func(elementLeaf)) {
+	for i := range sces {
+		fn(siacoinLeaf(&sces[i].SiacoinElement, false))
 	}
-	for i := range ms.sfes {
-		fn(siafundLeaf(&ms.sfes[i].SiafundElement, false))
+	for i := range sfes {
+		fn(siafundLeaf(&sfes[i].SiafundElement, false))
 	}
-	for i := range ms.fces {
-		fn(fileContractLeaf(&ms.fces[i].FileContractElement, false))
+	for i := range fces {
+		fn(fileContractLeaf(&fces[i].FileContractElement, false))
 	}
-	for i := range ms.v2fces {
-		fn(v2FileContractLeaf(&ms.v2fces[i].V2FileContractElement, false))
+	for i := range v2fces {
+		fn(v2FileContractLeaf(&v2fces[i].V2FileContractElement, false))
 	}
 }
 
 // An ApplyUpdate represents the effects of applying a block to a state.
 type ApplyUpdate struct {
-	ms  *MidState
+	sces   []UpdatedSiacoinElement
+	sfes   []UpdatedSiafundElement
+	fces   []UpdatedFileContractElement
+	v2fces []UpdatedV2FileContractElement
+	aes    []types.AttestationElement
+	cie    types.ChainIndexElement
+
 	eau elementApplyUpdate
 }
 
 // SiacoinElements returns the siacoin elements related to the applied block.
-func (au ApplyUpdate) SiacoinElements() []UpdatedSiacoinElement { return au.ms.sces }
+func (au ApplyUpdate) SiacoinElements() []UpdatedSiacoinElement { return au.sces }
 
 // SiafundElements returns the siafund elements related to the applied block.
-func (au ApplyUpdate) SiafundElements() []UpdatedSiafundElement { return au.ms.sfes }
+func (au ApplyUpdate) SiafundElements() []UpdatedSiafundElement { return au.sfes }
 
 // FileContractElements returns the file contract elements related to the
 // applied block.
-func (au ApplyUpdate) FileContractElements() []UpdatedFileContractElement { return au.ms.fces }
+func (au ApplyUpdate) FileContractElements() []UpdatedFileContractElement { return au.fces }
 
 // V2FileContractElements returns the v2 file contract elements related to the
 // applied block.
-func (au ApplyUpdate) V2FileContractElements() []UpdatedV2FileContractElement { return au.ms.v2fces }
+func (au ApplyUpdate) V2FileContractElements() []UpdatedV2FileContractElement { return au.v2fces }
 
 // UpdateElementProof updates the Merkle proof of the supplied element to
 // incorporate the changes made to the accumulator. The element's proof must be
@@ -734,7 +740,7 @@ func (au ApplyUpdate) UpdateElementProof(e *types.StateElement) {
 //
 // Deprecated: Use SiacoinElements instead.
 func (au ApplyUpdate) ForEachSiacoinElement(fn func(sce types.SiacoinElement, created, spent bool)) {
-	for _, sce := range au.ms.sces {
+	for _, sce := range au.sces {
 		fn(sce.SiacoinElement, sce.Created, sce.Spent)
 	}
 }
@@ -744,7 +750,7 @@ func (au ApplyUpdate) ForEachSiacoinElement(fn func(sce types.SiacoinElement, cr
 //
 // Deprecated: Use SiafundElements instead.
 func (au ApplyUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, created, spent bool)) {
-	for _, sfe := range au.ms.sfes {
+	for _, sfe := range au.sfes {
 		fn(sfe.SiafundElement, sfe.Created, sfe.Spent)
 	}
 }
@@ -754,7 +760,7 @@ func (au ApplyUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, cr
 //
 // Deprecated: Use FileContractElements instead.
 func (au ApplyUpdate) ForEachFileContractElement(fn func(fce types.FileContractElement, created bool, rev *types.FileContractElement, resolved, valid bool)) {
-	for _, fce := range au.ms.fces {
+	for _, fce := range au.fces {
 		fn(fce.FileContractElement, fce.Created, fce.Revision, fce.Resolved, fce.Valid)
 	}
 }
@@ -764,7 +770,7 @@ func (au ApplyUpdate) ForEachFileContractElement(fn func(fce types.FileContractE
 //
 // Deprecated: Use V2FileContractElements instead.
 func (au ApplyUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType)) {
-	for _, fce := range au.ms.v2fces {
+	for _, fce := range au.v2fces {
 		fn(fce.V2FileContractElement, fce.Created, fce.Revision, fce.Resolution)
 	}
 }
@@ -772,7 +778,7 @@ func (au ApplyUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileContr
 // ForEachTreeNode calls fn on each node in the accumulator affected by au.
 func (au ApplyUpdate) ForEachTreeNode(fn func(row, col uint64, h types.Hash256)) {
 	seen := make(map[[2]uint64]bool)
-	au.ms.forEachAppliedElement(func(el elementLeaf) {
+	forEachAppliedElement(au.sces, au.sfes, au.fces, au.v2fces, au.aes, &au.cie, func(el elementLeaf) {
 		row, col := uint64(0), el.LeafIndex
 		h := el.hash()
 		fn(row, col, h)
@@ -796,7 +802,7 @@ func (au ApplyUpdate) ForEachTreeNode(fn func(row, col uint64, h types.Hash256))
 
 // ChainIndexElement returns the chain index element for the applied block.
 func (au ApplyUpdate) ChainIndexElement() types.ChainIndexElement {
-	cie := au.ms.cie
+	cie := au.cie
 	dupProof(&cie.StateElement)
 	return cie
 }
@@ -816,7 +822,7 @@ func ApplyBlock(s State, b types.Block, bs V1BlockSupplement, targetTimestamp ti
 
 	// compute updated and added elements
 	var updated, added []elementLeaf
-	ms.forEachAppliedElement(func(el elementLeaf) {
+	forEachAppliedElement(ms.sces, ms.sfes, ms.fces, ms.v2fces, ms.aes, &ms.cie, func(el elementLeaf) {
 		if el.LeafIndex == types.UnassignedLeafIndex {
 			added = append(added, el)
 		} else {
@@ -825,7 +831,7 @@ func ApplyBlock(s State, b types.Block, bs V1BlockSupplement, targetTimestamp ti
 	})
 	eau := s.Elements.applyBlock(updated, added)
 	s = ApplyOrphan(s, b, targetTimestamp)
-	return s, ApplyUpdate{ms, eau}
+	return s, ApplyUpdate{ms.sces, ms.sfes, ms.fces, ms.v2fces, ms.aes, ms.cie, eau}
 }
 
 // A RevertUpdate represents the effects of reverting to a prior state. These
@@ -834,23 +840,29 @@ func ApplyBlock(s State, b types.Block, bs V1BlockSupplement, targetTimestamp ti
 // created flag set, it means the block created that element when it was
 // applied; thus, when the block is reverted, the element no longer exists.
 type RevertUpdate struct {
-	ms  *MidState
+	sces   []UpdatedSiacoinElement
+	sfes   []UpdatedSiafundElement
+	fces   []UpdatedFileContractElement
+	v2fces []UpdatedV2FileContractElement
+	aes    []types.AttestationElement
+	cie    types.ChainIndexElement
+
 	eru elementRevertUpdate
 }
 
 // SiacoinElements returns the siacoin elements related to the applied block.
-func (ru RevertUpdate) SiacoinElements() []UpdatedSiacoinElement { return ru.ms.sces }
+func (ru RevertUpdate) SiacoinElements() []UpdatedSiacoinElement { return ru.sces }
 
 // SiafundElements returns the siafund elements related to the applied block.
-func (ru RevertUpdate) SiafundElements() []UpdatedSiafundElement { return ru.ms.sfes }
+func (ru RevertUpdate) SiafundElements() []UpdatedSiafundElement { return ru.sfes }
 
 // FileContractElements returns the file contract elements related to the
 // applied block.
-func (ru RevertUpdate) FileContractElements() []UpdatedFileContractElement { return ru.ms.fces }
+func (ru RevertUpdate) FileContractElements() []UpdatedFileContractElement { return ru.fces }
 
 // V2FileContractElements returns the v2 file contract elements related to the
 // applied block.
-func (ru RevertUpdate) V2FileContractElements() []UpdatedV2FileContractElement { return ru.ms.v2fces }
+func (ru RevertUpdate) V2FileContractElements() []UpdatedV2FileContractElement { return ru.v2fces }
 
 // UpdateElementProof updates the Merkle proof of the supplied element to
 // incorporate the changes made to the accumulator. The element's proof must be
@@ -864,7 +876,7 @@ func (ru RevertUpdate) UpdateElementProof(e *types.StateElement) {
 //
 // Deprecated: Use SiacoinElements instead.
 func (ru RevertUpdate) ForEachSiacoinElement(fn func(sce types.SiacoinElement, created, spent bool)) {
-	for _, sce := range ru.ms.sces {
+	for _, sce := range ru.sces {
 		fn(sce.SiacoinElement, sce.Created, sce.Spent)
 	}
 }
@@ -874,7 +886,7 @@ func (ru RevertUpdate) ForEachSiacoinElement(fn func(sce types.SiacoinElement, c
 //
 // Deprecated: Use SiafundElements instead.
 func (ru RevertUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, created, spent bool)) {
-	for _, sfe := range ru.ms.sfes {
+	for _, sfe := range ru.sfes {
 		fn(sfe.SiafundElement, sfe.Created, sfe.Spent)
 	}
 }
@@ -884,7 +896,7 @@ func (ru RevertUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, c
 //
 // Deprecated: Use FileContractElements instead.
 func (ru RevertUpdate) ForEachFileContractElement(fn func(fce types.FileContractElement, created bool, rev *types.FileContractElement, resolved, valid bool)) {
-	for _, fce := range ru.ms.fces {
+	for _, fce := range ru.fces {
 		fn(fce.FileContractElement, fce.Created, fce.Revision, fce.Resolved, fce.Valid)
 	}
 }
@@ -894,7 +906,7 @@ func (ru RevertUpdate) ForEachFileContractElement(fn func(fce types.FileContract
 //
 // Deprecated: Use V2FileContractElements instead.
 func (ru RevertUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType)) {
-	for _, fce := range ru.ms.v2fces {
+	for _, fce := range ru.v2fces {
 		fn(fce.V2FileContractElement, fce.Created, fce.Revision, fce.Resolution)
 	}
 }
@@ -902,7 +914,7 @@ func (ru RevertUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileCont
 // ForEachTreeNode calls fn on each node in the accumulator affected by ru.
 func (ru RevertUpdate) ForEachTreeNode(fn func(row, col uint64, h types.Hash256)) {
 	seen := make(map[[2]uint64]bool)
-	ru.ms.forEachRevertedElement(func(el elementLeaf) {
+	forEachRevertedElement(ru.sces, ru.sfes, ru.fces, ru.v2fces, func(el elementLeaf) {
 		if el.LeafIndex >= ru.eru.numLeaves {
 			return
 		}
@@ -937,7 +949,7 @@ func RevertBlock(s State, b types.Block, bs V1BlockSupplement) RevertUpdate {
 
 	// compute updated elements
 	var updated, added []elementLeaf
-	ms.forEachRevertedElement(func(el elementLeaf) {
+	forEachRevertedElement(ms.sces, ms.sfes, ms.fces, ms.v2fces, func(el elementLeaf) {
 		if el.LeafIndex == types.UnassignedLeafIndex {
 			added = append(added, el)
 		} else {
@@ -957,7 +969,7 @@ func RevertBlock(s State, b types.Block, bs V1BlockSupplement) RevertUpdate {
 	slices.Reverse(ms.sfes)
 	slices.Reverse(ms.fces)
 	slices.Reverse(ms.v2fces)
-	return RevertUpdate{ms, eru}
+	return RevertUpdate{ms.sces, ms.sfes, ms.fces, ms.v2fces, ms.aes, ms.cie, eru}
 }
 
 // condensed representation of the update types for JSON marshaling
@@ -992,12 +1004,12 @@ type (
 // MarshalJSON implements json.Marshaler.
 func (au ApplyUpdate) MarshalJSON() ([]byte, error) {
 	js := applyUpdateJSON{
-		SiacoinElements:        au.ms.sces,
-		SiafundElements:        au.ms.sfes,
-		FileContractElements:   au.ms.fces,
-		V2FileContractElements: au.ms.v2fces,
-		AttestationElements:    au.ms.aes,
-		ChainIndexElement:      au.ms.cie,
+		SiacoinElements:        au.sces,
+		SiafundElements:        au.sfes,
+		FileContractElements:   au.fces,
+		V2FileContractElements: au.v2fces,
+		AttestationElements:    au.aes,
+		ChainIndexElement:      au.cie,
 	}
 	js.UpdatedLeaves = make(map[int][]elementLeaf, len(au.eau.updated))
 	for i, els := range au.eau.updated {
@@ -1022,13 +1034,12 @@ func (au *ApplyUpdate) UnmarshalJSON(b []byte) error {
 	if err := json.Unmarshal(b, &js); err != nil {
 		return err
 	}
-	au.ms = NewMidState(State{})
-	au.ms.sces = js.SiacoinElements
-	au.ms.sfes = js.SiafundElements
-	au.ms.fces = js.FileContractElements
-	au.ms.v2fces = js.V2FileContractElements
-	au.ms.aes = js.AttestationElements
-	au.ms.cie = js.ChainIndexElement
+	au.sces = js.SiacoinElements
+	au.sfes = js.SiafundElements
+	au.fces = js.FileContractElements
+	au.v2fces = js.V2FileContractElements
+	au.aes = js.AttestationElements
+	au.cie = js.ChainIndexElement
 
 	au.eau = elementApplyUpdate{
 		oldNumLeaves: js.OldNumLeaves,
@@ -1046,12 +1057,12 @@ func (au *ApplyUpdate) UnmarshalJSON(b []byte) error {
 // MarshalJSON implements json.Marshaler.
 func (ru RevertUpdate) MarshalJSON() ([]byte, error) {
 	js := revertUpdateJSON{
-		SiacoinElements:        ru.ms.sces,
-		SiafundElements:        ru.ms.sfes,
-		FileContractElements:   ru.ms.fces,
-		V2FileContractElements: ru.ms.v2fces,
-		AttestationElements:    ru.ms.aes,
-		ChainIndexElement:      ru.ms.cie,
+		SiacoinElements:        ru.sces,
+		SiafundElements:        ru.sfes,
+		FileContractElements:   ru.fces,
+		V2FileContractElements: ru.v2fces,
+		AttestationElements:    ru.aes,
+		ChainIndexElement:      ru.cie,
 	}
 	js.UpdatedLeaves = make(map[int][]elementLeaf, len(ru.eru.updated))
 	for i, els := range ru.eru.updated {
@@ -1069,13 +1080,12 @@ func (ru *RevertUpdate) UnmarshalJSON(b []byte) error {
 	if err := json.Unmarshal(b, &js); err != nil {
 		return err
 	}
-	ru.ms = NewMidState(State{})
-	ru.ms.sces = js.SiacoinElements
-	ru.ms.sfes = js.SiafundElements
-	ru.ms.fces = js.FileContractElements
-	ru.ms.v2fces = js.V2FileContractElements
-	ru.ms.aes = js.AttestationElements
-	ru.ms.cie = js.ChainIndexElement
+	ru.sces = js.SiacoinElements
+	ru.sfes = js.SiafundElements
+	ru.fces = js.FileContractElements
+	ru.v2fces = js.V2FileContractElements
+	ru.aes = js.AttestationElements
+	ru.cie = js.ChainIndexElement
 
 	ru.eru = elementRevertUpdate{
 		numLeaves: js.NumLeaves,

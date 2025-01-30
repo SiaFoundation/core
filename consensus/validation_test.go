@@ -99,7 +99,7 @@ func (db *consensusDB) applyBlock(au ApplyUpdate) {
 			delete(db.v2fces, fce.ID)
 		}
 	})
-	db.blockIDs = append(db.blockIDs, au.ms.cie.ID)
+	db.blockIDs = append(db.blockIDs, au.cie.ID)
 }
 
 func (db *consensusDB) revertBlock(ru RevertUpdate) {

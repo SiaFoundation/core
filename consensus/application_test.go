@@ -15,18 +15,17 @@ import (
 func checkApplyUpdate(t *testing.T, cs State, au ApplyUpdate) {
 	t.Helper()
 
-	ms := au.ms
-	for _, sce := range ms.sces {
+	for _, sce := range au.sces {
 		if !cs.Elements.containsLeaf(siacoinLeaf(&sce.SiacoinElement, sce.Spent)) {
 			t.Fatalf("consensus: siacoin element %v %v not found in accumulator after apply", sce.Spent, sce.SiacoinElement.ID)
 		}
 	}
-	for _, sfe := range ms.sfes {
+	for _, sfe := range au.sfes {
 		if !cs.Elements.containsLeaf(siafundLeaf(&sfe.SiafundElement, sfe.Spent)) {
 			t.Fatalf("consensus: siafund element %v not found in accumulator after apply", sfe.SiafundElement.ID)
 		}
 	}
-	for _, fce := range ms.fces {
+	for _, fce := range au.fces {
 		leaf := fileContractLeaf(&fce.FileContractElement, fce.Resolved)
 		if fce.Revision != nil {
 			leaf = fileContractLeaf(fce.Revision, fce.Resolved)
@@ -36,7 +35,7 @@ func checkApplyUpdate(t *testing.T, cs State, au ApplyUpdate) {
 			t.Fatal("consensus: file contract element leaf not found in accumulator after apply")
 		}
 	}
-	for _, fce := range ms.v2fces {
+	for _, fce := range au.v2fces {
 		leaf := v2FileContractLeaf(&fce.V2FileContractElement, fce.Resolution != nil)
 		if fce.Revision != nil {
 			leaf = v2FileContractLeaf(fce.Revision, fce.Resolution != nil)
@@ -46,7 +45,7 @@ func checkApplyUpdate(t *testing.T, cs State, au ApplyUpdate) {
 			t.Fatal("consensus: v2 file contract element leaf not found in accumulator after apply")
 		}
 	}
-	for _, ae := range ms.aes {
+	for _, ae := range au.aes {
 		if !cs.Elements.containsLeaf(attestationLeaf(&ae)) {
 			t.Fatal("consensus: attestation element leaf not found in accumulator after apply")
 		}
@@ -56,18 +55,17 @@ func checkApplyUpdate(t *testing.T, cs State, au ApplyUpdate) {
 func checkRevertUpdate(t *testing.T, cs State, ru RevertUpdate) {
 	t.Helper()
 
-	ms := ru.ms
-	for _, sce := range ms.sces {
+	for _, sce := range ru.sces {
 		if cs.Elements.containsLeaf(siacoinLeaf(&sce.SiacoinElement, sce.Spent)) {
 			t.Fatal("consensus: siacoin element found in accumulator after revert")
 		}
 	}
-	for _, sfe := range ms.sfes {
+	for _, sfe := range ru.sfes {
 		if cs.Elements.containsLeaf(siafundLeaf(&sfe.SiafundElement, sfe.Spent)) {
 			t.Fatal("consensus: siafund element found in accumulator after revert")
 		}
 	}
-	for _, fce := range ms.fces {
+	for _, fce := range ru.fces {
 		leaf := fileContractLeaf(&fce.FileContractElement, fce.Resolved)
 		if fce.Revision != nil {
 			leaf = fileContractLeaf(fce.Revision, fce.Resolved)
@@ -77,7 +75,7 @@ func checkRevertUpdate(t *testing.T, cs State, ru RevertUpdate) {
 			t.Fatal("consensus: file contract element leaf found in accumulator after revert")
 		}
 	}
-	for _, fce := range ms.v2fces {
+	for _, fce := range ru.v2fces {
 		leaf := v2FileContractLeaf(&fce.V2FileContractElement, fce.Resolution != nil)
 		if fce.Revision != nil {
 			leaf = v2FileContractLeaf(fce.Revision, fce.Resolution != nil)
@@ -87,7 +85,7 @@ func checkRevertUpdate(t *testing.T, cs State, ru RevertUpdate) {
 			t.Fatal("consensus: v2 file contract element leaf found in accumulator after revert")
 		}
 	}
-	for _, ae := range ms.aes {
+	for _, ae := range ru.aes {
 		if cs.Elements.containsLeaf(attestationLeaf(&ae)) {
 			t.Fatal("consensus: attestation element leaf found in accumulator after revert")
 		}

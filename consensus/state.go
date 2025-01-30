@@ -588,31 +588,31 @@ func (s State) AttestationSigHash(a types.Attestation) types.Hash256 {
 // within a block. Note that an element may be both created and spent in the the
 // same block.
 type UpdatedSiacoinElement struct {
-	SiacoinElement types.SiacoinElement
-	Created        bool
-	Spent          bool
+	SiacoinElement types.SiacoinElement `json:"siacoinElement"`
+	Created        bool                 `json:"created"`
+	Spent          bool                 `json:"spent"`
 }
 
 // An UpdatedSiafundElement is a SiafundElement that was created and/or spent
 // within a block. Note that an element may be both created and spent in the the
 // same block.
 type UpdatedSiafundElement struct {
-	SiafundElement types.SiafundElement
-	Created        bool
-	Spent          bool
+	SiafundElement types.SiafundElement `json:"siafundElement"`
+	Created        bool                 `json:"created"`
+	Spent          bool                 `json:"spent"`
 }
 
 // An UpdatedFileContractElement is a FileContractElement that was created,
 // revised, and/or resolved within a block. Note that a contract may be created,
 // revised, and resolved all within the same block.
 type UpdatedFileContractElement struct {
-	FileContractElement types.FileContractElement
-	Created             bool
+	FileContractElement types.FileContractElement `json:"fileContractElement"`
+	Created             bool                      `json:"created"`
 	// Non-nil if the contract was revised. If the contract was revised multiple
 	// times, this is the revision with the highest revision number.
-	Revision *types.FileContractElement
-	Resolved bool
-	Valid    bool
+	Revision *types.FileContractElement `json:"revision"`
+	Resolved bool                       `json:"resolved"`
+	Valid    bool                       `json:"valid"`
 }
 
 // An UpdatedV2FileContractElement is a V2FileContractElement that was created,
@@ -620,13 +620,13 @@ type UpdatedFileContractElement struct {
 // contract may be both created and revised, or revised and resolved, but not
 // created and resolved.
 type UpdatedV2FileContractElement struct {
-	V2FileContractElement types.V2FileContractElement
-	Created               bool
+	V2FileContractElement types.V2FileContractElement `json:"v2FileContractElement"`
+	Created               bool                        `json:"created"`
 	// Non-nil if the contract was revised. If the contract was revised multiple
 	// times, this is the revision with the highest revision number.
-	Revision *types.V2FileContractElement
+	Revision *types.V2FileContractElement `json:"revision"`
 	// Non-nil if the contract was resolved.
-	Resolution types.V2FileContractResolutionType
+	Resolution types.V2FileContractResolutionType `json:"resolution"`
 }
 
 // A MidState represents the state of the chain within a block.
