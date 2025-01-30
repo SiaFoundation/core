@@ -91,6 +91,81 @@ func checkRevertUpdate(t *testing.T, cs State, ru RevertUpdate) {
 		}
 	}
 }
+func checkUpdateElements(t *testing.T, au ApplyUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {
+	for _, usce := range au.SiacoinElements() {
+		sces := &addedSCEs
+		if usce.Spent {
+			sces = &spentSCEs
+		}
+		if len(*sces) == 0 {
+			t.Fatal("unexpected spent siacoin element")
+		}
+		sce := usce.SiacoinElement
+		sce.StateElement = types.StateElement{}
+		sce.ID = types.SiacoinOutputID{}
+		if !reflect.DeepEqual(sce, (*sces)[0]) {
+			t.Fatalf("siacoin element doesn't match:\n%v\nvs\n%v\n", sce, (*sces)[0])
+		}
+		*sces = (*sces)[1:]
+	}
+	for _, usfe := range au.SiafundElements() {
+		sfes := &addedSFEs
+		if usfe.Spent {
+			sfes = &spentSFEs
+		}
+		if len(*sfes) == 0 {
+			t.Fatal("unexpected spent siafund element")
+		}
+		sfe := usfe.SiafundElement
+		sfe.StateElement = types.StateElement{}
+		sfe.ID = types.SiafundOutputID{}
+		if !reflect.DeepEqual(sfe, (*sfes)[0]) {
+			t.Fatalf("siafund element doesn't match:\n%v\nvs\n%v\n", sfe, (*sfes)[0])
+		}
+		*sfes = (*sfes)[1:]
+	}
+	if len(addedSCEs)+len(spentSCEs)+len(addedSFEs)+len(spentSFEs) > 0 {
+		t.Fatal("extraneous elements")
+	}
+}
+
+func checkRevertElements(t *testing.T, ru RevertUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {
+	for _, usce := range ru.SiacoinElements() {
+		sces := &addedSCEs
+		if usce.Spent {
+			sces = &spentSCEs
+		}
+		if len(*sces) == 0 {
+			t.Fatal("unexpected spent siacoin element")
+		}
+		sce := usce.SiacoinElement
+		sce.StateElement = types.StateElement{}
+		sce.ID = types.SiacoinOutputID{}
+		if !reflect.DeepEqual(sce, (*sces)[len(*sces)-1]) {
+			t.Fatalf("siacoin element doesn't match:\n%v\nvs\n%v\n", sce, (*sces)[len(*sces)-1])
+		}
+		*sces = (*sces)[:len(*sces)-1]
+	}
+	for _, usfe := range ru.SiafundElements() {
+		sfes := &addedSFEs
+		if usfe.Spent {
+			sfes = &spentSFEs
+		}
+		if len(*sfes) == 0 {
+			t.Fatal("unexpected spent siafund element")
+		}
+		sfe := usfe.SiafundElement
+		sfe.StateElement = types.StateElement{}
+		sfe.ID = types.SiafundOutputID{}
+		if !reflect.DeepEqual(sfe, (*sfes)[len(*sfes)-1]) {
+			t.Fatalf("siafund element doesn't match:\n%v\nvs\n%v\n", sfe, (*sfes)[len(*sfes)-1])
+		}
+		*sfes = (*sfes)[:len(*sfes)-1]
+	}
+	if len(addedSCEs)+len(spentSCEs)+len(addedSFEs)+len(spentSFEs) > 0 {
+		t.Fatal("extraneous elements")
+	}
+}
 
 func TestApplyBlock(t *testing.T) {
 	n, genesisBlock := testnet()
@@ -150,76 +225,6 @@ func TestApplyBlock(t *testing.T) {
 		db.applyBlock(au)
 		return
 	}
-	checkUpdateElements := func(au ApplyUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {
-		au.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
-			sces := &addedSCEs
-			if spent {
-				sces = &spentSCEs
-			}
-			if len(*sces) == 0 {
-				t.Fatal("unexpected spent siacoin element")
-			}
-			sce.StateElement = types.StateElement{}
-			sce.ID = types.SiacoinOutputID{}
-			if !reflect.DeepEqual(sce, (*sces)[0]) {
-				t.Fatalf("siacoin element doesn't match:\n%v\nvs\n%v\n", sce, (*sces)[0])
-			}
-			*sces = (*sces)[1:]
-		})
-		au.ForEachSiafundElement(func(sfe types.SiafundElement, created, spent bool) {
-			sfes := &addedSFEs
-			if spent {
-				sfes = &spentSFEs
-			}
-			if len(*sfes) == 0 {
-				t.Fatal("unexpected spent siafund element")
-			}
-			sfe.StateElement = types.StateElement{}
-			sfe.ID = types.SiafundOutputID{}
-			if !reflect.DeepEqual(sfe, (*sfes)[0]) {
-				t.Fatalf("siafund element doesn't match:\n%v\nvs\n%v\n", sfe, (*sfes)[0])
-			}
-			*sfes = (*sfes)[1:]
-		})
-		if len(addedSCEs)+len(spentSCEs)+len(addedSFEs)+len(spentSFEs) > 0 {
-			t.Fatal("extraneous elements")
-		}
-	}
-	checkRevertElements := func(ru RevertUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {
-		ru.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
-			sces := &addedSCEs
-			if spent {
-				sces = &spentSCEs
-			}
-			if len(*sces) == 0 {
-				t.Fatal("unexpected spent siacoin element")
-			}
-			sce.StateElement = types.StateElement{}
-			sce.ID = types.SiacoinOutputID{}
-			if !reflect.DeepEqual(sce, (*sces)[len(*sces)-1]) {
-				t.Fatalf("siacoin element doesn't match:\n%v\nvs\n%v\n", sce, (*sces)[len(*sces)-1])
-			}
-			*sces = (*sces)[:len(*sces)-1]
-		})
-		ru.ForEachSiafundElement(func(sfe types.SiafundElement, created, spent bool) {
-			sfes := &addedSFEs
-			if spent {
-				sfes = &spentSFEs
-			}
-			if len(*sfes) == 0 {
-				t.Fatal("unexpected spent siafund element")
-			}
-			sfe.StateElement = types.StateElement{}
-			sfe.ID = types.SiafundOutputID{}
-			if !reflect.DeepEqual(sfe, (*sfes)[len(*sfes)-1]) {
-				t.Fatalf("siafund element doesn't match:\n%v\nvs\n%v\n", sfe, (*sfes)[len(*sfes)-1])
-			}
-			*sfes = (*sfes)[:len(*sfes)-1]
-		})
-		if len(addedSCEs)+len(spentSCEs)+len(addedSFEs)+len(spentSFEs) > 0 {
-			t.Fatal("extraneous elements")
-		}
-	}
 
 	// block with nothing except block reward
 	b1 := types.Block{
@@ -237,7 +242,7 @@ func TestApplyBlock(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
-		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+		checkUpdateElements(t, au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 
 	// block that spends part of the gift transaction
@@ -290,7 +295,7 @@ func TestApplyBlock(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
-		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+		checkUpdateElements(t, au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 
 	ru := RevertBlock(prev, b2, bs)
@@ -305,7 +310,7 @@ func TestApplyBlock(t *testing.T) {
 	}
 
 	checkRevertUpdate(t, cs, ru)
-	checkRevertElements(ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	checkRevertElements(t, ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 
 	// reverting a non-child block should trigger a panic
 	func() {
@@ -536,76 +541,6 @@ func TestApplyRevertBlockV1(t *testing.T) {
 		db.applyBlock(au)
 		return
 	}
-	checkUpdateElements := func(au ApplyUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {
-		au.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
-			sces := &addedSCEs
-			if spent {
-				sces = &spentSCEs
-			}
-			if len(*sces) == 0 {
-				t.Fatal("unexpected spent siacoin element")
-			}
-			sce.StateElement = types.StateElement{}
-			sce.ID = types.SiacoinOutputID{}
-			if !reflect.DeepEqual(sce, (*sces)[0]) {
-				t.Fatalf("siacoin element doesn't match:\n%v\nvs\n%v\n", sce, (*sces)[0])
-			}
-			*sces = (*sces)[1:]
-		})
-		au.ForEachSiafundElement(func(sfe types.SiafundElement, created, spent bool) {
-			sfes := &addedSFEs
-			if spent {
-				sfes = &spentSFEs
-			}
-			if len(*sfes) == 0 {
-				t.Fatal("unexpected spent siafund element")
-			}
-			sfe.StateElement = types.StateElement{}
-			sfe.ID = types.SiafundOutputID{}
-			if !reflect.DeepEqual(sfe, (*sfes)[0]) {
-				t.Fatalf("siafund element doesn't match:\n%v\nvs\n%v\n", sfe, (*sfes)[0])
-			}
-			*sfes = (*sfes)[1:]
-		})
-		if len(addedSCEs)+len(spentSCEs)+len(addedSFEs)+len(spentSFEs) > 0 {
-			t.Fatal("extraneous elements")
-		}
-	}
-	checkRevertElements := func(ru RevertUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {
-		ru.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
-			sces := &addedSCEs
-			if spent {
-				sces = &spentSCEs
-			}
-			if len(*sces) == 0 {
-				t.Fatal("unexpected spent siacoin element")
-			}
-			sce.StateElement = types.StateElement{}
-			sce.ID = types.SiacoinOutputID{}
-			if !reflect.DeepEqual(sce, (*sces)[len(*sces)-1]) {
-				t.Fatalf("siacoin element doesn't match:\n%v\nvs\n%v\n", sce, (*sces)[len(*sces)-1])
-			}
-			*sces = (*sces)[:len(*sces)-1]
-		})
-		ru.ForEachSiafundElement(func(sfe types.SiafundElement, created, spent bool) {
-			sfes := &addedSFEs
-			if spent {
-				sfes = &spentSFEs
-			}
-			if len(*sfes) == 0 {
-				t.Fatal("unexpected spent siafund element")
-			}
-			sfe.StateElement = types.StateElement{}
-			sfe.ID = types.SiafundOutputID{}
-			if !reflect.DeepEqual(sfe, (*sfes)[len(*sfes)-1]) {
-				t.Fatalf("siafund element doesn't match:\n%v\nvs\n%v\n", sfe, (*sfes)[len(*sfes)-1])
-			}
-			*sfes = (*sfes)[:len(*sfes)-1]
-		})
-		if len(addedSCEs)+len(spentSCEs)+len(addedSFEs)+len(spentSFEs) > 0 {
-			t.Fatal("extraneous elements")
-		}
-	}
 
 	// block with nothing except block reward
 	b1 := types.Block{
@@ -623,7 +558,7 @@ func TestApplyRevertBlockV1(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
-		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+		checkUpdateElements(t, au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 
 	// block that spends part of the gift transaction
@@ -676,14 +611,14 @@ func TestApplyRevertBlockV1(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
-		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+		checkUpdateElements(t, au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 
 	// revert block spending sc and sf
 	ru := RevertBlock(prev, b2, bs)
 	cs = prev
 	checkRevertUpdate(t, cs, ru)
-	checkRevertElements(ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	checkRevertElements(t, ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	db.revertBlock(ru)
 
 	// block that creates a file contract
@@ -723,14 +658,14 @@ func TestApplyRevertBlockV1(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
-		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+		checkUpdateElements(t, au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 
 	// revert block creating fc
 	ru = RevertBlock(prev, b3, bs)
 	cs = prev
 	checkRevertUpdate(t, cs, ru)
-	checkRevertElements(ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	checkRevertElements(t, ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	db.revertBlock(ru)
 
 	// readd block creating fc
@@ -738,7 +673,7 @@ func TestApplyRevertBlockV1(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
-		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+		checkUpdateElements(t, au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 
 	// block creating file contract revision
@@ -785,14 +720,14 @@ func TestApplyRevertBlockV1(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
-		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+		checkUpdateElements(t, au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 
 	// revert block revising fc
 	ru = RevertBlock(prev, b4, bs)
 	cs = prev
 	checkRevertUpdate(t, cs, ru)
-	checkRevertElements(ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	checkRevertElements(t, ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	db.revertBlock(ru)
 
 	// readd block revising fc
@@ -800,7 +735,7 @@ func TestApplyRevertBlockV1(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
-		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+		checkUpdateElements(t, au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 
 	// block with storage proof
@@ -845,14 +780,14 @@ func TestApplyRevertBlockV1(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
-		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+		checkUpdateElements(t, au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 
 	// revert block with storage proof
 	ru = RevertBlock(prev, b5, bs)
 	cs = prev
 	checkRevertUpdate(t, cs, ru)
-	checkRevertElements(ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	checkRevertElements(t, ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	db.revertBlock(ru)
 
 	// readd block with storage proof
@@ -860,7 +795,7 @@ func TestApplyRevertBlockV1(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
-		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+		checkUpdateElements(t, au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 }
 
@@ -931,76 +866,6 @@ func TestApplyRevertBlockV2(t *testing.T) {
 		db.applyBlock(au)
 		return
 	}
-	checkUpdateElements := func(au ApplyUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {
-		au.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
-			sces := &addedSCEs
-			if spent {
-				sces = &spentSCEs
-			}
-			if len(*sces) == 0 {
-				t.Fatal("unexpected spent siacoin element")
-			}
-			sce.StateElement = types.StateElement{}
-			sce.ID = types.SiacoinOutputID{}
-			if !reflect.DeepEqual(sce, (*sces)[0]) {
-				t.Fatalf("siacoin element doesn't match:\n%v\nvs\n%v\n", sce, (*sces)[0])
-			}
-			*sces = (*sces)[1:]
-		})
-		au.ForEachSiafundElement(func(sfe types.SiafundElement, created, spent bool) {
-			sfes := &addedSFEs
-			if spent {
-				sfes = &spentSFEs
-			}
-			if len(*sfes) == 0 {
-				t.Fatal("unexpected spent siafund element")
-			}
-			sfe.StateElement = types.StateElement{}
-			sfe.ID = types.SiafundOutputID{}
-			if !reflect.DeepEqual(sfe, (*sfes)[0]) {
-				t.Fatalf("siafund element doesn't match:\n%v\nvs\n%v\n", sfe, (*sfes)[0])
-			}
-			*sfes = (*sfes)[1:]
-		})
-		if len(addedSCEs)+len(spentSCEs)+len(addedSFEs)+len(spentSFEs) > 0 {
-			t.Fatal("extraneous elements")
-		}
-	}
-	checkRevertElements := func(ru RevertUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {
-		ru.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
-			sces := &addedSCEs
-			if spent {
-				sces = &spentSCEs
-			}
-			if len(*sces) == 0 {
-				t.Fatal("unexpected spent siacoin element")
-			}
-			sce.StateElement = types.StateElement{}
-			sce.ID = types.SiacoinOutputID{}
-			if !reflect.DeepEqual(sce, (*sces)[len(*sces)-1]) {
-				t.Fatalf("siacoin element doesn't match:\n%v\nvs\n%v\n", sce, (*sces)[len(*sces)-1])
-			}
-			*sces = (*sces)[:len(*sces)-1]
-		})
-		ru.ForEachSiafundElement(func(sfe types.SiafundElement, created, spent bool) {
-			sfes := &addedSFEs
-			if spent {
-				sfes = &spentSFEs
-			}
-			if len(*sfes) == 0 {
-				t.Fatal("unexpected spent siafund element")
-			}
-			sfe.StateElement = types.StateElement{}
-			sfe.ID = types.SiafundOutputID{}
-			if !reflect.DeepEqual(sfe, (*sfes)[len(*sfes)-1]) {
-				t.Fatalf("siafund element doesn't match:\n%v\nvs\n%v\n", sfe, (*sfes)[len(*sfes)-1])
-			}
-			*sfes = (*sfes)[:len(*sfes)-1]
-		})
-		if len(addedSCEs)+len(spentSCEs)+len(addedSFEs)+len(spentSFEs) > 0 {
-			t.Fatal("extraneous elements")
-		}
-	}
 	satisfiedPolicy := func(uc types.UnlockConditions) types.SatisfiedPolicy {
 		return types.SatisfiedPolicy{
 			Policy: types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(uc)},
@@ -1023,7 +888,7 @@ func TestApplyRevertBlockV2(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
-		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+		checkUpdateElements(t, au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 	// block that spends part of the gift transaction
 	txnB2 := types.V2Transaction{
@@ -1084,14 +949,14 @@ func TestApplyRevertBlockV2(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
-		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+		checkUpdateElements(t, au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 
 	// revert block spending sc and sf
 	ru := RevertBlock(prev, b2, V1BlockSupplement{})
 	cs = prev
 	checkRevertUpdate(t, cs, ru)
-	checkRevertElements(ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	checkRevertElements(t, ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	db.revertBlock(ru)
 
 	// block that creates a file contract
@@ -1150,14 +1015,14 @@ func TestApplyRevertBlockV2(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
-		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+		checkUpdateElements(t, au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 
 	// revert block creating fc
 	ru = RevertBlock(prev, b3, V1BlockSupplement{})
 	cs = prev
 	checkRevertUpdate(t, cs, ru)
-	checkRevertElements(ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	checkRevertElements(t, ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	db.revertBlock(ru)
 
 	// readd block creating fc
@@ -1165,7 +1030,7 @@ func TestApplyRevertBlockV2(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
-		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+		checkUpdateElements(t, au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 
 	// block creating file contract revision
@@ -1208,14 +1073,14 @@ func TestApplyRevertBlockV2(t *testing.T) {
 	} else {
 		cie = au.ChainIndexElement()
 		checkApplyUpdate(t, cs, au)
-		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+		checkUpdateElements(t, au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 
 	// revert block revising fc
 	ru = RevertBlock(prev, b4, V1BlockSupplement{})
 	cs = prev
 	checkRevertUpdate(t, cs, ru)
-	checkRevertElements(ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	checkRevertElements(t, ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	db.revertBlock(ru)
 
 	// readd block revising fc
@@ -1223,7 +1088,7 @@ func TestApplyRevertBlockV2(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
-		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+		checkUpdateElements(t, au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 
 	// block with storage proof
@@ -1271,14 +1136,14 @@ func TestApplyRevertBlockV2(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
-		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+		checkUpdateElements(t, au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 
 	// revert block with storage proof
 	ru = RevertBlock(prev, b5, V1BlockSupplement{})
 	cs = prev
 	checkRevertUpdate(t, cs, ru)
-	checkRevertElements(ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+	checkRevertElements(t, ru, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	db.revertBlock(ru)
 
 	// readd block with storage proof
@@ -1286,7 +1151,7 @@ func TestApplyRevertBlockV2(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		checkApplyUpdate(t, cs, au)
-		checkUpdateElements(au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
+		checkUpdateElements(t, au, addedSCEs, spentSCEs, addedSFEs, spentSFEs)
 	}
 }
 
@@ -1404,11 +1269,12 @@ func TestSiafunds(t *testing.T) {
 		}
 		// should have received a timelocked siafund claim output
 		var claimOutput *types.SiacoinElement
-		au.ForEachSiacoinElement(func(sce types.SiacoinElement, _, _ bool) {
-			if sce.ID == txn.SiafundInputs[0].Parent.ID.V2ClaimOutputID() {
-				claimOutput = &sce
+		for _, sce := range au.SiacoinElements() {
+			if sce.SiacoinElement.ID == txn.SiafundInputs[0].Parent.ID.V2ClaimOutputID() {
+				claimOutput = &sce.SiacoinElement
+				break
 			}
-		})
+		}
 		if claimOutput == nil {
 			t.Fatal("expected siafund claim output")
 		} else if claimOutput.MaturityHeight != cs.MaturityHeight()-1 {
@@ -1459,12 +1325,12 @@ func TestFoundationSubsidy(t *testing.T) {
 		var au ApplyUpdate
 		cs, au = ApplyBlock(cs, b, bs, db.ancestorTimestamp(b.ParentID))
 		db.applyBlock(au)
-		au.ForEachSiacoinElement(func(sce types.SiacoinElement, created, _ bool) {
-			if created && sce.SiacoinOutput.Address == addr {
-				subsidy = sce
+		for _, sce := range au.SiacoinElements() {
+			if sce.Created && sce.SiacoinElement.SiacoinOutput.Address == addr {
+				subsidy = sce.SiacoinElement
 				exists = true
 			}
-		})
+		}
 		return
 	}
 

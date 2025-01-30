@@ -735,46 +735,6 @@ func (au ApplyUpdate) UpdateElementProof(e *types.StateElement) {
 	au.eau.updateElementProof(e)
 }
 
-// ForEachSiacoinElement calls fn on each siacoin element related to the applied
-// block.
-//
-// Deprecated: Use SiacoinElements instead.
-func (au ApplyUpdate) ForEachSiacoinElement(fn func(sce types.SiacoinElement, created, spent bool)) {
-	for _, sce := range au.sces {
-		fn(sce.SiacoinElement, sce.Created, sce.Spent)
-	}
-}
-
-// ForEachSiafundElement calls fn on each siafund element related to the applied
-// block.
-//
-// Deprecated: Use SiafundElements instead.
-func (au ApplyUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, created, spent bool)) {
-	for _, sfe := range au.sfes {
-		fn(sfe.SiafundElement, sfe.Created, sfe.Spent)
-	}
-}
-
-// ForEachFileContractElement calls fn on each file contract element related to
-// the applied block.
-//
-// Deprecated: Use FileContractElements instead.
-func (au ApplyUpdate) ForEachFileContractElement(fn func(fce types.FileContractElement, created bool, rev *types.FileContractElement, resolved, valid bool)) {
-	for _, fce := range au.fces {
-		fn(fce.FileContractElement, fce.Created, fce.Revision, fce.Resolved, fce.Valid)
-	}
-}
-
-// ForEachV2FileContractElement calls fn on each v2 file contract element
-// related to the applied block.
-//
-// Deprecated: Use V2FileContractElements instead.
-func (au ApplyUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType)) {
-	for _, fce := range au.v2fces {
-		fn(fce.V2FileContractElement, fce.Created, fce.Revision, fce.Resolution)
-	}
-}
-
 // ForEachTreeNode calls fn on each node in the accumulator affected by au.
 func (au ApplyUpdate) ForEachTreeNode(fn func(row, col uint64, h types.Hash256)) {
 	seen := make(map[[2]uint64]bool)
@@ -869,46 +829,6 @@ func (ru RevertUpdate) V2FileContractElements() []UpdatedV2FileContractElement {
 // up-to-date; if it is not, UpdateElementProof may panic.
 func (ru RevertUpdate) UpdateElementProof(e *types.StateElement) {
 	ru.eru.updateElementProof(e)
-}
-
-// ForEachSiacoinElement calls fn on each siacoin element related to the reverted
-// block.
-//
-// Deprecated: Use SiacoinElements instead.
-func (ru RevertUpdate) ForEachSiacoinElement(fn func(sce types.SiacoinElement, created, spent bool)) {
-	for _, sce := range ru.sces {
-		fn(sce.SiacoinElement, sce.Created, sce.Spent)
-	}
-}
-
-// ForEachSiafundElement calls fn on each siafund element related to the
-// reverted block.
-//
-// Deprecated: Use SiafundElements instead.
-func (ru RevertUpdate) ForEachSiafundElement(fn func(sfe types.SiafundElement, created, spent bool)) {
-	for _, sfe := range ru.sfes {
-		fn(sfe.SiafundElement, sfe.Created, sfe.Spent)
-	}
-}
-
-// ForEachFileContractElement calls fn on each file contract element related to
-// the reverted block.
-//
-// Deprecated: Use FileContractElements instead.
-func (ru RevertUpdate) ForEachFileContractElement(fn func(fce types.FileContractElement, created bool, rev *types.FileContractElement, resolved, valid bool)) {
-	for _, fce := range ru.fces {
-		fn(fce.FileContractElement, fce.Created, fce.Revision, fce.Resolved, fce.Valid)
-	}
-}
-
-// ForEachV2FileContractElement calls fn on each v2 file contract element
-// related to the reverted block.
-//
-// Deprecated: Use V2FileContractElements instead.
-func (ru RevertUpdate) ForEachV2FileContractElement(fn func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType)) {
-	for _, fce := range ru.v2fces {
-		fn(fce.V2FileContractElement, fce.Created, fce.Revision, fce.Resolution)
-	}
 }
 
 // ForEachTreeNode calls fn on each node in the accumulator affected by ru.

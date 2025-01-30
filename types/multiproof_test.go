@@ -36,18 +36,19 @@ func multiproofTxns(numTxns int, numElems int) []types.V2Transaction {
 	}
 	// apply the block and extract the created elements
 	cs, cau := consensus.ApplyBlock(cs, b, consensus.V1BlockSupplement{}, time.Time{})
-	var sces []types.SiacoinElement
-	cau.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
-		sces = append(sces, sce)
-	})
-	var sfes []types.SiafundElement
-	cau.ForEachSiafundElement(func(sfe types.SiafundElement, created, spent bool) {
-		sfes = append(sfes, sfe)
-	})
-	var fces []types.V2FileContractElement
-	cau.ForEachV2FileContractElement(func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
-		fces = append(fces, fce)
-	})
+	sces := make([]types.SiacoinElement, len(cau.SiacoinElements()))
+	for i := range sces {
+		sces[i] = cau.SiacoinElements()[i].SiacoinElement
+	}
+	sfes := make([]types.SiafundElement, len(cau.SiafundElements()))
+	for i := range sfes {
+		sfes[i] = cau.SiafundElements()[i].SiafundElement
+	}
+	fces := make([]types.V2FileContractElement, len(cau.V2FileContractElements()))
+	for i := range fces {
+		fces[i] = cau.V2FileContractElements()[i].V2FileContractElement
+	}
+
 	// select randomly
 	rng := frand.NewCustom(make([]byte, 32), 1024, 12)
 	rng.Shuffle(len(sces), reflect.Swapper(sces))
