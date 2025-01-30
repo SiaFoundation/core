@@ -69,34 +69,34 @@ func (db *consensusDB) applyBlock(au ApplyUpdate) {
 	}
 	au.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
 		if spent {
-			delete(db.sces, types.SiacoinOutputID(sce.ID))
+			delete(db.sces, sce.ID)
 		} else {
-			db.sces[types.SiacoinOutputID(sce.ID)] = sce
+			db.sces[sce.ID] = sce
 		}
 	})
 	au.ForEachSiafundElement(func(sfe types.SiafundElement, created, spent bool) {
 		if spent {
-			delete(db.sfes, types.SiafundOutputID(sfe.ID))
+			delete(db.sfes, sfe.ID)
 		} else {
-			db.sfes[types.SiafundOutputID(sfe.ID)] = sfe
+			db.sfes[sfe.ID] = sfe
 		}
 	})
 	au.ForEachFileContractElement(func(fce types.FileContractElement, created bool, rev *types.FileContractElement, resolved, valid bool) {
 		if created {
-			db.fces[types.FileContractID(fce.ID)] = fce
+			db.fces[fce.ID] = fce
 		} else if rev != nil {
-			db.fces[types.FileContractID(fce.ID)] = *rev
+			db.fces[fce.ID] = *rev
 		} else if resolved {
-			delete(db.fces, types.FileContractID(fce.ID))
+			delete(db.fces, fce.ID)
 		}
 	})
 	au.ForEachV2FileContractElement(func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
 		if created {
-			db.v2fces[types.FileContractID(fce.ID)] = fce
+			db.v2fces[fce.ID] = fce
 		} else if rev != nil {
-			db.v2fces[types.FileContractID(fce.ID)] = *rev
+			db.v2fces[fce.ID] = *rev
 		} else if res != nil {
-			delete(db.v2fces, types.FileContractID(fce.ID))
+			delete(db.v2fces, fce.ID)
 		}
 	})
 	db.blockIDs = append(db.blockIDs, au.ms.cie.ID)
@@ -105,34 +105,34 @@ func (db *consensusDB) applyBlock(au ApplyUpdate) {
 func (db *consensusDB) revertBlock(ru RevertUpdate) {
 	ru.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
 		if spent {
-			db.sces[types.SiacoinOutputID(sce.ID)] = sce
+			db.sces[sce.ID] = sce
 		} else {
-			delete(db.sces, types.SiacoinOutputID(sce.ID))
+			delete(db.sces, sce.ID)
 		}
 	})
 	ru.ForEachSiafundElement(func(sfe types.SiafundElement, created, spent bool) {
 		if spent {
-			db.sfes[types.SiafundOutputID(sfe.ID)] = sfe
+			db.sfes[sfe.ID] = sfe
 		} else {
-			delete(db.sfes, types.SiafundOutputID(sfe.ID))
+			delete(db.sfes, sfe.ID)
 		}
 	})
 	ru.ForEachFileContractElement(func(fce types.FileContractElement, created bool, rev *types.FileContractElement, resolved, valid bool) {
 		if created {
-			delete(db.fces, types.FileContractID(fce.ID))
+			delete(db.fces, fce.ID)
 		} else if rev != nil {
-			db.fces[types.FileContractID(fce.ID)] = fce
+			db.fces[fce.ID] = fce
 		} else if resolved {
-			db.fces[types.FileContractID(fce.ID)] = fce
+			db.fces[fce.ID] = fce
 		}
 	})
 	ru.ForEachV2FileContractElement(func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
 		if created {
-			delete(db.v2fces, types.FileContractID(fce.ID))
+			delete(db.v2fces, fce.ID)
 		} else if rev != nil {
-			db.v2fces[types.FileContractID(fce.ID)] = fce
+			db.v2fces[fce.ID] = fce
 		} else if res != nil {
-			db.v2fces[types.FileContractID(fce.ID)] = fce
+			db.v2fces[fce.ID] = fce
 		}
 	})
 	for id, sce := range db.sces {
