@@ -72,15 +72,15 @@ func checkRevertUpdate(t *testing.T, cs State, ru RevertUpdate) {
 	}
 }
 func checkUpdateElements(t *testing.T, au ApplyUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {
-	for _, usce := range au.SiacoinElements() {
+	for _, sced := range au.SiacoinElementDiffs() {
 		sces := &addedSCEs
-		if usce.Spent {
+		if sced.Spent {
 			sces = &spentSCEs
 		}
 		if len(*sces) == 0 {
 			t.Fatal("unexpected spent siacoin element")
 		}
-		sce := usce.SiacoinElement
+		sce := sced.SiacoinElement
 		sce.StateElement = types.StateElement{}
 		sce.ID = types.SiacoinOutputID{}
 		if !reflect.DeepEqual(sce, (*sces)[0]) {
@@ -88,15 +88,15 @@ func checkUpdateElements(t *testing.T, au ApplyUpdate, addedSCEs, spentSCEs []ty
 		}
 		*sces = (*sces)[1:]
 	}
-	for _, usfe := range au.SiafundElements() {
+	for _, sfed := range au.SiafundElementDiffs() {
 		sfes := &addedSFEs
-		if usfe.Spent {
+		if sfed.Spent {
 			sfes = &spentSFEs
 		}
 		if len(*sfes) == 0 {
 			t.Fatal("unexpected spent siafund element")
 		}
-		sfe := usfe.SiafundElement
+		sfe := sfed.SiafundElement
 		sfe.StateElement = types.StateElement{}
 		sfe.ID = types.SiafundOutputID{}
 		if !reflect.DeepEqual(sfe, (*sfes)[0]) {
@@ -110,15 +110,15 @@ func checkUpdateElements(t *testing.T, au ApplyUpdate, addedSCEs, spentSCEs []ty
 }
 
 func checkRevertElements(t *testing.T, ru RevertUpdate, addedSCEs, spentSCEs []types.SiacoinElement, addedSFEs, spentSFEs []types.SiafundElement) {
-	for _, usce := range ru.SiacoinElements() {
+	for _, sced := range ru.SiacoinElementDiffs() {
 		sces := &addedSCEs
-		if usce.Spent {
+		if sced.Spent {
 			sces = &spentSCEs
 		}
 		if len(*sces) == 0 {
 			t.Fatal("unexpected spent siacoin element")
 		}
-		sce := usce.SiacoinElement
+		sce := sced.SiacoinElement
 		sce.StateElement = types.StateElement{}
 		sce.ID = types.SiacoinOutputID{}
 		if !reflect.DeepEqual(sce, (*sces)[len(*sces)-1]) {
@@ -126,15 +126,15 @@ func checkRevertElements(t *testing.T, ru RevertUpdate, addedSCEs, spentSCEs []t
 		}
 		*sces = (*sces)[:len(*sces)-1]
 	}
-	for _, usfe := range ru.SiafundElements() {
+	for _, sfed := range ru.SiafundElementDiffs() {
 		sfes := &addedSFEs
-		if usfe.Spent {
+		if sfed.Spent {
 			sfes = &spentSFEs
 		}
 		if len(*sfes) == 0 {
 			t.Fatal("unexpected spent siafund element")
 		}
-		sfe := usfe.SiafundElement
+		sfe := sfed.SiafundElement
 		sfe.StateElement = types.StateElement{}
 		sfe.ID = types.SiafundOutputID{}
 		if !reflect.DeepEqual(sfe, (*sfes)[len(*sfes)-1]) {
@@ -402,11 +402,11 @@ func TestRevertedRevisionLeaf(t *testing.T) {
 	bs := V1BlockSupplement{Transactions: make([]V1TransactionSupplement, len(genesisBlock.Transactions))}
 	cs, cau := ApplyBlock(n.GenesisState(), genesisBlock, bs, time.Time{})
 	cie := cau.ChainIndexElement()
-	fce := cau.FileContractElements()[0]
+	fced := cau.FileContractElementDiffs()[0]
 	if !cs.Elements.containsChainIndex(cie) {
 		t.Error("chain index element should be present in accumulator")
 	}
-	if !cs.Elements.containsUnresolvedFileContractElement(fce.FileContractElement) {
+	if !cs.Elements.containsUnresolvedFileContractElement(fced.FileContractElement) {
 		t.Error("unrevised contract should be present in accumulator")
 	}
 
@@ -415,7 +415,7 @@ func TestRevertedRevisionLeaf(t *testing.T) {
 		ParentID: cs.Index.ID,
 		Transactions: []types.Transaction{{
 			FileContractRevisions: []types.FileContractRevision{{
-				ParentID: fce.FileContractElement.ID,
+				ParentID: fced.FileContractElement.ID,
 				FileContract: types.FileContract{
 					Filesize:       456,
 					Payout:         types.Siacoins(2),
@@ -428,7 +428,7 @@ func TestRevertedRevisionLeaf(t *testing.T) {
 	}
 	bs = V1BlockSupplement{
 		Transactions: []V1TransactionSupplement{{
-			RevisedFileContracts: []types.FileContractElement{fce.FileContractElement},
+			RevisedFileContracts: []types.FileContractElement{fced.FileContractElement},
 		}},
 	}
 	prev := cs
@@ -438,13 +438,13 @@ func TestRevertedRevisionLeaf(t *testing.T) {
 	if !cs.Elements.containsChainIndex(cie) {
 		t.Fatal("chain index element should be present in accumulator")
 	}
-	revFCE := cau.FileContractElements()[0].FileContractElement
-	revFCE.FileContract = *cau.FileContractElements()[0].Revision
+	revFCE := cau.FileContractElementDiffs()[0].FileContractElement
+	revFCE.FileContract = *cau.FileContractElementDiffs()[0].Revision
 	if !cs.Elements.containsUnresolvedFileContractElement(revFCE) {
 		t.Error("revised contract should be present in accumulator")
 	}
-	cau.UpdateElementProof(&fce.FileContractElement.StateElement)
-	if cs.Elements.containsUnresolvedFileContractElement(fce.FileContractElement) {
+	cau.UpdateElementProof(&fced.FileContractElement.StateElement)
+	if cs.Elements.containsUnresolvedFileContractElement(fced.FileContractElement) {
 		t.Error("unrevised contract should not be present in accumulator")
 	}
 
@@ -460,8 +460,8 @@ func TestRevertedRevisionLeaf(t *testing.T) {
 	if cs.Elements.containsUnresolvedFileContractElement(revFCE) {
 		t.Error("revised contract should not be present in accumulator")
 	}
-	cru.UpdateElementProof(&fce.FileContractElement.StateElement)
-	if !cs.Elements.containsUnresolvedFileContractElement(fce.FileContractElement) {
+	cru.UpdateElementProof(&fced.FileContractElement.StateElement)
+	if !cs.Elements.containsUnresolvedFileContractElement(fced.FileContractElement) {
 		t.Error("unrevised contract should be present in accumulator")
 	}
 }
@@ -1248,7 +1248,7 @@ func TestSiafunds(t *testing.T) {
 		}
 		// should have received a timelocked siafund claim output
 		var claimOutput *types.SiacoinElement
-		for _, sce := range au.SiacoinElements() {
+		for _, sce := range au.SiacoinElementDiffs() {
 			if sce.SiacoinElement.ID == txn.SiafundInputs[0].Parent.ID.V2ClaimOutputID() {
 				claimOutput = &sce.SiacoinElement
 				break
@@ -1304,7 +1304,7 @@ func TestFoundationSubsidy(t *testing.T) {
 		var au ApplyUpdate
 		cs, au = ApplyBlock(cs, b, bs, db.ancestorTimestamp(b.ParentID))
 		db.applyBlock(au)
-		for _, sce := range au.SiacoinElements() {
+		for _, sce := range au.SiacoinElementDiffs() {
 			if sce.Created && sce.SiacoinElement.SiacoinOutput.Address == addr {
 				subsidy = sce.SiacoinElement
 				exists = true

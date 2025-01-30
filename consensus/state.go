@@ -584,28 +584,28 @@ func (s State) AttestationSigHash(a types.Attestation) types.Hash256 {
 	return hashAll("sig/attestation", s.v2ReplayPrefix(), a)
 }
 
-// An UpdatedSiacoinElement is a SiacoinElement that was created and/or spent
-// within a block. Note that an element may be both created and spent in the the
-// same block.
-type UpdatedSiacoinElement struct {
+// A SiacoinElementDiff is a SiacoinElement that was created and/or spent within
+// a block. Note that an element may be both created and spent in the the same
+// block.
+type SiacoinElementDiff struct {
 	SiacoinElement types.SiacoinElement `json:"siacoinElement"`
 	Created        bool                 `json:"created"`
 	Spent          bool                 `json:"spent"`
 }
 
-// An UpdatedSiafundElement is a SiafundElement that was created and/or spent
-// within a block. Note that an element may be both created and spent in the the
-// same block.
-type UpdatedSiafundElement struct {
+// A SiafundElementDiff is a SiafundElement that was created and/or spent within
+// a block. Note that an element may be both created and spent in the the same
+// block.
+type SiafundElementDiff struct {
 	SiafundElement types.SiafundElement `json:"siafundElement"`
 	Created        bool                 `json:"created"`
 	Spent          bool                 `json:"spent"`
 }
 
-// An UpdatedFileContractElement is a FileContractElement that was created,
-// revised, and/or resolved within a block. Note that a contract may be created,
-// revised, and resolved all within the same block.
-type UpdatedFileContractElement struct {
+// A FileContractElementDiff is a FileContractElement that was created, revised,
+// and/or resolved within a block. Note that a contract may be created, revised,
+// and resolved all within the same block.
+type FileContractElementDiff struct {
 	FileContractElement types.FileContractElement `json:"fileContractElement"`
 	Created             bool                      `json:"created"`
 	// Non-nil if the contract was revised. If the contract was revised multiple
@@ -615,11 +615,11 @@ type UpdatedFileContractElement struct {
 	Valid    bool                `json:"valid"`
 }
 
-// An UpdatedV2FileContractElement is a V2FileContractElement that was created,
+// A V2FileContractElementDiff is a V2FileContractElement that was created,
 // revised, and/or resolved within a block. Note that, within a block, a v2
 // contract may be both created and revised, or revised and resolved, but not
 // created and resolved.
-type UpdatedV2FileContractElement struct {
+type V2FileContractElementDiff struct {
 	V2FileContractElement types.V2FileContractElement `json:"v2FileContractElement"`
 	Created               bool                        `json:"created"`
 	// Non-nil if the contract was revised. If the contract was revised multiple
@@ -639,10 +639,10 @@ type MidState struct {
 	foundationManagement types.Address
 
 	// elements created/updated by block
-	sces   []UpdatedSiacoinElement
-	sfes   []UpdatedSiafundElement
-	fces   []UpdatedFileContractElement
-	v2fces []UpdatedV2FileContractElement
+	sces   []SiacoinElementDiff
+	sfes   []SiafundElementDiff
+	fces   []FileContractElementDiff
+	v2fces []V2FileContractElementDiff
 	aes    []types.AttestationElement
 	cie    types.ChainIndexElement
 }

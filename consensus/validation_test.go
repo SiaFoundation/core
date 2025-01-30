@@ -954,17 +954,17 @@ func TestValidateV2Block(t *testing.T) {
 
 	cs, au := ApplyBlock(n.GenesisState(), genesisBlock, V1BlockSupplement{}, time.Time{})
 	checkApplyUpdate(t, cs, au)
-	sces := make([]types.SiacoinElement, len(au.SiacoinElements()))
+	sces := make([]types.SiacoinElement, len(au.SiacoinElementDiffs()))
 	for i := range sces {
-		sces[i] = au.SiacoinElements()[i].SiacoinElement
+		sces[i] = au.SiacoinElementDiffs()[i].SiacoinElement
 	}
-	sfes := make([]types.SiafundElement, len(au.SiafundElements()))
+	sfes := make([]types.SiafundElement, len(au.SiafundElementDiffs()))
 	for i := range sfes {
-		sfes[i] = au.SiafundElements()[i].SiafundElement
+		sfes[i] = au.SiafundElementDiffs()[i].SiafundElement
 	}
-	fces := make([]types.V2FileContractElement, len(au.V2FileContractElements()))
+	fces := make([]types.V2FileContractElement, len(au.V2FileContractElementDiffs()))
 	for i := range fces {
-		fces[i] = au.V2FileContractElements()[i].V2FileContractElement
+		fces[i] = au.V2FileContractElementDiffs()[i].V2FileContractElement
 	}
 	cies := []types.ChainIndexElement{au.ChainIndexElement()}
 
@@ -1000,7 +1000,7 @@ func TestValidateV2Block(t *testing.T) {
 				},
 				FileContracts: []types.V2FileContract{fc},
 				FileContractRevisions: []types.V2FileContractRevision{
-					{Parent: au.V2FileContractElements()[0].V2FileContractElement, Revision: rev1},
+					{Parent: au.V2FileContractElementDiffs()[0].V2FileContractElement, Revision: rev1},
 				},
 				MinerFee: minerFee,
 			}},
@@ -1234,7 +1234,7 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			{
-				fmt.Sprintf("file contract revision 1 parent (%v) has already been revised", au.V2FileContractElements()[0].V2FileContractElement.ID),
+				fmt.Sprintf("file contract revision 1 parent (%v) has already been revised", au.V2FileContractElementDiffs()[0].V2FileContractElement.ID),
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					newRevision := txn.FileContractRevisions[0]
@@ -1361,17 +1361,17 @@ func TestValidateV2Block(t *testing.T) {
 	db.applyBlock(testAU)
 	updateProofs(testAU, sces, sfes, fces, cies)
 
-	testSces := make([]types.SiacoinElement, len(testAU.SiacoinElements()))
+	testSces := make([]types.SiacoinElement, len(testAU.SiacoinElementDiffs()))
 	for i := range testSces {
-		testSces[i] = testAU.SiacoinElements()[i].SiacoinElement
+		testSces[i] = testAU.SiacoinElementDiffs()[i].SiacoinElement
 	}
-	testSfes := make([]types.SiafundElement, len(testAU.SiafundElements()))
+	testSfes := make([]types.SiafundElement, len(testAU.SiafundElementDiffs()))
 	for i := range testSfes {
-		testSfes[i] = testAU.SiafundElements()[i].SiafundElement
+		testSfes[i] = testAU.SiafundElementDiffs()[i].SiafundElement
 	}
-	testFces := make([]types.V2FileContractElement, len(testAU.V2FileContractElements()))
+	testFces := make([]types.V2FileContractElement, len(testAU.V2FileContractElementDiffs()))
 	for i := range testFces {
-		testFces[i] = testAU.V2FileContractElements()[i].V2FileContractElement
+		testFces[i] = testAU.V2FileContractElementDiffs()[i].V2FileContractElement
 	}
 	cies = append(cies, testAU.ChainIndexElement())
 
@@ -1599,7 +1599,7 @@ func TestV2ImmatureSiacoinOutput(t *testing.T) {
 		var cau ApplyUpdate
 		cs, cau = ApplyBlock(cs, b, db.supplementTipBlock(b), db.ancestorTimestamp(b.ParentID))
 		checkApplyUpdate(t, cs, cau)
-		for _, sce := range cau.SiacoinElements() {
+		for _, sce := range cau.SiacoinElementDiffs() {
 			if sce.Spent {
 				delete(utxos, types.SiacoinOutputID(sce.SiacoinElement.ID))
 			} else if sce.SiacoinElement.SiacoinOutput.Address == addr {
@@ -1759,7 +1759,7 @@ func TestV2RevisionApply(t *testing.T) {
 	contractID := genesisTxn.V2FileContractID(genesisTxn.ID(), 0)
 	fces := make(map[types.FileContractID]types.V2FileContractElement)
 	applyContractChanges := func(au ApplyUpdate) {
-		for _, fce := range au.V2FileContractElements() {
+		for _, fce := range au.V2FileContractElementDiffs() {
 			switch {
 			case fce.Resolution != nil:
 				delete(fces, fce.V2FileContractElement.ID)
@@ -1882,7 +1882,7 @@ func TestV2RenewalResolution(t *testing.T) {
 	fces := make(map[types.FileContractID]types.V2FileContractElement)
 	genesisOutput := genesisTxn.EphemeralSiacoinOutput(0)
 	applyChanges := func(au ApplyUpdate) {
-		for _, fce := range au.V2FileContractElements() {
+		for _, fce := range au.V2FileContractElementDiffs() {
 			switch {
 			case fce.Resolution != nil:
 				delete(fces, fce.V2FileContractElement.ID)
@@ -1893,7 +1893,7 @@ func TestV2RenewalResolution(t *testing.T) {
 				fces[fce.V2FileContractElement.ID] = fce.V2FileContractElement
 			}
 		}
-		for _, sce := range au.SiacoinElements() {
+		for _, sce := range au.SiacoinElementDiffs() {
 			if sce.SiacoinElement.ID == genesisOutput.ID {
 				genesisOutput = sce.SiacoinElement
 				break

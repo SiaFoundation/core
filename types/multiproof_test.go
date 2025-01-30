@@ -36,17 +36,17 @@ func multiproofTxns(numTxns int, numElems int) []types.V2Transaction {
 	}
 	// apply the block and extract the created elements
 	cs, cau := consensus.ApplyBlock(cs, b, consensus.V1BlockSupplement{}, time.Time{})
-	sces := make([]types.SiacoinElement, len(cau.SiacoinElements()))
+	sces := make([]types.SiacoinElement, len(cau.SiacoinElementDiffs()))
 	for i := range sces {
-		sces[i] = cau.SiacoinElements()[i].SiacoinElement
+		sces[i] = cau.SiacoinElementDiffs()[i].SiacoinElement
 	}
-	sfes := make([]types.SiafundElement, len(cau.SiafundElements()))
+	sfes := make([]types.SiafundElement, len(cau.SiafundElementDiffs()))
 	for i := range sfes {
-		sfes[i] = cau.SiafundElements()[i].SiafundElement
+		sfes[i] = cau.SiafundElementDiffs()[i].SiafundElement
 	}
-	fces := make([]types.V2FileContractElement, len(cau.V2FileContractElements()))
+	fces := make([]types.V2FileContractElement, len(cau.V2FileContractElementDiffs()))
 	for i := range fces {
-		fces[i] = cau.V2FileContractElements()[i].V2FileContractElement
+		fces[i] = cau.V2FileContractElementDiffs()[i].V2FileContractElement
 	}
 
 	// select randomly
