@@ -726,7 +726,7 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 		cur := fce.V2FileContract
 		// check for prior revision within block
 		if i, ok := ms.elements[fce.ID]; ok && ms.v2fces[i].Revision != nil {
-			cur = ms.v2fces[i].Revision.V2FileContract
+			cur = *ms.v2fces[i].Revision
 		}
 		curOutputSum := cur.RenterOutput.Value.Add(cur.HostOutput.Value)
 		revOutputSum := rev.RenterOutput.Value.Add(rev.HostOutput.Value)

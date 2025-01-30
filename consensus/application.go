@@ -429,13 +429,10 @@ func (ms *MidState) reviseFileContractElement(fce types.FileContractElement, rev
 	if ufce.Created {
 		ufce.FileContractElement.FileContract = rev
 	} else if ufce.Revision != nil {
-		ufce.Revision.FileContract = rev
+		*ufce.Revision = rev
 	} else {
 		ufce.FileContractElement = fce
-		revElement := fce
-		dupProof(&revElement.StateElement)
-		revElement.FileContract = rev
-		ufce.Revision = &revElement
+		ufce.Revision = &rev
 	}
 }
 
@@ -473,13 +470,10 @@ func (ms *MidState) reviseV2FileContractElement(fce types.V2FileContractElement,
 	if ufce.Created {
 		ufce.V2FileContractElement.V2FileContract = rev
 	} else if ufce.Revision != nil {
-		ufce.Revision.V2FileContract = rev
+		*ufce.Revision = rev
 	} else {
 		ufce.V2FileContractElement = fce
-		revElement := fce
-		dupProof(&revElement.StateElement)
-		revElement.V2FileContract = rev
-		ufce.Revision = &revElement
+		ufce.Revision = &rev
 	}
 }
 
@@ -662,19 +656,11 @@ func forEachAppliedElement(sces []UpdatedSiacoinElement, sfes []UpdatedSiafundEl
 	}
 	for i := range fces {
 		fce := &fces[i]
-		if fce.Revision != nil {
-			fn(fileContractLeaf(fce.Revision, fce.Resolved))
-		} else {
-			fn(fileContractLeaf(&fce.FileContractElement, fce.Resolved))
-		}
+		fn(fileContractLeaf(&fce.FileContractElement, fce.Revision, fce.Resolved))
 	}
 	for i := range v2fces {
 		v2fce := &v2fces[i]
-		if v2fce.Revision != nil {
-			fn(v2FileContractLeaf(v2fce.Revision, v2fce.Resolution != nil))
-		} else {
-			fn(v2FileContractLeaf(&v2fce.V2FileContractElement, v2fce.Resolution != nil))
-		}
+		fn(v2FileContractLeaf(&v2fce.V2FileContractElement, v2fce.Revision, v2fce.Resolution != nil))
 		// NOTE: Although it is an element, we do not process the ProofIndex
 		// field of V2StorageProofs. These are a special case, as they are not
 		// being updated (like e.g. siacoin inputs), nor are they being created
@@ -695,10 +681,10 @@ func forEachRevertedElement(sces []UpdatedSiacoinElement, sfes []UpdatedSiafundE
 		fn(siafundLeaf(&sfes[i].SiafundElement, false))
 	}
 	for i := range fces {
-		fn(fileContractLeaf(&fces[i].FileContractElement, false))
+		fn(fileContractLeaf(&fces[i].FileContractElement, nil, false))
 	}
 	for i := range v2fces {
-		fn(v2FileContractLeaf(&v2fces[i].V2FileContractElement, false))
+		fn(v2FileContractLeaf(&v2fces[i].V2FileContractElement, nil, false))
 	}
 }
 

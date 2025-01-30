@@ -92,14 +92,22 @@ func siafundLeaf(e *types.SiafundElement, spent bool) elementLeaf {
 }
 
 // fileContractLeaf returns the elementLeaf for a FileContractElement.
-func fileContractLeaf(e *types.FileContractElement, spent bool) elementLeaf {
-	elemHash := hashAll("leaf/filecontract", e.ID, e.FileContract)
+func fileContractLeaf(e *types.FileContractElement, rev *types.FileContract, spent bool) elementLeaf {
+	fc := e.FileContract
+	if rev != nil {
+		fc = *rev
+	}
+	elemHash := hashAll("leaf/filecontract", e.ID, fc)
 	return elementLeaf{&e.StateElement, elemHash, spent}
 }
 
 // v2FileContractLeaf returns the elementLeaf for a V2FileContractElement.
-func v2FileContractLeaf(e *types.V2FileContractElement, spent bool) elementLeaf {
-	elemHash := hashAll("leaf/v2filecontract", e.ID, e.V2FileContract)
+func v2FileContractLeaf(e *types.V2FileContractElement, rev *types.V2FileContract, spent bool) elementLeaf {
+	fc := e.V2FileContract
+	if rev != nil {
+		fc = *rev
+	}
+	elemHash := hashAll("leaf/v2filecontract", e.ID, fc)
 	return elementLeaf{&e.StateElement, elemHash, spent}
 }
 
@@ -200,15 +208,15 @@ func (acc *ElementAccumulator) containsSpentSiafundElement(sfe types.SiafundElem
 }
 
 func (acc *ElementAccumulator) containsUnresolvedFileContractElement(fce types.FileContractElement) bool {
-	return acc.containsLeaf(fileContractLeaf(&fce, false))
+	return acc.containsLeaf(fileContractLeaf(&fce, nil, false))
 }
 
 func (acc *ElementAccumulator) containsUnresolvedV2FileContractElement(fce types.V2FileContractElement) bool {
-	return acc.containsLeaf(v2FileContractLeaf(&fce, false))
+	return acc.containsLeaf(v2FileContractLeaf(&fce, nil, false))
 }
 
 func (acc *ElementAccumulator) containsResolvedV2FileContractElement(fce types.V2FileContractElement) bool {
-	return acc.containsLeaf(v2FileContractLeaf(&fce, true))
+	return acc.containsLeaf(v2FileContractLeaf(&fce, nil, true))
 }
 
 // addLeaves adds the supplied leaves to the accumulator, filling in their

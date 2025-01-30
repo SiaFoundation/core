@@ -610,9 +610,9 @@ type UpdatedFileContractElement struct {
 	Created             bool                      `json:"created"`
 	// Non-nil if the contract was revised. If the contract was revised multiple
 	// times, this is the revision with the highest revision number.
-	Revision *types.FileContractElement `json:"revision"`
-	Resolved bool                       `json:"resolved"`
-	Valid    bool                       `json:"valid"`
+	Revision *types.FileContract `json:"revision"`
+	Resolved bool                `json:"resolved"`
+	Valid    bool                `json:"valid"`
 }
 
 // An UpdatedV2FileContractElement is a V2FileContractElement that was created,
@@ -624,7 +624,7 @@ type UpdatedV2FileContractElement struct {
 	Created               bool                        `json:"created"`
 	// Non-nil if the contract was revised. If the contract was revised multiple
 	// times, this is the revision with the highest revision number.
-	Revision *types.V2FileContractElement `json:"revision"`
+	Revision *types.V2FileContract `json:"revision"`
 	// Non-nil if the contract was resolved.
 	Resolution types.V2FileContractResolutionType `json:"resolution"`
 }
@@ -674,7 +674,9 @@ func (ms *MidState) siafundElement(ts V1TransactionSupplement, id types.SiafundO
 func (ms *MidState) fileContractElement(ts V1TransactionSupplement, id types.FileContractID) (types.FileContractElement, bool) {
 	if i, ok := ms.elements[id]; ok {
 		if ms.fces[i].Revision != nil {
-			return *ms.fces[i].Revision, true
+			fce := ms.fces[i].FileContractElement
+			fce.FileContract = *ms.fces[i].Revision
+			return fce, true
 		}
 		return ms.fces[i].FileContractElement, true
 	}

@@ -26,22 +26,12 @@ func checkApplyUpdate(t *testing.T, cs State, au ApplyUpdate) {
 		}
 	}
 	for _, fce := range au.fces {
-		leaf := fileContractLeaf(&fce.FileContractElement, fce.Resolved)
-		if fce.Revision != nil {
-			leaf = fileContractLeaf(fce.Revision, fce.Resolved)
-		}
-
-		if !cs.Elements.containsLeaf(leaf) {
+		if !cs.Elements.containsLeaf(fileContractLeaf(&fce.FileContractElement, fce.Revision, fce.Resolved)) {
 			t.Fatal("consensus: file contract element leaf not found in accumulator after apply")
 		}
 	}
 	for _, fce := range au.v2fces {
-		leaf := v2FileContractLeaf(&fce.V2FileContractElement, fce.Resolution != nil)
-		if fce.Revision != nil {
-			leaf = v2FileContractLeaf(fce.Revision, fce.Resolution != nil)
-		}
-
-		if !cs.Elements.containsLeaf(leaf) {
+		if !cs.Elements.containsLeaf(v2FileContractLeaf(&fce.V2FileContractElement, fce.Revision, fce.Resolution != nil)) {
 			t.Fatal("consensus: v2 file contract element leaf not found in accumulator after apply")
 		}
 	}
@@ -66,22 +56,12 @@ func checkRevertUpdate(t *testing.T, cs State, ru RevertUpdate) {
 		}
 	}
 	for _, fce := range ru.fces {
-		leaf := fileContractLeaf(&fce.FileContractElement, fce.Resolved)
-		if fce.Revision != nil {
-			leaf = fileContractLeaf(fce.Revision, fce.Resolved)
-		}
-
-		if cs.Elements.containsLeaf(leaf) {
+		if cs.Elements.containsLeaf(fileContractLeaf(&fce.FileContractElement, fce.Revision, fce.Resolved)) {
 			t.Fatal("consensus: file contract element leaf found in accumulator after revert")
 		}
 	}
 	for _, fce := range ru.v2fces {
-		leaf := v2FileContractLeaf(&fce.V2FileContractElement, fce.Resolution != nil)
-		if fce.Revision != nil {
-			leaf = v2FileContractLeaf(fce.Revision, fce.Resolution != nil)
-		}
-
-		if cs.Elements.containsLeaf(leaf) {
+		if cs.Elements.containsLeaf(v2FileContractLeaf(&fce.V2FileContractElement, fce.Revision, fce.Resolution != nil)) {
 			t.Fatal("consensus: v2 file contract element leaf found in accumulator after revert")
 		}
 	}
@@ -458,8 +438,9 @@ func TestRevertedRevisionLeaf(t *testing.T) {
 	if !cs.Elements.containsChainIndex(cie) {
 		t.Fatal("chain index element should be present in accumulator")
 	}
-	rev := cau.FileContractElements()[0].Revision
-	if rev == nil || !cs.Elements.containsUnresolvedFileContractElement(*rev) {
+	revFCE := cau.FileContractElements()[0].FileContractElement
+	revFCE.FileContract = *cau.FileContractElements()[0].Revision
+	if !cs.Elements.containsUnresolvedFileContractElement(revFCE) {
 		t.Error("revised contract should be present in accumulator")
 	}
 	cau.UpdateElementProof(&fce.FileContractElement.StateElement)
@@ -475,8 +456,8 @@ func TestRevertedRevisionLeaf(t *testing.T) {
 	if !cs.Elements.containsChainIndex(cie) {
 		t.Error("chain index element should be present in accumulator")
 	}
-	cru.UpdateElementProof(&rev.StateElement)
-	if cs.Elements.containsUnresolvedFileContractElement(*rev) {
+	cru.UpdateElementProof(&revFCE.StateElement)
+	if cs.Elements.containsUnresolvedFileContractElement(revFCE) {
 		t.Error("revised contract should not be present in accumulator")
 	}
 	cru.UpdateElementProof(&fce.FileContractElement.StateElement)
@@ -708,9 +689,7 @@ func TestApplyRevertBlockV1(t *testing.T) {
 	addedSCEs = []types.SiacoinElement{
 		{SiacoinOutput: b4.MinerPayouts[0], MaturityHeight: cs.MaturityHeight()},
 	}
-	spentSCEs = []types.SiacoinElement{
-		// {SiacoinOutput: giftTxn.SiacoinOutputs[0]},
-	}
+	spentSCEs = []types.SiacoinElement{}
 	addedSFEs = nil
 	spentSFEs = nil
 

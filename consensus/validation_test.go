@@ -85,7 +85,8 @@ func (db *consensusDB) applyBlock(au ApplyUpdate) {
 		if fce.Created {
 			db.fces[fce.FileContractElement.ID] = fce.FileContractElement
 		} else if fce.Revision != nil {
-			db.fces[fce.FileContractElement.ID] = *fce.Revision
+			fce.FileContractElement.FileContract = *fce.Revision
+			db.fces[fce.FileContractElement.ID] = fce.FileContractElement
 		} else if fce.Resolved {
 			delete(db.fces, fce.FileContractElement.ID)
 		}
@@ -94,7 +95,8 @@ func (db *consensusDB) applyBlock(au ApplyUpdate) {
 		if v2fce.Created {
 			db.v2fces[v2fce.V2FileContractElement.ID] = v2fce.V2FileContractElement
 		} else if v2fce.Revision != nil {
-			db.v2fces[v2fce.V2FileContractElement.ID] = *v2fce.Revision
+			v2fce.V2FileContractElement.V2FileContract = *v2fce.Revision
+			db.v2fces[v2fce.V2FileContractElement.ID] = v2fce.V2FileContractElement
 		} else if v2fce.Resolution != nil {
 			delete(db.v2fces, v2fce.V2FileContractElement.ID)
 		}
@@ -1762,7 +1764,8 @@ func TestV2RevisionApply(t *testing.T) {
 			case fce.Resolution != nil:
 				delete(fces, fce.V2FileContractElement.ID)
 			case fce.Revision != nil:
-				fces[fce.V2FileContractElement.ID] = *fce.Revision
+				fce.V2FileContractElement.V2FileContract = *fce.Revision
+				fces[fce.V2FileContractElement.ID] = fce.V2FileContractElement
 			default:
 				fces[fce.V2FileContractElement.ID] = fce.V2FileContractElement
 			}
@@ -1884,7 +1887,8 @@ func TestV2RenewalResolution(t *testing.T) {
 			case fce.Resolution != nil:
 				delete(fces, fce.V2FileContractElement.ID)
 			case fce.Revision != nil:
-				fces[fce.V2FileContractElement.ID] = *fce.Revision
+				fce.V2FileContractElement.V2FileContract = *fce.Revision
+				fces[fce.V2FileContractElement.ID] = fce.V2FileContractElement
 			default:
 				fces[fce.V2FileContractElement.ID] = fce.V2FileContractElement
 			}
