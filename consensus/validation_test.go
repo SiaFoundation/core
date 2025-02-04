@@ -67,74 +67,77 @@ func (db *consensusDB) applyBlock(au ApplyUpdate) {
 		au.UpdateElementProof(&fce.StateElement)
 		db.v2fces[id] = fce
 	}
-	au.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
-		if spent {
-			delete(db.sces, types.SiacoinOutputID(sce.ID))
+	for _, sce := range au.sces {
+		if sce.Spent {
+			delete(db.sces, sce.SiacoinElement.ID)
 		} else {
-			db.sces[types.SiacoinOutputID(sce.ID)] = sce
+			db.sces[sce.SiacoinElement.ID] = sce.SiacoinElement
 		}
-	})
-	au.ForEachSiafundElement(func(sfe types.SiafundElement, created, spent bool) {
-		if spent {
-			delete(db.sfes, types.SiafundOutputID(sfe.ID))
+	}
+	for _, sfe := range au.sfes {
+		if sfe.Spent {
+			delete(db.sfes, sfe.SiafundElement.ID)
 		} else {
-			db.sfes[types.SiafundOutputID(sfe.ID)] = sfe
+			db.sfes[sfe.SiafundElement.ID] = sfe.SiafundElement
 		}
-	})
-	au.ForEachFileContractElement(func(fce types.FileContractElement, created bool, rev *types.FileContractElement, resolved, valid bool) {
-		if created {
-			db.fces[types.FileContractID(fce.ID)] = fce
-		} else if rev != nil {
-			db.fces[types.FileContractID(fce.ID)] = *rev
-		} else if resolved {
-			delete(db.fces, types.FileContractID(fce.ID))
+	}
+	for _, fce := range au.fces {
+		if fce.Created {
+			db.fces[fce.FileContractElement.ID] = fce.FileContractElement
+		} else if fce.Revision != nil {
+			fce.FileContractElement.FileContract = *fce.Revision
+			db.fces[fce.FileContractElement.ID] = fce.FileContractElement
+		} else if fce.Resolved {
+			delete(db.fces, fce.FileContractElement.ID)
 		}
-	})
-	au.ForEachV2FileContractElement(func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
-		if created {
-			db.v2fces[types.FileContractID(fce.ID)] = fce
-		} else if rev != nil {
-			db.v2fces[types.FileContractID(fce.ID)] = *rev
-		} else if res != nil {
-			delete(db.v2fces, types.FileContractID(fce.ID))
+	}
+	for _, v2fce := range au.v2fces {
+		if v2fce.Created {
+			db.v2fces[v2fce.V2FileContractElement.ID] = v2fce.V2FileContractElement
+		} else if v2fce.Revision != nil {
+			v2fce.V2FileContractElement.V2FileContract = *v2fce.Revision
+			db.v2fces[v2fce.V2FileContractElement.ID] = v2fce.V2FileContractElement
+		} else if v2fce.Resolution != nil {
+			delete(db.v2fces, v2fce.V2FileContractElement.ID)
 		}
-	})
-	db.blockIDs = append(db.blockIDs, au.ms.cie.ID)
+	}
+	db.blockIDs = append(db.blockIDs, au.cie.ID)
 }
 
 func (db *consensusDB) revertBlock(ru RevertUpdate) {
-	ru.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
-		if spent {
-			db.sces[types.SiacoinOutputID(sce.ID)] = sce
+	for _, sce := range ru.sces {
+		if sce.Spent {
+			db.sces[sce.SiacoinElement.ID] = sce.SiacoinElement
 		} else {
-			delete(db.sces, types.SiacoinOutputID(sce.ID))
+			delete(db.sces, sce.SiacoinElement.ID)
 		}
-	})
-	ru.ForEachSiafundElement(func(sfe types.SiafundElement, created, spent bool) {
-		if spent {
-			db.sfes[types.SiafundOutputID(sfe.ID)] = sfe
+	}
+	for _, sfe := range ru.sfes {
+		if sfe.Spent {
+			db.sfes[sfe.SiafundElement.ID] = sfe.SiafundElement
 		} else {
-			delete(db.sfes, types.SiafundOutputID(sfe.ID))
+			delete(db.sfes, sfe.SiafundElement.ID)
 		}
-	})
-	ru.ForEachFileContractElement(func(fce types.FileContractElement, created bool, rev *types.FileContractElement, resolved, valid bool) {
-		if created {
-			delete(db.fces, types.FileContractID(fce.ID))
-		} else if rev != nil {
-			db.fces[types.FileContractID(fce.ID)] = fce
-		} else if resolved {
-			db.fces[types.FileContractID(fce.ID)] = fce
+	}
+	for _, fce := range ru.fces {
+		if fce.Created {
+			delete(db.fces, fce.FileContractElement.ID)
+		} else if fce.Revision != nil {
+			db.fces[fce.FileContractElement.ID] = fce.FileContractElement
+		} else if fce.Resolved {
+			db.fces[fce.FileContractElement.ID] = fce.FileContractElement
 		}
-	})
-	ru.ForEachV2FileContractElement(func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
-		if created {
-			delete(db.v2fces, types.FileContractID(fce.ID))
-		} else if rev != nil {
-			db.v2fces[types.FileContractID(fce.ID)] = fce
-		} else if res != nil {
-			db.v2fces[types.FileContractID(fce.ID)] = fce
+	}
+	for _, v2fce := range ru.v2fces {
+		if v2fce.Created {
+			delete(db.v2fces, v2fce.V2FileContractElement.ID)
+		} else if v2fce.Revision != nil {
+			db.v2fces[v2fce.V2FileContractElement.ID] = v2fce.V2FileContractElement
+		} else if v2fce.Resolution != nil {
+			db.v2fces[v2fce.V2FileContractElement.ID] = v2fce.V2FileContractElement
 		}
-	})
+	}
+
 	for id, sce := range db.sces {
 		ru.UpdateElementProof(&sce.StateElement)
 		db.sces[id] = sce
@@ -950,20 +953,19 @@ func TestValidateV2Block(t *testing.T) {
 
 	cs, au := ApplyBlock(n.GenesisState(), genesisBlock, V1BlockSupplement{}, time.Time{})
 	checkApplyUpdate(t, cs, au)
-	var sces []types.SiacoinElement
-	au.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
-		sces = append(sces, sce)
-	})
-	var sfes []types.SiafundElement
-	au.ForEachSiafundElement(func(sfe types.SiafundElement, created, spent bool) {
-		sfes = append(sfes, sfe)
-	})
-	var fces []types.V2FileContractElement
-	au.ForEachV2FileContractElement(func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
-		fces = append(fces, fce)
-	})
-	var cies []types.ChainIndexElement
-	cies = append(cies, au.ChainIndexElement())
+	sces := make([]types.SiacoinElement, len(au.SiacoinElementDiffs()))
+	for i := range sces {
+		sces[i] = au.SiacoinElementDiffs()[i].SiacoinElement
+	}
+	sfes := make([]types.SiafundElement, len(au.SiafundElementDiffs()))
+	for i := range sfes {
+		sfes[i] = au.SiafundElementDiffs()[i].SiafundElement
+	}
+	fces := make([]types.V2FileContractElement, len(au.V2FileContractElementDiffs()))
+	for i := range fces {
+		fces[i] = au.V2FileContractElementDiffs()[i].V2FileContractElement
+	}
+	cies := []types.ChainIndexElement{au.ChainIndexElement()}
 
 	db, cs := newConsensusDB(n, genesisBlock)
 
@@ -997,7 +999,7 @@ func TestValidateV2Block(t *testing.T) {
 				},
 				FileContracts: []types.V2FileContract{fc},
 				FileContractRevisions: []types.V2FileContractRevision{
-					{Parent: fces[0], Revision: rev1},
+					{Parent: au.V2FileContractElementDiffs()[0].V2FileContractElement, Revision: rev1},
 				},
 				MinerFee: minerFee,
 			}},
@@ -1231,7 +1233,7 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			{
-				fmt.Sprintf("file contract revision 1 parent (%v) has already been revised", fces[0].ID),
+				fmt.Sprintf("file contract revision 1 parent (%v) has already been revised", au.V2FileContractElementDiffs()[0].V2FileContractElement.ID),
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					newRevision := txn.FileContractRevisions[0]
@@ -1358,18 +1360,18 @@ func TestValidateV2Block(t *testing.T) {
 	db.applyBlock(testAU)
 	updateProofs(testAU, sces, sfes, fces, cies)
 
-	var testSces []types.SiacoinElement
-	testAU.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
-		testSces = append(testSces, sce)
-	})
-	var testSfes []types.SiafundElement
-	testAU.ForEachSiafundElement(func(sfe types.SiafundElement, created, spent bool) {
-		testSfes = append(testSfes, sfe)
-	})
-	var testFces []types.V2FileContractElement
-	testAU.ForEachV2FileContractElement(func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
-		testFces = append(testFces, fce)
-	})
+	testSces := make([]types.SiacoinElement, len(testAU.SiacoinElementDiffs()))
+	for i := range testSces {
+		testSces[i] = testAU.SiacoinElementDiffs()[i].SiacoinElement
+	}
+	testSfes := make([]types.SiafundElement, len(testAU.SiafundElementDiffs()))
+	for i := range testSfes {
+		testSfes[i] = testAU.SiafundElementDiffs()[i].SiafundElement
+	}
+	testFces := make([]types.V2FileContractElement, len(testAU.V2FileContractElementDiffs()))
+	for i := range testFces {
+		testFces[i] = testAU.V2FileContractElementDiffs()[i].V2FileContractElement
+	}
 	cies = append(cies, testAU.ChainIndexElement())
 
 	// mine empty blocks
@@ -1596,13 +1598,13 @@ func TestV2ImmatureSiacoinOutput(t *testing.T) {
 		var cau ApplyUpdate
 		cs, cau = ApplyBlock(cs, b, db.supplementTipBlock(b), db.ancestorTimestamp(b.ParentID))
 		checkApplyUpdate(t, cs, cau)
-		cau.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
-			if spent {
-				delete(utxos, types.SiacoinOutputID(sce.ID))
-			} else if sce.SiacoinOutput.Address == addr {
-				utxos[types.SiacoinOutputID(sce.ID)] = sce
+		for _, sce := range cau.SiacoinElementDiffs() {
+			if sce.Spent {
+				delete(utxos, types.SiacoinOutputID(sce.SiacoinElement.ID))
+			} else if sce.SiacoinElement.SiacoinOutput.Address == addr {
+				utxos[types.SiacoinOutputID(sce.SiacoinElement.ID)] = sce.SiacoinElement
 			}
-		})
+		}
 
 		for id, sce := range utxos {
 			cau.UpdateElementProof(&sce.StateElement)
@@ -1756,16 +1758,17 @@ func TestV2RevisionApply(t *testing.T) {
 	contractID := genesisTxn.V2FileContractID(genesisTxn.ID(), 0)
 	fces := make(map[types.FileContractID]types.V2FileContractElement)
 	applyContractChanges := func(au ApplyUpdate) {
-		au.ForEachV2FileContractElement(func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
+		for _, fce := range au.V2FileContractElementDiffs() {
 			switch {
-			case res != nil:
-				delete(fces, fce.ID)
-			case rev != nil:
-				fces[fce.ID] = *rev
+			case fce.Resolution != nil:
+				delete(fces, fce.V2FileContractElement.ID)
+			case fce.Revision != nil:
+				fce.V2FileContractElement.V2FileContract = *fce.Revision
+				fces[fce.V2FileContractElement.ID] = fce.V2FileContractElement
 			default:
-				fces[fce.ID] = fce
+				fces[fce.V2FileContractElement.ID] = fce.V2FileContractElement
 			}
-		})
+		}
 
 		// update proofs
 		for key, fce := range fces {
@@ -1878,22 +1881,23 @@ func TestV2RenewalResolution(t *testing.T) {
 	fces := make(map[types.FileContractID]types.V2FileContractElement)
 	genesisOutput := genesisTxn.EphemeralSiacoinOutput(0)
 	applyChanges := func(au ApplyUpdate) {
-		au.ForEachV2FileContractElement(func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
+		for _, fce := range au.V2FileContractElementDiffs() {
 			switch {
-			case res != nil:
-				delete(fces, fce.ID)
-			case rev != nil:
-				fces[fce.ID] = *rev
+			case fce.Resolution != nil:
+				delete(fces, fce.V2FileContractElement.ID)
+			case fce.Revision != nil:
+				fce.V2FileContractElement.V2FileContract = *fce.Revision
+				fces[fce.V2FileContractElement.ID] = fce.V2FileContractElement
 			default:
-				fces[fce.ID] = fce
+				fces[fce.V2FileContractElement.ID] = fce.V2FileContractElement
 			}
-		})
-
-		au.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
-			if sce.ID == genesisOutput.ID {
-				genesisOutput = sce
+		}
+		for _, sce := range au.SiacoinElementDiffs() {
+			if sce.SiacoinElement.ID == genesisOutput.ID {
+				genesisOutput = sce.SiacoinElement
+				break
 			}
-		})
+		}
 
 		// update proofs
 		au.UpdateElementProof(&genesisOutput.StateElement)

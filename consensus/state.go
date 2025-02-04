@@ -584,31 +584,72 @@ func (s State) AttestationSigHash(a types.Attestation) types.Hash256 {
 	return hashAll("sig/attestation", s.v2ReplayPrefix(), a)
 }
 
+// A SiacoinElementDiff is a SiacoinElement that was created and/or spent within
+// a block. Note that an element may be both created and spent in the the same
+// block.
+type SiacoinElementDiff struct {
+	SiacoinElement types.SiacoinElement `json:"siacoinElement"`
+	Created        bool                 `json:"created"`
+	Spent          bool                 `json:"spent"`
+}
+
+// A SiafundElementDiff is a SiafundElement that was created and/or spent within
+// a block. Note that an element may be both created and spent in the the same
+// block.
+type SiafundElementDiff struct {
+	SiafundElement types.SiafundElement `json:"siafundElement"`
+	Created        bool                 `json:"created"`
+	Spent          bool                 `json:"spent"`
+}
+
+// A FileContractElementDiff is a FileContractElement that was created, revised,
+// and/or resolved within a block. Note that a contract may be created, revised,
+// and resolved all within the same block.
+type FileContractElementDiff struct {
+	FileContractElement types.FileContractElement `json:"fileContractElement"`
+	Created             bool                      `json:"created"`
+	// Non-nil if the contract was revised. If the contract was revised multiple
+	// times, this is the revision with the highest revision number.
+	Revision *types.FileContract `json:"revision"`
+	Resolved bool                `json:"resolved"`
+	Valid    bool                `json:"valid"`
+}
+
+// A V2FileContractElementDiff is a V2FileContractElement that was created,
+// revised, and/or resolved within a block. Note that, within a block, a v2
+// contract may be both created and revised, or revised and resolved, but not
+// created and resolved.
+type V2FileContractElementDiff struct {
+	V2FileContractElement types.V2FileContractElement `json:"v2FileContractElement"`
+	Created               bool                        `json:"created"`
+	// Non-nil if the contract was revised. If the contract was revised multiple
+	// times, this is the revision with the highest revision number.
+	Revision *types.V2FileContract `json:"revision"`
+	// Non-nil if the contract was resolved.
+	Resolution types.V2FileContractResolutionType `json:"resolution"`
+}
+
 // A MidState represents the state of the chain within a block.
 type MidState struct {
 	base                 State
-	created              map[types.ElementID]int // indices into element slices
+	elements             map[types.ElementID]int // indices into element slices
 	spends               map[types.ElementID]types.TransactionID
-	revs                 map[types.FileContractID]*types.FileContractElement
-	res                  map[types.FileContractID]bool
-	v2revs               map[types.FileContractID]*types.V2FileContractElement
-	v2res                map[types.FileContractID]types.V2FileContractResolutionType
 	siafundTaxRevenue    types.Currency
 	foundationSubsidy    types.Address
 	foundationManagement types.Address
 
 	// elements created/updated by block
-	sces   []types.SiacoinElement
-	sfes   []types.SiafundElement
-	fces   []types.FileContractElement
-	v2fces []types.V2FileContractElement
+	sces   []SiacoinElementDiff
+	sfes   []SiafundElementDiff
+	fces   []FileContractElementDiff
+	v2fces []V2FileContractElementDiff
 	aes    []types.AttestationElement
 	cie    types.ChainIndexElement
 }
 
 func (ms *MidState) siacoinElement(ts V1TransactionSupplement, id types.SiacoinOutputID) (types.SiacoinElement, bool) {
-	if i, ok := ms.created[id]; ok {
-		return ms.sces[i], true
+	if i, ok := ms.elements[id]; ok {
+		return ms.sces[i].SiacoinElement, true
 	}
 	for _, sce := range ts.SiacoinInputs {
 		if sce.ID == id {
@@ -619,8 +660,8 @@ func (ms *MidState) siacoinElement(ts V1TransactionSupplement, id types.SiacoinO
 }
 
 func (ms *MidState) siafundElement(ts V1TransactionSupplement, id types.SiafundOutputID) (types.SiafundElement, bool) {
-	if i, ok := ms.created[id]; ok {
-		return ms.sfes[i], true
+	if i, ok := ms.elements[id]; ok {
+		return ms.sfes[i].SiafundElement, true
 	}
 	for _, sfe := range ts.SiafundInputs {
 		if sfe.ID == id {
@@ -631,10 +672,13 @@ func (ms *MidState) siafundElement(ts V1TransactionSupplement, id types.SiafundO
 }
 
 func (ms *MidState) fileContractElement(ts V1TransactionSupplement, id types.FileContractID) (types.FileContractElement, bool) {
-	if rev, ok := ms.revs[id]; ok {
-		return *rev, true
-	} else if i, ok := ms.created[id]; ok {
-		return ms.fces[i], true
+	if i, ok := ms.elements[id]; ok {
+		if ms.fces[i].Revision != nil {
+			fce := ms.fces[i].FileContractElement
+			fce.FileContract = *ms.fces[i].Revision
+			return fce, true
+		}
+		return ms.fces[i].FileContractElement, true
 	}
 	for _, fce := range ts.RevisedFileContracts {
 		if fce.ID == id {
@@ -650,7 +694,7 @@ func (ms *MidState) fileContractElement(ts V1TransactionSupplement, id types.Fil
 }
 
 func (ms *MidState) storageProofWindowID(ts V1TransactionSupplement, id types.FileContractID) (types.BlockID, bool) {
-	if i, ok := ms.created[id]; ok && ms.fces[i].FileContract.WindowStart == ms.base.childHeight() {
+	if i, ok := ms.elements[id]; ok && ms.fces[i].FileContractElement.FileContract.WindowStart == ms.base.childHeight() {
 		return ms.base.Index.ID, true
 	}
 	for _, sps := range ts.StorageProofs {
@@ -671,21 +715,12 @@ func (ms *MidState) isSpent(id types.ElementID) bool {
 	return ok
 }
 
-func (ms *MidState) isCreated(id types.ElementID) bool {
-	_, ok := ms.created[id]
-	return ok || id == ms.cie.ID
-}
-
 // NewMidState constructs a MidState initialized to the provided base state.
 func NewMidState(s State) *MidState {
 	return &MidState{
 		base:                 s,
-		created:              make(map[types.ElementID]int),
+		elements:             make(map[types.ElementID]int),
 		spends:               make(map[types.ElementID]types.TransactionID),
-		revs:                 make(map[types.FileContractID]*types.FileContractElement),
-		res:                  make(map[types.FileContractID]bool),
-		v2revs:               make(map[types.FileContractID]*types.V2FileContractElement),
-		v2res:                make(map[types.FileContractID]types.V2FileContractResolutionType),
 		siafundTaxRevenue:    s.SiafundTaxRevenue,
 		foundationSubsidy:    s.FoundationSubsidyAddress,
 		foundationManagement: s.FoundationManagementAddress,

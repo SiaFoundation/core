@@ -576,7 +576,7 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 
 		// check accumulator
 		if sci.Parent.StateElement.LeafIndex == types.UnassignedLeafIndex {
-			if !ms.isCreated(sci.Parent.ID) {
+			if i, ok := ms.elements[sci.Parent.ID]; !ok || !ms.sces[i].Created {
 				return fmt.Errorf("siacoin input %v spends nonexistent ephemeral output %v", i, sci.Parent.ID)
 			}
 		} else if !ms.base.Elements.containsUnspentSiacoinElement(sci.Parent) {
@@ -640,7 +640,7 @@ func validateV2Siafunds(ms *MidState, txn types.V2Transaction) error {
 
 		// check accumulator
 		if sfi.Parent.StateElement.LeafIndex == types.UnassignedLeafIndex {
-			if !ms.isCreated(sfi.Parent.ID) {
+			if i, ok := ms.elements[sfi.Parent.ID]; !ok || !ms.sfes[i].Created {
 				return fmt.Errorf("siafund input %v spends nonexistent ephemeral output %v", i, sfi.Parent.ID)
 			}
 		} else if !ms.base.Elements.containsUnspentSiafundElement(sfi.Parent) {
@@ -724,8 +724,9 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 
 	validateRevision := func(fce types.V2FileContractElement, rev types.V2FileContract) error {
 		cur := fce.V2FileContract
-		if priorRev, ok := ms.v2revs[fce.ID]; ok {
-			cur = priorRev.V2FileContract
+		// check for prior revision within block
+		if i, ok := ms.elements[fce.ID]; ok && ms.v2fces[i].Revision != nil {
+			cur = *ms.v2fces[i].Revision
 		}
 		curOutputSum := cur.RenterOutput.Value.Add(cur.HostOutput.Value)
 		revOutputSum := rev.RenterOutput.Value.Add(rev.HostOutput.Value)
