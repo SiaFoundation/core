@@ -1153,6 +1153,15 @@ func TestSiafunds(t *testing.T) {
 		},
 	}
 	genesisBlock.Transactions = []types.Transaction{giftTxn}
+	genesisBlock.V2 = &types.V2BlockData{
+		Transactions: []types.V2Transaction{{
+			FileContracts: []types.V2FileContract{{
+				RenterOutput: types.SiacoinOutput{
+					Value: types.Siacoins(1000), // ensure initial SiafundTaxRevenue is not 0
+				},
+			}},
+		}},
+	}
 	db, cs := newConsensusDB(n, genesisBlock)
 
 	signTxn := func(cs State, txn *types.V2Transaction) {
@@ -1196,6 +1205,24 @@ func TestSiafunds(t *testing.T) {
 		return
 	}
 
+	// roundtrip SF output, to reset its ClaimStart
+	sfe := db.sfes[giftTxn.SiafundOutputID(0)]
+	txn := types.V2Transaction{
+		SiafundInputs: []types.V2SiafundInput{{
+			Parent:       sfe,
+			ClaimAddress: giftAddress,
+		}},
+		SiafundOutputs: []types.SiafundOutput{{
+			Address: giftAddress,
+			Value:   giftAmountSF,
+		}},
+	}
+	signTxn(cs, &txn)
+	if _, err := mineTxns(nil, []types.V2Transaction{txn}); err != nil {
+		t.Fatal(err)
+	}
+	sfe = db.sfes[txn.SiafundOutputID(txn.ID(), 0)]
+
 	fc := types.V2FileContract{
 		ProofHeight:      20,
 		ExpirationHeight: 30,
@@ -1206,7 +1233,7 @@ func TestSiafunds(t *testing.T) {
 	}
 	fcValue := fc.RenterOutput.Value.Add(fc.HostOutput.Value).Add(cs.V2FileContractTax(fc))
 
-	txn := types.V2Transaction{
+	txn = types.V2Transaction{
 		SiacoinInputs: []types.V2SiacoinInput{{
 			Parent: db.sces[giftTxn.SiacoinOutputID(0)],
 		}},
@@ -1229,7 +1256,7 @@ func TestSiafunds(t *testing.T) {
 	// make a siafund claim
 	txn = types.V2Transaction{
 		SiafundInputs: []types.V2SiafundInput{{
-			Parent:       db.sfes[giftTxn.SiafundOutputID(0)],
+			Parent:       sfe,
 			ClaimAddress: giftAddress,
 		}},
 		SiafundOutputs: []types.SiafundOutput{{

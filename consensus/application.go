@@ -390,6 +390,7 @@ func (ms *MidState) createSiafundElement(id types.SiafundOutputID, sfo types.Sia
 		StateElement:  types.StateElement{LeafIndex: types.UnassignedLeafIndex},
 		ID:            id,
 		SiafundOutput: sfo,
+		ClaimStart:    ms.siafundTaxRevenue,
 	}
 	sfed.Created = true
 	return sfed
