@@ -1,3 +1,9 @@
+## 0.10.1 (2025-02-10)
+
+### Fixes
+
+- Fix Siafund ClaimStart not being recorded
+
 ## 0.10.0 (2025-02-04)
 
 ### Breaking Changes
