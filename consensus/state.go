@@ -616,15 +616,16 @@ type FileContractElementDiff struct {
 }
 
 // RevisionElement returns the revision, if present, as a FileContractElement.
-func (diff FileContractElementDiff) RevisionElement() *types.FileContractElement {
+// It returns a boolean indicating whether the revision exists or not.
+func (diff FileContractElementDiff) RevisionElement() (types.FileContractElement, bool) {
 	if diff.Revision == nil {
-		return nil
+		return types.FileContractElement{}, false
 	}
-	return &types.FileContractElement{
+	return types.FileContractElement{
 		ID:           diff.FileContractElement.ID,
 		StateElement: diff.FileContractElement.StateElement,
 		FileContract: *diff.Revision,
-	}
+	}, true
 }
 
 // A V2FileContractElementDiff is a V2FileContractElement that was created,
@@ -642,16 +643,17 @@ type V2FileContractElementDiff struct {
 }
 
 // V2RevisionElement returns the revision, if present, as a
-// V2FileContractElement.
-func (diff V2FileContractElementDiff) V2RevisionElement() *types.V2FileContractElement {
+// V2FileContractElement.  It returns a boolean indicating whether the revision
+// exists or not.
+func (diff V2FileContractElementDiff) V2RevisionElement() (types.V2FileContractElement, bool) {
 	if diff.Revision == nil {
-		return nil
+		return types.V2FileContractElement{}, false
 	}
-	return &types.V2FileContractElement{
+	return types.V2FileContractElement{
 		ID:             diff.V2FileContractElement.ID,
 		StateElement:   diff.V2FileContractElement.StateElement,
 		V2FileContract: *diff.Revision,
-	}
+	}, true
 }
 
 // A MidState represents the state of the chain within a block.
