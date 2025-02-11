@@ -615,6 +615,18 @@ type FileContractElementDiff struct {
 	Valid    bool                `json:"valid"`
 }
 
+// RevisionElement returns the revision, if present, as a FileContractElement.
+func (diff FileContractElementDiff) RevisionElement() *types.FileContractElement {
+	if diff.Revision == nil {
+		return nil
+	}
+	return &types.FileContractElement{
+		ID:           diff.FileContractElement.ID,
+		StateElement: diff.FileContractElement.StateElement,
+		FileContract: *diff.Revision,
+	}
+}
+
 // A V2FileContractElementDiff is a V2FileContractElement that was created,
 // revised, and/or resolved within a block. Note that, within a block, a v2
 // contract may be both created and revised, or revised and resolved, but not
@@ -627,6 +639,19 @@ type V2FileContractElementDiff struct {
 	Revision *types.V2FileContract `json:"revision"`
 	// Non-nil if the contract was resolved.
 	Resolution types.V2FileContractResolutionType `json:"resolution"`
+}
+
+// V2RevisionElement returns the revision, if present, as a
+// V2FileContractElement.
+func (diff V2FileContractElementDiff) V2RevisionElement() *types.V2FileContractElement {
+	if diff.Revision == nil {
+		return nil
+	}
+	return &types.V2FileContractElement{
+		ID:             diff.V2FileContractElement.ID,
+		StateElement:   diff.V2FileContractElement.StateElement,
+		V2FileContract: *diff.Revision,
+	}
 }
 
 // A MidState represents the state of the chain within a block.
