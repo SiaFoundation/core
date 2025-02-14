@@ -593,6 +593,52 @@ func (r *RPCAccountBalanceResponse) maxLen() int {
 	return sizeofCurrency
 }
 
+func (r *RPCReplenishAccountsRequest) encodeTo(e *types.Encoder) {
+	types.EncodeSlice(e, r.Accounts)
+	types.V2Currency(r.Target).EncodeTo(e)
+	r.ContractID.EncodeTo(e)
+	r.ChallengeSignature.EncodeTo(e)
+}
+func (r *RPCReplenishAccountsRequest) decodeFrom(d *types.Decoder) {
+	types.DecodeSlice(d, &r.Accounts)
+	(*types.V2Currency)(&r.Target).DecodeFrom(d)
+	r.ContractID.DecodeFrom(d)
+	r.ChallengeSignature.DecodeFrom(d)
+}
+func (r *RPCReplenishAccountsRequest) maxLen() int {
+	return reasonableObjectSize
+}
+
+func (r *RPCReplenishAccountsResponse) encodeTo(e *types.Encoder) {
+	types.V2Currency(r.Cost).EncodeTo(e)
+}
+func (r *RPCReplenishAccountsResponse) decodeFrom(d *types.Decoder) {
+	(*types.V2Currency)(&r.Cost).DecodeFrom(d)
+}
+func (r *RPCReplenishAccountsResponse) maxLen() int {
+	return sizeofCurrency
+}
+
+func (r *RPCReplenishAccountsSecondResponse) encodeTo(e *types.Encoder) {
+	r.RenterSignature.EncodeTo(e)
+}
+func (r *RPCReplenishAccountsSecondResponse) decodeFrom(d *types.Decoder) {
+	r.RenterSignature.DecodeFrom(d)
+}
+func (r *RPCReplenishAccountsSecondResponse) maxLen() int {
+	return sizeofSignature
+}
+
+func (r *RPCReplenishAccountsThirdResponse) encodeTo(e *types.Encoder) {
+	r.HostSignature.EncodeTo(e)
+}
+func (r *RPCReplenishAccountsThirdResponse) decodeFrom(d *types.Decoder) {
+	r.HostSignature.DecodeFrom(d)
+}
+func (r *RPCReplenishAccountsThirdResponse) maxLen() int {
+	return sizeofSignature
+}
+
 func (r *RPCFundAccountsRequest) encodeTo(e *types.Encoder) {
 	r.ContractID.EncodeTo(e)
 	types.EncodeSlice(e, r.Deposits)

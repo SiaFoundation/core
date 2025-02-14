@@ -31,19 +31,23 @@ const (
 
 // RPC identifiers.
 var (
-	RPCAccountBalanceID  = types.NewSpecifier("AccountBalance")
+	RPCAccountBalanceID    = types.NewSpecifier("AccountBalance")
+	RPCFundAccountsID      = types.NewSpecifier("FundAccounts")
+	RPCReplenishAccountsID = types.NewSpecifier("ReplAccounts")
+
+	RPCAppendSectorsID = types.NewSpecifier("AppendSectors")
+	RPCFreeSectorsID   = types.NewSpecifier("FreeSectors")
+	RPCSectorRootsID   = types.NewSpecifier("SectorRoots")
+
 	RPCFormContractID    = types.NewSpecifier("FormContract")
-	RPCFundAccountsID    = types.NewSpecifier("FundAccounts")
 	RPCLatestRevisionID  = types.NewSpecifier("LatestRevision")
-	RPCAppendSectorsID   = types.NewSpecifier("AppendSectors")
-	RPCFreeSectorsID     = types.NewSpecifier("FreeSectors")
-	RPCReadSectorID      = types.NewSpecifier("ReadSector")
-	RPCRenewContractID   = types.NewSpecifier("RenewContract")
 	RPCRefreshContractID = types.NewSpecifier("RefreshContract")
-	RPCSectorRootsID     = types.NewSpecifier("SectorRoots")
-	RPCSettingsID        = types.NewSpecifier("Settings")
-	RPCWriteSectorID     = types.NewSpecifier("WriteSector")
-	RPCVerifySectorID    = types.NewSpecifier("VerifySector")
+	RPCRenewContractID   = types.NewSpecifier("RenewContract")
+
+	RPCReadSectorID   = types.NewSpecifier("ReadSector")
+	RPCWriteSectorID  = types.NewSpecifier("WriteSector")
+	RPCVerifySectorID = types.NewSpecifier("VerifySector")
+	RPCSettingsID     = types.NewSpecifier("Settings")
 )
 
 func round4KiB(n uint64) uint64 {
@@ -458,6 +462,26 @@ type (
 		Balance types.Currency `json:"balance"`
 	}
 
+	// RPCReplenishAccountsRequest is the request type for RPCReplenishAccounts.
+	RPCReplenishAccountsRequest struct {
+		Accounts           []Account            `json:"accounts"`
+		Target             types.Currency       `json:"target"`
+		ContractID         types.FileContractID `json:"contractID"`
+		ChallengeSignature types.Signature      `json:"challengeSignature"`
+	}
+	// RPCReplenishAccountsResponse is the response type for RPCReplenishAccounts.
+	RPCReplenishAccountsResponse struct {
+		Cost types.Currency `json:"cost"`
+	}
+	// RPCReplenishAccountsSecondResponse is the second response type for RPCReplenishAccounts.
+	RPCReplenishAccountsSecondResponse struct {
+		RenterSignature types.Signature `json:"renterSignature"`
+	}
+	// RPCReplenishAccountsThirdResponse is the third response type for RPCReplenishAccounts.
+	RPCReplenishAccountsThirdResponse struct {
+		HostSignature types.Signature `json:"hostSignature"`
+	}
+
 	// RPCVerifySectorRequest implements Object.
 	RPCVerifySectorRequest struct {
 		Prices    HostPrices    `json:"prices"`
@@ -545,6 +569,22 @@ func (r *RPCRefreshContractRequest) ChallengeSigHash(lastRevisionNumber uint64) 
 // ValidChallengeSignature checks the challenge signature for validity.
 func (r *RPCRefreshContractRequest) ValidChallengeSignature(existing types.V2FileContract) bool {
 	return existing.RenterPublicKey.VerifyHash(r.ChallengeSigHash(existing.RevisionNumber), r.ChallengeSignature)
+}
+
+// ChallengeSigHash returns the hash of the challenge signature used for
+// signing.
+func (r *RPCReplenishAccountsRequest) ChallengeSigHash(revisionNumber uint64) types.Hash256 {
+	h := types.NewHasher()
+	types.EncodeSlice(h.E, r.Accounts)
+	types.V2Currency(r.Target).EncodeTo(h.E)
+	r.ContractID.EncodeTo(h.E)
+	h.E.WriteUint64(revisionNumber)
+	return h.Sum()
+}
+
+// ValidChallengeSignature checks the challenge signature for validity.
+func (r *RPCReplenishAccountsRequest) ValidChallengeSignature(fc types.V2FileContract) bool {
+	return fc.RenterPublicKey.VerifyHash(r.ChallengeSigHash(fc.RevisionNumber), r.ChallengeSignature)
 }
 
 // NewContract creates a new file contract with the given settings.
@@ -651,6 +691,13 @@ func ReviseForSectorRoots(fc types.V2FileContract, prices HostPrices, numRoots u
 
 // ReviseForFundAccounts creates a contract revision for the fund accounts RPC
 func ReviseForFundAccounts(fc types.V2FileContract, amount types.Currency) (types.V2FileContract, Usage, error) {
+	usage := Usage{AccountFunding: amount}
+	err := PayWithContract(&fc, usage)
+	return fc, usage, err
+}
+
+// ReviseForReplenish creates a contract revision for the replenish accounts RPC
+func ReviseForReplenish(fc types.V2FileContract, amount types.Currency) (types.V2FileContract, Usage, error) {
 	usage := Usage{AccountFunding: amount}
 	err := PayWithContract(&fc, usage)
 	return fc, usage, err
