@@ -249,3 +249,16 @@ func (req *RPCAppendSectorsRequest) Validate(pk types.PublicKey) error {
 	}
 	return nil
 }
+
+// Validate checks that the request is valid
+func (req *RPCReplenishAccountsRequest) Validate() error {
+	switch {
+	case len(req.Accounts) == 0:
+		return errors.New("no accounts to replenish")
+	case len(req.Accounts) > 100:
+		return fmt.Errorf("too many accounts to replenish: %d > %d", len(req.Accounts), 1000)
+	case req.Target.IsZero():
+		return errors.New("target must be greater than zero")
+	}
+	return nil
+}
