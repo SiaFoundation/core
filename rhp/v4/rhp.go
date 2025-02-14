@@ -25,6 +25,9 @@ const (
 	// number of sectors removed in a single RPC free call.
 	MaxSectorBatchSize = (1 << 40) / (SectorSize)
 
+	// MaxAccountBatchSize is the number of account operations that can be batched into a single RPC.
+	MaxAccountBatchSize = 1000
+
 	// SectorSize is the size of one sector in bytes.
 	SectorSize = 1 << 22 // 4 MiB
 )
