@@ -255,8 +255,8 @@ func (req *RPCReplenishAccountsRequest) Validate() error {
 	switch {
 	case len(req.Accounts) == 0:
 		return errors.New("no accounts to replenish")
-	case len(req.Accounts) > 100:
-		return fmt.Errorf("too many accounts to replenish: %d > %d", len(req.Accounts), 1000)
+	case len(req.Accounts) > MaxAccountBatchSize:
+		return fmt.Errorf("too many accounts to replenish: %d > %d", len(req.Accounts), MaxAccountBatchSize)
 	case req.Target.IsZero():
 		return errors.New("target must be greater than zero")
 	}
