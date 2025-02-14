@@ -135,7 +135,7 @@ func PrepareContractRenewal(currentRevision types.FileContractRevision, renterAd
 }
 
 // CalculateHostPayouts calculates the contract payouts for the host.
-func CalculateHostPayouts(fc types.FileContract, newCollateral types.Currency, settings HostSettings, endHeight uint64) (types.Currency, types.Currency, types.Currency, types.Currency) {
+func CalculateHostPayouts(fc types.FileContract, newCollateral types.Currency, settings HostSettings, endHeight uint64) (hostValidPayout, hostMissedPayout, voidMissedPayout, basePrice types.Currency) {
 	// The host gets their contract fee, plus the cost of the data already in the
 	// contract, plus their collateral. In the event of a missed payout, the cost
 	// and collateral of the data already in the contract is subtracted from the
@@ -151,7 +151,7 @@ func CalculateHostPayouts(fc types.FileContract, newCollateral types.Currency, s
 	// impossible until they change their settings.
 
 	// calculate base price and collateral
-	var basePrice, baseCollateral types.Currency
+	var baseCollateral types.Currency
 
 	// if the contract height did not increase both prices are zero
 	if contractEnd := uint64(endHeight + settings.WindowSize); contractEnd > fc.WindowEnd {
@@ -161,13 +161,13 @@ func CalculateHostPayouts(fc types.FileContract, newCollateral types.Currency, s
 	}
 
 	// calculate payouts
-	hostValidPayout := settings.ContractPrice.Add(basePrice).Add(baseCollateral).Add(newCollateral)
-	voidMissedPayout := basePrice.Add(baseCollateral)
+	hostValidPayout = settings.ContractPrice.Add(basePrice).Add(baseCollateral).Add(newCollateral)
+	voidMissedPayout = basePrice.Add(baseCollateral)
 	if hostValidPayout.Cmp(voidMissedPayout) < 0 {
 		// TODO: detect this elsewhere
 		panic("host's settings are unsatisfiable")
 	}
-	hostMissedPayout := hostValidPayout.Sub(voidMissedPayout)
+	hostMissedPayout = hostValidPayout.Sub(voidMissedPayout)
 	return hostValidPayout, hostMissedPayout, voidMissedPayout, basePrice
 }
 
