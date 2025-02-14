@@ -43,7 +43,7 @@ func PrepareContractRenewal(currentRevision types.FileContractRevision, hostAddr
 }
 
 // CalculateHostPayouts calculates the contract payouts for the host.
-func CalculateHostPayouts(fc types.FileContract, minNewCollateral types.Currency, pt HostPriceTable, expectedNewStorage, endHeight uint64) (types.Currency, types.Currency, types.Currency, types.Currency, error) {
+func CalculateHostPayouts(fc types.FileContract, minNewCollateral types.Currency, pt HostPriceTable, expectedNewStorage, endHeight uint64) (hostValidPayout, hostMissedPayout, voidMissedPayout, basePrice types.Currency, _ error) {
 	// sanity check the inputs
 	if endHeight < fc.EndHeight() {
 		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("endHeight should be at least the current end height of the contract")
@@ -60,12 +60,12 @@ func CalculateHostPayouts(fc types.FileContract, minNewCollateral types.Currency
 	}
 
 	// calculate payouts
-	hostValidPayout := pt.ContractPrice.Add(basePrice).Add(baseCollateral).Add(newCollateral)
-	voidMissedPayout := basePrice.Add(baseCollateral)
+	hostValidPayout = pt.ContractPrice.Add(basePrice).Add(baseCollateral).Add(newCollateral)
+	voidMissedPayout = basePrice.Add(baseCollateral)
 	if hostValidPayout.Cmp(voidMissedPayout) < 0 {
 		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("host's settings are unsatisfiable")
 	}
-	hostMissedPayout := hostValidPayout.Sub(voidMissedPayout)
+	hostMissedPayout = hostValidPayout.Sub(voidMissedPayout)
 	return hostValidPayout, hostMissedPayout, voidMissedPayout, basePrice, nil
 }
 
