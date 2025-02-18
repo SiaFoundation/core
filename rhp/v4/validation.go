@@ -276,12 +276,21 @@ func (req *RPCFundAccountsRequest) Validate() error {
 // Validate checks that the request is valid
 func (req *RPCReplenishAccountsRequest) Validate() error {
 	switch {
+	case req.ContractID == (types.FileContractID{}):
+		return errors.New("contract ID must be set")
+	case req.ChallengeSignature == (types.Signature{}):
+		return errors.New("challenge signature must be set")
 	case len(req.Accounts) == 0:
 		return errors.New("no accounts to replenish")
 	case len(req.Accounts) > MaxAccountBatchSize:
 		return fmt.Errorf("too many accounts to replenish: %d > %d", len(req.Accounts), MaxAccountBatchSize)
 	case req.Target.IsZero():
 		return errors.New("target must be greater than zero")
+	}
+	for i, account := range req.Accounts {
+		if account == (Account{}) {
+			return fmt.Errorf("account %d is empty", i)
+		}
 	}
 	return nil
 }
