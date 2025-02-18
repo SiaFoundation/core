@@ -474,7 +474,7 @@ type (
 	}
 	// RPCReplenishAccountsResponse is the response type for RPCReplenishAccounts.
 	RPCReplenishAccountsResponse struct {
-		Cost types.Currency `json:"cost"`
+		Deposits []AccountDeposit `json:"deposits"`
 	}
 	// RPCReplenishAccountsSecondResponse is the second response type for RPCReplenishAccounts.
 	RPCReplenishAccountsSecondResponse struct {
@@ -588,6 +588,14 @@ func (r *RPCReplenishAccountsRequest) ChallengeSigHash(revisionNumber uint64) ty
 // ValidChallengeSignature checks the challenge signature for validity.
 func (r *RPCReplenishAccountsRequest) ValidChallengeSignature(fc types.V2FileContract) bool {
 	return fc.RenterPublicKey.VerifyHash(r.ChallengeSigHash(fc.RevisionNumber), r.ChallengeSignature)
+}
+
+// TotalCost returns the total cost to the renter of the replenish RPC.
+func (r *RPCReplenishAccountsResponse) TotalCost() (total types.Currency) {
+	for _, deposit := range r.Deposits {
+		total = total.Add(deposit.Amount)
+	}
+	return
 }
 
 // NewContract creates a new file contract with the given settings.

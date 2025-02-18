@@ -610,10 +610,10 @@ func (r *RPCReplenishAccountsRequest) maxLen() int {
 }
 
 func (r *RPCReplenishAccountsResponse) encodeTo(e *types.Encoder) {
-	types.V2Currency(r.Cost).EncodeTo(e)
+	types.EncodeSlice(e, r.Deposits)
 }
 func (r *RPCReplenishAccountsResponse) decodeFrom(d *types.Decoder) {
-	(*types.V2Currency)(&r.Cost).DecodeFrom(d)
+	types.DecodeSlice(d, &r.Deposits)
 }
 func (r *RPCReplenishAccountsResponse) maxLen() int {
 	return sizeofCurrency
