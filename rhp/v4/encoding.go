@@ -116,13 +116,14 @@ func sizeof(v types.EncoderTo) int {
 }
 
 var (
-	sizeofCurrency     = sizeof(types.V2Currency{})
-	sizeofHash         = sizeof(types.Hash256{})
-	sizeofSignature    = sizeof(types.Signature{})
-	sizeofContract     = sizeof(types.V2FileContract{})
-	sizeofPrices       = sizeof(HostPrices{})
-	sizeofAccount      = sizeof(Account{})
-	sizeofAccountToken = sizeof(types.EncoderFunc(AccountToken{}.encodeTo))
+	sizeofCurrency       = sizeof(types.V2Currency{})
+	sizeofHash           = sizeof(types.Hash256{})
+	sizeofSignature      = sizeof(types.Signature{})
+	sizeofContract       = sizeof(types.V2FileContract{})
+	sizeofPrices         = sizeof(HostPrices{})
+	sizeofAccount        = sizeof(Account{})
+	sizeofAccountToken   = sizeof(types.EncoderFunc(AccountToken{}.encodeTo))
+	sizeofAccountDeposit = sizeof(AccountDeposit{})
 )
 
 // An Object can be sent or received via a Transport.
@@ -606,7 +607,7 @@ func (r *RPCReplenishAccountsRequest) decodeFrom(d *types.Decoder) {
 	r.ChallengeSignature.DecodeFrom(d)
 }
 func (r *RPCReplenishAccountsRequest) maxLen() int {
-	return reasonableObjectSize
+	return 8 + (sizeofHash * MaxAccountBatchSize) + sizeofCurrency + sizeofHash + sizeofSignature
 }
 
 func (r *RPCReplenishAccountsResponse) encodeTo(e *types.Encoder) {
@@ -616,7 +617,7 @@ func (r *RPCReplenishAccountsResponse) decodeFrom(d *types.Decoder) {
 	types.DecodeSlice(d, &r.Deposits)
 }
 func (r *RPCReplenishAccountsResponse) maxLen() int {
-	return reasonableObjectSize
+	return 8 + (sizeofAccountDeposit * MaxAccountBatchSize)
 }
 
 func (r *RPCReplenishAccountsSecondResponse) encodeTo(e *types.Encoder) {
@@ -650,7 +651,7 @@ func (r *RPCFundAccountsRequest) decodeFrom(d *types.Decoder) {
 	r.RenterSignature.DecodeFrom(d)
 }
 func (r *RPCFundAccountsRequest) maxLen() int {
-	return reasonableObjectSize
+	return sizeofHash + 8 + (sizeofAccountDeposit * MaxAccountBatchSize) + sizeofSignature
 }
 
 func (r *RPCFundAccountsResponse) encodeTo(e *types.Encoder) {
@@ -662,7 +663,7 @@ func (r *RPCFundAccountsResponse) decodeFrom(d *types.Decoder) {
 	r.HostSignature.DecodeFrom(d)
 }
 func (r *RPCFundAccountsResponse) maxLen() int {
-	return reasonableObjectSize
+	return 8 + (sizeofCurrency * MaxAccountBatchSize) + sizeofSignature
 }
 
 func (r *RPCVerifySectorRequest) encodeTo(e *types.Encoder) {
