@@ -616,7 +616,7 @@ func (r *RPCReplenishAccountsResponse) decodeFrom(d *types.Decoder) {
 	types.DecodeSlice(d, &r.Deposits)
 }
 func (r *RPCReplenishAccountsResponse) maxLen() int {
-	return sizeofCurrency
+	return reasonableObjectSize
 }
 
 func (r *RPCReplenishAccountsSecondResponse) encodeTo(e *types.Encoder) {
