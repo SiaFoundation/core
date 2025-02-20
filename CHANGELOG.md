@@ -1,3 +1,17 @@
+## 0.10.2 (2025-02-20)
+
+### Features
+
+#### Add helpers to get revision as an element from v1/v2 file contract element diffs
+
+##274 by @chris124567
+
+In the old ForEachFileContractElement interface, the revision was provided as a pointer to a (V2)FileContractElement.  In the new system of diffs, the revision is only provided as a (V2)FileContract. There are multiple [places](https://github.com/SiaFoundation/explored/pull/169#discussion_r1950507575) where it is useful to have the revision as an element, and in all of these places more or less the same code will be duplicated unless we create this helper.
+
+#### Add RPCReplenish to RHP4
+
+Adds an RPC to RHP4 that enables renters to set a target balance instead of first fetching the current balance and then funding the account with the difference. This is primarily to speed up account funding and reduce round trips when managing a large number of accounts.
+
 ## 0.10.1 (2025-02-10)
 
 ### Fixes
