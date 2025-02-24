@@ -1,5 +1,5 @@
-go.sia.tech/mux v1.3.0 h1:hgR34IEkqvfBKUJkAzGi31OADeW2y7D6Bmy/Jcbop9c=
-go.sia.tech/mux v1.3.0/go.mod h1:I46++RD4beqA3cW9Xm9SwXbezwPqLvHhVs9HLpDtt58=
+go.sia.tech/mux v1.4.0 h1:LgsLHtn7l+25MwrgaPaUCaS8f2W2/tfvHIdXps04sVo=
+go.sia.tech/mux v1.4.0/go.mod h1:iNFi9ifFb2XhuD+LF4t2HBb4Mvgq/zIPKqwXU/NlqHA=
 golang.org/x/crypto v0.33.0 h1:IOBPskki6Lysi0lo9qQvbxiQ+FvsCC/YWOecCHAixus=
 golang.org/x/crypto v0.33.0/go.mod h1:bVdXmD7IV/4GdElGPozy6U7lWdRXA4qyRVGJV57uQ5M=
 golang.org/x/sys v0.30.0 h1:QjkSwP/36a20jFYWkSue1YwXzLmsV5Gfq7Eiy72C1uc=
