@@ -1,7 +1,6 @@
 package rhp
 
 import (
-	"bytes"
 	"errors"
 	"io"
 	"math"
@@ -219,12 +218,31 @@ func ReaderRoot(r io.Reader) (types.Hash256, error) {
 // ReadSector reads a single sector from r and calculates its root.
 func ReadSector(r io.Reader) (types.Hash256, *[SectorSize]byte, error) {
 	var sector [SectorSize]byte
-	buf := bytes.NewBuffer(sector[:0])
-	root, err := ReaderRoot(io.TeeReader(io.LimitReader(r, SectorSize), buf))
-	if buf.Len() != SectorSize {
-		return types.Hash256{}, nil, io.ErrUnexpectedEOF
+	// assign one subtree to each of 2^n goroutines, then merge
+	p := min(1<<bits.Len(uint(runtime.NumCPU())), LeavesPerSector/4)
+	per := SectorSize / p
+	roots := make([]types.Hash256, p)
+	var wg sync.WaitGroup
+	for i := range roots {
+		if _, err := io.ReadFull(r, sector[i*per:][:per]); err != nil {
+			return types.Hash256{}, nil, err
+		}
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+
+			var sa sectorAccumulator
+			sa.appendLeaves(sector[i*per:][:per])
+			roots[i] = sa.root()
+		}(i)
 	}
-	return root, &sector, err
+	wg.Wait()
+
+	var sa sectorAccumulator
+	for _, r := range roots {
+		sa.appendNode(r)
+	}
+	return sa.root(), &sector, nil
 }
 
 // MetaRoot calculates the root of a set of existing Merkle roots.
