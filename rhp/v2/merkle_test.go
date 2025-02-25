@@ -65,23 +65,27 @@ func TestSectorRoot(t *testing.T) {
 			t.Error("SectorRoot does not match reference implementation")
 		}
 	}
-
-	// SectorRoot should not allocate
-	allocs := testing.AllocsPerRun(5, func() {
-		_ = SectorRoot(&sector)
-	})
-	if allocs > 0 {
-		t.Error("expected SectorRoot to allocate 0 times, got", allocs)
-	}
 }
 
 func BenchmarkSectorRoot(b *testing.B) {
-	b.ReportAllocs()
-	var sector [SectorSize]byte
-	b.SetBytes(SectorSize)
-	for i := 0; i < b.N; i++ {
-		_ = SectorRoot(&sector)
-	}
+	b.Run("serial", func(b *testing.B) {
+		b.ReportAllocs()
+		var sector [SectorSize]byte
+		b.SetBytes(SectorSize)
+		for i := 0; i < b.N; i++ {
+			var sa sectorAccumulator
+			sa.appendLeaves(sector[:])
+			_ = sa.root()
+		}
+	})
+	b.Run("parallel", func(b *testing.B) {
+		b.ReportAllocs()
+		var sector [SectorSize]byte
+		b.SetBytes(SectorSize)
+		for i := 0; i < b.N; i++ {
+			_ = SectorRoot(&sector)
+		}
+	})
 }
 
 func TestMetaRoot(t *testing.T) {
