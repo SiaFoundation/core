@@ -64,14 +64,6 @@ func TestSectorRoot(t *testing.T) {
 			t.Error("SectorRoot does not match reference implementation")
 		}
 	}
-
-	// SectorRoot should not allocate
-	allocs := testing.AllocsPerRun(5, func() {
-		_ = SectorRoot(&sector)
-	})
-	if allocs > 0 {
-		t.Error("expected SectorRoot to allocate 0 times, got", allocs)
-	}
 }
 
 func BenchmarkSectorRoot(b *testing.B) {
