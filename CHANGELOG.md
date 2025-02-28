@@ -1,3 +1,10 @@
+## 0.10.3 (2025-02-25)
+
+### Fixes
+
+- Improved `SectorRoot` performance by a factor of 10 by distributing work across available CPU cores
+- Update mux dependency to 1.4.0
+
 ## 0.10.2 (2025-02-20)
 
 ### Features
