@@ -92,16 +92,43 @@ func (u Usage) Add(b Usage) Usage {
 // HostPrices specify a time-bound set of parameters used to calculate the cost
 // of various RPCs.
 type HostPrices struct {
-	ContractPrice   types.Currency `json:"contractPrice"`
-	Collateral      types.Currency `json:"collateral"`
-	StoragePrice    types.Currency `json:"storagePrice"`
-	IngressPrice    types.Currency `json:"ingressPrice"`
-	EgressPrice     types.Currency `json:"egressPrice"`
+	// ContractPrice is the base cost to the renter for forming,
+	// renewing, or refreshing a contract. It is paid up front and
+	// covers the cost of the revision and storage proof transaction
+	// the host broadcasts at the end of the contract.
+	ContractPrice types.Currency `json:"contractPrice"`
+	// Collateral is the amount of Hastings the host will risk
+	// per byte of storage per block. This is used by the renter
+	// when revising a contract during RPCAppendSectors.
+	Collateral types.Currency `json:"collateral"`
+	// StoragePrice is the cost per byte of storage per block.
+	// This is used by the renter when revising a contract during
+	// RPCAppendSectors and RPCWriteSectors.
+	StoragePrice types.Currency `json:"storagePrice"`
+	// IngressPrice is the cost per byte of data uploaded to the host.
+	// This is used by the renter to calculate the cost of bandwidth
+	// when uploading to the host.
+	IngressPrice types.Currency `json:"ingressPrice"`
+	// EgressPrice is the cost per byte of data downloaded from the host.
+	// This is used by the renter to calculate the cost of bandwidth
+	// when downloading from the host.
+	EgressPrice types.Currency `json:"egressPrice"`
+	// FreeSectorPrice is the base cost to remove a single sector
+	// from a contract. It is used by the renter to calculate the
+	// cost of RPCFreeSectors.
 	FreeSectorPrice types.Currency `json:"freeSectorPrice"`
-	TipHeight       uint64         `json:"tipHeight"`
-	ValidUntil      time.Time      `json:"validUntil"`
+	// TipHeight is the height the renter should use when calculating
+	// the remaining duration of a contract. It is important that the
+	// host and renter agree on the remaining duration so that cost
+	// calculation is consistent for both parties.
+	TipHeight uint64 `json:"tipHeight"`
+	// ValidUntil is the time at which these prices will no longer
+	// be honored. The renter should get an updated set of prices
+	// before this time.
+	ValidUntil time.Time `json:"validUntil"`
 
-	// covers above fields
+	// Signature is a signed hash of the above fields. The host will
+	// check this signature before honoring any prices.
 	Signature types.Signature `json:"signature"`
 }
 
