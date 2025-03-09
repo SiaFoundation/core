@@ -180,7 +180,7 @@ func (r *RPCFormContractRequest) decodeFrom(d *types.Decoder) {
 	types.DecodeSlice(d, &r.RenterParents)
 }
 func (r *RPCFormContractRequest) maxLen() int {
-	return reasonableObjectSize
+	return reasonableTransactionSetSize
 }
 
 func (r *RPCFormContractResponse) encodeTo(e *types.Encoder) {
@@ -251,7 +251,7 @@ func (r *RPCRenewContractRequest) decodeFrom(d *types.Decoder) {
 	r.ChallengeSignature.DecodeFrom(d)
 }
 func (r *RPCRenewContractRequest) maxLen() int {
-	return reasonableObjectSize
+	return reasonableTransactionSetSize
 }
 
 func (r *RPCRenewContractResponse) encodeTo(e *types.Encoder) {
@@ -321,7 +321,7 @@ func (r *RPCRefreshContractRequest) decodeFrom(d *types.Decoder) {
 	r.ChallengeSignature.DecodeFrom(d)
 }
 func (r *RPCRefreshContractRequest) maxLen() int {
-	return reasonableObjectSize
+	return reasonableTransactionSetSize
 }
 
 func (r *RPCRefreshContractResponse) encodeTo(e *types.Encoder) {
@@ -529,7 +529,7 @@ func (r *RPCWriteSectorRequest) decodeFrom(d *types.Decoder) {
 	r.DataLength = d.ReadUint64()
 }
 func (r *RPCWriteSectorRequest) maxLen() int {
-	return sizeofPrices + sizeofAccountToken + 8 + 8
+	return sizeofPrices + sizeofAccountToken + 8
 }
 
 func (r *RPCWriteSectorResponse) encodeTo(e *types.Encoder) {
@@ -557,7 +557,7 @@ func (r *RPCSectorRootsRequest) decodeFrom(d *types.Decoder) {
 	r.Length = d.ReadUint64()
 }
 func (r *RPCSectorRootsRequest) maxLen() int {
-	return sizeofPrices + 32 + sizeofSignature + 8 + 8
+	return sizeofPrices + sizeofHash + sizeofSignature + 8 + 8
 }
 
 func (r *RPCSectorRootsResponse) encodeTo(e *types.Encoder) {
@@ -679,7 +679,7 @@ func (r *RPCVerifySectorRequest) decodeFrom(d *types.Decoder) {
 	r.LeafIndex = d.ReadUint64()
 }
 func (r *RPCVerifySectorRequest) maxLen() int {
-	return 1024
+	return sizeofPrices + sizeofAccountToken + sizeofHash + 8
 }
 
 func (r *RPCVerifySectorResponse) encodeTo(e *types.Encoder) {
