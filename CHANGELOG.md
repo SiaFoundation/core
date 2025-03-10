@@ -1,3 +1,9 @@
+## 0.10.4 (2025-03-10)
+
+### Fixes
+
+- Fixed several implementations of MaxLen where it was returning a too low number, resulting in decoding errors during contract related RPCs.
+
 ## 0.10.3 (2025-02-25)
 
 ### Fixes
