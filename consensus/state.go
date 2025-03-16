@@ -700,10 +700,9 @@ func (ms *MidState) siafundElement(ts V1TransactionSupplement, id types.SiafundO
 
 func (ms *MidState) fileContractElement(ts V1TransactionSupplement, id types.FileContractID) (types.FileContractElement, bool) {
 	if i, ok := ms.elements[id]; ok {
-		if ms.fces[i].Revision != nil {
-			fce := ms.fces[i].FileContractElement
-			fce.FileContract = *ms.fces[i].Revision
-			return fce, true
+		rev, ok := ms.fces[i].RevisionElement()
+		if ok {
+			return rev, ok
 		}
 		return ms.fces[i].FileContractElement, true
 	}
