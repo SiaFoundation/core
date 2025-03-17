@@ -579,8 +579,8 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 			if i, ok := ms.elements[sci.Parent.ID]; !ok || !ms.sces[i].Created {
 				return fmt.Errorf("siacoin input %v spends nonexistent ephemeral output %v", i, sci.Parent.ID)
 			}
-		} else if !ms.base.Elements.containsUnspentSiacoinElement(sci.Parent) {
-			if ms.base.Elements.containsSpentSiacoinElement(sci.Parent) {
+		} else if !ms.base.Elements.containsUnspentSiacoinElement(sci.Parent.Share()) {
+			if ms.base.Elements.containsSpentSiacoinElement(sci.Parent.Share()) {
 				return fmt.Errorf("siacoin input %v double-spends output %v", i, sci.Parent.ID)
 			}
 			return fmt.Errorf("siacoin input %v spends output (%v) not present in the accumulator", i, sci.Parent.ID)
@@ -643,8 +643,8 @@ func validateV2Siafunds(ms *MidState, txn types.V2Transaction) error {
 			if i, ok := ms.elements[sfi.Parent.ID]; !ok || !ms.sfes[i].Created {
 				return fmt.Errorf("siafund input %v spends nonexistent ephemeral output %v", i, sfi.Parent.ID)
 			}
-		} else if !ms.base.Elements.containsUnspentSiafundElement(sfi.Parent) {
-			if ms.base.Elements.containsSpentSiafundElement(sfi.Parent) {
+		} else if !ms.base.Elements.containsUnspentSiafundElement(sfi.Parent.Share()) {
+			if ms.base.Elements.containsSpentSiafundElement(sfi.Parent.Share()) {
 				return fmt.Errorf("siafund input %v double-spends output %v", i, sfi.Parent.ID)
 			}
 			return fmt.Errorf("siafund input %v spends output (%v) not present in the accumulator", i, sfi.Parent.ID)
@@ -685,8 +685,8 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 			return fmt.Errorf("has already been revised by contract revision %v", i)
 		} else if i, ok := resolved[fce.ID]; ok {
 			return fmt.Errorf("has already been resolved by contract resolution %v", i)
-		} else if !ms.base.Elements.containsUnresolvedV2FileContractElement(fce) {
-			if ms.base.Elements.containsResolvedV2FileContractElement(fce) {
+		} else if !ms.base.Elements.containsUnresolvedV2FileContractElement(fce.Share()) {
+			if ms.base.Elements.containsResolvedV2FileContractElement(fce.Share()) {
 				return errors.New("has already been resolved in a previous block")
 			}
 			return errors.New("is not present in the accumulator")
@@ -762,18 +762,18 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 
 	for i, fcr := range txn.FileContractRevisions {
 		cur, rev := fcr.Parent.V2FileContract, fcr.Revision
-		if err := validateParent(fcr.Parent); err != nil {
+		if err := validateParent(fcr.Parent.Share()); err != nil {
 			return fmt.Errorf("file contract revision %v parent (%v) %s", i, fcr.Parent.ID, err)
 		} else if cur.ProofHeight < ms.base.childHeight() {
 			return fmt.Errorf("file contract revision %v cannot be applied to contract after proof height (%v)", i, cur.ProofHeight)
-		} else if err := validateRevision(fcr.Parent, rev); err != nil {
+		} else if err := validateRevision(fcr.Parent.Share(), rev); err != nil {
 			return fmt.Errorf("file contract revision %v %s", i, err)
 		}
 		revised[fcr.Parent.ID] = i
 	}
 
 	for i, fcr := range txn.FileContractResolutions {
-		if err := validateParent(fcr.Parent); err != nil {
+		if err := validateParent(fcr.Parent.Share()); err != nil {
 			return fmt.Errorf("file contract renewal %v parent (%v) %s", i, fcr.Parent.ID, err)
 		}
 		fc := fcr.Parent.V2FileContract
@@ -816,7 +816,7 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 			} else if sp.ProofIndex.ChainIndex.Height != fc.ProofHeight {
 				// see note on this field in types.StorageProof
 				return fmt.Errorf("file contract storage proof %v has ProofIndex height (%v) that does not match contract ProofHeight (%v)", i, sp.ProofIndex.ChainIndex.Height, fc.ProofHeight)
-			} else if !ms.base.Elements.containsChainIndex(sp.ProofIndex) {
+			} else if !ms.base.Elements.containsChainIndex(sp.ProofIndex.Share()) {
 				return fmt.Errorf("file contract storage proof %v has invalid history proof", i)
 			}
 			leafIndex := ms.base.StorageProofLeafIndex(fc.Filesize, sp.ProofIndex.ChainIndex.ID, types.FileContractID(fcr.Parent.ID))
@@ -888,28 +888,28 @@ func validateSupplement(s State, b types.Block, bs V1BlockSupplement) error {
 	}
 	for _, txn := range bs.Transactions {
 		for _, sce := range txn.SiacoinInputs {
-			if !s.Elements.containsUnspentSiacoinElement(sce) {
+			if !s.Elements.containsUnspentSiacoinElement(sce.Share()) {
 				return fmt.Errorf("siacoin element %v is not present in the accumulator", sce.ID)
 			}
 		}
 		for _, sfe := range txn.SiafundInputs {
-			if !s.Elements.containsUnspentSiafundElement(sfe) {
+			if !s.Elements.containsUnspentSiafundElement(sfe.Share()) {
 				return fmt.Errorf("siafund element %v is not present in the accumulator", sfe.ID)
 			}
 		}
 		for _, fce := range txn.RevisedFileContracts {
-			if !s.Elements.containsUnresolvedFileContractElement(fce) {
+			if !s.Elements.containsUnresolvedFileContractElement(fce.Share()) {
 				return fmt.Errorf("revised file contract %v is not present in the accumulator", fce.ID)
 			}
 		}
 		for _, sps := range txn.StorageProofs {
-			if !s.Elements.containsUnresolvedFileContractElement(sps.FileContract) {
+			if !s.Elements.containsUnresolvedFileContractElement(sps.FileContract.Share()) {
 				return fmt.Errorf("valid file contract %v is not present in the accumulator", sps.FileContract.ID)
 			}
 		}
 	}
 	for _, fce := range bs.ExpiringFileContracts {
-		if !s.Elements.containsUnresolvedFileContractElement(fce) {
+		if !s.Elements.containsUnresolvedFileContractElement(fce.Share()) {
 			return fmt.Errorf("expiring file contract %v is not present in the accumulator", fce.ID)
 		}
 	}

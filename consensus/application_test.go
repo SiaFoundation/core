@@ -80,11 +80,11 @@ func checkUpdateElements(t *testing.T, au ApplyUpdate, addedSCEs, spentSCEs []ty
 		if len(*sces) == 0 {
 			t.Fatal("unexpected spent siacoin element")
 		}
-		sce := sced.SiacoinElement
+		sce := sced.SiacoinElement.Move()
 		sce.StateElement = types.StateElement{}
 		sce.ID = types.SiacoinOutputID{}
-		if !reflect.DeepEqual(sce, (*sces)[0]) {
-			t.Fatalf("siacoin element doesn't match:\n%v\nvs\n%v\n", sce, (*sces)[0])
+		if !reflect.DeepEqual(sce.Move(), (*sces)[0].Copy()) {
+			t.Fatalf("siacoin element doesn't match:\n%v\nvs\n%v\n", sce.Move(), (*sces)[0].Copy())
 		}
 		*sces = (*sces)[1:]
 	}
@@ -96,11 +96,11 @@ func checkUpdateElements(t *testing.T, au ApplyUpdate, addedSCEs, spentSCEs []ty
 		if len(*sfes) == 0 {
 			t.Fatal("unexpected spent siafund element")
 		}
-		sfe := sfed.SiafundElement
+		sfe := sfed.SiafundElement.Move()
 		sfe.StateElement = types.StateElement{}
 		sfe.ID = types.SiafundOutputID{}
-		if !reflect.DeepEqual(sfe, (*sfes)[0]) {
-			t.Fatalf("siafund element doesn't match:\n%v\nvs\n%v\n", sfe, (*sfes)[0])
+		if !reflect.DeepEqual(sfe.Move(), (*sfes)[0].Copy()) {
+			t.Fatalf("siafund element doesn't match:\n%v\nvs\n%v\n", sfe.Move(), (*sfes)[0].Copy())
 		}
 		*sfes = (*sfes)[1:]
 	}
@@ -118,11 +118,11 @@ func checkRevertElements(t *testing.T, ru RevertUpdate, addedSCEs, spentSCEs []t
 		if len(*sces) == 0 {
 			t.Fatal("unexpected spent siacoin element")
 		}
-		sce := sced.SiacoinElement
+		sce := sced.SiacoinElement.Move()
 		sce.StateElement = types.StateElement{}
 		sce.ID = types.SiacoinOutputID{}
-		if !reflect.DeepEqual(sce, (*sces)[len(*sces)-1]) {
-			t.Fatalf("siacoin element doesn't match:\n%v\nvs\n%v\n", sce, (*sces)[len(*sces)-1])
+		if !reflect.DeepEqual(sce.Move(), (*sces)[len(*sces)-1].Copy()) {
+			t.Fatalf("siacoin element doesn't match:\n%v\nvs\n%v\n", sce.Move(), (*sces)[len(*sces)-1].Copy())
 		}
 		*sces = (*sces)[:len(*sces)-1]
 	}
@@ -134,11 +134,11 @@ func checkRevertElements(t *testing.T, ru RevertUpdate, addedSCEs, spentSCEs []t
 		if len(*sfes) == 0 {
 			t.Fatal("unexpected spent siafund element")
 		}
-		sfe := sfed.SiafundElement
+		sfe := sfed.SiafundElement.Move()
 		sfe.StateElement = types.StateElement{}
 		sfe.ID = types.SiafundOutputID{}
-		if !reflect.DeepEqual(sfe, (*sfes)[len(*sfes)-1]) {
-			t.Fatalf("siafund element doesn't match:\n%v\nvs\n%v\n", sfe, (*sfes)[len(*sfes)-1])
+		if !reflect.DeepEqual(sfe.Move(), (*sfes)[len(*sfes)-1].Copy()) {
+			t.Fatalf("siafund element doesn't match:\n%v\nvs\n%v\n", sfe.Move(), (*sfes)[len(*sfes)-1].Copy())
 		}
 		*sfes = (*sfes)[:len(*sfes)-1]
 	}
@@ -403,10 +403,10 @@ func TestRevertedRevisionLeaf(t *testing.T) {
 	cs, cau := ApplyBlock(n.GenesisState(), genesisBlock, bs, time.Time{})
 	cie := cau.ChainIndexElement()
 	fced := cau.FileContractElementDiffs()[0]
-	if !cs.Elements.containsChainIndex(cie) {
+	if !cs.Elements.containsChainIndex(cie.Share()) {
 		t.Error("chain index element should be present in accumulator")
 	}
-	if !cs.Elements.containsUnresolvedFileContractElement(fced.FileContractElement) {
+	if !cs.Elements.containsUnresolvedFileContractElement(fced.FileContractElement.Share()) {
 		t.Error("unrevised contract should be present in accumulator")
 	}
 
@@ -435,16 +435,16 @@ func TestRevertedRevisionLeaf(t *testing.T) {
 	cs, cau = ApplyBlock(cs, b, bs, time.Time{})
 
 	cau.UpdateElementProof(&cie.StateElement)
-	if !cs.Elements.containsChainIndex(cie) {
+	if !cs.Elements.containsChainIndex(cie.Share()) {
 		t.Fatal("chain index element should be present in accumulator")
 	}
-	revFCE := cau.FileContractElementDiffs()[0].FileContractElement
+	revFCE := cau.FileContractElementDiffs()[0].FileContractElement.Copy()
 	revFCE.FileContract = *cau.FileContractElementDiffs()[0].Revision
-	if !cs.Elements.containsUnresolvedFileContractElement(revFCE) {
+	if !cs.Elements.containsUnresolvedFileContractElement(revFCE.Share()) {
 		t.Error("revised contract should be present in accumulator")
 	}
 	cau.UpdateElementProof(&fced.FileContractElement.StateElement)
-	if cs.Elements.containsUnresolvedFileContractElement(fced.FileContractElement) {
+	if cs.Elements.containsUnresolvedFileContractElement(fced.FileContractElement.Share()) {
 		t.Error("unrevised contract should not be present in accumulator")
 	}
 
@@ -453,15 +453,15 @@ func TestRevertedRevisionLeaf(t *testing.T) {
 	cs = prev
 
 	cru.UpdateElementProof(&cie.StateElement)
-	if !cs.Elements.containsChainIndex(cie) {
+	if !cs.Elements.containsChainIndex(cie.Share()) {
 		t.Error("chain index element should be present in accumulator")
 	}
 	cru.UpdateElementProof(&revFCE.StateElement)
-	if cs.Elements.containsUnresolvedFileContractElement(revFCE) {
+	if cs.Elements.containsUnresolvedFileContractElement(revFCE.Share()) {
 		t.Error("revised contract should not be present in accumulator")
 	}
 	cru.UpdateElementProof(&fced.FileContractElement.StateElement)
-	if !cs.Elements.containsUnresolvedFileContractElement(fced.FileContractElement) {
+	if !cs.Elements.containsUnresolvedFileContractElement(fced.FileContractElement.Share()) {
 		t.Error("unrevised contract should be present in accumulator")
 	}
 }
@@ -751,7 +751,7 @@ func TestApplyRevertBlockV1(t *testing.T) {
 	// add block with storage proof
 	bs = db.supplementTipBlock(b5)
 	bs.Transactions[0].StorageProofs = append(bs.Transactions[0].StorageProofs, V1StorageProofSupplement{
-		FileContract: db.fces[txnB5.StorageProofs[0].ParentID],
+		FileContract: db.fces[txnB5.StorageProofs[0].ParentID].Copy(),
 		WindowID:     b3.ID(),
 	})
 	prev = cs
@@ -879,11 +879,11 @@ func TestApplyRevertBlockV2(t *testing.T) {
 			},
 		},
 		SiacoinInputs: []types.V2SiacoinInput{{
-			Parent:          db.sces[giftTxn.SiacoinOutputID(0)],
+			Parent:          db.sces[giftTxn.SiacoinOutputID(0)].Copy(),
 			SatisfiedPolicy: satisfiedPolicy(types.StandardUnlockConditions(giftPublicKey)),
 		}},
 		SiafundInputs: []types.V2SiafundInput{{
-			Parent:          db.sfes[giftTxn.SiafundOutputID(0)],
+			Parent:          db.sfes[giftTxn.SiafundOutputID(0)].Copy(),
 			ClaimAddress:    types.VoidAddress,
 			SatisfiedPolicy: satisfiedPolicy(types.StandardUnlockConditions(giftPublicKey)),
 		}},
@@ -959,7 +959,7 @@ func TestApplyRevertBlockV2(t *testing.T) {
 
 	txnB3 := types.V2Transaction{
 		SiacoinInputs: []types.V2SiacoinInput{{
-			Parent:          db.sces[giftTxn.SiacoinOutputID(0)],
+			Parent:          db.sces[giftTxn.SiacoinOutputID(0)].Copy(),
 			SatisfiedPolicy: satisfiedPolicy(types.StandardUnlockConditions(giftPublicKey)),
 		}},
 		SiacoinOutputs: []types.SiacoinOutput{{
@@ -1022,7 +1022,7 @@ func TestApplyRevertBlockV2(t *testing.T) {
 
 	txnB4 := types.V2Transaction{
 		FileContractRevisions: []types.V2FileContractRevision{{
-			Parent:   db.v2fces[txnB3.V2FileContractID(txnB3.ID(), 0)],
+			Parent:   db.v2fces[txnB3.V2FileContractID(txnB3.ID(), 0)].Copy(),
 			Revision: fcr,
 		}},
 	}
@@ -1071,12 +1071,12 @@ func TestApplyRevertBlockV2(t *testing.T) {
 	}
 
 	// block with storage proof
-	fce := db.v2fces[txnB3.V2FileContractID(txnB3.ID(), 0)]
+	fce := db.v2fces[txnB3.V2FileContractID(txnB3.ID(), 0)].Copy()
 	txnB5 := types.V2Transaction{
 		FileContractResolutions: []types.V2FileContractResolution{{
-			Parent: fce,
+			Parent: fce.Copy(),
 			Resolution: &types.V2StorageProof{
-				ProofIndex: cie,
+				ProofIndex: cie.Copy(),
 				Leaf:       [64]byte{1},
 				Proof:      []types.Hash256{cs.StorageProofLeafHash([]byte{2})},
 			},
@@ -1094,7 +1094,7 @@ func TestApplyRevertBlockV2(t *testing.T) {
 	}
 	if cs.StorageProofLeafIndex(fce.V2FileContract.Filesize, cie.ChainIndex.ID, types.FileContractID(fce.ID)) == 1 {
 		b5.V2.Transactions[0].FileContractResolutions[0].Resolution = &types.V2StorageProof{
-			ProofIndex: cie,
+			ProofIndex: cie.Copy(),
 			Leaf:       [64]byte{2},
 			Proof:      []types.Hash256{cs.StorageProofLeafHash([]byte{1})},
 		}
@@ -1206,10 +1206,10 @@ func TestSiafunds(t *testing.T) {
 	}
 
 	// roundtrip SF output, to reset its ClaimStart
-	sfe := db.sfes[giftTxn.SiafundOutputID(0)]
+	sfoid := giftTxn.SiafundOutputID(0)
 	txn := types.V2Transaction{
 		SiafundInputs: []types.V2SiafundInput{{
-			Parent:       sfe,
+			Parent:       db.sfes[sfoid].Copy(),
 			ClaimAddress: giftAddress,
 		}},
 		SiafundOutputs: []types.SiafundOutput{{
@@ -1221,7 +1221,7 @@ func TestSiafunds(t *testing.T) {
 	if _, err := mineTxns(nil, []types.V2Transaction{txn}); err != nil {
 		t.Fatal(err)
 	}
-	sfe = db.sfes[txn.SiafundOutputID(txn.ID(), 0)]
+	sfoid = txn.SiafundOutputID(txn.ID(), 0)
 
 	fc := types.V2FileContract{
 		ProofHeight:      20,
@@ -1235,7 +1235,7 @@ func TestSiafunds(t *testing.T) {
 
 	txn = types.V2Transaction{
 		SiacoinInputs: []types.V2SiacoinInput{{
-			Parent: db.sces[giftTxn.SiacoinOutputID(0)],
+			Parent: db.sces[giftTxn.SiacoinOutputID(0)].Copy(),
 		}},
 		SiacoinOutputs: []types.SiacoinOutput{{
 			Address: giftAddress,
@@ -1256,7 +1256,7 @@ func TestSiafunds(t *testing.T) {
 	// make a siafund claim
 	txn = types.V2Transaction{
 		SiafundInputs: []types.V2SiafundInput{{
-			Parent:       sfe,
+			Parent:       db.sfes[sfoid].Copy(),
 			ClaimAddress: giftAddress,
 		}},
 		SiafundOutputs: []types.SiafundOutput{{
@@ -1333,7 +1333,7 @@ func TestFoundationSubsidy(t *testing.T) {
 		db.applyBlock(au)
 		for _, sce := range au.SiacoinElementDiffs() {
 			if sce.Created && sce.SiacoinElement.SiacoinOutput.Address == addr {
-				subsidy = sce.SiacoinElement
+				subsidy = sce.SiacoinElement.Copy()
 				exists = true
 			}
 		}
@@ -1361,7 +1361,7 @@ func TestFoundationSubsidy(t *testing.T) {
 	// disable subsidy
 	txn := types.V2Transaction{
 		SiacoinInputs: []types.V2SiacoinInput{{
-			Parent: db.sces[scoid],
+			Parent: db.sces[scoid].Copy(),
 			SatisfiedPolicy: types.SatisfiedPolicy{
 				Policy: types.PolicyPublicKey(key.PublicKey()),
 			},
@@ -1386,7 +1386,7 @@ func TestFoundationSubsidy(t *testing.T) {
 	// re-enable subsidy
 	txn = types.V2Transaction{
 		SiacoinInputs: []types.V2SiacoinInput{{
-			Parent: db.sces[scoid],
+			Parent: db.sces[scoid].Copy(),
 			SatisfiedPolicy: types.SatisfiedPolicy{
 				Policy: types.PolicyPublicKey(key.PublicKey()),
 			},
