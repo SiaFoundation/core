@@ -358,6 +358,7 @@ func (ms *MidState) createSiacoinElement(id types.SiacoinOutputID, sco types.Sia
 		SiacoinOutput: sco,
 	}
 	sced.Created = true
+	dupProof(&sced.SiacoinElement.StateElement)
 	return sced
 }
 
@@ -421,6 +422,7 @@ func (ms *MidState) createFileContractElement(id types.FileContractID, fc types.
 		FileContract: fc,
 	}
 	fced.Created = true
+	dupProof(&fced.FileContractElement.StateElement)
 	ms.siafundTaxRevenue = ms.siafundTaxRevenue.Add(ms.base.FileContractTax(fc))
 }
 
@@ -432,6 +434,7 @@ func (ms *MidState) reviseFileContractElement(fce types.FileContractElement, rev
 	} else if fced.Revision != nil {
 		*fced.Revision = rev
 	} else {
+		dupProof(&fce.StateElement)
 		fced.FileContractElement = fce
 		fced.Revision = &rev
 	}
@@ -473,6 +476,7 @@ func (ms *MidState) reviseV2FileContractElement(fce types.V2FileContractElement,
 	} else if fced.Revision != nil {
 		*fced.Revision = rev
 	} else {
+		dupProof(&fce.StateElement)
 		fced.V2FileContractElement = fce
 		fced.Revision = &rev
 	}
