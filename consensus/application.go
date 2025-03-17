@@ -358,6 +358,7 @@ func (ms *MidState) createSiacoinElement(id types.SiacoinOutputID, sco types.Sia
 		SiacoinOutput: sco,
 	}
 	sced.Created = true
+	dupProof(&sced.SiacoinElement.StateElement)
 	return sced
 }
 
@@ -421,6 +422,7 @@ func (ms *MidState) createFileContractElement(id types.FileContractID, fc types.
 		FileContract: fc,
 	}
 	fced.Created = true
+	dupProof(&fced.FileContractElement.StateElement)
 	ms.siafundTaxRevenue = ms.siafundTaxRevenue.Add(ms.base.FileContractTax(fc))
 }
 
