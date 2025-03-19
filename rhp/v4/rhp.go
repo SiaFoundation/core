@@ -89,6 +89,18 @@ func (u Usage) Add(b Usage) Usage {
 	}
 }
 
+// Mul returns the product of a Usage and a scalar.
+func (u Usage) Mul(n uint64) Usage {
+	return Usage{
+		RPC:              u.RPC.Mul64(n),
+		Storage:          u.Storage.Mul64(n),
+		Egress:           u.Egress.Mul64(n),
+		Ingress:          u.Ingress.Mul64(n),
+		AccountFunding:   u.AccountFunding.Mul64(n),
+		RiskedCollateral: u.RiskedCollateral.Mul64(n),
+	}
+}
+
 // HostPrices specify a time-bound set of parameters used to calculate the cost
 // of various RPCs.
 type HostPrices struct {
