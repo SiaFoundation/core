@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"slices"
 	"strconv"
 	"time"
 
@@ -614,6 +615,8 @@ type ElementID = [32]byte
 type StateElement struct {
 	LeafIndex   uint64    `json:"leafIndex"`
 	MerkleProof []Hash256 `json:"merkleProof,omitempty"`
+
+	shared bool // if true, mutation is illegal
 }
 
 // A ChainIndexElement is a record of a ChainIndex within the state accumulator.
@@ -678,17 +681,6 @@ type V2Transaction struct {
 	MinerFee                Currency                   `json:"minerFee"`
 }
 
-// MarshalJSON implements json.Marshaller.
-//
-// For convenience, the transaction's ID is also calculated and included. This field is ignored during unmarshalling.
-func (txn V2Transaction) MarshalJSON() ([]byte, error) {
-	type jsonTxn V2Transaction // prevent recursion
-	return json.Marshal(struct {
-		ID TransactionID `json:"id"`
-		jsonTxn
-	}{txn.ID(), jsonTxn(txn)})
-}
-
 // ID returns the "semantic hash" of the transaction, covering all of the
 // transaction's effects, but not incidental data such as signatures or Merkle
 // proofs. This ensures that the ID will remain stable (i.e. non-malleable).
@@ -751,40 +743,40 @@ func (txn *V2Transaction) EphemeralSiafundOutput(i int) SiafundElement {
 // DeepCopy returns a copy of txn that does not alias any of its memory.
 func (txn *V2Transaction) DeepCopy() V2Transaction {
 	c := *txn
-	c.SiacoinInputs = append([]V2SiacoinInput(nil), c.SiacoinInputs...)
+	c.SiacoinInputs = slices.Clone(c.SiacoinInputs)
 	for i := range c.SiacoinInputs {
-		c.SiacoinInputs[i].Parent.StateElement.MerkleProof = append([]Hash256(nil), c.SiacoinInputs[i].Parent.StateElement.MerkleProof...)
-		c.SiacoinInputs[i].SatisfiedPolicy.Signatures = append([]Signature(nil), c.SiacoinInputs[i].SatisfiedPolicy.Signatures...)
-		c.SiacoinInputs[i].SatisfiedPolicy.Preimages = append([][32]byte(nil), c.SiacoinInputs[i].SatisfiedPolicy.Preimages...)
+		c.SiacoinInputs[i].Parent = c.SiacoinInputs[i].Parent.Copy()
+		c.SiacoinInputs[i].SatisfiedPolicy.Signatures = slices.Clone(c.SiacoinInputs[i].SatisfiedPolicy.Signatures)
+		c.SiacoinInputs[i].SatisfiedPolicy.Preimages = slices.Clone(c.SiacoinInputs[i].SatisfiedPolicy.Preimages)
 	}
-	c.SiacoinOutputs = append([]SiacoinOutput(nil), c.SiacoinOutputs...)
-	c.SiafundInputs = append([]V2SiafundInput(nil), c.SiafundInputs...)
+	c.SiacoinOutputs = slices.Clone(c.SiacoinOutputs)
+	c.SiafundInputs = slices.Clone(c.SiafundInputs)
 	for i := range c.SiafundInputs {
-		c.SiafundInputs[i].Parent.StateElement.MerkleProof = append([]Hash256(nil), c.SiafundInputs[i].Parent.StateElement.MerkleProof...)
-		c.SiafundInputs[i].SatisfiedPolicy.Signatures = append([]Signature(nil), c.SiafundInputs[i].SatisfiedPolicy.Signatures...)
-		c.SiafundInputs[i].SatisfiedPolicy.Preimages = append([][32]byte(nil), c.SiafundInputs[i].SatisfiedPolicy.Preimages...)
+		c.SiafundInputs[i].Parent = c.SiafundInputs[i].Parent.Copy()
+		c.SiafundInputs[i].SatisfiedPolicy.Signatures = slices.Clone(c.SiafundInputs[i].SatisfiedPolicy.Signatures)
+		c.SiafundInputs[i].SatisfiedPolicy.Preimages = slices.Clone(c.SiafundInputs[i].SatisfiedPolicy.Preimages)
 	}
-	c.SiafundOutputs = append([]SiafundOutput(nil), c.SiafundOutputs...)
-	c.FileContracts = append([]V2FileContract(nil), c.FileContracts...)
-	c.FileContractRevisions = append([]V2FileContractRevision(nil), c.FileContractRevisions...)
+	c.SiafundOutputs = slices.Clone(c.SiafundOutputs)
+	c.FileContracts = slices.Clone(c.FileContracts)
+	c.FileContractRevisions = slices.Clone(c.FileContractRevisions)
 	for i := range c.FileContractRevisions {
-		c.FileContractRevisions[i].Parent.StateElement.MerkleProof = append([]Hash256(nil), c.FileContractRevisions[i].Parent.StateElement.MerkleProof...)
+		c.FileContractRevisions[i].Parent = c.FileContractRevisions[i].Parent.Copy()
 	}
-	c.FileContractResolutions = append([]V2FileContractResolution(nil), c.FileContractResolutions...)
+	c.FileContractResolutions = slices.Clone(c.FileContractResolutions)
 	for i := range c.FileContractResolutions {
-		c.FileContractResolutions[i].Parent.StateElement.MerkleProof = append([]Hash256(nil), c.FileContractResolutions[i].Parent.StateElement.MerkleProof...)
+		c.FileContractResolutions[i].Parent = c.FileContractResolutions[i].Parent.Copy()
 		if res, ok := c.FileContractResolutions[i].Resolution.(*V2StorageProof); ok {
 			sp := *res
-			sp.ProofIndex.StateElement.MerkleProof = append([]Hash256(nil), sp.ProofIndex.StateElement.MerkleProof...)
-			sp.Proof = append([]Hash256(nil), sp.Proof...)
+			sp.ProofIndex = sp.ProofIndex.Copy()
+			sp.Proof = slices.Clone(sp.Proof)
 			c.FileContractResolutions[i].Resolution = &sp
 		}
 	}
-	c.Attestations = append([]Attestation(nil), c.Attestations...)
+	c.Attestations = slices.Clone(c.Attestations)
 	for i := range c.Attestations {
-		c.Attestations[i].Value = append([]byte(nil), c.Attestations[i].Value...)
+		c.Attestations[i].Value = slices.Clone(c.Attestations[i].Value)
 	}
-	c.ArbitraryData = append([]byte(nil), c.ArbitraryData...)
+	c.ArbitraryData = slices.Clone(c.ArbitraryData)
 	return c
 }
 
@@ -1239,6 +1231,172 @@ func (res *V2FileContractResolution) UnmarshalJSON(b []byte) error {
 	if err := json.Unmarshal(p.Resolution, res.Resolution); err != nil {
 		return err
 	}
-	res.Parent = p.Parent
+	res.Parent = p.Parent.Move()
 	return nil
+}
+
+// MarshalJSON implements json.Marshaller.
+//
+// For convenience, the transaction's ID is also calculated and included. This
+// field is ignored during unmarshalling.
+func (txn V2Transaction) MarshalJSON() ([]byte, error) {
+	type jsonTxn V2Transaction // prevent recursion
+	return json.Marshal(struct {
+		ID TransactionID `json:"id"`
+		jsonTxn
+	}{txn.ID(), jsonTxn(txn)})
+}
+
+// To guard against memory ownership bugs, all Element types have Move, Share,
+// and Copy methods. This enables a linter to flag any instances where Element
+// memory is not explicitly managed.
+
+// Move returns a shallow copy of the element. It must only be used when the
+// element's memory is not shared.
+func (se StateElement) Move() StateElement {
+	if se.shared {
+		panic("Move called on shared StateElement")
+	}
+	return se
+}
+
+// Move returns a shallow copy of the element. It must only be used when the
+// element's memory is not shared.
+func (cie ChainIndexElement) Move() ChainIndexElement {
+	cie.StateElement = cie.StateElement.Move()
+	return cie
+}
+
+// Move returns a shallow copy of the element. It must only be used when the
+// element's memory is not shared.
+func (sce SiacoinElement) Move() SiacoinElement {
+	sce.StateElement = sce.StateElement.Move()
+	return sce
+}
+
+// Move returns a shallow copy of the element. It must only be used when the
+// element's memory is not shared.
+func (sfe SiafundElement) Move() SiafundElement {
+	sfe.StateElement = sfe.StateElement.Move()
+	return sfe
+}
+
+// Move returns a shallow copy of the element. It must only be used when the
+// element's memory is not shared.
+func (fce FileContractElement) Move() FileContractElement {
+	fce.StateElement = fce.StateElement.Move()
+	return fce
+}
+
+// Move returns a shallow copy of the element. It must only be used when the
+// element's memory is not shared.
+func (v2fce V2FileContractElement) Move() V2FileContractElement {
+	v2fce.StateElement = v2fce.StateElement.Move()
+	return v2fce
+}
+
+// Move returns a shallow copy of the element. It must only be used when the
+// element's memory is not shared.
+func (ae AttestationElement) Move() AttestationElement {
+	ae.StateElement = ae.StateElement.Move()
+	return ae
+}
+
+// Share returns a shallow copy of the element. It must be used whenever the
+// element's memory is intentionally aliased.
+func (se StateElement) Share() StateElement {
+	se.shared = true
+	return se
+}
+
+// Share returns a shallow copy of the element. It must be used whenever the
+// element's memory is intentionally aliased.
+func (cie ChainIndexElement) Share() ChainIndexElement {
+	cie.StateElement = cie.StateElement.Share()
+	return cie
+}
+
+// Share returns a shallow copy of the element. It must be used whenever the
+// element's memory is intentionally aliased.
+func (sce SiacoinElement) Share() SiacoinElement {
+	sce.StateElement = sce.StateElement.Share()
+	return sce
+}
+
+// Share returns a shallow copy of the element. It must be used whenever the
+// element's memory is intentionally aliased.
+func (sfe SiafundElement) Share() SiafundElement {
+	sfe.StateElement = sfe.StateElement.Share()
+	return sfe
+}
+
+// Share returns a shallow copy of the element. It must be used whenever the
+// element's memory is intentionally aliased.
+func (fce FileContractElement) Share() FileContractElement {
+	fce.StateElement = fce.StateElement.Share()
+	return fce
+}
+
+// Share returns a shallow copy of the element. It must be used whenever the
+// element's memory is intentionally aliased.
+func (v2fce V2FileContractElement) Share() V2FileContractElement {
+	v2fce.StateElement = v2fce.StateElement.Share()
+	return v2fce
+}
+
+// Share returns a shallow copy of the element. It must be used whenever the
+// element's memory is intentionally aliased.
+func (ae AttestationElement) Share() AttestationElement {
+	ae.StateElement = ae.StateElement.Share()
+	return ae
+}
+
+// Copy returns a deep copy of the element. It must be used whenever the
+// element's memory is copied.
+func (se StateElement) Copy() StateElement {
+	se.MerkleProof = slices.Clone(se.MerkleProof)
+	se.shared = false
+	return se
+}
+
+// Copy returns a deep copy of the element. It must be used whenever the
+// element's memory is copied.
+func (cie ChainIndexElement) Copy() ChainIndexElement {
+	cie.StateElement = cie.StateElement.Copy()
+	return cie
+}
+
+// Copy returns a deep copy of the element. It must be used whenever the
+// element's memory is copied.
+func (sce SiacoinElement) Copy() SiacoinElement {
+	sce.StateElement = sce.StateElement.Copy()
+	return sce
+}
+
+// Copy returns a deep copy of the element. It must be used whenever the
+// element's memory is copied.
+func (sfe SiafundElement) Copy() SiafundElement {
+	sfe.StateElement = sfe.StateElement.Copy()
+	return sfe
+}
+
+// Copy returns a deep copy of the element. It must be used whenever the
+// element's memory is copied.
+func (fce FileContractElement) Copy() FileContractElement {
+	fce.StateElement = fce.StateElement.Copy()
+	return fce
+}
+
+// Copy returns a deep copy of the element. It must be used whenever the
+// element's memory is copied.
+func (v2fce V2FileContractElement) Copy() V2FileContractElement {
+	v2fce.StateElement = v2fce.StateElement.Copy()
+	return v2fce
+}
+
+// Copy returns a deep copy of the element. It must be used whenever the
+// element's memory is copied.
+func (ae AttestationElement) Copy() AttestationElement {
+	ae.StateElement = ae.StateElement.Copy()
+	return ae
 }

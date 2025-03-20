@@ -354,6 +354,13 @@ func updateLeaves(leaves []elementLeaf) [64][]elementLeaf {
 // applyBlock applies the supplied leaves to the accumulator, modifying it and
 // producing an update.
 func (acc *ElementAccumulator) applyBlock(updated, added []elementLeaf) (eau elementApplyUpdate) {
+	for _, el := range updated {
+		_ = el.Move() // panics if element is shared
+	}
+	for _, el := range added {
+		_ = el.Move() // panics if element is shared
+	}
+
 	eau.updated = updateLeaves(updated)
 	for height, es := range eau.updated {
 		if len(es) > 0 {
@@ -373,6 +380,13 @@ func (acc *ElementAccumulator) applyBlock(updated, added []elementLeaf) (eau ele
 // under acc, which must be the accumulator prior to the application of those
 // elements. The accumulator itself is not modified.
 func (acc *ElementAccumulator) revertBlock(updated, added []elementLeaf) (eru elementRevertUpdate) {
+	for _, el := range updated {
+		_ = el.Move() // panics if element is shared
+	}
+	for _, el := range added {
+		_ = el.Move() // panics if element is shared
+	}
+
 	eru.updated = updateLeaves(updated)
 	eru.numLeaves = acc.NumLeaves
 	for i := range added {
@@ -414,6 +428,7 @@ type elementApplyUpdate struct {
 }
 
 func (eau *elementApplyUpdate) updateElementProof(e *types.StateElement) {
+	_ = e.Move() // panics if element is shared
 	if e.LeafIndex == types.UnassignedLeafIndex {
 		panic("cannot update an ephemeral element")
 	} else if e.LeafIndex >= eau.oldNumLeaves {
@@ -431,6 +446,7 @@ type elementRevertUpdate struct {
 }
 
 func (eru *elementRevertUpdate) updateElementProof(e *types.StateElement) {
+	_ = e.Move() // panics if element is shared
 	if e.LeafIndex == types.UnassignedLeafIndex {
 		panic("cannot update an ephemeral element")
 	} else if e.LeafIndex >= eru.numLeaves {

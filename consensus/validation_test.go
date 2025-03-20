@@ -53,50 +53,50 @@ type consensusDB struct {
 func (db *consensusDB) applyBlock(au ApplyUpdate) {
 	for id, sce := range db.sces {
 		au.UpdateElementProof(&sce.StateElement)
-		db.sces[id] = sce
+		db.sces[id] = sce.Move()
 	}
 	for id, sfe := range db.sfes {
 		au.UpdateElementProof(&sfe.StateElement)
-		db.sfes[id] = sfe
+		db.sfes[id] = sfe.Move()
 	}
 	for id, fce := range db.fces {
 		au.UpdateElementProof(&fce.StateElement)
-		db.fces[id] = fce
+		db.fces[id] = fce.Move()
 	}
 	for id, fce := range db.v2fces {
 		au.UpdateElementProof(&fce.StateElement)
-		db.v2fces[id] = fce
+		db.v2fces[id] = fce.Move()
 	}
 	for _, sce := range au.sces {
 		if sce.Spent {
 			delete(db.sces, sce.SiacoinElement.ID)
 		} else {
-			db.sces[sce.SiacoinElement.ID] = sce.SiacoinElement
+			db.sces[sce.SiacoinElement.ID] = sce.SiacoinElement.Copy()
 		}
 	}
 	for _, sfe := range au.sfes {
 		if sfe.Spent {
 			delete(db.sfes, sfe.SiafundElement.ID)
 		} else {
-			db.sfes[sfe.SiafundElement.ID] = sfe.SiafundElement
+			db.sfes[sfe.SiafundElement.ID] = sfe.SiafundElement.Copy()
 		}
 	}
 	for _, fce := range au.fces {
 		if fce.Created {
-			db.fces[fce.FileContractElement.ID] = fce.FileContractElement
+			db.fces[fce.FileContractElement.ID] = fce.FileContractElement.Copy()
 		} else if fce.Revision != nil {
 			fce.FileContractElement.FileContract = *fce.Revision
-			db.fces[fce.FileContractElement.ID] = fce.FileContractElement
+			db.fces[fce.FileContractElement.ID] = fce.FileContractElement.Copy()
 		} else if fce.Resolved {
 			delete(db.fces, fce.FileContractElement.ID)
 		}
 	}
 	for _, v2fce := range au.v2fces {
 		if v2fce.Created {
-			db.v2fces[v2fce.V2FileContractElement.ID] = v2fce.V2FileContractElement
+			db.v2fces[v2fce.V2FileContractElement.ID] = v2fce.V2FileContractElement.Copy()
 		} else if v2fce.Revision != nil {
 			v2fce.V2FileContractElement.V2FileContract = *v2fce.Revision
-			db.v2fces[v2fce.V2FileContractElement.ID] = v2fce.V2FileContractElement
+			db.v2fces[v2fce.V2FileContractElement.ID] = v2fce.V2FileContractElement.Copy()
 		} else if v2fce.Resolution != nil {
 			delete(db.v2fces, v2fce.V2FileContractElement.ID)
 		}
@@ -107,14 +107,14 @@ func (db *consensusDB) applyBlock(au ApplyUpdate) {
 func (db *consensusDB) revertBlock(ru RevertUpdate) {
 	for _, sce := range ru.sces {
 		if sce.Spent {
-			db.sces[sce.SiacoinElement.ID] = sce.SiacoinElement
+			db.sces[sce.SiacoinElement.ID] = sce.SiacoinElement.Copy()
 		} else {
 			delete(db.sces, sce.SiacoinElement.ID)
 		}
 	}
 	for _, sfe := range ru.sfes {
 		if sfe.Spent {
-			db.sfes[sfe.SiafundElement.ID] = sfe.SiafundElement
+			db.sfes[sfe.SiafundElement.ID] = sfe.SiafundElement.Copy()
 		} else {
 			delete(db.sfes, sfe.SiafundElement.ID)
 		}
@@ -123,36 +123,36 @@ func (db *consensusDB) revertBlock(ru RevertUpdate) {
 		if fce.Created {
 			delete(db.fces, fce.FileContractElement.ID)
 		} else if fce.Revision != nil {
-			db.fces[fce.FileContractElement.ID] = fce.FileContractElement
+			db.fces[fce.FileContractElement.ID] = fce.FileContractElement.Copy()
 		} else if fce.Resolved {
-			db.fces[fce.FileContractElement.ID] = fce.FileContractElement
+			db.fces[fce.FileContractElement.ID] = fce.FileContractElement.Copy()
 		}
 	}
 	for _, v2fce := range ru.v2fces {
 		if v2fce.Created {
 			delete(db.v2fces, v2fce.V2FileContractElement.ID)
 		} else if v2fce.Revision != nil {
-			db.v2fces[v2fce.V2FileContractElement.ID] = v2fce.V2FileContractElement
+			db.v2fces[v2fce.V2FileContractElement.ID] = v2fce.V2FileContractElement.Copy()
 		} else if v2fce.Resolution != nil {
-			db.v2fces[v2fce.V2FileContractElement.ID] = v2fce.V2FileContractElement
+			db.v2fces[v2fce.V2FileContractElement.ID] = v2fce.V2FileContractElement.Copy()
 		}
 	}
 
 	for id, sce := range db.sces {
 		ru.UpdateElementProof(&sce.StateElement)
-		db.sces[id] = sce
+		db.sces[id] = sce.Copy()
 	}
 	for id, sfe := range db.sfes {
 		ru.UpdateElementProof(&sfe.StateElement)
-		db.sfes[id] = sfe
+		db.sfes[id] = sfe.Copy()
 	}
 	for id, fce := range db.fces {
 		ru.UpdateElementProof(&fce.StateElement)
-		db.fces[id] = fce
+		db.fces[id] = fce.Copy()
 	}
 	for id, fce := range db.v2fces {
 		ru.UpdateElementProof(&fce.StateElement)
-		db.v2fces[id] = fce
+		db.v2fces[id] = fce.Copy()
 	}
 }
 
@@ -164,23 +164,23 @@ func (db *consensusDB) supplementTipBlock(b types.Block) (bs V1BlockSupplement) 
 		ts := &bs.Transactions[i]
 		for _, sci := range txn.SiacoinInputs {
 			if sce, ok := db.sces[sci.ParentID]; ok {
-				ts.SiacoinInputs = append(ts.SiacoinInputs, sce)
+				ts.SiacoinInputs = append(ts.SiacoinInputs, sce.Copy())
 			}
 		}
 		for _, sfi := range txn.SiafundInputs {
 			if sfe, ok := db.sfes[sfi.ParentID]; ok {
-				ts.SiafundInputs = append(ts.SiafundInputs, sfe)
+				ts.SiafundInputs = append(ts.SiafundInputs, sfe.Copy())
 			}
 		}
 		for _, fcr := range txn.FileContractRevisions {
 			if fce, ok := db.fces[fcr.ParentID]; ok {
-				ts.RevisedFileContracts = append(ts.RevisedFileContracts, fce)
+				ts.RevisedFileContracts = append(ts.RevisedFileContracts, fce.Copy())
 			}
 		}
 		for _, sp := range txn.StorageProofs {
 			if fce, ok := db.fces[sp.ParentID]; ok {
 				ts.StorageProofs = append(ts.StorageProofs, V1StorageProofSupplement{
-					FileContract: fce,
+					FileContract: fce.Copy(),
 					WindowID:     db.blockIDs[fce.FileContract.WindowStart],
 				})
 			}
@@ -955,15 +955,15 @@ func TestValidateV2Block(t *testing.T) {
 	checkApplyUpdate(t, cs, au)
 	sces := make([]types.SiacoinElement, len(au.SiacoinElementDiffs()))
 	for i := range sces {
-		sces[i] = au.SiacoinElementDiffs()[i].SiacoinElement
+		sces[i] = au.SiacoinElementDiffs()[i].SiacoinElement.Copy()
 	}
 	sfes := make([]types.SiafundElement, len(au.SiafundElementDiffs()))
 	for i := range sfes {
-		sfes[i] = au.SiafundElementDiffs()[i].SiafundElement
+		sfes[i] = au.SiafundElementDiffs()[i].SiafundElement.Copy()
 	}
 	fces := make([]types.V2FileContractElement, len(au.V2FileContractElementDiffs()))
 	for i := range fces {
-		fces[i] = au.V2FileContractElementDiffs()[i].V2FileContractElement
+		fces[i] = au.V2FileContractElementDiffs()[i].V2FileContractElement.Copy()
 	}
 	cies := []types.ChainIndexElement{au.ChainIndexElement()}
 
@@ -982,11 +982,11 @@ func TestValidateV2Block(t *testing.T) {
 			Height: 1,
 			Transactions: []types.V2Transaction{{
 				SiacoinInputs: []types.V2SiacoinInput{{
-					Parent:          sces[0],
+					Parent:          sces[0].Copy(),
 					SatisfiedPolicy: types.SatisfiedPolicy{Policy: giftPolicy},
 				}},
 				SiafundInputs: []types.V2SiafundInput{{
-					Parent:          sfes[0],
+					Parent:          sfes[0].Copy(),
 					ClaimAddress:    types.VoidAddress,
 					SatisfiedPolicy: types.SatisfiedPolicy{Policy: giftPolicy},
 				}},
@@ -999,7 +999,7 @@ func TestValidateV2Block(t *testing.T) {
 				},
 				FileContracts: []types.V2FileContract{fc},
 				FileContractRevisions: []types.V2FileContractRevision{
-					{Parent: au.V2FileContractElementDiffs()[0].V2FileContractElement, Revision: rev1},
+					{Parent: au.V2FileContractElementDiffs()[0].V2FileContractElement.Copy(), Revision: rev1},
 				},
 				MinerFee: minerFee,
 			}},
@@ -1317,7 +1317,7 @@ func TestValidateV2Block(t *testing.T) {
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.FileContractResolutions = append(txn.FileContractResolutions, types.V2FileContractResolution{
-						Parent:     fces[0],
+						Parent:     fces[0].Copy(),
 						Resolution: &types.V2FileContractExpiration{},
 					})
 				},
@@ -1362,15 +1362,15 @@ func TestValidateV2Block(t *testing.T) {
 
 	testSces := make([]types.SiacoinElement, len(testAU.SiacoinElementDiffs()))
 	for i := range testSces {
-		testSces[i] = testAU.SiacoinElementDiffs()[i].SiacoinElement
+		testSces[i] = testAU.SiacoinElementDiffs()[i].SiacoinElement.Copy()
 	}
 	testSfes := make([]types.SiafundElement, len(testAU.SiafundElementDiffs()))
 	for i := range testSfes {
-		testSfes[i] = testAU.SiafundElementDiffs()[i].SiafundElement
+		testSfes[i] = testAU.SiafundElementDiffs()[i].SiafundElement.Copy()
 	}
 	testFces := make([]types.V2FileContractElement, len(testAU.V2FileContractElementDiffs()))
 	for i := range testFces {
-		testFces[i] = testAU.V2FileContractElementDiffs()[i].V2FileContractElement
+		testFces[i] = testAU.V2FileContractElementDiffs()[i].V2FileContractElement.Copy()
 	}
 	cies = append(cies, testAU.ChainIndexElement())
 
@@ -1412,9 +1412,9 @@ func TestValidateV2Block(t *testing.T) {
 			Transactions: []types.V2Transaction{
 				{
 					FileContractResolutions: []types.V2FileContractResolution{{
-						Parent: testFces[0],
+						Parent: testFces[0].Copy(),
 						Resolution: &types.V2StorageProof{
-							ProofIndex: cies[len(cies)-2],
+							ProofIndex: cies[len(cies)-2].Copy(),
 							Leaf:       [64]byte{1},
 							Proof:      []types.Hash256{cs.StorageProofLeafHash([]byte{2})},
 						},
@@ -1429,7 +1429,7 @@ func TestValidateV2Block(t *testing.T) {
 	}
 	if cs.StorageProofLeafIndex(testFces[0].V2FileContract.Filesize, cies[len(cies)-2].ChainIndex.ID, types.FileContractID(testFces[0].ID)) == 1 {
 		b.V2.Transactions[0].FileContractResolutions[0].Resolution = &types.V2StorageProof{
-			ProofIndex: cies[len(cies)-2],
+			ProofIndex: cies[len(cies)-2].Copy(),
 			Leaf:       [64]byte{2},
 			Proof:      []types.Hash256{cs.StorageProofLeafHash([]byte{1})},
 		}
@@ -1455,7 +1455,7 @@ func TestValidateV2Block(t *testing.T) {
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.SiacoinInputs = append(txn.SiacoinInputs, types.V2SiacoinInput{
-						Parent:          testSces[0],
+						Parent:          testSces[0].Copy(),
 						SatisfiedPolicy: types.SatisfiedPolicy{Policy: giftPolicy},
 					})
 				},
@@ -1465,7 +1465,7 @@ func TestValidateV2Block(t *testing.T) {
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.SiafundInputs = append(txn.SiafundInputs, types.V2SiafundInput{
-						Parent:          testSfes[0],
+						Parent:          testSfes[0].Copy(),
 						SatisfiedPolicy: types.SatisfiedPolicy{Policy: giftPolicy},
 					})
 				},
@@ -1477,7 +1477,7 @@ func TestValidateV2Block(t *testing.T) {
 					rev := testFces[0].V2FileContract
 					rev.RevisionNumber++
 					txn.FileContractRevisions = []types.V2FileContractRevision{{
-						Parent:   testFces[0],
+						Parent:   testFces[0].Copy(),
 						Revision: rev,
 					}}
 				},
@@ -1487,9 +1487,9 @@ func TestValidateV2Block(t *testing.T) {
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.FileContractResolutions = []types.V2FileContractResolution{{
-						Parent: testFces[0],
+						Parent: testFces[0].Copy(),
 						Resolution: &types.V2StorageProof{
-							ProofIndex: cies[len(cies)-1],
+							ProofIndex: cies[len(cies)-1].Copy(),
 						},
 					}}
 				},
@@ -1499,7 +1499,7 @@ func TestValidateV2Block(t *testing.T) {
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.FileContractResolutions = []types.V2FileContractResolution{{
-						Parent:     testFces[0],
+						Parent:     testFces[0].Copy(),
 						Resolution: &types.V2FileContractExpiration{},
 					}}
 				},
@@ -1509,7 +1509,7 @@ func TestValidateV2Block(t *testing.T) {
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.SiacoinInputs = []types.V2SiacoinInput{{
-						Parent:          sces[1],
+						Parent:          sces[1].Copy(),
 						SatisfiedPolicy: types.SatisfiedPolicy{Policy: giftPolicy},
 					}}
 
@@ -1518,7 +1518,7 @@ func TestValidateV2Block(t *testing.T) {
 						NewContract:       testFces[0].V2FileContract,
 					}
 					txn.FileContractResolutions = []types.V2FileContractResolution{{
-						Parent:     testFces[0],
+						Parent:     testFces[0].Copy(),
 						Resolution: &resolution,
 					}}
 				},
@@ -1528,7 +1528,7 @@ func TestValidateV2Block(t *testing.T) {
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.SiacoinInputs = []types.V2SiacoinInput{{
-						Parent:          sces[1],
+						Parent:          sces[1].Copy(),
 						SatisfiedPolicy: types.SatisfiedPolicy{Policy: giftPolicy},
 					}}
 
@@ -1540,7 +1540,7 @@ func TestValidateV2Block(t *testing.T) {
 						NewContract:       rev,
 					}
 					txn.FileContractResolutions = []types.V2FileContractResolution{{
-						Parent:     testFces[0],
+						Parent:     testFces[0].Copy(),
 						Resolution: &resolution,
 					}}
 				},
@@ -1600,15 +1600,15 @@ func TestV2ImmatureSiacoinOutput(t *testing.T) {
 		checkApplyUpdate(t, cs, cau)
 		for _, sce := range cau.SiacoinElementDiffs() {
 			if sce.Spent {
-				delete(utxos, types.SiacoinOutputID(sce.SiacoinElement.ID))
+				delete(utxos, sce.SiacoinElement.ID)
 			} else if sce.SiacoinElement.SiacoinOutput.Address == addr {
-				utxos[types.SiacoinOutputID(sce.SiacoinElement.ID)] = sce.SiacoinElement
+				utxos[sce.SiacoinElement.ID] = sce.SiacoinElement.Copy()
 			}
 		}
 
 		for id, sce := range utxos {
 			cau.UpdateElementProof(&sce.StateElement)
-			utxos[id] = sce
+			utxos[id] = sce.Move()
 		}
 
 		db.applyBlock(cau)
@@ -1632,9 +1632,7 @@ func TestV2ImmatureSiacoinOutput(t *testing.T) {
 	// construct a transaction using the immature miner payout utxo
 	txn := types.V2Transaction{
 		SiacoinInputs: []types.V2SiacoinInput{
-			{
-				Parent: sce,
-			},
+			{Parent: sce.Copy()},
 		},
 		SiacoinOutputs: []types.SiacoinOutput{
 			{Address: types.VoidAddress, Value: sce.SiacoinOutput.Value},
@@ -1764,16 +1762,16 @@ func TestV2RevisionApply(t *testing.T) {
 				delete(fces, fce.V2FileContractElement.ID)
 			case fce.Revision != nil:
 				fce.V2FileContractElement.V2FileContract = *fce.Revision
-				fces[fce.V2FileContractElement.ID] = fce.V2FileContractElement
+				fces[fce.V2FileContractElement.ID] = fce.V2FileContractElement.Copy()
 			default:
-				fces[fce.V2FileContractElement.ID] = fce.V2FileContractElement
+				fces[fce.V2FileContractElement.ID] = fce.V2FileContractElement.Copy()
 			}
 		}
 
 		// update proofs
 		for key, fce := range fces {
 			au.UpdateElementProof(&fce.StateElement)
-			fces[key] = fce
+			fces[key] = fce.Move()
 		}
 	}
 
@@ -1801,7 +1799,7 @@ func TestV2RevisionApply(t *testing.T) {
 
 	txn1 := types.V2Transaction{
 		FileContractRevisions: []types.V2FileContractRevision{
-			{Parent: fces[contractID], Revision: rev1},
+			{Parent: fces[contractID].Copy(), Revision: rev1},
 		},
 	}
 
@@ -1818,7 +1816,7 @@ func TestV2RevisionApply(t *testing.T) {
 
 	txn2 := types.V2Transaction{
 		FileContractRevisions: []types.V2FileContractRevision{
-			{Parent: fces[contractID], Revision: rev2},
+			{Parent: fces[contractID].Copy(), Revision: rev2},
 		},
 	}
 	if err := ValidateV2Transaction(ms, txn2); err == nil {
@@ -1887,14 +1885,14 @@ func TestV2RenewalResolution(t *testing.T) {
 				delete(fces, fce.V2FileContractElement.ID)
 			case fce.Revision != nil:
 				fce.V2FileContractElement.V2FileContract = *fce.Revision
-				fces[fce.V2FileContractElement.ID] = fce.V2FileContractElement
+				fces[fce.V2FileContractElement.ID] = fce.V2FileContractElement.Copy()
 			default:
-				fces[fce.V2FileContractElement.ID] = fce.V2FileContractElement
+				fces[fce.V2FileContractElement.ID] = fce.V2FileContractElement.Copy()
 			}
 		}
 		for _, sce := range au.SiacoinElementDiffs() {
 			if sce.SiacoinElement.ID == genesisOutput.ID {
-				genesisOutput = sce.SiacoinElement
+				genesisOutput = sce.SiacoinElement.Copy()
 				break
 			}
 		}
@@ -1903,7 +1901,7 @@ func TestV2RenewalResolution(t *testing.T) {
 		au.UpdateElementProof(&genesisOutput.StateElement)
 		for key, fce := range fces {
 			au.UpdateElementProof(&fce.StateElement)
-			fces[key] = fce
+			fces[key] = fce.Move()
 		}
 	}
 
@@ -2134,7 +2132,7 @@ func TestV2RenewalResolution(t *testing.T) {
 
 			renewTxn := types.V2Transaction{
 				FileContractResolutions: []types.V2FileContractResolution{{
-					Parent: fces[contractID],
+					Parent: fces[contractID].Copy(),
 					Resolution: &types.V2FileContractRenewal{
 						FinalRenterOutput: types.SiacoinOutput{Address: fc.RenterOutput.Address, Value: types.ZeroCurrency},
 						FinalHostOutput:   types.SiacoinOutput{Address: fc.HostOutput.Address, Value: types.ZeroCurrency},
@@ -2144,7 +2142,7 @@ func TestV2RenewalResolution(t *testing.T) {
 					},
 				}},
 				SiacoinInputs: []types.V2SiacoinInput{{
-					Parent: genesisOutput,
+					Parent: genesisOutput.Copy(),
 					SatisfiedPolicy: types.SatisfiedPolicy{
 						Policy: types.AnyoneCanSpend(),
 					},
