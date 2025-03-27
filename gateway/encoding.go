@@ -460,6 +460,8 @@ func ObjectForID(id types.Specifier) Object {
 		return new(RPCSendV2Blocks)
 	case idSendTransactions:
 		return new(RPCSendTransactions)
+	case idSendCheckpoint:
+		return new(RPCSendCheckpoint)
 	case idRelayV2Header:
 		return new(RPCRelayV2Header)
 	case idRelayV2BlockOutline:

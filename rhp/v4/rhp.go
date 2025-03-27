@@ -89,6 +89,18 @@ func (u Usage) Add(b Usage) Usage {
 	}
 }
 
+// Mul returns the product of a Usage and a scalar.
+func (u Usage) Mul(n uint64) Usage {
+	return Usage{
+		RPC:              u.RPC.Mul64(n),
+		Storage:          u.Storage.Mul64(n),
+		Egress:           u.Egress.Mul64(n),
+		Ingress:          u.Ingress.Mul64(n),
+		AccountFunding:   u.AccountFunding.Mul64(n),
+		RiskedCollateral: u.RiskedCollateral.Mul64(n),
+	}
+}
+
 // HostPrices specify a time-bound set of parameters used to calculate the cost
 // of various RPCs.
 type HostPrices struct {
@@ -196,15 +208,32 @@ func (hp HostPrices) SigHash() types.Hash256 {
 
 // HostSettings specify the settings of a host.
 type HostSettings struct {
-	ProtocolVersion     [3]uint8       `json:"protocolVersion"`
-	Release             string         `json:"release"`
-	WalletAddress       types.Address  `json:"walletAddress"`
-	AcceptingContracts  bool           `json:"acceptingContracts"`
-	MaxCollateral       types.Currency `json:"maxCollateral"`
-	MaxContractDuration uint64         `json:"maxContractDuration"`
-	RemainingStorage    uint64         `json:"remainingStorage"`
-	TotalStorage        uint64         `json:"totalStorage"`
-	Prices              HostPrices     `json:"prices"`
+	// ProtocolVersion is the version of RHP4 the host supports
+	ProtocolVersion [3]uint8 `json:"protocolVersion"`
+	// Release identifies the software release of the host
+	Release string `json:"release"`
+	// WalletAddress is the address the host uses to receive payments.
+	// It is used when forming and renewing contracts.
+	WalletAddress types.Address `json:"walletAddress"`
+	// AcceptingContracts indicates whether the host is currently accepting
+	// new contracts.
+	AcceptingContracts bool `json:"acceptingContracts"`
+	// MaxCollateral is the maximum amount of collateral, in hastings, the host will allow
+	// in a single contract.
+	MaxCollateral types.Currency `json:"maxCollateral"`
+	// MaxContractDuration is the maximum duration, in blocks, the host will
+	// allow for a contract.
+	MaxContractDuration uint64 `json:"maxContractDuration"`
+	// RemainingStorage is the amount of storage, in sectors, the host has
+	// remaining.
+	RemainingStorage uint64 `json:"remainingStorage"`
+	// TotalStorage is the total amount of storage, in sectors, the host has
+	// available.
+	TotalStorage uint64 `json:"totalStorage"`
+	// Prices are a set of time-bound parameters used to calculate the cost
+	// of various RPCs. The prices are signed by the host to prevent the renter
+	// from tampering with them.
+	Prices HostPrices `json:"prices"`
 }
 
 // An Account represents an ephemeral balance that can be funded via contract
