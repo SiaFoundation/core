@@ -1,3 +1,10 @@
+## 0.10.5 (2025-03-28)
+
+### Fixes
+
+- Add Mul helper to Usage type
+- Fixed an issue with memory aliasing of merkle proofs
+
 ## 0.10.4 (2025-03-10)
 
 ### Fixes
