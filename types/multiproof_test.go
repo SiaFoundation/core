@@ -38,15 +38,15 @@ func multiproofTxns(numTxns int, numElems int) []types.V2Transaction {
 	cs, cau := consensus.ApplyBlock(cs, b, consensus.V1BlockSupplement{}, time.Time{})
 	sces := make([]types.SiacoinElement, len(cau.SiacoinElementDiffs()))
 	for i := range sces {
-		sces[i] = cau.SiacoinElementDiffs()[i].SiacoinElement
+		sces[i] = cau.SiacoinElementDiffs()[i].SiacoinElement.Copy()
 	}
 	sfes := make([]types.SiafundElement, len(cau.SiafundElementDiffs()))
 	for i := range sfes {
-		sfes[i] = cau.SiafundElementDiffs()[i].SiafundElement
+		sfes[i] = cau.SiafundElementDiffs()[i].SiafundElement.Copy()
 	}
 	fces := make([]types.V2FileContractElement, len(cau.V2FileContractElementDiffs()))
 	for i := range fces {
-		fces[i] = cau.V2FileContractElementDiffs()[i].V2FileContractElement
+		fces[i] = cau.V2FileContractElementDiffs()[i].V2FileContractElement.Copy()
 	}
 
 	// select randomly
@@ -64,21 +64,21 @@ func multiproofTxns(numTxns int, numElems int) []types.V2Transaction {
 			switch j % 4 {
 			case 0:
 				txn.SiacoinInputs, sces = append(txn.SiacoinInputs, types.V2SiacoinInput{
-					Parent:          sces[0],
+					Parent:          sces[0].Copy(),
 					SatisfiedPolicy: sp,
 				}), sces[1:]
 			case 1:
 				txn.SiafundInputs, sfes = append(txn.SiafundInputs, types.V2SiafundInput{
-					Parent:          sfes[0],
+					Parent:          sfes[0].Copy(),
 					SatisfiedPolicy: sp,
 				}), sfes[1:]
 			case 2:
 				txn.FileContractRevisions, fces = append(txn.FileContractRevisions, types.V2FileContractRevision{
-					Parent: fces[0],
+					Parent: fces[0].Copy(),
 				}), fces[1:]
 			case 3:
 				txn.FileContractResolutions, fces = append(txn.FileContractResolutions, types.V2FileContractResolution{
-					Parent:     fces[0],
+					Parent:     fces[0].Copy(),
 					Resolution: &types.V2FileContractExpiration{},
 				}), fces[1:]
 			}

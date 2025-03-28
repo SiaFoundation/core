@@ -616,14 +616,15 @@ type FileContractElementDiff struct {
 }
 
 // RevisionElement returns the revision, if present, as a FileContractElement.
-// It returns a boolean indicating whether the revision exists or not.
+// It returns a boolean indicating whether the revision exists or not. The
+// element's memory is shared.
 func (diff FileContractElementDiff) RevisionElement() (types.FileContractElement, bool) {
 	if diff.Revision == nil {
 		return types.FileContractElement{}, false
 	}
 	return types.FileContractElement{
 		ID:           diff.FileContractElement.ID,
-		StateElement: diff.FileContractElement.StateElement,
+		StateElement: diff.FileContractElement.StateElement.Share(),
 		FileContract: *diff.Revision,
 	}, true
 }
@@ -643,15 +644,15 @@ type V2FileContractElementDiff struct {
 }
 
 // V2RevisionElement returns the revision, if present, as a
-// V2FileContractElement.  It returns a boolean indicating whether the revision
-// exists or not.
+// V2FileContractElement. It returns a boolean indicating whether the revision
+// exists or not. The element's memory is shared.
 func (diff V2FileContractElementDiff) V2RevisionElement() (types.V2FileContractElement, bool) {
 	if diff.Revision == nil {
 		return types.V2FileContractElement{}, false
 	}
 	return types.V2FileContractElement{
 		ID:             diff.V2FileContractElement.ID,
-		StateElement:   diff.V2FileContractElement.StateElement,
+		StateElement:   diff.V2FileContractElement.StateElement.Share(),
 		V2FileContract: *diff.Revision,
 	}, true
 }
