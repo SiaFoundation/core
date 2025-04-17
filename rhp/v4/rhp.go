@@ -772,9 +772,16 @@ func ReviseForReplenish(fc types.V2FileContract, amount types.Currency) (types.V
 
 // MinRenterAllowance returns the minimum allowance required to justify the given
 // host collateral.
-func MinRenterAllowance(hp HostPrices, duration uint64, collateral types.Currency) types.Currency {
-	maxCollateralBytes := collateral.Div(hp.Collateral).Div64(duration)
-	return hp.StoragePrice.Mul64(duration).Mul(maxCollateralBytes)
+func MinRenterAllowance(hp HostPrices, collateral types.Currency) types.Currency {
+	maxCollateralBytes := collateral.Div(hp.Collateral)
+	return hp.StoragePrice.Mul(maxCollateralBytes)
+}
+
+// MaxHostCollateral returns the maximum amount of collateral a host can justify
+// to put into a contract for the given allowance.
+func MaxHostCollateral(hp HostPrices, allowance types.Currency) types.Currency {
+	maxCollateralBytes := allowance.Div(hp.StoragePrice)
+	return hp.Collateral.Mul(maxCollateralBytes)
 }
 
 // RenewContract creates a contract renewal for the renew RPC

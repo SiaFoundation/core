@@ -130,7 +130,7 @@ func (req *RPCFormContractRequest) Validate(pk types.PublicKey, tip types.ChainI
 	duration := expirationHeight - hp.TipHeight
 	// calculate the minimum allowance required for the contract based on the
 	// host's locked collateral and the contract duration
-	minRenterAllowance := MinRenterAllowance(hp, duration, req.Contract.Collateral)
+	minRenterAllowance := MinRenterAllowance(hp, req.Contract.Collateral)
 
 	switch {
 	case expirationHeight <= tip.Height: // must be validated against tip instead of prices
@@ -170,7 +170,7 @@ func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.Chain
 	duration := expirationHeight - hp.TipHeight
 	// calculate the minimum allowance required for the contract based on the
 	// host's locked collateral and the contract duration
-	minRenterAllowance := MinRenterAllowance(hp, duration, req.Renewal.Collateral)
+	minRenterAllowance := MinRenterAllowance(hp, req.Renewal.Collateral)
 	// collateral is risked for the entire contract duration
 	riskedCollateral := req.Prices.Collateral.Mul64(existingSize).Mul64(expirationHeight - req.Prices.TipHeight)
 	// renewals add collateral on top of the required risked collateral
@@ -216,7 +216,7 @@ func (req *RPCRefreshContractRequest) Validate(pk types.PublicKey, existingColla
 	// host's locked collateral and the contract duration
 	postRefreshAllowance := req.Refresh.Allowance.Add(existingAllowance)
 	postRefreshCollateral := req.Refresh.Collateral.Add(existingCollateral)
-	minRenterAllowance := MinRenterAllowance(hp, expirationHeight-req.Prices.TipHeight, postRefreshCollateral)
+	minRenterAllowance := MinRenterAllowance(hp, postRefreshCollateral)
 	// refreshes add collateral on top of the existing collateral
 	totalCollateral := req.Refresh.Collateral.Add(existingTotalCollateral)
 
