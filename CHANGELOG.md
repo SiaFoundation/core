@@ -1,3 +1,14 @@
+## 0.11.0 (2025-04-17)
+
+### Breaking Changes
+
+- Removed `duration` parameter from MinRenterAllowance helper
+
+### Fixes
+
+- Add MaxHostCollateral helper
+- Consider post-refresh values for the minRenterAllowance check rather than the additional values.
+
 ## 0.10.5 (2025-03-28)
 
 ### Fixes
