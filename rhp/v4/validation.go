@@ -127,9 +127,12 @@ func (req *RPCFormContractRequest) Validate(pk types.PublicKey, tip types.ChainI
 	// validate the contract fields
 	hp := req.Prices
 	expirationHeight := req.Contract.ProofHeight + ProofWindow
+	if expirationHeight < hp.TipHeight {
+		return errors.New("contract expiration height is in the past")
+	}
 	duration := expirationHeight - hp.TipHeight
 	// calculate the minimum allowance required for the contract based on the
-	// host's locked collateral and the contract duration
+	// host's locked collateral
 	minRenterAllowance := MinRenterAllowance(hp, req.Contract.Collateral)
 
 	switch {
@@ -167,6 +170,9 @@ func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.Chain
 	// validate the contract fields
 	hp := req.Prices
 	expirationHeight := req.Renewal.ProofHeight + ProofWindow
+	if expirationHeight < hp.TipHeight {
+		return errors.New("contract expiration height is in the past")
+	}
 	duration := expirationHeight - hp.TipHeight
 	// calculate the minimum allowance required for the contract based on the
 	// host's locked collateral and the contract duration
