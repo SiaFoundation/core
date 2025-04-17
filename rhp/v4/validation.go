@@ -193,7 +193,11 @@ func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.Chain
 }
 
 // Validate validates a refresh contract request. Prices are not validated
-func (req *RPCRefreshContractRequest) Validate(pk types.PublicKey, existingTotalCollateral types.Currency, expirationHeight uint64, maxCollateral types.Currency) error {
+// pk - the public key of the host
+// existingCollateral - the existing, unallocated collateral of the contract
+// existingTotalCollateral - the existing total (allocated+unallocated) collateral of the contract
+// existingAllowance - the existing, remaining allowance of the contract
+func (req *RPCRefreshContractRequest) Validate(pk types.PublicKey, existingCollateral, existingTotalCollateral, existingAllowance types.Currency, expirationHeight uint64, maxCollateral types.Currency) error {
 	if err := req.Prices.Validate(pk); err != nil {
 		return fmt.Errorf("prices are invalid: %w", err)
 	}
@@ -210,7 +214,9 @@ func (req *RPCRefreshContractRequest) Validate(pk types.PublicKey, existingTotal
 	hp := req.Prices
 	// calculate the minimum allowance required for the contract based on the
 	// host's locked collateral and the contract duration
-	minRenterAllowance := MinRenterAllowance(hp, expirationHeight-req.Prices.TipHeight, req.Refresh.Collateral)
+	postRefreshAllowance := req.Refresh.Allowance.Add(existingAllowance)
+	postRefreshCollateral := req.Refresh.Collateral.Add(existingCollateral)
+	minRenterAllowance := MinRenterAllowance(hp, expirationHeight-req.Prices.TipHeight, postRefreshCollateral)
 	// refreshes add collateral on top of the existing collateral
 	totalCollateral := req.Refresh.Collateral.Add(existingTotalCollateral)
 
@@ -219,8 +225,8 @@ func (req *RPCRefreshContractRequest) Validate(pk types.PublicKey, existingTotal
 		return errors.New("allowance must be greater than zero")
 	case totalCollateral.Cmp(maxCollateral) > 0:
 		return fmt.Errorf("required collateral %v exceeds max collateral %v", totalCollateral, maxCollateral)
-	case req.Refresh.Allowance.Cmp(minRenterAllowance) < 0:
-		return fmt.Errorf("allowance %v is less than minimum allowance %v", req.Refresh.Allowance, minRenterAllowance)
+	case postRefreshAllowance.Cmp(minRenterAllowance) < 0:
+		return fmt.Errorf("post-refresh allowance %v is less than minimum allowance %v", postRefreshAllowance, minRenterAllowance)
 	default:
 		return nil
 	}
