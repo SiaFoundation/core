@@ -9,17 +9,22 @@ import (
 	"lukechampine.com/frand"
 )
 
-func TestMinRenterAllowance(t *testing.T) {
+func TestMinRenterAllowanceMaxHostCollateral(t *testing.T) {
 	hp := HostPrices{
 		StoragePrice: types.NewCurrency64(1), // 1 H per byte per block
 		Collateral:   types.NewCurrency64(2), // 2 H per byte per block
 	}
 
 	collateral := types.Siacoins(2)
-	minAllowance := MinRenterAllowance(hp, 1, collateral)
+	minAllowance := MinRenterAllowance(hp, collateral)
 	expected := types.Siacoins(1)
 	if !minAllowance.Equals(expected) {
 		t.Fatalf("expected %v, got %v", expected, minAllowance)
+	}
+
+	maxCollateral := MaxHostCollateral(hp, minAllowance)
+	if !maxCollateral.Equals(collateral) {
+		t.Fatalf("expected %v, got %v", collateral, maxCollateral)
 	}
 }
 
