@@ -153,7 +153,7 @@ func TestRenewalCost(t *testing.T) {
 			prices.TipHeight = renewalHeight
 			renewal, _ := RenewContract(contract, prices, params)
 			tax := cs.V2FileContractTax(renewal.NewContract)
-			renter, host := RenewalCost(cs, prices, renewal, minerFee)
+			renter, host := RenewalCost(cs, renewal, minerFee)
 			if !renter.Equals(tc.RenterCost.Add(tax).Add(minerFee)) {
 				t.Errorf("expected renter cost %v, got %v", tc.RenterCost, renter.Sub(tax).Sub(minerFee))
 			} else if !host.Equals(tc.HostCost) {

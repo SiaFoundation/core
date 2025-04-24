@@ -16,6 +16,10 @@ const (
 	// the contract expires.
 	ProofWindow = 144 // 24 hours
 
+	// MinContractDuration is the minimum duration, in blocks, a host will
+	// accept for a contract.
+	MinContractDuration = 18 // 3 hours
+
 	// TempSectorDuration is the number of blocks that temp sectors are expected to be stored
 	// before being removed
 	TempSectorDuration = 144 * 3
@@ -680,14 +684,15 @@ func NewContract(p HostPrices, cp RPCFormContractParams, hostKey types.PublicKey
 }
 
 // ContractCost calculates the cost to the host and renter for forming a contract.
-func ContractCost(cs consensus.State, p HostPrices, fc types.V2FileContract, minerFee types.Currency) (renter, host types.Currency) {
-	renter = fc.RenterOutput.Value.Add(p.ContractPrice).Add(minerFee).Add(cs.V2FileContractTax(fc))
+func ContractCost(cs consensus.State, fc types.V2FileContract, minerFee types.Currency) (renter, host types.Currency) {
+	contractCost := fc.HostOutput.Value.Sub(fc.TotalCollateral) // (contract price + locked collateral) - locked collateral
+	renter = fc.RenterOutput.Value.Add(contractCost).Add(minerFee).Add(cs.V2FileContractTax(fc))
 	host = fc.TotalCollateral
 	return
 }
 
 // RenewalCost calculates the cost to the host and renter for renewing a contract.
-func RenewalCost(cs consensus.State, p HostPrices, r types.V2FileContractRenewal, minerFee types.Currency) (renter, host types.Currency) {
+func RenewalCost(cs consensus.State, r types.V2FileContractRenewal, minerFee types.Currency) (renter, host types.Currency) {
 	contractCost := r.NewContract.HostOutput.Value.Sub(r.NewContract.TotalCollateral) // (contract price + storage cost + locked collateral) - locked collateral
 	renter = r.NewContract.RenterOutput.Value.Add(contractCost).Add(minerFee).Add(cs.V2FileContractTax(r.NewContract)).Sub(r.RenterRollover)
 	host = r.NewContract.TotalCollateral.Sub(r.HostRollover)
@@ -696,10 +701,11 @@ func RenewalCost(cs consensus.State, p HostPrices, r types.V2FileContractRenewal
 
 // RefreshCost calculates the cost to the host and renter for refreshing a contract.
 func RefreshCost(cs consensus.State, p HostPrices, r types.V2FileContractRenewal, minerFee types.Currency) (renter, host types.Currency) {
+	// Unlike renewals, it is not possible to calculate the renter's cost of the contract during refreshes without the host's prices
+	// because the existing renter and host outputs are rolled into the new contract to ensure the existing data
+	// is still covered by collateral.
 	renter = r.NewContract.RenterOutput.Value.Add(p.ContractPrice).Add(minerFee).Add(cs.V2FileContractTax(r.NewContract)).Sub(r.RenterRollover)
-	// the calculation is different from renewal because the host's revenue is also rolled into the refresh.
-	// This calculates the new collateral the host is expected to put up:
-	// new collateral = (new revenue + existing revenue + new collateral + existing collateral) - new revenue - (existing revenue + existing collateral)
+	// new collateral = (existing revenue + contract price + existing revenue + new collateral + existing collateral) - contract price - (existing revenue + existing collateral)
 	host = r.NewContract.HostOutput.Value.Sub(p.ContractPrice).Sub(r.HostRollover)
 	return
 }
