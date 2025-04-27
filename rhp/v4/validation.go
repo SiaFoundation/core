@@ -115,7 +115,7 @@ func (req *RPCFormContractRequest) Validate(pk types.PublicKey, tip types.ChainI
 	}
 
 	minProofHeight := minProofHeight(tip, req.Prices)
-	maxExpirationHeight := max(tip.Height, req.Prices.TipHeight) + maxDuration
+	maxExpirationHeight := req.Prices.TipHeight + maxDuration
 	expirationHeight := req.Contract.ProofHeight + ProofWindow
 	// validate the request fields
 	switch {
@@ -160,7 +160,7 @@ func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.Chain
 
 	// calculate the minimum proof height for the renewal.
 	minProofHeight := minProofHeight(tip, req.Prices)
-	maxExpirationHeight := maxExpirationHeight(tip, req.Prices, maxDuration)
+	maxExpirationHeight := req.Prices.TipHeight + maxDuration
 	expirationHeight := req.Renewal.ProofHeight + ProofWindow
 	// validate the request fields
 	switch {
@@ -171,7 +171,7 @@ func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.Chain
 	case req.Renewal.ProofHeight <= existing.ProofHeight:
 		return fmt.Errorf("renewal proof height must be greater than existing proof height %v", existing.ProofHeight)
 	case req.Renewal.ProofHeight < minProofHeight:
-		return fmt.Errorf("renewal proof height must be greater than %v", minProofHeight)
+		return fmt.Errorf("renewal proof height must be at least %v", minProofHeight)
 	case expirationHeight > maxExpirationHeight:
 		return fmt.Errorf("renewal expiration height %v exceeds max expiration height %v", expirationHeight, maxExpirationHeight)
 	}
@@ -219,7 +219,7 @@ func (req *RPCRefreshContractRequest) Validate(pk types.PublicKey, tip types.Cha
 	// validate the contract fields
 	hp := req.Prices
 	// calculate the minimum allowance required for the contract based on the
-	// host's locked collateral and the contract duration
+	// host's locked collateral
 	minRenterAllowance := MinRenterAllowance(hp, req.Refresh.Collateral)
 	totalHostCollateral := existing.TotalCollateral.Add(req.Refresh.Collateral)
 
@@ -309,11 +309,4 @@ func (req *RPCReplenishAccountsRequest) Validate() error {
 // has enough time to be confirmed before the proof window begins.
 func minProofHeight(tip types.ChainIndex, hp HostPrices) uint64 {
 	return max(tip.Height, hp.TipHeight) + MinContractDuration
-}
-
-// maxExpirationHeight returns the maximum expiration height for a
-// contract. This is the maximum expiration height which a host will
-// accept in a contract.
-func maxExpirationHeight(tip types.ChainIndex, hp HostPrices, maxDuration uint64) uint64 {
-	return max(tip.Height, hp.TipHeight) + maxDuration
 }

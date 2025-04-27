@@ -705,7 +705,7 @@ func RefreshCost(cs consensus.State, p HostPrices, r types.V2FileContractRenewal
 	// because the existing renter and host outputs are rolled into the new contract to ensure the existing data
 	// is still covered by collateral.
 	renter = r.NewContract.RenterOutput.Value.Add(p.ContractPrice).Add(minerFee).Add(cs.V2FileContractTax(r.NewContract)).Sub(r.RenterRollover)
-	// new collateral = (existing revenue + contract price + existing revenue + new collateral + existing collateral) - contract price - (existing revenue + existing collateral)
+	// new collateral = (contract price + new collateral + existing revenue + existing collateral) - contract price - (existing revenue + existing collateral)
 	host = r.NewContract.HostOutput.Value.Sub(p.ContractPrice).Sub(r.HostRollover)
 	return
 }
