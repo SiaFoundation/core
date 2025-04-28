@@ -1,3 +1,10 @@
+## 0.12.0 (2025-04-28)
+
+### Breaking Changes
+
+- Changed contract validation helpers to take current contract as parameter instead of individual values to simplify usage
+- Removed unused parameters in contract helpers
+
 ## 0.11.0 (2025-04-17)
 
 ### Breaking Changes
