@@ -213,7 +213,9 @@ type SiacoinInput struct {
 	UnlockConditions UnlockConditions `json:"unlockConditions"`
 }
 
-// MarshalJSON implements json.Marshaller.
+// MarshalJSON implements json.Marshaler.
+//
+// For convenience, the input's address is also calculated and included. This field is ignored during unmarshalling.
 func (si SiacoinInput) MarshalJSON() ([]byte, error) {
 	type jsonSiacoinInput struct {
 		ParentID         SiacoinOutputID  `json:"parentID"`
@@ -259,7 +261,9 @@ type SiafundInput struct {
 	ClaimAddress     Address          `json:"claimAddress"`
 }
 
-// MarshalJSON implements json.Marshaller.
+// MarshalJSON implements json.Marshaler.
+//
+// For convenience, the input's address is also calculated and included. This field is ignored during unmarshalling.
 func (si SiafundInput) MarshalJSON() ([]byte, error) {
 	type jsonSiafundInput struct {
 		ParentID         SiafundOutputID  `json:"parentID"`
@@ -430,7 +434,7 @@ type Transaction struct {
 	Signatures            []TransactionSignature `json:"signatures,omitempty"`
 }
 
-// MarshalJSON implements json.Marshaller.
+// MarshalJSON implements json.Marshaler.
 //
 // For convenience, the transaction's ID is also calculated and included. This field is ignored during unmarshalling.
 func (txn Transaction) MarshalJSON() ([]byte, error) {
@@ -1265,7 +1269,7 @@ func (res *V2FileContractResolution) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// MarshalJSON implements json.Marshaller.
+// MarshalJSON implements json.Marshaler.
 //
 // For convenience, the transaction's ID is also calculated and included. This
 // field is ignored during unmarshalling.
