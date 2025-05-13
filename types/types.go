@@ -217,14 +217,12 @@ type SiacoinInput struct {
 //
 // For convenience, the input's address is also calculated and included. This field is ignored during unmarshalling.
 func (si SiacoinInput) MarshalJSON() ([]byte, error) {
-	type jsonSiacoinInput struct {
-		ParentID         SiacoinOutputID  `json:"parentID"`
-		UnlockConditions UnlockConditions `json:"unlockConditions"`
-		Address          Address          `json:"address"`
-	}
-	return json.Marshal(jsonSiacoinInput{
-		ParentID:         si.ParentID,
-		UnlockConditions: si.UnlockConditions,
+	type jsonSiacoinInput SiacoinInput // prevent recursion
+	return json.Marshal(struct {
+		jsonSiacoinInput
+		Address Address `json:"address"`
+	}{
+		jsonSiacoinInput: jsonSiacoinInput(si),
 		Address:          si.UnlockConditions.UnlockHash(),
 	})
 }
@@ -265,17 +263,13 @@ type SiafundInput struct {
 //
 // For convenience, the input's address is also calculated and included. This field is ignored during unmarshalling.
 func (si SiafundInput) MarshalJSON() ([]byte, error) {
-	type jsonSiafundInput struct {
-		ParentID         SiafundOutputID  `json:"parentID"`
-		UnlockConditions UnlockConditions `json:"unlockConditions"`
-		ClaimAddress     Address          `json:"claimAddress"`
-		Address          Address          `json:"address"`
-	}
-	return json.Marshal(jsonSiafundInput{
-		ParentID:         si.ParentID,
-		UnlockConditions: si.UnlockConditions,
+	type jsonSiafundInput SiafundInput // prevent recursion
+	return json.Marshal(struct {
+		jsonSiafundInput
+		Address Address `json:"address"`
+	}{
+		jsonSiafundInput: jsonSiafundInput(si),
 		Address:          si.UnlockConditions.UnlockHash(),
-		ClaimAddress:     si.ClaimAddress,
 	})
 }
 
