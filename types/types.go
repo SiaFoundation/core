@@ -213,6 +213,20 @@ type SiacoinInput struct {
 	UnlockConditions UnlockConditions `json:"unlockConditions"`
 }
 
+// MarshalJSON implements json.Marshaller.
+func (si SiacoinInput) MarshalJSON() ([]byte, error) {
+	type jsonSiacoinInput struct {
+		ParentID         SiacoinOutputID  `json:"parentID"`
+		UnlockConditions UnlockConditions `json:"unlockConditions"`
+		Address          Address          `json:"address"`
+	}
+	return json.Marshal(jsonSiacoinInput{
+		ParentID:         si.ParentID,
+		UnlockConditions: si.UnlockConditions,
+		Address:          si.UnlockConditions.UnlockHash(),
+	})
+}
+
 // A SiafundOutput is the recipient of some of the siafunds spent in a
 // transaction.
 type SiafundOutput struct {
@@ -243,6 +257,22 @@ type SiafundInput struct {
 	ParentID         SiafundOutputID  `json:"parentID"`
 	UnlockConditions UnlockConditions `json:"unlockConditions"`
 	ClaimAddress     Address          `json:"claimAddress"`
+}
+
+// MarshalJSON implements json.Marshaller.
+func (si SiafundInput) MarshalJSON() ([]byte, error) {
+	type jsonSiafundInput struct {
+		ParentID         SiafundOutputID  `json:"parentID"`
+		UnlockConditions UnlockConditions `json:"unlockConditions"`
+		ClaimAddress     Address          `json:"claimAddress"`
+		Address          Address          `json:"address"`
+	}
+	return json.Marshal(jsonSiafundInput{
+		ParentID:         si.ParentID,
+		UnlockConditions: si.UnlockConditions,
+		Address:          si.UnlockConditions.UnlockHash(),
+		ClaimAddress:     si.ClaimAddress,
+	})
 }
 
 // A FileContract is a storage agreement between a renter and a host. It
