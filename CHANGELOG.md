@@ -1,3 +1,9 @@
+## 0.12.3 (2025-05-14)
+
+### Fixes
+
+- Added convenience IDs to V2 transaction JSON marshalling.
+
 ## 0.12.2 (2025-05-14)
 
 ### Features
