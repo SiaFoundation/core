@@ -1,3 +1,9 @@
+## 0.12.1 (2025-05-14)
+
+### Features
+
+- Adds an `address` field to the JSON representation of Siacoin and Siafund inputs.
+
 ## 0.12.0 (2025-04-28)
 
 ### Breaking Changes
