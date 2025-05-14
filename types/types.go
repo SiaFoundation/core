@@ -430,13 +430,42 @@ type Transaction struct {
 
 // MarshalJSON implements json.Marshaler.
 //
-// For convenience, the transaction's ID is also calculated and included. This field is ignored during unmarshalling.
+// The transaction and UTXO IDs are calculated and included for convenience.
+// These fields are ignored during unmarshalling.
 func (txn Transaction) MarshalJSON() ([]byte, error) {
-	type jsonTxn Transaction // prevent recursion
-	return json.Marshal(struct {
-		ID TransactionID `json:"id"`
+	type jsonTxn Transaction
+	type jsonSiacoinOutput struct {
+		ID SiacoinOutputID `json:"id"`
+		SiacoinOutput
+	}
+	type jsonSiafundOutput struct {
+		ID SiafundOutputID `json:"id"`
+		SiafundOutput
+	}
+	obj := struct {
+		ID             TransactionID       `json:"id"`
+		SiacoinOutputs []jsonSiacoinOutput `json:"siacoinOutputs,omitempty"`
+		SiafundOutputs []jsonSiafundOutput `json:"siafundOutputs,omitempty"`
 		jsonTxn
-	}{txn.ID(), jsonTxn(txn)})
+	}{
+		ID:             txn.ID(),
+		jsonTxn:        jsonTxn(txn),
+		SiacoinOutputs: make([]jsonSiacoinOutput, 0, len(txn.SiacoinOutputs)),
+		SiafundOutputs: make([]jsonSiafundOutput, 0, len(txn.SiafundOutputs)),
+	}
+	for i := range txn.SiacoinOutputs {
+		obj.SiacoinOutputs = append(obj.SiacoinOutputs, jsonSiacoinOutput{
+			ID:            txn.SiacoinOutputID(i),
+			SiacoinOutput: txn.SiacoinOutputs[i],
+		})
+	}
+	for i := range txn.SiafundOutputs {
+		obj.SiafundOutputs = append(obj.SiafundOutputs, jsonSiafundOutput{
+			ID:            txn.SiafundOutputID(i),
+			SiafundOutput: txn.SiafundOutputs[i],
+		})
+	}
+	return json.Marshal(obj)
 }
 
 // ID returns the "semantic hash" of the transaction, covering all of the
