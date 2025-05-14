@@ -1298,10 +1298,39 @@ func (res *V2FileContractResolution) UnmarshalJSON(b []byte) error {
 // field is ignored during unmarshalling.
 func (txn V2Transaction) MarshalJSON() ([]byte, error) {
 	type jsonTxn V2Transaction // prevent recursion
-	return json.Marshal(struct {
-		ID TransactionID `json:"id"`
+	type jsonSiacoinOutput struct {
+		ID SiacoinOutputID `json:"id"`
+		SiacoinOutput
+	}
+	type jsonSiafundOutput struct {
+		ID SiafundOutputID `json:"id"`
+		SiafundOutput
+	}
+	txnID := txn.ID()
+	obj := struct {
+		ID             TransactionID       `json:"id"`
+		SiacoinOutputs []jsonSiacoinOutput `json:"siacoinOutputs"`
+		SiafundOutputs []jsonSiafundOutput `json:"siafundOutputs"`
 		jsonTxn
-	}{txn.ID(), jsonTxn(txn)})
+	}{
+		ID:             txnID,
+		jsonTxn:        jsonTxn(txn),
+		SiacoinOutputs: make([]jsonSiacoinOutput, 0, len(txn.SiacoinOutputs)),
+		SiafundOutputs: make([]jsonSiafundOutput, 0, len(txn.SiafundOutputs)),
+	}
+	for i := range txn.SiacoinOutputs {
+		obj.SiacoinOutputs = append(obj.SiacoinOutputs, jsonSiacoinOutput{
+			ID:            txn.SiacoinOutputID(txnID, i),
+			SiacoinOutput: txn.SiacoinOutputs[i],
+		})
+	}
+	for i := range txn.SiafundOutputs {
+		obj.SiafundOutputs = append(obj.SiafundOutputs, jsonSiafundOutput{
+			ID:            txn.SiafundOutputID(txnID, i),
+			SiafundOutput: txn.SiafundOutputs[i],
+		})
+	}
+	return json.Marshal(obj)
 }
 
 // To guard against memory ownership bugs, all Element types have Move, Share,
