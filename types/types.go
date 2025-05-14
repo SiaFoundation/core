@@ -213,6 +213,20 @@ type SiacoinInput struct {
 	UnlockConditions UnlockConditions `json:"unlockConditions"`
 }
 
+// MarshalJSON implements json.Marshaler.
+//
+// For convenience, the input's address is also calculated and included. This field is ignored during unmarshalling.
+func (si SiacoinInput) MarshalJSON() ([]byte, error) {
+	type jsonSiacoinInput SiacoinInput // prevent recursion
+	return json.Marshal(struct {
+		jsonSiacoinInput
+		Address Address `json:"address"`
+	}{
+		jsonSiacoinInput: jsonSiacoinInput(si),
+		Address:          si.UnlockConditions.UnlockHash(),
+	})
+}
+
 // A SiafundOutput is the recipient of some of the siafunds spent in a
 // transaction.
 type SiafundOutput struct {
@@ -243,6 +257,20 @@ type SiafundInput struct {
 	ParentID         SiafundOutputID  `json:"parentID"`
 	UnlockConditions UnlockConditions `json:"unlockConditions"`
 	ClaimAddress     Address          `json:"claimAddress"`
+}
+
+// MarshalJSON implements json.Marshaler.
+//
+// For convenience, the input's address is also calculated and included. This field is ignored during unmarshalling.
+func (si SiafundInput) MarshalJSON() ([]byte, error) {
+	type jsonSiafundInput SiafundInput // prevent recursion
+	return json.Marshal(struct {
+		jsonSiafundInput
+		Address Address `json:"address"`
+	}{
+		jsonSiafundInput: jsonSiafundInput(si),
+		Address:          si.UnlockConditions.UnlockHash(),
+	})
 }
 
 // A FileContract is a storage agreement between a renter and a host. It
@@ -400,7 +428,7 @@ type Transaction struct {
 	Signatures            []TransactionSignature `json:"signatures,omitempty"`
 }
 
-// MarshalJSON implements json.Marshaller.
+// MarshalJSON implements json.Marshaler.
 //
 // For convenience, the transaction's ID is also calculated and included. This field is ignored during unmarshalling.
 func (txn Transaction) MarshalJSON() ([]byte, error) {
@@ -1235,7 +1263,7 @@ func (res *V2FileContractResolution) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// MarshalJSON implements json.Marshaller.
+// MarshalJSON implements json.Marshaler.
 //
 // For convenience, the transaction's ID is also calculated and included. This
 // field is ignored during unmarshalling.
