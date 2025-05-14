@@ -1,3 +1,9 @@
+## 0.12.2 (2025-05-14)
+
+### Features
+
+- Added UTXO IDs to v1 transaction JSON marshalling
+
 ## 0.12.1 (2025-05-14)
 
 ### Features
