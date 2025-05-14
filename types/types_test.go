@@ -859,8 +859,16 @@ func TestV2TransactionJSONMarshalling(t *testing.T) {
 				},
 			},
 		},
+		SiacoinOutputs: []SiacoinOutput{
+			{Address: frand.Entropy256(), Value: Siacoins(uint32(frand.Uint64n(math.MaxUint32)))},
+		},
+		SiafundOutputs: []SiafundOutput{
+			{Address: frand.Entropy256(), Value: frand.Uint64n(10000)},
+		},
 	}
 	expectedID := txn.ID()
+	expectedSiacoinID := txn.SiacoinOutputID(expectedID, 0)
+	expectedSiafundID := txn.SiafundOutputID(expectedID, 0)
 
 	buf, err := json.Marshal(txn)
 	if err != nil {
@@ -874,11 +882,25 @@ func TestV2TransactionJSONMarshalling(t *testing.T) {
 		t.Fatalf("expected ID %q, got %q", expectedID.String(), txnMap["id"].(string))
 	}
 
+	siacoinOutputID := txnMap["siacoinOutputs"].([]any)[0].(map[string]any)["id"].(string)
+	if siacoinOutputID != expectedSiacoinID.String() {
+		t.Fatalf("expected siacoin output id  %q, got %q", expectedSiacoinID.String(), siacoinOutputID)
+	}
+
+	siafundOutputID := txnMap["siafundOutputs"].([]any)[0].(map[string]any)["id"].(string)
+	if siafundOutputID != expectedSiafundID.String() {
+		t.Fatalf("expected siafund output id %q, got %q", expectedSiafundID.String(), siafundOutputID)
+	}
+
 	var txn2 V2Transaction
 	if err := json.Unmarshal(buf, &txn2); err != nil {
 		t.Fatal(err)
 	} else if txn2.ID() != expectedID {
 		t.Fatalf("expected unmarshalled ID to be %q, got %q", expectedID, txn2.ID())
+	} else if txn2.SiacoinOutputID(txn2.ID(), 0) != expectedSiacoinID {
+		t.Fatalf("expected unmarshalled siacoin output id to be %q, got %q", expectedSiacoinID, txn2.SiacoinOutputID(txn.ID(), 0))
+	} else if txn2.SiafundOutputID(txn2.ID(), 0) != expectedSiafundID {
+		t.Fatalf("expected unmarshalled siafund output id to be %q, got %q", expectedSiafundID, txn2.SiafundOutputID(txn.ID(), 0))
 	}
 }
 
