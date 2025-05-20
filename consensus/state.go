@@ -530,10 +530,11 @@ func (s State) PartialSigHash(txn types.Transaction, cf types.CoveredFields) typ
 	return h.Sum()
 }
 
-// TransactionsCommitment returns the commitment hash covering the transactions
-// that comprise a child block.
-func (s State) TransactionsCommitment(txns []types.Transaction, v2txns []types.V2Transaction) types.Hash256 {
+// Commitment computes the commitment hash for a child block with the given
+// transactions and miner address.
+func (s State) Commitment(minerAddr types.Address, txns []types.Transaction, v2txns []types.V2Transaction) types.Hash256 {
 	var acc blake2b.Accumulator
+	acc.AddLeaf(hashAll(uint8(0), "commitment", s.v2ReplayPrefix(), types.Hash256(hashAll(s)), minerAddr))
 	for _, txn := range txns {
 		acc.AddLeaf(txn.FullHash())
 	}
@@ -541,15 +542,6 @@ func (s State) TransactionsCommitment(txns []types.Transaction, v2txns []types.V
 		acc.AddLeaf(txn.FullHash())
 	}
 	return acc.Root()
-}
-
-// Commitment computes the commitment hash for a child block with the given
-// transactions and miner address.
-func (s State) Commitment(txnsHash types.Hash256, minerAddr types.Address) types.Hash256 {
-	// NOTE: The state is hashed separately so that miners don't have to rehash
-	// it every time the transaction set changes
-	stateHash := types.Hash256(hashAll(s))
-	return hashAll("commitment", s.v2ReplayPrefix(), stateHash, minerAddr, txnsHash)
 }
 
 // InputSigHash returns the hash that must be signed for each v2 transaction input.
