@@ -6,7 +6,7 @@ import (
 	"math/bits"
 	"sort"
 
-	"go.sia.tech/core/internal/blake2b"
+	"go.sia.tech/core/blake2b"
 )
 
 // copied from consensus/merkle.go

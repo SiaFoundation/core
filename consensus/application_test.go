@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"go.sia.tech/core/internal/blake2b"
+	"go.sia.tech/core/blake2b"
 	"go.sia.tech/core/types"
 	"lukechampine.com/frand"
 )
