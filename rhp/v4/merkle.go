@@ -4,7 +4,7 @@ import (
 	"io"
 	"math/bits"
 
-	"go.sia.tech/core/internal/blake2b"
+	"go.sia.tech/core/blake2b"
 	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 )

@@ -3,7 +3,7 @@ package types
 import (
 	"testing"
 
-	"go.sia.tech/core/internal/blake2b"
+	"go.sia.tech/core/blake2b"
 	"lukechampine.com/frand"
 )
 

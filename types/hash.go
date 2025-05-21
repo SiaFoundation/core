@@ -5,7 +5,7 @@ import (
 	"hash"
 	"sync"
 
-	"go.sia.tech/core/internal/blake2b"
+	"go.sia.tech/core/blake2b"
 )
 
 // HashBytes computes the hash of b using Sia's hash function.
