@@ -32,7 +32,7 @@ func TestBlockOutline(t *testing.T) {
 			}},
 		},
 	}
-	b.V2.Commitment = cs.Commitment(cs.TransactionsCommitment(b.Transactions, b.V2Transactions()), b.MinerPayouts[0].Address)
+	b.V2.Commitment = cs.Commitment(b.MinerPayouts[0].Address, b.Transactions, b.V2Transactions())
 
 	bo := OutlineBlock(b, b.Transactions, b.V2Transactions())
 	if bo.ID(cs) != b.ID() {

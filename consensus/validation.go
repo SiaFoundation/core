@@ -928,7 +928,7 @@ func ValidateBlock(s State, b types.Block, bs V1BlockSupplement) error {
 		return fmt.Errorf("block supplement is invalid: %w", err)
 	}
 	if b.V2 != nil {
-		if b.V2.Commitment != s.Commitment(s.TransactionsCommitment(b.Transactions, b.V2Transactions()), b.MinerPayouts[0].Address) {
+		if b.V2.Commitment != s.Commitment(b.MinerPayouts[0].Address, b.Transactions, b.V2Transactions()) {
 			return errors.New("commitment hash mismatch")
 		}
 	}

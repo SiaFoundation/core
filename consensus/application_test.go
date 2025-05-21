@@ -835,7 +835,7 @@ func TestApplyRevertBlockV2(t *testing.T) {
 	}
 	addBlock := func(b *types.Block) (au ApplyUpdate, err error) {
 		if b.V2 != nil {
-			b.V2.Commitment = cs.Commitment(cs.TransactionsCommitment(b.Transactions, b.V2Transactions()), b.MinerPayouts[0].Address)
+			b.V2.Commitment = cs.Commitment(b.MinerPayouts[0].Address, b.Transactions, b.V2Transactions())
 		}
 		findBlockNonce(cs, b)
 		if err = ValidateBlock(cs, *b, V1BlockSupplement{}); err != nil {
@@ -1192,7 +1192,7 @@ func TestSiafunds(t *testing.T) {
 		if len(v2txns) > 0 {
 			b.V2 = &types.V2BlockData{
 				Height:       cs.Index.Height + 1,
-				Commitment:   cs.Commitment(cs.TransactionsCommitment(txns, v2txns), b.MinerPayouts[0].Address),
+				Commitment:   cs.Commitment(b.MinerPayouts[0].Address, txns, v2txns),
 				Transactions: v2txns,
 			}
 		}
@@ -1318,7 +1318,7 @@ func TestFoundationSubsidy(t *testing.T) {
 			MinerPayouts: []types.SiacoinOutput{{Address: types.VoidAddress, Value: cs.BlockReward()}},
 			V2: &types.V2BlockData{
 				Height:       cs.Index.Height + 1,
-				Commitment:   cs.Commitment(cs.TransactionsCommitment(nil, txns), types.VoidAddress),
+				Commitment:   cs.Commitment(types.VoidAddress, nil, txns),
 				Transactions: txns,
 			},
 		}
