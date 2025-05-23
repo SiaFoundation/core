@@ -1,3 +1,9 @@
+## 0.12.4 (2025-05-21)
+
+### Features
+
+- Moved blake2b package out of internal.
+
 ## 0.12.3 (2025-05-14)
 
 ### Fixes
