@@ -72,20 +72,13 @@ func (bo V2BlockOutline) Missing() (missing []types.Hash256) {
 // transactions. If the block cannot be fully reconstructed, it returns the
 // hashes of the missing transactions.
 func (bo *V2BlockOutline) Complete(cs consensus.State, txns []types.Transaction, v2txns []types.V2Transaction) (types.Block, []types.Hash256) {
-	h := types.NewHasher()
 	v1hashes := make(map[types.Hash256]*types.Transaction, len(txns))
 	for i := range txns {
-		h.Reset()
-		h.E.WriteUint8(0) // leafHashPrefix
-		txns[i].EncodeTo(h.E)
-		v1hashes[h.Sum()] = &txns[i]
+		v1hashes[txns[i].MerkleLeafHash()] = &txns[i]
 	}
 	v2hashes := make(map[types.Hash256]*types.V2Transaction, len(v2txns))
 	for i := range v2txns {
-		h.Reset()
-		h.E.WriteUint8(0) // leafHashPrefix
-		v2txns[i].EncodeTo(h.E)
-		v2hashes[h.Sum()] = &v2txns[i]
+		v2hashes[v2txns[i].MerkleLeafHash()] = &v2txns[i]
 	}
 
 	b := types.Block{
@@ -117,18 +110,11 @@ func (bo *V2BlockOutline) Complete(cs consensus.State, txns []types.Transaction,
 // RemoveTransactions removes the specified transactions from the block.
 func (bo *V2BlockOutline) RemoveTransactions(txns []types.Transaction, v2txns []types.V2Transaction) {
 	remove := make(map[types.Hash256]bool)
-	h := types.NewHasher()
 	for _, txn := range txns {
-		h.Reset()
-		h.E.WriteUint8(0) // leafHashPrefix
-		txn.EncodeTo(h.E)
-		remove[h.Sum()] = true
+		remove[txn.MerkleLeafHash()] = true
 	}
 	for _, txn := range v2txns {
-		h.Reset()
-		h.E.WriteUint8(0) // leafHashPrefix
-		txn.EncodeTo(h.E)
-		remove[h.Sum()] = true
+		remove[txn.MerkleLeafHash()] = true
 	}
 	for i := range bo.Transactions {
 		if remove[bo.Transactions[i].Hash] {
@@ -142,22 +128,15 @@ func (bo *V2BlockOutline) RemoveTransactions(txns []types.Transaction, v2txns []
 // transactions.
 func OutlineBlock(b types.Block, txns []types.Transaction, v2txns []types.V2Transaction) V2BlockOutline {
 	var otxns []OutlineTransaction
-	h := types.NewHasher()
 	for i := range b.Transactions {
-		h.Reset()
-		h.E.WriteUint8(0) // leafHashPrefix
-		b.Transactions[i].EncodeTo(h.E)
 		otxns = append(otxns, OutlineTransaction{
-			Hash:        h.Sum(),
+			Hash:        b.Transactions[i].MerkleLeafHash(),
 			Transaction: &b.Transactions[i],
 		})
 	}
 	for i := range b.V2Transactions() {
-		h.Reset()
-		h.E.WriteUint8(0) // leafHashPrefix
-		b.V2.Transactions[i].EncodeTo(h.E)
 		otxns = append(otxns, OutlineTransaction{
-			Hash:          h.Sum(),
+			Hash:          b.V2.Transactions[i].MerkleLeafHash(),
 			V2Transaction: &b.V2.Transactions[i],
 		})
 	}

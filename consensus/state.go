@@ -535,18 +535,11 @@ func (s State) PartialSigHash(txn types.Transaction, cf types.CoveredFields) typ
 func (s State) Commitment(minerAddr types.Address, txns []types.Transaction, v2txns []types.V2Transaction) types.Hash256 {
 	var acc blake2b.Accumulator
 	acc.AddLeaf(hashAll(uint8(0), "commitment", s.v2ReplayPrefix(), types.Hash256(hashAll(s)), minerAddr))
-	h := types.NewHasher()
 	for _, txn := range txns {
-		h.Reset()
-		h.E.WriteUint8(leafHashPrefix)
-		txn.EncodeTo(h.E)
-		acc.AddLeaf(h.Sum())
+		acc.AddLeaf(txn.MerkleLeafHash())
 	}
 	for _, txn := range v2txns {
-		h.Reset()
-		h.E.WriteUint8(leafHashPrefix)
-		txn.EncodeTo(h.E)
-		acc.AddLeaf(h.Sum())
+		acc.AddLeaf(txn.MerkleLeafHash())
 	}
 	return acc.Root()
 }
