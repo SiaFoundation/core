@@ -1,3 +1,9 @@
+## 0.13.1 (2025-05-26)
+
+### Features
+
+- Added State.MerkleLeafHash helper.
+
 ## 0.13.0 (2025-05-26)
 
 ### Breaking Changes
