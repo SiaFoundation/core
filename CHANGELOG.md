@@ -1,3 +1,9 @@
+## 0.12.5 (2025-05-26)
+
+### Fixes
+
+- Fixed missing leaf index in commitment.
+
 ## 0.12.4 (2025-05-21)
 
 ### Features
