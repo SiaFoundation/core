@@ -14,11 +14,13 @@ import (
 	"go.sia.tech/core/types"
 )
 
+const commitmentDistinguisher = "commitment"
+
 // Pool for reducing heap allocations when hashing. This is only necessary
 // because blake2b.New256 returns a hash.Hash interface, which prevents the
 // compiler from doing escape analysis. Can be removed if we switch to an
 // implementation whose constructor returns a concrete type.
-var hasherPool = &sync.Pool{New: func() interface{} { return types.NewHasher() }}
+var hasherPool = &sync.Pool{New: func() any { return types.NewHasher() }}
 
 func hashAll(elems ...interface{}) [32]byte {
 	h := hasherPool.Get().(*types.Hasher)
@@ -530,11 +532,33 @@ func (s State) PartialSigHash(txn types.Transaction, cf types.CoveredFields) typ
 	return h.Sum()
 }
 
+// MerkleLeafHash computes the hash of the state to be used as the
+// first leaf in the Commitment Merkle tree.
+func (s State) MerkleLeafHash(minerAddr types.Address) types.Hash256 {
+	h := hasherPool.Get().(*types.Hasher)
+	defer hasherPool.Put(h)
+
+	h.Reset()
+	// the parent state is first hashed separately
+	s.EncodeTo(h.E)
+	stateHash := h.Sum()
+
+	// build the leaf hash
+	h.Reset()
+	h.E.WriteUint8(leafHashPrefix)
+	h.WriteDistinguisher(commitmentDistinguisher) // hashed as []byte("sia/commitment|")
+	h.E.WriteUint8(s.v2ReplayPrefix())
+	stateHash.EncodeTo(h.E)
+	minerAddr.EncodeTo(h.E)
+
+	return h.Sum()
+}
+
 // Commitment computes the commitment hash for a child block with the given
 // transactions and miner address.
 func (s State) Commitment(minerAddr types.Address, txns []types.Transaction, v2txns []types.V2Transaction) types.Hash256 {
 	var acc blake2b.Accumulator
-	acc.AddLeaf(hashAll(uint8(0), "commitment", s.v2ReplayPrefix(), types.Hash256(hashAll(s)), minerAddr))
+	acc.AddLeaf(s.MerkleLeafHash(minerAddr))
 	for _, txn := range txns {
 		acc.AddLeaf(txn.MerkleLeafHash())
 	}
