@@ -29,19 +29,8 @@ type V2BlockOutline struct {
 }
 
 func (bo V2BlockOutline) commitment(cs consensus.State) types.Hash256 {
-	h := types.NewHasher()
-	cs.EncodeTo(h.E)
-	stateHash := h.Sum()
-	h.Reset()
-	h.E.WriteUint8(0) // leafHashPrefix
-	h.WriteDistinguisher("commitment")
-	h.E.WriteUint8(2) // v2ReplayPrefix
-	stateHash.EncodeTo(h.E)
-	bo.MinerAddress.EncodeTo(h.E)
-	initLeaf := h.Sum()
-
 	var acc blake2b.Accumulator
-	acc.AddLeaf(initLeaf)
+	acc.AddLeaf(cs.MerkleLeafHash(bo.MinerAddress))
 	for _, txn := range bo.Transactions {
 		acc.AddLeaf(txn.Hash)
 	}
