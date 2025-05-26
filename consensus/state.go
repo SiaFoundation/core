@@ -14,11 +14,13 @@ import (
 	"go.sia.tech/core/types"
 )
 
+const commitmentDistinguisher = "commitment"
+
 // Pool for reducing heap allocations when hashing. This is only necessary
 // because blake2b.New256 returns a hash.Hash interface, which prevents the
 // compiler from doing escape analysis. Can be removed if we switch to an
 // implementation whose constructor returns a concrete type.
-var hasherPool = &sync.Pool{New: func() interface{} { return types.NewHasher() }}
+var hasherPool = &sync.Pool{New: func() any { return types.NewHasher() }}
 
 func hashAll(elems ...interface{}) [32]byte {
 	h := hasherPool.Get().(*types.Hasher)
@@ -544,7 +546,7 @@ func (s State) MerkleLeafHash(minerAddr types.Address) types.Hash256 {
 	// build the leaf hash
 	h.Reset()
 	h.E.WriteUint8(leafHashPrefix)
-	h.WriteDistinguisher("commitment") // hashed as []byte("sia/commitment|")
+	h.WriteDistinguisher(commitmentDistinguisher) // hashed as []byte("sia/commitment|")
 	h.E.WriteUint8(s.v2ReplayPrefix())
 	stateHash.EncodeTo(h.E)
 	minerAddr.EncodeTo(h.E)
