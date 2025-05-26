@@ -1,3 +1,9 @@
+## 0.13.0 (2025-05-26)
+
+### Breaking Changes
+
+- Fixed missing leaf prefix in commitment hash.
+
 ## 0.12.4 (2025-05-21)
 
 ### Features
