@@ -74,11 +74,11 @@ func (bo V2BlockOutline) Missing() (missing []types.Hash256) {
 func (bo *V2BlockOutline) Complete(cs consensus.State, txns []types.Transaction, v2txns []types.V2Transaction) (types.Block, []types.Hash256) {
 	v1hashes := make(map[types.Hash256]*types.Transaction, len(txns))
 	for i := range txns {
-		v1hashes[txns[i].FullHash()] = &txns[i]
+		v1hashes[txns[i].MerkleLeafHash()] = &txns[i]
 	}
 	v2hashes := make(map[types.Hash256]*types.V2Transaction, len(v2txns))
 	for i := range v2txns {
-		v2hashes[v2txns[i].FullHash()] = &v2txns[i]
+		v2hashes[v2txns[i].MerkleLeafHash()] = &v2txns[i]
 	}
 
 	b := types.Block{
@@ -111,10 +111,10 @@ func (bo *V2BlockOutline) Complete(cs consensus.State, txns []types.Transaction,
 func (bo *V2BlockOutline) RemoveTransactions(txns []types.Transaction, v2txns []types.V2Transaction) {
 	remove := make(map[types.Hash256]bool)
 	for _, txn := range txns {
-		remove[txn.FullHash()] = true
+		remove[txn.MerkleLeafHash()] = true
 	}
 	for _, txn := range v2txns {
-		remove[txn.FullHash()] = true
+		remove[txn.MerkleLeafHash()] = true
 	}
 	for i := range bo.Transactions {
 		if remove[bo.Transactions[i].Hash] {
@@ -130,13 +130,13 @@ func OutlineBlock(b types.Block, txns []types.Transaction, v2txns []types.V2Tran
 	var otxns []OutlineTransaction
 	for i := range b.Transactions {
 		otxns = append(otxns, OutlineTransaction{
-			Hash:        b.Transactions[i].FullHash(),
+			Hash:        b.Transactions[i].MerkleLeafHash(),
 			Transaction: &b.Transactions[i],
 		})
 	}
 	for i := range b.V2Transactions() {
 		otxns = append(otxns, OutlineTransaction{
-			Hash:          b.V2.Transactions[i].FullHash(),
+			Hash:          b.V2.Transactions[i].MerkleLeafHash(),
 			V2Transaction: &b.V2.Transactions[i],
 		})
 	}

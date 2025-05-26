@@ -62,6 +62,8 @@ func hashAll(elems ...interface{}) [32]byte {
 			switch e := e.(type) {
 			case string:
 				h.WriteDistinguisher(e)
+			case uint8:
+				h.E.WriteUint8(e)
 			case int:
 				h.E.WriteUint64(uint64(e))
 			case uint64:
@@ -76,7 +78,7 @@ func hashAll(elems ...interface{}) [32]byte {
 	return h.Sum()
 }
 
-const leafHashPrefix = 0 // from RFC 6962
+const leafHashPrefix uint8 = 0 // from RFC 6962
 
 // StandardAddress returns the standard v2 Address derived from pk. It is
 // equivalent to PolicyPublicKey(pk).Address().
@@ -168,4 +170,16 @@ func blockMerkleRoot(minerPayouts []SiacoinOutput, txns []Transaction) Hash256 {
 		acc.AddLeaf(h.Sum())
 	}
 	return acc.Root()
+}
+
+// MerkleLeafHash returns the hash of the transaction as a leaf in a Merkle
+// tree.
+func (txn *Transaction) MerkleLeafHash() Hash256 {
+	return hashAll(leafHashPrefix, txn)
+}
+
+// MerkleLeafHash returns the hash of the transaction as a leaf in a Merkle
+// tree.
+func (txn *V2Transaction) MerkleLeafHash() Hash256 {
+	return hashAll(leafHashPrefix, txn)
 }

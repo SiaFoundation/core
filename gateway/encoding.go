@@ -120,10 +120,10 @@ func (ob *V2BlockOutline) decodeFrom(d *types.Decoder) {
 		switch kinds[i] {
 		case 0:
 			ot.Transaction, txns = &txns[0], txns[1:]
-			ot.Hash = ot.Transaction.FullHash()
+			ot.Hash = ot.Transaction.MerkleLeafHash()
 		case 1:
 			ot.V2Transaction, v2txns = &v2txns[0], v2txns[1:]
-			ot.Hash = ot.V2Transaction.FullHash()
+			ot.Hash = ot.V2Transaction.MerkleLeafHash()
 		case 2:
 			ot.Hash, hashes = hashes[0], hashes[1:]
 		}

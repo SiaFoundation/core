@@ -28,12 +28,12 @@ func TestStratumBlockMerkleRoot(t *testing.T) {
 
 	// build the commitment tree manually, leaving out the coinbase transaction
 	var acc blake2b.Accumulator
-	acc.AddLeaf(hashAll(uint8(0), "commitment", cs.v2ReplayPrefix(), types.Hash256(hashAll(cs)), types.VoidAddress))
+	acc.AddLeaf(hashAll(leafHashPrefix, "commitment", cs.v2ReplayPrefix(), types.Hash256(hashAll(cs)), types.VoidAddress))
 	for _, txn := range txns {
-		acc.AddLeaf(txn.FullHash())
+		acc.AddLeaf(txn.MerkleLeafHash())
 	}
 	for _, txn := range v2Txns {
-		acc.AddLeaf(txn.FullHash())
+		acc.AddLeaf(txn.MerkleLeafHash())
 	}
 
 	var trees []types.Hash256
@@ -45,7 +45,7 @@ func TestStratumBlockMerkleRoot(t *testing.T) {
 	coinbaseTxn := types.V2Transaction{
 		ArbitraryData: []byte("hello, world!"),
 	}
-	root := coinbaseTxn.FullHash()
+	root := coinbaseTxn.MerkleLeafHash()
 	for _, tree := range trees {
 		root = blake2b.SumPair(tree, root)
 	}

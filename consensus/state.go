@@ -536,10 +536,10 @@ func (s State) Commitment(minerAddr types.Address, txns []types.Transaction, v2t
 	var acc blake2b.Accumulator
 	acc.AddLeaf(hashAll(uint8(0), "commitment", s.v2ReplayPrefix(), types.Hash256(hashAll(s)), minerAddr))
 	for _, txn := range txns {
-		acc.AddLeaf(txn.FullHash())
+		acc.AddLeaf(txn.MerkleLeafHash())
 	}
 	for _, txn := range v2txns {
-		acc.AddLeaf(txn.FullHash())
+		acc.AddLeaf(txn.MerkleLeafHash())
 	}
 	return acc.Root()
 }

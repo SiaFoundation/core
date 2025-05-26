@@ -12,7 +12,7 @@ import (
 )
 
 // from RFC 6961
-const leafHashPrefix = 0x00
+const leafHashPrefix uint8 = 0x00
 
 // mergeHeight returns the height at which the proof paths of x and y merge.
 func mergeHeight(x, y uint64) int { return bits.Len64(x ^ y) }
