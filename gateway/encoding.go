@@ -115,15 +115,22 @@ func (ob *V2BlockOutline) decodeFrom(d *types.Decoder) {
 		return // FullHash chokes on invalid input
 	}
 	ob.Transactions = make([]OutlineTransaction, len(kinds))
+	h := types.NewHasher()
 	for i := range ob.Transactions {
 		ot := &ob.Transactions[i]
 		switch kinds[i] {
 		case 0:
 			ot.Transaction, txns = &txns[0], txns[1:]
-			ot.Hash = ot.Transaction.FullHash()
+			h.Reset()
+			h.E.WriteUint8(0) // leafHashPrefix
+			ot.Transaction.EncodeTo(h.E)
+			ot.Hash = h.Sum()
 		case 1:
 			ot.V2Transaction, v2txns = &v2txns[0], v2txns[1:]
-			ot.Hash = ot.V2Transaction.FullHash()
+			h.Reset()
+			h.E.WriteUint8(0) // leafHashPrefix
+			ot.V2Transaction.EncodeTo(h.E)
+			ot.Hash = h.Sum()
 		case 2:
 			ot.Hash, hashes = hashes[0], hashes[1:]
 		}
