@@ -477,12 +477,6 @@ func (txn *Transaction) ID() TransactionID {
 	return hashAll((*txnSansSigs)(txn))
 }
 
-// FullHash returns the hash of the transaction's binary encoding. This hash is
-// only used in specific circumstances; generally, ID should be used instead.
-func (txn *Transaction) FullHash() Hash256 {
-	return hashAll(txn)
-}
-
 // SiacoinOutputID returns the ID of the siacoin output at index i.
 func (txn *Transaction) SiacoinOutputID(i int) SiacoinOutputID {
 	return hashAll(SpecifierSiacoinOutput, (*txnSansSigs)(txn), i)
@@ -745,12 +739,6 @@ type V2Transaction struct {
 // To hash all of the data in a transaction, use the FullHash method.
 func (txn *V2Transaction) ID() TransactionID {
 	return hashAll("id/transaction", (*V2TransactionSemantics)(txn))
-}
-
-// FullHash returns the hash of the transaction's binary encoding. This hash is
-// only used in specific circumstances; generally, ID should be used instead.
-func (txn *V2Transaction) FullHash() Hash256 {
-	return hashAll(txn)
 }
 
 // SiacoinOutputID returns the ID for the siacoin output at index i.
