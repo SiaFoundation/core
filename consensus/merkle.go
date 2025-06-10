@@ -219,6 +219,34 @@ func (acc *ElementAccumulator) containsResolvedV2FileContractElement(fce types.V
 	return acc.containsLeaf(v2FileContractLeaf(&fce, nil, true))
 }
 
+// ValidateTransactionElements validates the Merkle proofs of all elements in the
+// supplied transaction.
+func (acc *ElementAccumulator) ValidateTransactionElements(txn types.V2Transaction) (err error) {
+	check := func(typ string, l elementLeaf) {
+		if err == nil && l.LeafIndex != types.UnassignedLeafIndex {
+			if !acc.containsLeaf(l) {
+				err = errors.New(typ + " parent has invalid Merkle proof")
+			}
+		}
+	}
+	for i := range txn.SiacoinInputs {
+		check("siacoin input", siacoinLeaf(&txn.SiacoinInputs[i].Parent, false))
+	}
+	for i := range txn.SiafundInputs {
+		check("siafund input", siafundLeaf(&txn.SiafundInputs[i].Parent, false))
+	}
+	for i := range txn.FileContractRevisions {
+		check("file contract revision", v2FileContractLeaf(&txn.FileContractRevisions[i].Parent, nil, false))
+	}
+	for i := range txn.FileContractResolutions {
+		check("file contract resolution", v2FileContractLeaf(&txn.FileContractResolutions[i].Parent, nil, false))
+		if r, ok := txn.FileContractResolutions[i].Resolution.(*types.V2StorageProof); ok {
+			check("storage proof", chainIndexLeaf(&r.ProofIndex))
+		}
+	}
+	return
+}
+
 // addLeaves adds the supplied leaves to the accumulator, filling in their
 // Merkle proofs and returning the new node hashes that extend each existing
 // tree.
