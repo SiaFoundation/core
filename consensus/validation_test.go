@@ -2180,3 +2180,204 @@ func TestV2RenewalResolution(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateTransactionElements(t *testing.T) {
+	n, genesisBlock := testnet()
+	n.InitialTarget = types.BlockID{0xFF}
+	n.HardforkV2.AllowHeight = 0
+	n.HardforkV2.RequireHeight = 0
+
+	giftPrivateKey := types.GeneratePrivateKey()
+	giftPublicKey := giftPrivateKey.PublicKey()
+	giftPolicy := types.PolicyPublicKey(giftPublicKey)
+	giftAddress := types.StandardAddress(giftPublicKey)
+
+	renterPrivateKey := types.GeneratePrivateKey()
+	renterPublicKey := renterPrivateKey.PublicKey()
+	hostPrivateKey := types.GeneratePrivateKey()
+	hostPublicKey := hostPrivateKey.PublicKey()
+
+	giftAmountSC := types.Siacoins(100)
+	giftAmountSF := uint64(100)
+	v1GiftFC := prepareContractFormation(renterPublicKey, hostPublicKey, types.Siacoins(1), types.Siacoins(1), 100, 100, types.VoidAddress)
+	v1GiftFC.Filesize = 65
+	v1GiftFC.FileMerkleRoot = blake2b.SumPair((State{}).StorageProofLeafHash([]byte{1}), (State{}).StorageProofLeafHash([]byte{2}))
+	v2GiftFC := types.V2FileContract{
+		Capacity:         v1GiftFC.Filesize,
+		Filesize:         v1GiftFC.Filesize,
+		FileMerkleRoot:   v1GiftFC.FileMerkleRoot,
+		ProofHeight:      20,
+		ExpirationHeight: 30,
+		RenterOutput:     v1GiftFC.ValidProofOutputs[0],
+		HostOutput:       v1GiftFC.ValidProofOutputs[1],
+		MissedHostValue:  v1GiftFC.MissedProofOutputs[1].Value,
+		TotalCollateral:  v1GiftFC.Payout,
+		RenterPublicKey:  renterPublicKey,
+		HostPublicKey:    hostPublicKey,
+	}
+	contractCost := v2GiftFC.RenterOutput.Value.Add(v2GiftFC.HostOutput.Value).Add(n.GenesisState().V2FileContractTax(v2GiftFC))
+
+	giftTxn := types.V2Transaction{
+		SiacoinOutputs: []types.SiacoinOutput{
+			{Address: giftAddress, Value: giftAmountSC},
+			{Address: giftAddress, Value: contractCost},
+		},
+		SiafundOutputs: []types.SiafundOutput{
+			{Address: giftAddress, Value: giftAmountSF},
+		},
+		FileContracts: []types.V2FileContract{v2GiftFC},
+	}
+
+	genesisBlock.Transactions = nil
+	genesisBlock.V2 = &types.V2BlockData{
+		Transactions: []types.V2Transaction{giftTxn},
+	}
+
+	_, au := ApplyBlock(n.GenesisState(), genesisBlock, V1BlockSupplement{}, time.Time{})
+	sces := make([]types.SiacoinElement, len(au.SiacoinElementDiffs()))
+	for i := range sces {
+		sces[i] = au.SiacoinElementDiffs()[i].SiacoinElement.Copy()
+	}
+	sfes := make([]types.SiafundElement, len(au.SiafundElementDiffs()))
+	for i := range sfes {
+		sfes[i] = au.SiafundElementDiffs()[i].SiafundElement.Copy()
+	}
+	fces := make([]types.V2FileContractElement, len(au.V2FileContractElementDiffs()))
+	for i := range fces {
+		fces[i] = au.V2FileContractElementDiffs()[i].V2FileContractElement.Copy()
+	}
+	cies := []types.ChainIndexElement{au.ChainIndexElement()}
+
+	db, cs := newConsensusDB(n, genesisBlock)
+
+	fc := v2GiftFC
+	fc.TotalCollateral = fc.HostOutput.Value
+
+	rev1 := v2GiftFC
+	rev1.RevisionNumber++
+	minerFee := types.Siacoins(1)
+	b := types.Block{
+		ParentID:  genesisBlock.ID(),
+		Timestamp: types.CurrentTimestamp(),
+		V2: &types.V2BlockData{
+			Height: 1,
+			Transactions: []types.V2Transaction{{
+				SiacoinInputs: []types.V2SiacoinInput{{
+					Parent:          sces[0].Copy(),
+					SatisfiedPolicy: types.SatisfiedPolicy{Policy: giftPolicy},
+				}},
+				SiafundInputs: []types.V2SiafundInput{{
+					Parent:          sfes[0].Copy(),
+					ClaimAddress:    types.VoidAddress,
+					SatisfiedPolicy: types.SatisfiedPolicy{Policy: giftPolicy},
+				}},
+				SiacoinOutputs: []types.SiacoinOutput{
+					{Value: giftAmountSC.Sub(minerFee).Sub(contractCost), Address: giftAddress},
+				},
+				SiafundOutputs: []types.SiafundOutput{
+					{Value: giftAmountSF / 2, Address: giftAddress},
+					{Value: giftAmountSF / 2, Address: types.VoidAddress},
+				},
+				FileContracts: []types.V2FileContract{fc},
+				FileContractRevisions: []types.V2FileContractRevision{
+					{Parent: au.V2FileContractElementDiffs()[0].V2FileContractElement.Copy(), Revision: rev1},
+				},
+				MinerFee: minerFee,
+			}},
+		},
+		MinerPayouts: []types.SiacoinOutput{{
+			Address: types.VoidAddress,
+			Value:   cs.BlockReward().Add(minerFee),
+		}},
+	}
+
+	// validate elements
+	txn := b.V2.Transactions[0]
+	if err := cs.Elements.ValidateTransactionElements(txn); err != nil {
+		t.Fatal(err)
+	}
+	// validate that corrupting an element results in an error
+	for _, fn := range []func(){
+		func() { txn.SiacoinInputs[0].Parent.ID[0] ^= 1 },
+		func() { txn.SiafundInputs[0].Parent.StateElement.LeafIndex ^= 1 },
+		func() { txn.FileContractRevisions[0].Parent.StateElement.MerkleProof[0][0] ^= 1 },
+	} {
+		fn()
+		if err := cs.Elements.ValidateTransactionElements(txn); err == nil || !strings.Contains(err.Error(), "invalid Merkle proof") {
+			t.Fatal("expected invalid Merkle proof error, got", err)
+		}
+		fn()
+	}
+
+	cs, testAU := ApplyBlock(cs, b, db.supplementTipBlock(b), time.Now())
+	db.applyBlock(testAU)
+	updateProofs(testAU, sces, sfes, fces, cies)
+
+	testSces := make([]types.SiacoinElement, len(testAU.SiacoinElementDiffs()))
+	for i := range testSces {
+		testSces[i] = testAU.SiacoinElementDiffs()[i].SiacoinElement.Copy()
+	}
+	testSfes := make([]types.SiafundElement, len(testAU.SiafundElementDiffs()))
+	for i := range testSfes {
+		testSfes[i] = testAU.SiafundElementDiffs()[i].SiafundElement.Copy()
+	}
+	testFces := make([]types.V2FileContractElement, len(testAU.V2FileContractElementDiffs()))
+	for i := range testFces {
+		testFces[i] = testAU.V2FileContractElementDiffs()[i].V2FileContractElement.Copy()
+	}
+	cies = append(cies, testAU.ChainIndexElement())
+
+	// mine empty blocks
+	blockID := b.ID()
+	for i := uint64(0); i < v2GiftFC.ProofHeight; i++ {
+		b := types.Block{
+			ParentID:  blockID,
+			Timestamp: types.CurrentTimestamp(),
+			V2: &types.V2BlockData{
+				Height: cs.Index.Height + 1,
+			},
+			MinerPayouts: []types.SiacoinOutput{{
+				Address: types.VoidAddress,
+				Value:   cs.BlockReward(),
+			}},
+		}
+		b.V2.Commitment = cs.Commitment(b.MinerPayouts[0].Address, b.Transactions, b.V2Transactions())
+
+		findBlockNonce(cs, &b)
+		if err := ValidateBlock(cs, b, db.supplementTipBlock(b)); err != nil {
+			t.Fatal(err)
+		}
+		cs, au = ApplyBlock(cs, b, db.supplementTipBlock(b), time.Now())
+		db.applyBlock(au)
+		updateProofs(au, sces, sfes, fces, cies)
+		updateProofs(au, testSces, testSfes, testFces, nil)
+		cies = append(cies, au.ChainIndexElement())
+
+		blockID = b.ID()
+	}
+
+	// construct a transaction that resolves the file contract
+	txn = types.V2Transaction{
+		FileContractResolutions: []types.V2FileContractResolution{{
+			Parent: testFces[0].Copy(),
+			Resolution: &types.V2StorageProof{
+				ProofIndex: cies[len(cies)-2].Copy(),
+				Leaf:       [64]byte{1},
+				Proof:      []types.Hash256{cs.StorageProofLeafHash([]byte{2})},
+			},
+		}},
+	}
+	if err := cs.Elements.ValidateTransactionElements(txn); err != nil {
+		t.Fatal(err)
+	}
+	for _, fn := range []func(){
+		func() { txn.FileContractResolutions[0].Resolution.(*types.V2StorageProof).ProofIndex.ID[0] ^= 1 },
+		func() { txn.FileContractResolutions[0].Parent.StateElement.MerkleProof[0][0] ^= 1 },
+	} {
+		fn()
+		if err := cs.Elements.ValidateTransactionElements(txn); err == nil || !strings.Contains(err.Error(), "invalid Merkle proof") {
+			t.Fatal("expected invalid Merkle proof error, got", err)
+		}
+		fn()
+	}
+}
