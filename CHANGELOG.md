@@ -1,3 +1,9 @@
+## 0.13.2 (2025-06-14)
+
+### Features
+
+- Add (ElementAccumulator).ValidateTransactionElements
+
 ## 0.13.1 (2025-05-26)
 
 ### Features
