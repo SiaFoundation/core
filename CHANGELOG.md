@@ -1,3 +1,9 @@
+## 0.14.0 (2025-06-16)
+
+### Breaking Changes
+
+- Drop support for v1 peers in p2p code.
+
 ## 0.13.2 (2025-06-14)
 
 ### Features
