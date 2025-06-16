@@ -4,10 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strings"
 	"time"
 
-	"go.sia.tech/core/internal/smux"
 	"go.sia.tech/core/types"
 	"go.sia.tech/mux"
 	"lukechampine.com/frand"
@@ -77,25 +75,16 @@ type Transport struct {
 	UniqueID UniqueID
 	Version  string
 	Addr     string
-	smux     *smux.Session // for v1
-	mux      *mux.Mux      // for v2
+	mux      *mux.Mux
 }
 
 // DialStream opens a new multiplexed stream.
 func (t *Transport) DialStream() (*Stream, error) {
-	if t.smux != nil {
-		s, err := t.smux.OpenStream()
-		return &Stream{smux: s}, err
-	}
 	return &Stream{mux: t.mux.DialStream()}, nil
 }
 
 // AcceptStream accepts an incoming multiplexed stream.
 func (t *Transport) AcceptStream() (*Stream, error) {
-	if t.smux != nil {
-		s, err := t.smux.AcceptStream()
-		return &Stream{smux: s}, err
-	}
 	s, err := t.mux.AcceptStream()
 	return &Stream{mux: s}, err
 }
@@ -105,48 +94,31 @@ func (t *Transport) SupportsV2() bool { return t.mux != nil }
 
 // Close closes the underlying connection.
 func (t *Transport) Close() error {
-	if t.smux != nil {
-		return t.smux.Close()
-	}
 	return t.mux.Close()
 }
 
 // A Stream provides a multiplexed stream for the Sia gateway protocol.
 type Stream struct {
-	smux *smux.Stream // for v1
-	mux  *mux.Stream  // for v2
+	mux *mux.Stream
 }
 
 func (s *Stream) withEncoder(fn func(*types.Encoder)) error {
-	if s.smux != nil {
-		return withV1Encoder(s.smux, fn)
-	}
 	return withV2Encoder(s.mux, fn)
 }
 
 func (s *Stream) withDecoder(maxLen int, fn func(*types.Decoder)) error {
-	if s.smux != nil {
-		return withV1Decoder(s.smux, maxLen, fn)
-	}
 	return withV2Decoder(s.mux, maxLen, fn)
 }
 
 // WriteID writes the RPC ID of r to the stream.
 func (s *Stream) WriteID(r Object) error {
 	id := idForObject(r)
-	if s.smux != nil {
-		return s.withEncoder((*v1RPCID)(&id).encodeTo)
-	}
 	return s.withEncoder(id.EncodeTo)
 }
 
 // ReadID reads an RPC ID from the stream.
 func (s *Stream) ReadID() (id types.Specifier, err error) {
-	if s.smux != nil {
-		err = s.withDecoder(8, (*v1RPCID)(&id).decodeFrom)
-	} else {
-		err = s.withDecoder(16, id.DecodeFrom)
-	}
+	err = s.withDecoder(16, id.DecodeFrom)
 	return
 }
 
@@ -178,17 +150,11 @@ func (s *Stream) ReadResponse(r Object) error {
 
 // SetDeadline implements net.Conn.
 func (s *Stream) SetDeadline(t time.Time) error {
-	if s.smux != nil {
-		return s.smux.SetDeadline(t)
-	}
 	return s.mux.SetDeadline(t)
 }
 
 // Close closes the stream.
 func (s *Stream) Close() error {
-	if s.smux != nil {
-		return s.smux.Close()
-	}
 	return s.mux.Close()
 }
 
@@ -211,11 +177,7 @@ func Dial(conn net.Conn, ourHeader Header) (*Transport, error) {
 	}
 	// establish mux
 	var err error
-	if strings.HasPrefix(p.Version, "1.") {
-		p.smux, err = smux.Client(conn, nil)
-	} else {
-		p.mux, err = mux.DialAnonymous(conn)
-	}
+	p.mux, err = mux.DialAnonymous(conn)
 	return p, err
 }
 
@@ -238,10 +200,6 @@ func Accept(conn net.Conn, ourHeader Header) (*Transport, error) {
 	}
 	// establish mux
 	var err error
-	if strings.HasPrefix(p.Version, "1.") {
-		p.smux, err = smux.Server(conn, nil)
-	} else {
-		p.mux, err = mux.AcceptAnonymous(conn)
-	}
+	p.mux, err = mux.AcceptAnonymous(conn)
 	return p, err
 }
