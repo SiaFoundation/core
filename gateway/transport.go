@@ -89,9 +89,6 @@ func (t *Transport) AcceptStream() (*Stream, error) {
 	return &Stream{mux: s}, err
 }
 
-// SupportsV2 returns true if the transport supports v2 RPCs.
-func (t *Transport) SupportsV2() bool { return t.mux != nil }
-
 // Close closes the underlying connection.
 func (t *Transport) Close() error {
 	return t.mux.Close()
