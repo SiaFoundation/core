@@ -791,6 +791,10 @@ type RevertUpdate struct {
 	eru elementRevertUpdate
 }
 
+// ChainIndexElement returns the chain index element related to the applied
+// block.
+func (ru RevertUpdate) ChainIndexElement() types.ChainIndexElement { return ru.cie }
+
 // SiacoinElementDiffs returns the siacoin element diffs related to the applied
 // block.
 func (ru RevertUpdate) SiacoinElementDiffs() []SiacoinElementDiff { return ru.sces }
