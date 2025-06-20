@@ -1,3 +1,9 @@
+## 0.15.0 (2025-06-20)
+
+### Breaking Changes
+
+- Ignore block commitment until require height.
+
 ## 0.14.0 (2025-06-16)
 
 ### Breaking Changes
