@@ -1562,6 +1562,64 @@ func TestValidateV2Block(t *testing.T) {
 	}
 }
 
+func TestRevisionMismatch(t *testing.T) {
+	n, genesisBlock := testnet()
+
+	n.HardforkOak.Height = 0
+	n.HardforkTax.Height = 0
+	n.HardforkFoundation.Height = 0
+	n.InitialTarget = types.BlockID{0xFF}
+	n.HardforkV2.AllowHeight = 0
+	n.HardforkV2.RequireHeight = 2
+
+	genesisBlock.Transactions = nil
+	genesisBlock.V2 = &types.V2BlockData{
+		Transactions: []types.V2Transaction{},
+	}
+
+	cs, au := ApplyBlock(n.GenesisState(), genesisBlock, V1BlockSupplement{}, time.Time{})
+	checkApplyUpdate(t, cs, au)
+	sces := make([]types.SiacoinElement, len(au.SiacoinElementDiffs()))
+	for i := range sces {
+		sces[i] = au.SiacoinElementDiffs()[i].SiacoinElement.Copy()
+	}
+
+	db, cs := newConsensusDB(n, genesisBlock)
+	b := types.Block{
+		ParentID:  genesisBlock.ID(),
+		Timestamp: types.CurrentTimestamp(),
+		V2: &types.V2BlockData{
+			Height:       1,
+			Transactions: []types.V2Transaction{},
+		},
+		MinerPayouts: []types.SiacoinOutput{{
+			Address: types.VoidAddress,
+			Value:   cs.BlockReward(),
+		}},
+	}
+
+	// initial block should be valid
+	validBlock := deepCopyBlock(b)
+	if err := ValidateBlock(cs, validBlock, db.supplementTipBlock(validBlock)); err != nil {
+		t.Fatal(err)
+	}
+
+	// corrupt the commitment - we are still in the grace period so this is fine
+	corruptBlock := deepCopyBlock(validBlock)
+	frand.Read(corruptBlock.V2.Commitment[:])
+	if err := ValidateBlock(cs, corruptBlock, db.supplementTipBlock(validBlock)); err != nil {
+		t.Fatal(err)
+	}
+
+	// increase the height to the require height
+	cs.Index.Height++
+	corruptBlock.V2.Height++
+	err := ValidateBlock(cs, corruptBlock, db.supplementTipBlock(validBlock))
+	if err == nil || !strings.Contains(err.Error(), "commitment hash mismatch") {
+		t.Fatal(err)
+	}
+}
+
 func TestV2ImmatureSiacoinOutput(t *testing.T) {
 	n, genesisBlock := testnet()
 	n.HardforkV2.AllowHeight = 1
