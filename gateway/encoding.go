@@ -257,7 +257,7 @@ func (r *RPCRelayTransactionSet) maxRequestLen() int { return 5e6 }
 type RPCSendV2Blocks struct {
 	History   []types.BlockID
 	Max       uint64
-	Blocks    []types.Block
+	Blocks    []PeerBlock
 	Remaining uint64
 }
 
@@ -272,11 +272,11 @@ func (r *RPCSendV2Blocks) decodeRequest(d *types.Decoder) {
 func (r *RPCSendV2Blocks) maxRequestLen() int { return 8 + 32*32 + 8 }
 
 func (r *RPCSendV2Blocks) encodeResponse(e *types.Encoder) {
-	types.EncodeSliceCast[types.V2Block](e, r.Blocks)
+	types.EncodeSlice(e, r.Blocks)
 	e.WriteUint64(r.Remaining)
 }
 func (r *RPCSendV2Blocks) decodeResponse(d *types.Decoder) {
-	types.DecodeSliceCast[types.V2Block](d, &r.Blocks)
+	types.DecodeSlice(d, &r.Blocks)
 	r.Remaining = d.ReadUint64()
 }
 func (r *RPCSendV2Blocks) maxResponseLen() int { return int(r.Max) * 5e6 }

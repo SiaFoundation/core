@@ -34,8 +34,8 @@ func TestBlockOutline(t *testing.T) {
 	}
 	b.V2.Commitment = cs.Commitment(b.MinerPayouts[0].Address, b.Transactions, b.V2Transactions())
 
-	bo := OutlineBlock(b, b.Transactions, b.V2Transactions())
-	if bo.ID(cs) != b.ID() {
+	bo := OutlineBlock(cs, b, b.Transactions, b.V2Transactions())
+	if bo.ID() != b.ID() {
 		t.Fatal("outline ID mismatch")
 	} else if len(bo.Missing()) != len(b.Transactions)+len(b.V2Transactions()) {
 		t.Fatal("expected all transactions to be missing")
@@ -44,7 +44,8 @@ func TestBlockOutline(t *testing.T) {
 	if len(rem) != len(b.V2Transactions()) {
 		t.Fatal("expected v2 transactions to remain")
 	}
-	b2, rem := bo.Complete(cs, b.Transactions, b.V2Transactions())
+	pb, rem := bo.Complete(cs, b.Transactions, b.V2Transactions())
+	b2 := pb.Block
 	if len(rem) != 0 {
 		t.Fatal("expected no remaining transactions")
 	}
@@ -52,11 +53,12 @@ func TestBlockOutline(t *testing.T) {
 		t.Fatal("block ID mismatch")
 	}
 
-	bo = OutlineBlock(b, b.Transactions, nil)
-	if bo.ID(cs) != b.ID() {
+	bo = OutlineBlock(cs, b, b.Transactions, nil)
+	if bo.ID() != b.ID() {
 		t.Fatal("outline ID mismatch")
 	}
-	b2, rem = bo.Complete(cs, b.Transactions, nil)
+	pb, rem = bo.Complete(cs, b.Transactions, nil)
+	b2 = pb.Block
 	if len(rem) != 0 {
 		t.Fatal("expected no remaining transactions")
 	}
@@ -64,11 +66,12 @@ func TestBlockOutline(t *testing.T) {
 		t.Fatal("block ID mismatch")
 	}
 
-	bo = OutlineBlock(b, nil, b.V2Transactions())
-	if bo.ID(cs) != b.ID() {
+	bo = OutlineBlock(cs, b, nil, b.V2Transactions())
+	if bo.ID() != b.ID() {
 		t.Fatal("outline ID mismatch")
 	}
-	b2, rem = bo.Complete(cs, nil, b.V2Transactions())
+	pb, rem = bo.Complete(cs, nil, b.V2Transactions())
+	b2 = pb.Block
 	if len(rem) != 0 {
 		t.Fatal("expected no remaining transactions")
 	}
@@ -76,11 +79,12 @@ func TestBlockOutline(t *testing.T) {
 		t.Fatal("block ID mismatch")
 	}
 
-	bo = OutlineBlock(b, nil, nil)
-	if bo.ID(cs) != b.ID() {
+	bo = OutlineBlock(cs, b, nil, nil)
+	if bo.ID() != b.ID() {
 		t.Fatal("outline ID mismatch")
 	}
-	b2, rem = bo.Complete(cs, nil, nil)
+	pb, rem = bo.Complete(cs, nil, nil)
+	b2 = pb.Block
 	if len(rem) != 0 {
 		t.Fatal("expected no remaining transactions")
 	}

@@ -8,6 +8,29 @@ import (
 	"go.sia.tech/core/types"
 )
 
+// A PeerBlock pairs a block with its state leaf hash. This is a workaround for
+// blocks whose state does not match our local state.
+type PeerBlock struct {
+	Block         types.Block
+	StateLeafHash types.Hash256
+}
+
+// EncodeTo implements [types.EncoderTo].
+func (b PeerBlock) EncodeTo(e *types.Encoder) {
+	types.V2Block(b.Block).EncodeTo(e)
+	if b.Block.V2 != nil {
+		b.StateLeafHash.EncodeTo(e)
+	}
+}
+
+// DecodeFrom implements [types.DecoderFrom].
+func (b *PeerBlock) DecodeFrom(d *types.Decoder) {
+	(*types.V2Block)(&b.Block).DecodeFrom(d)
+	if b.Block.V2 != nil {
+		b.StateLeafHash.DecodeFrom(d)
+	}
+}
+
 // An OutlineTransaction identifies a transaction by its full hash. The actual
 // transaction data may or may not be present.
 type OutlineTransaction struct {
@@ -20,17 +43,18 @@ type OutlineTransaction struct {
 // The original block can be reconstructed by matching the transaction hashes
 // to transactions present in the txpool, or requesting them from peers.
 type V2BlockOutline struct {
-	Height       uint64
-	ParentID     types.BlockID
-	Nonce        uint64
-	Timestamp    time.Time
-	MinerAddress types.Address
-	Transactions []OutlineTransaction
+	Height        uint64
+	ParentID      types.BlockID
+	Nonce         uint64
+	Timestamp     time.Time
+	MinerAddress  types.Address
+	StateLeafHash types.Hash256
+	Transactions  []OutlineTransaction
 }
 
-func (bo V2BlockOutline) commitment(cs consensus.State) types.Hash256 {
+func (bo V2BlockOutline) commitment(stateLeafHash types.Hash256) types.Hash256 {
 	var acc blake2b.Accumulator
-	acc.AddLeaf(cs.MerkleLeafHash(bo.MinerAddress))
+	acc.AddLeaf(stateLeafHash)
 	for _, txn := range bo.Transactions {
 		acc.AddLeaf(txn.Hash)
 	}
@@ -38,12 +62,12 @@ func (bo V2BlockOutline) commitment(cs consensus.State) types.Hash256 {
 }
 
 // ID returns a hash that uniquely identifies the block.
-func (bo V2BlockOutline) ID(cs consensus.State) types.BlockID {
+func (bo V2BlockOutline) ID() types.BlockID {
 	return types.BlockHeader{
 		ParentID:   bo.ParentID,
 		Nonce:      bo.Nonce,
 		Timestamp:  bo.Timestamp,
-		Commitment: bo.commitment(cs),
+		Commitment: bo.commitment(bo.StateLeafHash),
 	}.ID()
 }
 
@@ -60,7 +84,7 @@ func (bo V2BlockOutline) Missing() (missing []types.Hash256) {
 // Complete attempts to reconstruct the original block using the supplied
 // transactions. If the block cannot be fully reconstructed, it returns the
 // hashes of the missing transactions.
-func (bo *V2BlockOutline) Complete(cs consensus.State, txns []types.Transaction, v2txns []types.V2Transaction) (types.Block, []types.Hash256) {
+func (bo *V2BlockOutline) Complete(cs consensus.State, txns []types.Transaction, v2txns []types.V2Transaction) (PeerBlock, []types.Hash256) {
 	v1hashes := make(map[types.Hash256]*types.Transaction, len(txns))
 	for i := range txns {
 		v1hashes[txns[i].MerkleLeafHash()] = &txns[i]
@@ -77,7 +101,7 @@ func (bo *V2BlockOutline) Complete(cs consensus.State, txns []types.Transaction,
 		MinerPayouts: []types.SiacoinOutput{{Address: bo.MinerAddress, Value: cs.BlockReward()}},
 		V2: &types.V2BlockData{
 			Height:     bo.Height,
-			Commitment: bo.commitment(cs),
+			Commitment: bo.commitment(bo.StateLeafHash),
 		},
 	}
 	for i := range bo.Transactions {
@@ -93,7 +117,10 @@ func (bo *V2BlockOutline) Complete(cs consensus.State, txns []types.Transaction,
 			b.MinerPayouts[0].Value = b.MinerPayouts[0].Value.Add(ptxn.V2Transaction.MinerFee)
 		}
 	}
-	return b, bo.Missing()
+	return PeerBlock{
+		Block:         b,
+		StateLeafHash: bo.StateLeafHash,
+	}, bo.Missing()
 }
 
 // RemoveTransactions removes the specified transactions from the block.
@@ -115,7 +142,7 @@ func (bo *V2BlockOutline) RemoveTransactions(txns []types.Transaction, v2txns []
 
 // OutlineBlock returns a block outline for b that omits the specified
 // transactions.
-func OutlineBlock(b types.Block, txns []types.Transaction, v2txns []types.V2Transaction) V2BlockOutline {
+func OutlineBlock(cs consensus.State, b types.Block, txns []types.Transaction, v2txns []types.V2Transaction) V2BlockOutline {
 	var otxns []OutlineTransaction
 	for i := range b.Transactions {
 		otxns = append(otxns, OutlineTransaction{
@@ -130,12 +157,13 @@ func OutlineBlock(b types.Block, txns []types.Transaction, v2txns []types.V2Tran
 		})
 	}
 	bo := V2BlockOutline{
-		Height:       b.V2.Height,
-		ParentID:     b.ParentID,
-		Nonce:        b.Nonce,
-		Timestamp:    b.Timestamp,
-		MinerAddress: b.MinerPayouts[0].Address,
-		Transactions: otxns,
+		Height:        b.V2.Height,
+		ParentID:      b.ParentID,
+		Nonce:         b.Nonce,
+		Timestamp:     b.Timestamp,
+		MinerAddress:  b.MinerPayouts[0].Address,
+		StateLeafHash: cs.MerkleLeafHash(b.MinerPayouts[0].Address),
+		Transactions:  otxns,
 	}
 	bo.RemoveTransactions(txns, v2txns)
 	return bo
