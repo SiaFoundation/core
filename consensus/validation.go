@@ -11,6 +11,8 @@ import (
 	"go.sia.tech/core/types"
 )
 
+// ErrCommitmentMismatch is returned when a block's commitment hash does not match
+// the current state's commitment hash.
 var ErrCommitmentMismatch = errors.New("commitment hash mismatch")
 
 func validateHeader(s State, parentID types.BlockID, timestamp time.Time, nonce uint64, id types.BlockID) error {
