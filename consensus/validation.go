@@ -11,6 +11,10 @@ import (
 	"go.sia.tech/core/types"
 )
 
+// ErrCommitmentMismatch is returned when a block's commitment hash does not match
+// the current state's commitment hash.
+var ErrCommitmentMismatch = errors.New("commitment hash mismatch")
+
 func validateHeader(s State, parentID types.BlockID, timestamp time.Time, nonce uint64, id types.BlockID) error {
 	if parentID != s.Index.ID {
 		return errors.New("wrong parent ID")
@@ -928,9 +932,8 @@ func ValidateBlock(s State, b types.Block, bs V1BlockSupplement) error {
 		return fmt.Errorf("block supplement is invalid: %w", err)
 	}
 	if b.V2 != nil {
-		if s.childHeight() >= s.Network.HardforkV2.RequireHeight &&
-			b.V2.Commitment != s.Commitment(b.MinerPayouts[0].Address, b.Transactions, b.V2Transactions()) {
-			return errors.New("commitment hash mismatch")
+		if b.V2.Commitment != s.Commitment(b.MinerPayouts[0].Address, b.Transactions, b.V2Transactions()) {
+			return ErrCommitmentMismatch
 		}
 	}
 	ms := NewMidState(s)
