@@ -666,6 +666,7 @@ type V2FileContractElementDiff struct {
 	Resolution types.V2FileContractResolutionType
 }
 
+// MarshalJSON implements json.Marshaler.
 func (diff V2FileContractElementDiff) MarshalJSON() ([]byte, error) {
 	tmp := struct {
 		V2FileContractElement types.V2FileContractElement `json:"v2FileContractElement"`
