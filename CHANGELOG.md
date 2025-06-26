@@ -1,3 +1,10 @@
+## 0.14.1 (2025-06-26)
+
+### Fixes
+
+- Fixed JSON encoding of v2 file contract resolution diff.
+- Return ErrCommitmentMismatch instead of unnamed error
+
 ## 0.14.0 (2025-06-16)
 
 ### Breaking Changes
