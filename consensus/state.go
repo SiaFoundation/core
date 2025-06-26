@@ -3,6 +3,7 @@ package consensus
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"math/bits"
@@ -12,6 +13,12 @@ import (
 
 	"go.sia.tech/core/blake2b"
 	"go.sia.tech/core/types"
+)
+
+const (
+	v2ResolutionRenewal      = "renewal"
+	v2ResolutionStorageProof = "storageProof"
+	v2ResolutionExpiration   = "expiration"
 )
 
 const commitmentDistinguisher = "commitment"
@@ -650,13 +657,100 @@ func (diff FileContractElementDiff) RevisionElement() (types.FileContractElement
 // contract may be both created and revised, or revised and resolved, but not
 // created and resolved.
 type V2FileContractElementDiff struct {
-	V2FileContractElement types.V2FileContractElement `json:"v2FileContractElement"`
-	Created               bool                        `json:"created"`
+	V2FileContractElement types.V2FileContractElement
+	Created               bool
 	// Non-nil if the contract was revised. If the contract was revised multiple
 	// times, this is the revision with the highest revision number.
-	Revision *types.V2FileContract `json:"revision"`
+	Revision *types.V2FileContract
 	// Non-nil if the contract was resolved.
-	Resolution types.V2FileContractResolutionType `json:"resolution"`
+	Resolution types.V2FileContractResolutionType
+}
+
+// MarshalJSON implements json.Marshaler.
+func (diff V2FileContractElementDiff) MarshalJSON() ([]byte, error) {
+	tmp := struct {
+		V2FileContractElement types.V2FileContractElement `json:"v2FileContractElement"`
+		Created               bool                        `json:"created"`
+		Revision              *types.V2FileContract       `json:"revision,omitempty"`
+		Resolution            json.RawMessage             `json:"resolution,omitempty"`
+	}{
+		V2FileContractElement: diff.V2FileContractElement,
+		Created:               diff.Created,
+		Revision:              diff.Revision,
+	}
+	if diff.Resolution == nil {
+		return json.Marshal(tmp)
+	}
+
+	var typ string
+	switch diff.Resolution.(type) {
+	case *types.V2FileContractRenewal:
+		typ = v2ResolutionRenewal
+	case *types.V2StorageProof:
+		typ = v2ResolutionStorageProof
+	case *types.V2FileContractExpiration:
+		typ = v2ResolutionExpiration
+	default:
+		return nil, fmt.Errorf("unknown V2FileContractResolutionType: %T", diff.Resolution)
+	}
+	// marshal the resolution and append the extra "type" field
+	buf, err := json.Marshal(diff.Resolution)
+	if err != nil {
+		return nil, err
+	}
+	if typ == v2ResolutionExpiration {
+		// expiration resolutions are an empty struct
+		tmp.Resolution = json.RawMessage(`{"type":"` + typ + `"}`)
+	} else {
+		typeField := []byte(`,"type":"` + typ + `"}`)
+		tmp.Resolution = json.RawMessage(append(buf[:len(buf)-1], typeField...))
+	}
+	return json.Marshal(tmp)
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (diff *V2FileContractElementDiff) UnmarshalJSON(b []byte) error {
+	var tmp struct {
+		V2FileContractElement types.V2FileContractElement `json:"v2FileContractElement"`
+		Created               bool                        `json:"created"`
+		Revision              *types.V2FileContract       `json:"revision,omitempty"`
+		Resolution            json.RawMessage             `json:"resolution"`
+	}
+	if err := json.Unmarshal(b, &tmp); err != nil {
+		return err
+	}
+
+	diff.V2FileContractElement = tmp.V2FileContractElement
+	diff.Created = tmp.Created
+	diff.Revision = tmp.Revision
+	diff.V2FileContractElement.Move()
+
+	if len(tmp.Resolution) == 0 {
+		return nil
+	}
+
+	var resType struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(tmp.Resolution, &resType); err != nil {
+		return err
+	}
+
+	switch resType.Type {
+	case v2ResolutionRenewal:
+		diff.Resolution = new(types.V2FileContractRenewal)
+	case v2ResolutionStorageProof:
+		diff.Resolution = new(types.V2StorageProof)
+	case v2ResolutionExpiration:
+		diff.Resolution = new(types.V2FileContractExpiration)
+		return nil
+	default:
+		return fmt.Errorf("unknown V2FileContractResolutionType: %s", resType.Type)
+	}
+	if err := json.Unmarshal(tmp.Resolution, diff.Resolution); err != nil {
+		return fmt.Errorf("failed to unmarshal V2FileContractResolutionType %s: %w", resType.Type, err)
+	}
+	return nil
 }
 
 // V2RevisionElement returns the revision, if present, as a
