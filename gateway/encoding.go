@@ -253,6 +253,34 @@ func (r *RPCRelayTransactionSet) decodeRequest(d *types.Decoder) {
 }
 func (r *RPCRelayTransactionSet) maxRequestLen() int { return 5e6 }
 
+// RPCSendHeaders requests a set of block headers.
+type RPCSendHeaders struct {
+	Index     types.ChainIndex
+	Max       uint64
+	Headers   []types.BlockHeader
+	Remaining uint64
+}
+
+func (r *RPCSendHeaders) encodeRequest(e *types.Encoder) {
+	r.Index.EncodeTo(e)
+	e.WriteUint64(r.Max)
+}
+func (r *RPCSendHeaders) decodeRequest(d *types.Decoder) {
+	r.Index.DecodeFrom(d)
+	r.Max = d.ReadUint64()
+}
+func (r *RPCSendHeaders) maxRequestLen() int { return 8 + 32 + 8 }
+
+func (r *RPCSendHeaders) encodeResponse(e *types.Encoder) {
+	types.EncodeSlice(e, r.Headers)
+	e.WriteUint64(r.Remaining)
+}
+func (r *RPCSendHeaders) decodeResponse(d *types.Decoder) {
+	types.DecodeSlice(d, &r.Headers)
+	r.Remaining = d.ReadUint64()
+}
+func (r *RPCSendHeaders) maxResponseLen() int { return 8 + int(r.Max)*(32+8+8+32) + 8 }
+
 // RPCSendV2Blocks requests a set of blocks.
 type RPCSendV2Blocks struct {
 	History   []types.BlockID
@@ -402,6 +430,7 @@ var (
 	idRelayHeader         = types.NewSpecifier("RelayHeader")
 	idRelayTransactionSet = types.NewSpecifier("RelayTransaction")
 	// v2
+	idSendHeaders           = types.NewSpecifier("SendHeaders")
 	idSendV2Blocks          = types.NewSpecifier("SendV2Blocks")
 	idSendTransactions      = types.NewSpecifier("SendTransactions")
 	idSendCheckpoint        = types.NewSpecifier("SendCheckpoint")
@@ -424,6 +453,8 @@ func idForObject(o Object) types.Specifier {
 		return idRelayHeader
 	case *RPCRelayTransactionSet:
 		return idRelayTransactionSet
+	case *RPCSendHeaders:
+		return idSendHeaders
 	case *RPCSendV2Blocks:
 		return idSendV2Blocks
 	case *RPCSendTransactions:
@@ -456,6 +487,8 @@ func ObjectForID(id types.Specifier) Object {
 		return new(RPCRelayHeader)
 	case idRelayTransactionSet:
 		return new(RPCRelayTransactionSet)
+	case idSendHeaders:
+		return new(RPCSendHeaders)
 	case idSendV2Blocks:
 		return new(RPCSendV2Blocks)
 	case idSendTransactions:
