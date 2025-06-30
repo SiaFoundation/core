@@ -887,6 +887,10 @@ func ValidateV2Transaction(ms *MidState, txn types.V2Transaction) error {
 }
 
 func validateSupplement(s State, b types.Block, bs V1BlockSupplement) error {
+	if s.childHeight() >= s.Network.HardforkV2.RequireHeight &&
+		(len(bs.Transactions) != 0 || len(bs.ExpiringFileContracts) != 0) {
+		return errors.New("v1 block supplements are not allowed after v2 hardfork is complete")
+	}
 	if len(bs.Transactions) != len(b.Transactions) {
 		return errors.New("incorrect number of transactions")
 	}
