@@ -1025,7 +1025,7 @@ func TestValidateV2Block(t *testing.T) {
 			corrupt   func(*types.Block)
 		}{
 			{
-				"v1 transactions are not allowed after v2 hardfork",
+				"block supplement is invalid: v1 block supplements are not allowed after v2 hardfork is complete",
 				func(b *types.Block) {
 					b.Transactions = []types.Transaction{{}}
 				},

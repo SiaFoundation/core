@@ -606,6 +606,10 @@ func (ms *MidState) ApplyV2Transaction(txn types.V2Transaction) {
 
 // ApplyBlock applies a block to the MidState.
 func (ms *MidState) ApplyBlock(b types.Block, bs V1BlockSupplement) {
+	if ms.base.childHeight() >= ms.base.Network.HardforkV2.RequireHeight &&
+		(len(bs.Transactions) != 0 || len(bs.ExpiringFileContracts) != 0) {
+		panic("consensus: block supplement must be empty after v2 hardfork")
+	}
 	for i, txn := range b.Transactions {
 		ms.ApplyTransaction(txn, bs.Transactions[i])
 	}
