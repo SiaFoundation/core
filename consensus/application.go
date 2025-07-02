@@ -312,27 +312,27 @@ func adjustDifficulty(s State, blockTimestamp time.Time, targetTimestamp time.Ti
 	return newDifficulty, invTarget(newDifficulty.n)
 }
 
-// ApplyOrphan applies the work of b to s, returning the resulting state. Only
+// ApplyHeader applies the work of bh to s, returning the resulting state. Only
 // the PoW-related fields are updated.
-func ApplyOrphan(s State, b types.Block, targetTimestamp time.Time) State {
-	if s.Index.Height > 0 && s.Index.ID != b.ParentID {
+func ApplyHeader(s State, bh types.BlockHeader, targetTimestamp time.Time) State {
+	if s.Index.Height > 0 && s.Index.ID != bh.ParentID {
 		panic("consensus: cannot apply non-child block")
 	}
 
 	next := s
-	if b.ParentID == (types.BlockID{}) {
+	if bh.ParentID == (types.BlockID{}) {
 		// special handling for genesis block
-		next.OakTime = updateOakTime(s, b.Timestamp, b.Timestamp)
+		next.OakTime = updateOakTime(s, bh.Timestamp, bh.Timestamp)
 		next.OakWork, next.OakTarget = updateOakWork(s)
-		next.Index = types.ChainIndex{Height: 0, ID: b.ID()}
+		next.Index = types.ChainIndex{Height: 0, ID: bh.ID()}
 	} else {
 		next.TotalWork, next.Depth = updateTotalWork(s)
-		next.Difficulty, next.ChildTarget = adjustDifficulty(s, b.Timestamp, targetTimestamp)
-		next.OakTime = updateOakTime(s, b.Timestamp, s.PrevTimestamps[0])
+		next.Difficulty, next.ChildTarget = adjustDifficulty(s, bh.Timestamp, targetTimestamp)
+		next.OakTime = updateOakTime(s, bh.Timestamp, s.PrevTimestamps[0])
 		next.OakWork, next.OakTarget = updateOakWork(s)
-		next.Index = types.ChainIndex{Height: s.Index.Height + 1, ID: b.ID()}
+		next.Index = types.ChainIndex{Height: s.Index.Height + 1, ID: bh.ID()}
 	}
-	next.PrevTimestamps[0] = b.Timestamp
+	next.PrevTimestamps[0] = bh.Timestamp
 	copy(next.PrevTimestamps[1:], s.PrevTimestamps[:])
 	return next
 }
@@ -767,7 +767,7 @@ func ApplyBlock(s State, b types.Block, bs V1BlockSupplement, targetTimestamp ti
 		}
 	})
 	eau := s.Elements.applyBlock(updated, added)
-	s = ApplyOrphan(s, b, targetTimestamp)
+	s = ApplyHeader(s, b.Header(), targetTimestamp)
 	return s, ApplyUpdate{ms.sces, ms.sfes, ms.fces, ms.v2fces, ms.aes, ms.cie, eau}
 }
 

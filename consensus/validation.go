@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math/bits"
-	"time"
 
 	"go.sia.tech/core/blake2b"
 	"go.sia.tech/core/types"
@@ -15,14 +14,15 @@ import (
 // the current state's commitment hash.
 var ErrCommitmentMismatch = errors.New("commitment hash mismatch")
 
-func validateHeader(s State, parentID types.BlockID, timestamp time.Time, nonce uint64, id types.BlockID) error {
-	if parentID != s.Index.ID {
+// ValidateHeader validates bh in the context of s.
+func ValidateHeader(s State, bh types.BlockHeader) error {
+	if bh.ParentID != s.Index.ID {
 		return errors.New("wrong parent ID")
-	} else if timestamp.Before(s.medianTimestamp()) {
+	} else if bh.Timestamp.Before(s.medianTimestamp()) {
 		return errors.New("timestamp too far in the past")
-	} else if nonce%s.NonceFactor() != 0 {
+	} else if bh.Nonce%s.NonceFactor() != 0 {
 		return errors.New("nonce not divisible by required factor")
-	} else if id.CmpWork(s.ChildTarget) < 0 {
+	} else if bh.ID().CmpWork(s.ChildTarget) < 0 {
 		return errors.New("insufficient work")
 	}
 	return nil
@@ -93,7 +93,7 @@ func ValidateOrphan(s State, b types.Block) error {
 		return fmt.Errorf("block exceeds maximum weight (%v > %v)", weight, s.MaxBlockWeight())
 	} else if err := validateMinerPayouts(s, b); err != nil {
 		return err
-	} else if err := validateHeader(s, b.ParentID, b.Timestamp, b.Nonce, b.ID()); err != nil {
+	} else if err := ValidateHeader(s, b.Header()); err != nil {
 		return fmt.Errorf("block has %w", err)
 	}
 	if b.V2 != nil {
