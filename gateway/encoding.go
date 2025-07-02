@@ -176,83 +176,6 @@ func (r *RPCDiscoverIP) encodeResponse(e *types.Encoder) { e.WriteString(r.IP) }
 func (r *RPCDiscoverIP) decodeResponse(d *types.Decoder) { r.IP = d.ReadString() }
 func (r *RPCDiscoverIP) maxResponseLen() int             { return 128 }
 
-// RPCSendBlocks requests a set of blocks.
-type RPCSendBlocks struct {
-	History [32]types.BlockID
-	Blocks  []types.Block
-}
-
-func (r *RPCSendBlocks) encodeRequest(e *types.Encoder) {
-	for i := range r.History {
-		r.History[i].EncodeTo(e)
-	}
-}
-func (r *RPCSendBlocks) decodeRequest(d *types.Decoder) {
-	for i := range r.History {
-		r.History[i].DecodeFrom(d)
-	}
-}
-func (r *RPCSendBlocks) maxRequestLen() int { return 32 * 32 }
-
-func (r *RPCSendBlocks) encodeResponse(e *types.Encoder) {
-	types.EncodeSliceCast[types.V1Block](e, r.Blocks)
-}
-func (r *RPCSendBlocks) decodeResponse(d *types.Decoder) {
-	types.DecodeSliceCast[types.V1Block](d, &r.Blocks)
-}
-func (r *RPCSendBlocks) maxResponseLen() int { return 10 * 5e6 }
-
-// RPCSendBlocksMoreAvailable indicates whether more blocks are available.
-type RPCSendBlocksMoreAvailable struct {
-	emptyRequest
-	MoreAvailable bool
-}
-
-func (r *RPCSendBlocksMoreAvailable) encodeResponse(e *types.Encoder) {
-	e.WriteBool(r.MoreAvailable)
-}
-func (r *RPCSendBlocksMoreAvailable) decodeResponse(d *types.Decoder) {
-	r.MoreAvailable = d.ReadBool()
-}
-func (r *RPCSendBlocksMoreAvailable) maxResponseLen() int { return 1 }
-
-// RPCSendBlk requests a single block.
-type RPCSendBlk struct {
-	ID    types.BlockID
-	Block types.Block
-}
-
-func (r *RPCSendBlk) encodeRequest(e *types.Encoder)  { r.ID.EncodeTo(e) }
-func (r *RPCSendBlk) decodeRequest(d *types.Decoder)  { r.ID.DecodeFrom(d) }
-func (r *RPCSendBlk) maxRequestLen() int              { return 32 }
-func (r *RPCSendBlk) encodeResponse(e *types.Encoder) { (types.V1Block)(r.Block).EncodeTo(e) }
-func (r *RPCSendBlk) decodeResponse(d *types.Decoder) { (*types.V1Block)(&r.Block).DecodeFrom(d) }
-func (r *RPCSendBlk) maxResponseLen() int             { return 5e6 }
-
-// RPCRelayHeader relays a header.
-type RPCRelayHeader struct {
-	Header types.BlockHeader
-	emptyResponse
-}
-
-func (r *RPCRelayHeader) encodeRequest(e *types.Encoder) { r.Header.EncodeTo(e) }
-func (r *RPCRelayHeader) decodeRequest(d *types.Decoder) { r.Header.DecodeFrom(d) }
-func (r *RPCRelayHeader) maxRequestLen() int             { return 32 + 8 + 8 + 32 }
-
-// RPCRelayTransactionSet relays a transaction set.
-type RPCRelayTransactionSet struct {
-	Transactions []types.Transaction
-	emptyResponse
-}
-
-func (r *RPCRelayTransactionSet) encodeRequest(e *types.Encoder) {
-	types.EncodeSlice(e, r.Transactions)
-}
-func (r *RPCRelayTransactionSet) decodeRequest(d *types.Decoder) {
-	types.DecodeSlice(d, &r.Transactions)
-}
-func (r *RPCRelayTransactionSet) maxRequestLen() int { return 5e6 }
-
 // RPCSendHeaders requests a set of block headers.
 type RPCSendHeaders struct {
 	Index     types.ChainIndex
@@ -397,38 +320,10 @@ func (r *RPCRelayV2TransactionSet) decodeRequest(d *types.Decoder) {
 }
 func (r *RPCRelayV2TransactionSet) maxRequestLen() int { return 5e6 }
 
-type v1RPCID types.Specifier
-
-func (id *v1RPCID) encodeTo(e *types.Encoder) { e.Write(id[:8]) }
-func (id *v1RPCID) decodeFrom(d *types.Decoder) {
-	var shortID [8]byte
-	d.Read(shortID[:])
-	switch string(shortID[:]) {
-	case "ShareNod":
-		*id = v1RPCID(idShareNodes)
-	case "Discover":
-		*id = v1RPCID(idDiscoverIP)
-	case "SendBloc":
-		*id = v1RPCID(idSendBlocks)
-	case "SendBlk\x00":
-		*id = v1RPCID(idSendBlk)
-	case "RelayHea":
-		*id = v1RPCID(idRelayHeader)
-	case "RelayTra":
-		*id = v1RPCID(idRelayTransactionSet)
-	default:
-		copy(id[:], shortID[:])
-	}
-}
-
 var (
 	// v1
-	idShareNodes          = types.NewSpecifier("ShareNodes")
-	idDiscoverIP          = types.NewSpecifier("DiscoverIP")
-	idSendBlocks          = types.NewSpecifier("SendBlocks")
-	idSendBlk             = types.NewSpecifier("SendBlk")
-	idRelayHeader         = types.NewSpecifier("RelayHeader")
-	idRelayTransactionSet = types.NewSpecifier("RelayTransaction")
+	idShareNodes = types.NewSpecifier("ShareNodes")
+	idDiscoverIP = types.NewSpecifier("DiscoverIP")
 	// v2
 	idSendHeaders           = types.NewSpecifier("SendHeaders")
 	idSendV2Blocks          = types.NewSpecifier("SendV2Blocks")
@@ -445,14 +340,6 @@ func idForObject(o Object) types.Specifier {
 		return idShareNodes
 	case *RPCDiscoverIP:
 		return idDiscoverIP
-	case *RPCSendBlocks:
-		return idSendBlocks
-	case *RPCSendBlk:
-		return idSendBlk
-	case *RPCRelayHeader:
-		return idRelayHeader
-	case *RPCRelayTransactionSet:
-		return idRelayTransactionSet
 	case *RPCSendHeaders:
 		return idSendHeaders
 	case *RPCSendV2Blocks:
@@ -479,14 +366,6 @@ func ObjectForID(id types.Specifier) Object {
 		return new(RPCShareNodes)
 	case idDiscoverIP:
 		return new(RPCDiscoverIP)
-	case idSendBlocks:
-		return new(RPCSendBlocks)
-	case idSendBlk:
-		return new(RPCSendBlk)
-	case idRelayHeader:
-		return new(RPCRelayHeader)
-	case idRelayTransactionSet:
-		return new(RPCRelayTransactionSet)
 	case idSendHeaders:
 		return new(RPCSendHeaders)
 	case idSendV2Blocks:
