@@ -38,6 +38,7 @@ func testnet() (*Network, types.Block) {
 	n.HardforkFoundation.FailsafeAddress = types.VoidAddress
 	n.HardforkV2.AllowHeight = 1000
 	n.HardforkV2.RequireHeight = 2000
+	n.HardforkV2.FinalCutHeight = 3000
 	b := types.Block{Timestamp: n.HardforkOak.GenesisTimestamp}
 	return n, b
 }
