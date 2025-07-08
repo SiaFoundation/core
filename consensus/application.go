@@ -73,6 +73,9 @@ func (w Work) add(v Work) Work {
 		vi := binary.BigEndian.Uint64(v.n[i:])
 		sum, c = bits.Add64(wi, vi, c)
 		binary.BigEndian.PutUint64(r.n[i:], sum)
+		if c > 0 && i == 0 {
+			panic("Work.add: overflow")
+		}
 	}
 	return r
 }
@@ -85,6 +88,9 @@ func (w Work) sub(v Work) Work {
 		vi := binary.BigEndian.Uint64(v.n[i:])
 		sum, c = bits.Sub64(wi, vi, c)
 		binary.BigEndian.PutUint64(r.n[i:], sum)
+		if c > 0 && i == 0 {
+			panic("Work.sub: underflow")
+		}
 	}
 	return r
 }
@@ -98,11 +104,17 @@ func (w Work) mul64(v uint64) Work {
 		prod, cc := bits.Add64(prod, c, 0)
 		c = hi + cc
 		binary.BigEndian.PutUint64(r.n[i:], prod)
+		if c > 0 && i == 0 {
+			panic("Work.mul64: overflow")
+		}
 	}
 	return r
 }
 
 func (w Work) div64(v uint64) Work {
+	if v == 0 {
+		panic("Work.div64: division by zero")
+	}
 	var r Work
 	var quo, rem uint64
 	for i := 0; i < len(w.n); i += 8 {
@@ -112,6 +124,22 @@ func (w Work) div64(v uint64) Work {
 	}
 	return r
 }
+
+func (w Work) min(v Work) Work {
+	if w.Cmp(v) < 0 {
+		return w
+	}
+	return v
+}
+
+func (w Work) max(v Work) Work {
+	if w.Cmp(v) > 0 {
+		return w
+	}
+	return v
+}
+
+var oneWork = Work{[32]byte{31: 1}}
 
 // prior to v2, work is represented in terms of "target" hashes, i.e. the inverse of Work
 
@@ -262,54 +290,80 @@ func adjustTarget(s State, blockTimestamp time.Time, targetTimestamp time.Time) 
 	return newTarget
 }
 
-func adjustDifficulty(s State, blockTimestamp time.Time, targetTimestamp time.Time) (Work, types.BlockID) {
-	// prior to the hardfork, we compute the work from the target; after the
-	// hardfork, we do the opposite
-	if s.childHeight() < s.Network.HardforkV2.AllowHeight {
-		target := adjustTarget(s, blockTimestamp, targetTimestamp)
-		return Work{invTarget(target)}, target
-	}
-
+func adjustDifficultyV2(s State, blockTimestamp time.Time) Work {
 	expectedTime := s.BlockInterval() * time.Duration(s.childHeight())
 	actualTime := blockTimestamp.Sub(s.Network.HardforkOak.GenesisTimestamp)
 	delta := expectedTime - actualTime
-	// square the delta, scaling such that a delta of 10,000 produces a shift of
-	// 10 seconds,
 	shift := 10 * (delta / 10000) * (delta / 10000)
-	// preserve sign
 	if delta < 0 {
 		shift = -shift
 	}
-
-	// calculate the new target block time, clamped to a factor of 3
 	targetBlockTime := s.BlockInterval() + shift
 	if minTime := s.BlockInterval() / 3; targetBlockTime < minTime {
 		targetBlockTime = minTime
 	} else if maxTime := s.BlockInterval() * 3; targetBlockTime > maxTime {
 		targetBlockTime = maxTime
 	}
-
-	// estimate current hashrate
-	//
-	// NOTE: to prevent overflow/truncation, we operate in terms of seconds
 	if s.OakTime <= time.Second {
 		s.OakTime = time.Second
 	}
 	estimatedHashrate := s.OakWork.div64(uint64(s.OakTime / time.Second))
-
-	// multiply the hashrate by the target block time; this is the expected
-	// number of hashes required to produce the next block, i.e. the new
-	// difficulty
 	newDifficulty := estimatedHashrate.mul64(uint64(targetBlockTime / time.Second))
-
-	// clamp the adjustment to 0.4%
 	maxAdjust := s.Difficulty.div64(250)
 	if minDifficulty := s.Difficulty.sub(maxAdjust); newDifficulty.Cmp(minDifficulty) < 0 {
 		newDifficulty = minDifficulty
 	} else if maxDifficulty := s.Difficulty.add(maxAdjust); newDifficulty.Cmp(maxDifficulty) > 0 {
 		newDifficulty = maxDifficulty
 	}
-	return newDifficulty, invTarget(newDifficulty.n)
+	return newDifficulty
+}
+
+func adjustDifficultyFinalCut(s State, blockTimestamp time.Time) Work {
+	// calculate the drift from the expected block timestamp, and scale it such
+	// that a difference of 10,000 seconds shifts the target block interval by
+	// 10 seconds
+	expectedDuration := s.BlockInterval() * time.Duration(s.childHeight())
+	actualDuration := blockTimestamp.Sub(s.Network.HardforkOak.GenesisTimestamp)
+	shift := (expectedDuration - actualDuration) / 1000
+
+	// calculate the target block interval, clamped to a factor of 3
+	targetInterval := s.BlockInterval() + shift
+	targetInterval = min(targetInterval, s.BlockInterval()*3)
+	targetInterval = max(targetInterval, s.BlockInterval()/3)
+
+	// Determine the new difficulty by multiplying the estimated hashrate by the
+	// shifted block interval. This is equivalent to:
+	//
+	//   estimatedHashrate := s.OakWork / s.OakTime
+	//   newDifficulty := estimatedHashrate * targetInterval
+	//
+	// but we reorder things to prevent truncation.
+	newDifficulty := s.OakWork.
+		mul64(uint64(targetInterval)).
+		add(oneWork.mul64(uint64(s.OakTime / 2))). // ensure symmetry around zero
+		div64(uint64(max(s.OakTime, 1)))           // prevent division by zero
+
+	// clamp the adjustment to 0.4% (but at least 1, so that we always make
+	// progress)
+	maxAdjust := s.Difficulty.div64(250).max(oneWork)
+	newDifficulty = newDifficulty.min(s.Difficulty.add(maxAdjust))
+	newDifficulty = newDifficulty.max(s.Difficulty.sub(maxAdjust))
+
+	return newDifficulty.max(oneWork) // difficulty cannot be 0
+}
+
+func adjustDifficulty(s State, blockTimestamp time.Time, targetTimestamp time.Time) (Work, types.BlockID) {
+	switch {
+	case s.childHeight() < s.Network.HardforkV2.AllowHeight:
+		target := adjustTarget(s, blockTimestamp, targetTimestamp)
+		return Work{invTarget(target)}, target
+	case s.childHeight() < s.Network.HardforkV2.FinalCutHeight:
+		difficulty := adjustDifficultyV2(s, blockTimestamp)
+		return difficulty, invTarget(difficulty.n)
+	default:
+		difficulty := adjustDifficultyFinalCut(s, blockTimestamp)
+		return difficulty, invTarget(difficulty.n)
+	}
 }
 
 // ApplyHeader applies the work of bh to s, returning the resulting state. Only

@@ -1410,3 +1410,76 @@ func TestFoundationSubsidy(t *testing.T) {
 		t.Fatal("expected subsidy")
 	}
 }
+
+func TestAdjustDifficulty(t *testing.T) {
+	n, _ := testnet()
+	n.BlockInterval = 10 * time.Minute
+	cs := n.GenesisState()
+	cs.Index.Height = n.HardforkV2.FinalCutHeight
+	cs.Difficulty.UnmarshalText([]byte("18000000000"))
+	cs.ChildTarget = invTarget(cs.Difficulty.n)
+	cs.OakTime = n.BlockInterval
+	cs.OakWork = cs.Difficulty
+	cs.OakTarget = invTarget(cs.OakWork.n)
+
+	maxAdjust := cs.Difficulty.div64(250)
+
+	adjustments := func(d time.Duration) (Work, Work) {
+		exp := n.HardforkOak.GenesisTimestamp.Add(time.Duration(cs.childHeight()) * n.BlockInterval)
+		difficulty := adjustDifficultyFinalCut(cs, exp.Add(d))
+		cs := cs
+		cs.PrevTimestamps[0] = exp.Add(d - n.BlockInterval)
+		return difficulty, Work{invTarget(adjustTarget(cs, time.Time{}, time.Time{}))}
+	}
+
+	t.Run("no adjustment", func(t *testing.T) {
+		d1, d2 := adjustments(0)
+		if d1 != cs.Difficulty {
+			t.Errorf("Expected no adjustment (%v), got %v", cs.Difficulty, d1)
+		}
+		if d1 != d2 {
+			t.Errorf("Algorithms differ: %v != %v", d1, d2)
+		}
+	})
+
+	t.Run("maximum increase", func(t *testing.T) {
+		d1, d2 := adjustments(-10000 * time.Second)
+		if exp := cs.Difficulty.add(maxAdjust); d1 != exp {
+			t.Errorf("Expected maximum increase (%v), got %v", exp, d1)
+		}
+		if d1 != d2 {
+			t.Errorf("Algorithms differ: %v != %v", d1, d2)
+		}
+	})
+
+	t.Run("maximum decrease", func(t *testing.T) {
+		d1, d2 := adjustments(10000 * time.Second)
+		if exp := cs.Difficulty.sub(maxAdjust); d1 != exp {
+			t.Errorf("Expected maximum decrease (%v), got %v", exp, d1)
+		}
+		// old algorithm is slightly different: it divides by 1.004 instead of multiplying by 0.996
+		if exp := (Work{invTarget(mulTargetFrac(cs.ChildTarget, 1004, 1000))}); d2 != exp {
+			t.Errorf("Expected maximum decrease (%v), got %v", exp, d2)
+		}
+	})
+
+	t.Run("normal adjustments", func(t *testing.T) {
+		// a range of adjustments between -0.4% and +0.4%
+		maxDelta := (n.BlockInterval / 250) * 1000
+		for i := range 19 {
+			delta := (maxDelta / 10) * time.Duration(i-9)
+			d1, d2 := adjustments(delta)
+			if d1.Cmp(cs.Difficulty.sub(maxAdjust)) <= 0 {
+				t.Errorf("Expected adjustment for %v to be greater than minimum: %v <= %v", delta, d1, cs.Difficulty.sub(maxAdjust))
+			} else if d1.Cmp(cs.Difficulty.add(maxAdjust)) >= 0 {
+				t.Errorf("Expected adjustment for %v to be less than maximum: %v >= %v", delta, d1, cs.Difficulty.add(maxAdjust))
+			} else {
+				t.Logf("Adjustment for %v: %v", delta, d1)
+			}
+			maxDiff := d2.div64(100)
+			if d1.Cmp(d2.sub(maxDiff)) < 0 || d1.Cmp(d2.add(maxDiff)) > 0 {
+				t.Errorf("Expected adjustment to be within 1%% of old adjustment: %v vs %v", d1, d2)
+			}
+		}
+	})
+}
