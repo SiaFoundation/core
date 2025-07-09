@@ -388,6 +388,12 @@ func ApplyHeader(s State, bh types.BlockHeader, targetTimestamp time.Time) State
 	}
 	next.PrevTimestamps[0] = bh.Timestamp
 	copy(next.PrevTimestamps[1:], s.PrevTimestamps[:])
+
+	// zero out deprecated fields
+	if next.Index.Height >= next.Network.HardforkV2.FinalCutHeight {
+		next.Depth, next.ChildTarget, next.OakTarget = types.BlockID{}, types.BlockID{}, types.BlockID{}
+	}
+
 	return next
 }
 

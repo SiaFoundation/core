@@ -22,7 +22,7 @@ func ValidateHeader(s State, bh types.BlockHeader) error {
 		return errors.New("timestamp too far in the past")
 	} else if bh.Nonce%s.NonceFactor() != 0 {
 		return errors.New("nonce not divisible by required factor")
-	} else if bh.ID().CmpWork(s.ChildTarget) < 0 {
+	} else if bh.ID().CmpWork(s.PoWTarget()) < 0 {
 		return errors.New("insufficient work")
 	}
 	return nil

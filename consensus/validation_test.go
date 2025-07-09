@@ -211,7 +211,7 @@ func findBlockNonce(cs State, b *types.Block) {
 	for b.Nonce%cs.NonceFactor() != 0 {
 		b.Nonce++
 	}
-	for b.ID().CmpWork(cs.ChildTarget) < 0 {
+	for b.ID().CmpWork(cs.PoWTarget()) < 0 {
 		b.Nonce += cs.NonceFactor()
 	}
 }
