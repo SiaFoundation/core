@@ -123,13 +123,13 @@ type State struct {
 
 	Index             types.ChainIndex `json:"index"`
 	PrevTimestamps    [11]time.Time    `json:"prevTimestamps"` // newest -> oldest
-	Depth             types.BlockID    `json:"depth"`
-	ChildTarget       types.BlockID    `json:"childTarget"`
+	Depth             types.BlockID    `json:"depth"`          // DEPRECATED: use TotalWork
+	ChildTarget       types.BlockID    `json:"childTarget"`    // DEPRECATED: use PoWTarget or Difficulty
 	SiafundTaxRevenue types.Currency   `json:"siafundTaxRevenue"`
 
 	// Oak hardfork state
 	OakTime   time.Duration `json:"oakTime"`
-	OakTarget types.BlockID `json:"oakTarget"`
+	OakTarget types.BlockID `json:"oakTarget"` // DEPRECATED: use OakWork
 	// Foundation hardfork state
 	FoundationSubsidyAddress    types.Address `json:"foundationSubsidyAddress"`
 	FoundationManagementAddress types.Address `json:"foundationManagementAddress"`
@@ -247,6 +247,14 @@ func (s State) BlockReward() types.Currency {
 		return s.Network.MinimumCoinbase
 	}
 	return r
+}
+
+// PoWTarget returns the proof-of-work target for the child block.
+func (s State) PoWTarget() types.BlockID {
+	if s.childHeight() < s.Network.HardforkV2.FinalCutHeight {
+		return s.ChildTarget
+	}
+	return invTarget(s.Difficulty.n)
 }
 
 // MaturityHeight is the height at which various outputs created in the child
