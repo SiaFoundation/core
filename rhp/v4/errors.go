@@ -35,6 +35,9 @@ var (
 	ErrHostFundError = NewRPCError(ErrorCodeHostError, "host funding error")
 	// ErrSectorNotFound is returned when the host is not storing a sector.
 	ErrSectorNotFound = NewRPCError(ErrorCodeHostError, "sector not found")
+	// ErrNotAcceptingContracts is returned when the host is not accepting
+	// contracts.
+	ErrNotAcceptingContracts = NewRPCError(ErrorCodeHostError, "not accepting contracts")
 	// ErrNotEnoughStorage is returned when the host does not have enough
 	// storage to store a sector.
 	ErrNotEnoughStorage = NewRPCError(ErrorCodeHostError, "not enough storage")
@@ -45,8 +48,15 @@ var (
 )
 
 // Error implements error.
-func (e RPCError) Error() string {
+func (e *RPCError) Error() string {
 	return fmt.Sprintf("%v (%v)", e.Description, e.Code)
+}
+
+// Is returns true if the target is an RPCError and its
+// code and description match the receiver's.
+func (e *RPCError) Is(target error) bool {
+	re, ok := target.(*RPCError)
+	return ok && e.Code == re.Code && e.Description == re.Description
 }
 
 // NewRPCError returns a new RPCError with the given code and description.
