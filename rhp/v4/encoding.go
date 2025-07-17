@@ -6,6 +6,16 @@ import (
 	"go.sia.tech/core/types"
 )
 
+func (h *RPCHeader) encodeTo(e *types.Encoder) {
+	e.Write(h.ID[:])
+	e.WriteUint8(h.Version)
+}
+
+func (h *RPCHeader) decodeFrom(d *types.Decoder) {
+	d.Read(h.ID[:])
+	h.Version = d.ReadUint8()
+}
+
 // EncodeTo implements types.EncoderTo.
 func (ad AccountDeposit) EncodeTo(e *types.Encoder) {
 	ad.Account.EncodeTo(e)
