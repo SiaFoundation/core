@@ -1,3 +1,9 @@
+## 0.14.3 (2025-07-17)
+
+### Features
+
+- Fixed issues comparing RPCErrors.
+
 ## 0.14.2 (2025-07-07)
 
 ### Features
