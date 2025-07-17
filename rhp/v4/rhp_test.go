@@ -174,7 +174,7 @@ func TestRenewalCost(t *testing.T) {
 	}
 }
 
-func TestRefreshCost(t *testing.T) {
+func TestRefreshFullRolloverCost(t *testing.T) {
 	const initialProofHeight = 1000
 
 	cs := consensus.State{}
@@ -256,11 +256,134 @@ func TestRefreshCost(t *testing.T) {
 			}
 			tc.Modify(&contract)
 
-			refresh, _ := RefreshContract(contract, prices, params)
+			refresh, _ := RefreshContractFullRollover(contract, prices, params)
 			tax := cs.V2FileContractTax(refresh.NewContract)
 			renter, host := RefreshCost(cs, prices, refresh, minerFee)
 			if !renter.Equals(renterCost.Add(tax).Add(minerFee)) {
 				t.Errorf("expected renter cost %v, got %v", renterCost, renter.Sub(tax).Sub(minerFee))
+			} else if !host.Equals(hostCost) {
+				t.Errorf("expected host cost %v, got %v", hostCost, host)
+			}
+
+			contractTotal := refresh.NewContract.HostOutput.Value.Add(refresh.NewContract.RenterOutput.Value)
+			totalCost := renter.Add(host).Add(refresh.HostRollover).Add(refresh.RenterRollover).Sub(tax).Sub(minerFee)
+
+			switch {
+			case !contractTotal.Equals(totalCost):
+				t.Fatalf("expected contract sum %v, got %v", contractTotal, totalCost)
+			case contract.Filesize != refresh.NewContract.Filesize:
+				t.Fatalf("expected contract size %d, got %d", contract.Filesize, refresh.NewContract.Filesize)
+			case contract.Capacity != refresh.NewContract.Capacity:
+				t.Fatalf("expected contract capacity %d, got %d", contract.Capacity, refresh.NewContract.Capacity)
+			}
+		})
+	}
+}
+
+func TestRefreshPartialRolloverCost(t *testing.T) {
+	const initialProofHeight = 1000
+
+	cs := consensus.State{}
+	prices := HostPrices{
+		ContractPrice:   types.NewCurrency64(100),
+		Collateral:      types.NewCurrency64(200),
+		StoragePrice:    types.NewCurrency64(300),
+		IngressPrice:    types.NewCurrency64(400),
+		EgressPrice:     types.NewCurrency64(500),
+		FreeSectorPrice: types.NewCurrency64(600),
+	}
+	renterKey, hostKey := types.GeneratePrivateKey().PublicKey(), types.GeneratePrivateKey().PublicKey()
+	minerFee := types.NewCurrency64(frand.Uint64n(math.MaxUint64))
+
+	// the actual cost to the renter and host should always be the additional allowance and collateral
+	// on top of the existing contract costs
+	additionalAllowance, additionalCollateral := types.Siacoins(20), types.Siacoins(10)
+	hostCost := additionalCollateral
+
+	type testCase struct {
+		Description string
+		Modify      func(*types.V2FileContract)
+		RenterCost  types.Currency
+	}
+
+	cases := []testCase{
+		{
+			Description: "no storage",
+			Modify:      func(rev *types.V2FileContract) {},
+			RenterCost:  prices.ContractPrice,
+		},
+		{
+			Description: "no storage - no renter rollover",
+			Modify: func(rev *types.V2FileContract) {
+				// transfer all of the renter funds to the host so the renter rolls over nothing
+				rev.HostOutput.Value, rev.RenterOutput.Value = rev.HostOutput.Value.Add(rev.RenterOutput.Value), types.ZeroCurrency
+			},
+			RenterCost: prices.ContractPrice.Add(additionalAllowance), // the renter will need to fund the entire allowance
+		},
+		{
+			Description: "partial renter rollover",
+			Modify: func(rev *types.V2FileContract) {
+				// transfer all but half the additional allowance to the host so the renter
+				// will fund the difference
+				transfer := rev.RenterOutput.Value.Sub(additionalAllowance.Div64(2))
+				rev.HostOutput.Value, rev.RenterOutput.Value = rev.HostOutput.Value.Add(transfer), rev.RenterOutput.Value.Sub(transfer)
+			},
+			RenterCost: prices.ContractPrice.Add(additionalAllowance.Div64(2)), // the renter will need to fund half the allowance
+		},
+		{
+			Description: "renewed storage",
+			Modify: func(rev *types.V2FileContract) {
+				// add storage
+				rev.Capacity = SectorSize
+				rev.Filesize = SectorSize
+			},
+			RenterCost: prices.ContractPrice, // existing allowance should cover
+		},
+		{
+			Description: "renewed storage - greater capacity",
+			Modify: func(rev *types.V2FileContract) {
+				// add storage
+				rev.Capacity = SectorSize * 4
+				rev.Filesize = SectorSize
+			},
+			RenterCost: prices.ContractPrice, // existing allowance should cover
+		},
+		{
+			Description: "renewed storage - no renter rollover",
+			Modify: func(rev *types.V2FileContract) {
+				// add storage
+				rev.Capacity = SectorSize
+				rev.Filesize = SectorSize
+				// transfer all the renter funds to the host
+				rev.HostOutput.Value, rev.RenterOutput.Value = rev.HostOutput.Value.Add(rev.RenterOutput.Value), types.ZeroCurrency
+			},
+			RenterCost: prices.ContractPrice.Add(additionalAllowance), // the renter will need to put up the entire allowance
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.Description, func(t *testing.T) {
+			contract, _ := NewContract(prices, RPCFormContractParams{
+				RenterPublicKey: renterKey,
+				RenterAddress:   types.StandardAddress(renterKey),
+				Allowance:       types.Siacoins(300),
+				Collateral:      types.Siacoins(400),
+				ProofHeight:     initialProofHeight,
+			}, hostKey, types.StandardAddress(hostKey))
+
+			params := RPCRefreshContractParams{
+				Allowance:  additionalAllowance,
+				Collateral: additionalCollateral,
+			}
+			t.Log(additionalAllowance.String())
+			tc.Modify(&contract)
+			t.Log(contract.RenterOutput.Value.String())
+
+			refresh, _ := RefreshContractPartialRollover(contract, prices, params)
+			tax := cs.V2FileContractTax(refresh.NewContract)
+			renter, host := RefreshCost(cs, prices, refresh, minerFee)
+			if !renter.Equals(tc.RenterCost.Add(tax).Add(minerFee)) {
+				t.Errorf("expected renter cost %v, got %v", tc.RenterCost, renter.Sub(tax).Sub(minerFee))
 			} else if !host.Equals(hostCost) {
 				t.Errorf("expected host cost %v, got %v", hostCost, host)
 			}

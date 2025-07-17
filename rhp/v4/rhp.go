@@ -862,8 +862,49 @@ func RenewContract(fc types.V2FileContract, prices HostPrices, rp RPCRenewContra
 	}
 }
 
-// RefreshContract creates a contract renewal for the refresh RPC.
-func RefreshContract(fc types.V2FileContract, prices HostPrices, rp RPCRefreshContractParams) (types.V2FileContractRenewal, Usage) {
+// RefreshContractPartialRollover creates a contract renewal for the refresh RPC v1.
+func RefreshContractPartialRollover(fc types.V2FileContract, prices HostPrices, rp RPCRefreshContractParams) (types.V2FileContractRenewal, Usage) {
+	var renewal types.V2FileContractRenewal
+	renewal.FinalRenterOutput = fc.RenterOutput
+	renewal.FinalHostOutput = fc.HostOutput
+
+	// create the new contract
+	renewal.NewContract = fc
+	renewal.NewContract.RevisionNumber = 0
+	renewal.NewContract.RenterSignature = types.Signature{}
+	renewal.NewContract.HostSignature = types.Signature{}
+	// the renter output value only needs to cover the new allowance
+	renewal.NewContract.RenterOutput.Value = rp.Allowance
+	// add the additional collateral
+	renewal.NewContract.HostOutput.Value = fc.HostOutput.Value.Add(rp.Collateral).Add(prices.ContractPrice)
+	renewal.NewContract.MissedHostValue = fc.MissedHostValue.Add(rp.Collateral)
+	// total collateral includes the additional requested collateral
+	renewal.NewContract.TotalCollateral = fc.TotalCollateral.Add(rp.Collateral)
+
+	// rollover the collateral and revenue from the existing contract.
+	// The host must roll everything into the new contract to ensure the
+	// existing data and revenue are still covered by collateral.
+	renewal.FinalHostOutput.Value = types.ZeroCurrency
+	renewal.HostRollover = fc.HostOutput.Value
+
+	// if the remaining renter output is greater than the required allowance,
+	// only roll over the new allowance. Otherwise, roll over the remaining
+	// allowance. The renter will need to fund the difference.
+	if fc.RenterOutput.Value.Cmp(rp.Allowance) > 0 {
+		renewal.RenterRollover = rp.Allowance
+	} else {
+		renewal.RenterRollover = fc.RenterOutput.Value
+	}
+	renewal.FinalRenterOutput.Value = renewal.FinalRenterOutput.Value.Sub(renewal.RenterRollover)
+	return renewal, Usage{
+		// Refresh usage is only the contract price since duration is not increased
+		RPC:              prices.ContractPrice,
+		RiskedCollateral: renewal.NewContract.TotalCollateral.Sub(renewal.NewContract.MissedHostValue),
+	}
+}
+
+// RefreshContractFullRollover creates a contract renewal for the refresh RPC v0.
+func RefreshContractFullRollover(fc types.V2FileContract, prices HostPrices, rp RPCRefreshContractParams) (types.V2FileContractRenewal, Usage) {
 	var renewal types.V2FileContractRenewal
 	// roll over everything from the existing contract
 	renewal.FinalRenterOutput = fc.RenterOutput
