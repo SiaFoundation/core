@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"strconv"
 	"time"
 
 	"go.sia.tech/core/consensus"
@@ -36,25 +37,50 @@ const (
 	SectorSize = 1 << 22 // 4 MiB
 )
 
+// An RPCSpecifier uniquely identifies an RPC.
+type RPCSpecifier types.Specifier
+
+// String implements fmt.Stringer.
+func (rs RPCSpecifier) String() string {
+	b := string(bytes.TrimRight(rs[:15], "\x00"))
+	for _, c := range b {
+		if !(('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z') || ('0' <= c && c <= '9')) {
+			return strconv.Quote(b)
+		}
+	}
+	return fmt.Sprintf("%s.%d", b, rs[15])
+}
+
+func rpcSpecifier(name string, version uint8) (s RPCSpecifier) {
+	// last byte is the version, ensure the name is at most 15 bytes
+	if len(name) > len(s)-1 {
+		panic(fmt.Sprintf("ID too long: len(%q) > 15", name))
+	}
+	copy(s[:15], name)
+	s[15] = version
+	return
+}
+
 // RPC identifiers.
 var (
-	RPCAccountBalanceID    = types.NewSpecifier("AccountBalance")
-	RPCFundAccountsID      = types.NewSpecifier("FundAccounts")
-	RPCReplenishAccountsID = types.NewSpecifier("ReplAccounts")
+	RPCAccountBalanceID    = rpcSpecifier("AccountBalance", 0)
+	RPCFundAccountsID      = rpcSpecifier("FundAccounts", 0)
+	RPCReplenishAccountsID = rpcSpecifier("ReplAccounts", 0)
 
-	RPCAppendSectorsID = types.NewSpecifier("AppendSectors")
-	RPCFreeSectorsID   = types.NewSpecifier("FreeSectors")
-	RPCSectorRootsID   = types.NewSpecifier("SectorRoots")
+	RPCAppendSectorsID = rpcSpecifier("AppendSectors", 0)
+	RPCFreeSectorsID   = rpcSpecifier("FreeSectors", 0)
+	RPCSectorRootsID   = rpcSpecifier("SectorRoots", 0)
 
-	RPCFormContractID    = types.NewSpecifier("FormContract")
-	RPCLatestRevisionID  = types.NewSpecifier("LatestRevision")
-	RPCRefreshContractID = types.NewSpecifier("RefreshContract")
-	RPCRenewContractID   = types.NewSpecifier("RenewContract")
+	RPCFormContractID        = rpcSpecifier("FormContract", 0)
+	RPCLatestRevisionID      = rpcSpecifier("LatestRevision", 0)
+	RPCRefreshContractID     = rpcSpecifier("RefreshContract", 0)
+	RPCRefreshContractRev1ID = rpcSpecifier("RefreshContract", 1)
+	RPCRenewContractID       = rpcSpecifier("RenewContract", 0)
 
-	RPCReadSectorID   = types.NewSpecifier("ReadSector")
-	RPCWriteSectorID  = types.NewSpecifier("WriteSector")
-	RPCVerifySectorID = types.NewSpecifier("VerifySector")
-	RPCSettingsID     = types.NewSpecifier("Settings")
+	RPCReadSectorID   = rpcSpecifier("ReadSector", 0)
+	RPCWriteSectorID  = rpcSpecifier("WriteSector", 0)
+	RPCVerifySectorID = rpcSpecifier("VerifySector", 0)
+	RPCSettingsID     = rpcSpecifier("Settings", 0)
 )
 
 func round4KiB(n uint64) uint64 {

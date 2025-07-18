@@ -18,16 +18,16 @@ func withDecoder(r io.Reader, maxLen int, fn func(*types.Decoder)) error {
 	return d.Err()
 }
 
-// ReadID reads an RPC ID from the stream.
-func ReadID(r io.Reader) (id types.Specifier, err error) {
-	err = withDecoder(r, 16, id.DecodeFrom)
+// ReadID reads an RPC header from the stream.
+func ReadID(r io.Reader) (id RPCSpecifier, err error) {
+	err = withDecoder(r, 16, (*types.Specifier)(&id).DecodeFrom)
 	return
 }
 
 // WriteRequest writes a request to the stream.
-func WriteRequest(w io.Writer, id types.Specifier, o Object) error {
+func WriteRequest(w io.Writer, id RPCSpecifier, o Object) error {
 	return withEncoder(w, func(e *types.Encoder) {
-		id.EncodeTo(e)
+		types.Specifier(id).EncodeTo(e)
 		if o == nil {
 			return
 		}
