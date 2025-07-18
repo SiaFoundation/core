@@ -38,55 +38,50 @@ const (
 )
 
 // An RPCSpecifier uniquely identifies an RPC.
-type RPCSpecifier [15]byte
-
-// An RPCHeader pairs an RPC's specifier with a version number.
-type RPCHeader struct {
-	ID      RPCSpecifier
-	Version uint8
-}
+type RPCSpecifier types.Specifier
 
 // String implements fmt.Stringer.
-func (rh RPCHeader) String() string {
-	b := string(bytes.TrimRight(rh.ID[:], "\x00"))
+func (rs RPCSpecifier) String() string {
+	b := string(bytes.TrimRight(rs[:15], "\x00"))
 	for _, c := range b {
 		if !(('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z') || ('0' <= c && c <= '9')) {
 			return strconv.Quote(b)
 		}
 	}
-	return fmt.Sprintf("%s.%d", b, rh.Version)
+	return fmt.Sprintf("%s.%d", b, rs[15])
+}
+
+func rpcSpecifier(name string, version uint8) (s RPCSpecifier) {
+	// last byte is the version, ensure the name is at most 15 bytes
+	if len(name) > len(s)-1 {
+		panic(fmt.Sprintf("ID too long: len(%q) > 15", name))
+	}
+	copy(s[:15], name)
+	s[15] = version
+	return
 }
 
 // RPC identifiers.
 var (
-	RPCAccountBalanceID    = rpcSpecifier("AccountBalance")
-	RPCFundAccountsID      = rpcSpecifier("FundAccounts")
-	RPCReplenishAccountsID = rpcSpecifier("ReplAccounts")
+	RPCAccountBalanceID    = rpcSpecifier("AccountBalance", 0)
+	RPCFundAccountsID      = rpcSpecifier("FundAccounts", 0)
+	RPCReplenishAccountsID = rpcSpecifier("ReplAccounts", 0)
 
-	RPCAppendSectorsID = rpcSpecifier("AppendSectors")
-	RPCFreeSectorsID   = rpcSpecifier("FreeSectors")
-	RPCSectorRootsID   = rpcSpecifier("SectorRoots")
+	RPCAppendSectorsID = rpcSpecifier("AppendSectors", 0)
+	RPCFreeSectorsID   = rpcSpecifier("FreeSectors", 0)
+	RPCSectorRootsID   = rpcSpecifier("SectorRoots", 0)
 
-	RPCFormContractID        = rpcSpecifier("FormContract")
-	RPCLatestRevisionID      = rpcSpecifier("LatestRevision")
-	RPCRefreshContractID     = rpcSpecifier("RefreshContract")
-	RPCRefreshContractRev1ID = rpcSpecifier("RefreshContract")
-	RPCRenewContractID       = rpcSpecifier("RenewContract")
+	RPCFormContractID        = rpcSpecifier("FormContract", 0)
+	RPCLatestRevisionID      = rpcSpecifier("LatestRevision", 0)
+	RPCRefreshContractID     = rpcSpecifier("RefreshContract", 0)
+	RPCRefreshContractRev1ID = rpcSpecifier("RefreshContract", 1)
+	RPCRenewContractID       = rpcSpecifier("RenewContract", 0)
 
-	RPCReadSectorID   = rpcSpecifier("ReadSector")
-	RPCWriteSectorID  = rpcSpecifier("WriteSector")
-	RPCVerifySectorID = rpcSpecifier("VerifySector")
-	RPCSettingsID     = rpcSpecifier("Settings")
+	RPCReadSectorID   = rpcSpecifier("ReadSector", 0)
+	RPCWriteSectorID  = rpcSpecifier("WriteSector", 0)
+	RPCVerifySectorID = rpcSpecifier("VerifySector", 0)
+	RPCSettingsID     = rpcSpecifier("Settings", 0)
 )
-
-func rpcSpecifier(name string) (s RPCSpecifier) {
-	// last byte is the version, ensure the name is at most 15 bytes
-	if len(name) > len(s) {
-		panic(fmt.Sprintf("ID too long: len(%q) > 15", name))
-	}
-	copy(s[:], name)
-	return
-}
 
 func round4KiB(n uint64) uint64 {
 	return (n + (1<<12 - 1)) &^ (1<<12 - 1)
