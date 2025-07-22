@@ -298,12 +298,12 @@ func TestRefreshPartialRolloverCost(t *testing.T) {
 	// the actual cost to the renter and host should always be the additional allowance and collateral
 	// on top of the existing contract costs
 	additionalAllowance, additionalCollateral := types.Siacoins(20), types.Siacoins(10)
-	hostCost := additionalCollateral
 
 	type testCase struct {
 		Description string
 		Modify      func(*types.V2FileContract)
 		RenterCost  types.Currency
+		HostCost    types.Currency
 	}
 
 	cases := []testCase{
@@ -311,6 +311,7 @@ func TestRefreshPartialRolloverCost(t *testing.T) {
 			Description: "no storage",
 			Modify:      func(rev *types.V2FileContract) {},
 			RenterCost:  prices.ContractPrice,
+			HostCost:    types.ZeroCurrency, // no rollover, no collateral
 		},
 		{
 			Description: "no storage - no renter rollover",
@@ -319,6 +320,16 @@ func TestRefreshPartialRolloverCost(t *testing.T) {
 				rev.HostOutput.Value, rev.RenterOutput.Value = rev.HostOutput.Value.Add(rev.RenterOutput.Value), types.ZeroCurrency
 			},
 			RenterCost: prices.ContractPrice.Add(additionalAllowance), // the renter will need to fund the entire allowance
+			HostCost:   types.ZeroCurrency,                            // the host will need to fund the entire collateral
+
+		},
+		{
+			Description: "no storage - all collateral used",
+			Modify: func(rev *types.V2FileContract) {
+				rev.MissedHostValue = types.ZeroCurrency // the host is "risking" all of its collateral
+			},
+			RenterCost: prices.ContractPrice,
+			HostCost:   additionalCollateral, // the host will need to fund the new collateral
 		},
 		{
 			Description: "partial renter rollover",
@@ -329,6 +340,14 @@ func TestRefreshPartialRolloverCost(t *testing.T) {
 				rev.HostOutput.Value, rev.RenterOutput.Value = rev.HostOutput.Value.Add(transfer), rev.RenterOutput.Value.Sub(transfer)
 			},
 			RenterCost: prices.ContractPrice.Add(additionalAllowance.Div64(2)), // the renter will need to fund half the allowance
+		},
+		{
+			Description: "partial host rollover",
+			Modify: func(rev *types.V2FileContract) {
+				rev.MissedHostValue = additionalCollateral.Div64(2) // the host is risking almost all of its collateral
+			},
+			RenterCost: prices.ContractPrice,          // the renter will not need to fund any additional allowance
+			HostCost:   additionalCollateral.Div64(2), // the host will need to fund half the new collateral
 		},
 		{
 			Description: "renewed storage",
@@ -357,7 +376,18 @@ func TestRefreshPartialRolloverCost(t *testing.T) {
 				// transfer all the renter funds to the host
 				rev.HostOutput.Value, rev.RenterOutput.Value = rev.HostOutput.Value.Add(rev.RenterOutput.Value), types.ZeroCurrency
 			},
-			RenterCost: prices.ContractPrice.Add(additionalAllowance), // the renter will need to put up the entire allowance
+			RenterCost: prices.ContractPrice.Add(additionalAllowance), // the renter will need to fund the new allowance
+		},
+		{
+			Description: "renewed storage - no host rollover",
+			Modify: func(rev *types.V2FileContract) {
+				// add storage
+				rev.Capacity = SectorSize
+				rev.Filesize = SectorSize
+				rev.MissedHostValue = types.ZeroCurrency // the host is risking all of its collateral
+			},
+			RenterCost: prices.ContractPrice,
+			HostCost:   additionalCollateral, // the host will need to fund the new collateral
 		},
 	}
 
@@ -384,8 +414,8 @@ func TestRefreshPartialRolloverCost(t *testing.T) {
 			renter, host := RefreshCost(cs, prices, refresh, minerFee)
 			if !renter.Equals(tc.RenterCost.Add(tax).Add(minerFee)) {
 				t.Errorf("expected renter cost %v, got %v", tc.RenterCost, renter.Sub(tax).Sub(minerFee))
-			} else if !host.Equals(hostCost) {
-				t.Errorf("expected host cost %v, got %v", hostCost, host)
+			} else if !host.Equals(tc.HostCost) {
+				t.Errorf("expected host cost %v, got %v", tc.HostCost, host)
 			}
 
 			contractTotal := refresh.NewContract.HostOutput.Value.Add(refresh.NewContract.RenterOutput.Value)

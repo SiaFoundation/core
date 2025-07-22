@@ -705,7 +705,7 @@ func RefreshCost(cs consensus.State, p HostPrices, r types.V2FileContractRenewal
 	// Unlike renewals, it is not possible to calculate the renter's cost of the contract during refreshes without the host's prices
 	// because the existing renter and host outputs are rolled into the new contract to ensure the existing data
 	// is still covered by collateral.
-	renter = r.NewContract.RenterOutput.Value.Add(p.ContractPrice).Add(minerFee).Add(cs.V2FileContractTax(r.NewContract)).Sub(r.RenterRollover)
+	renter = r.NewContract.RenterOutput.Value.Add(p.ContractPrice).Sub(r.RenterRollover).Add(minerFee).Add(cs.V2FileContractTax(r.NewContract))
 	// new collateral = (contract price + new collateral + existing revenue + existing collateral) - contract price - (existing revenue + existing collateral)
 	host = r.NewContract.HostOutput.Value.Sub(p.ContractPrice).Sub(r.HostRollover)
 	return
@@ -875,17 +875,32 @@ func RefreshContractPartialRollover(fc types.V2FileContract, prices HostPrices, 
 	renewal.NewContract.HostSignature = types.Signature{}
 	// the renter output value only needs to cover the new allowance
 	renewal.NewContract.RenterOutput.Value = rp.Allowance
-	// add the additional collateral
-	renewal.NewContract.HostOutput.Value = fc.HostOutput.Value.Add(rp.Collateral).Add(prices.ContractPrice)
-	renewal.NewContract.MissedHostValue = fc.MissedHostValue.Add(rp.Collateral)
-	// total collateral includes the additional requested collateral
-	renewal.NewContract.TotalCollateral = fc.TotalCollateral.Add(rp.Collateral)
 
-	// rollover the collateral and revenue from the existing contract.
-	// The host must roll everything into the new contract to ensure the
-	// existing data and revenue are still covered by collateral.
-	renewal.FinalHostOutput.Value = types.ZeroCurrency
-	renewal.HostRollover = fc.HostOutput.Value
+	// the host output needs to cover the existing risked collateral,
+	// existing revenue, and the new collateral to ensure the existing data
+	// is still protected.
+	hostRevenueRisked := fc.HostOutput.Value.Sub(fc.MissedHostValue)
+	hostRiskedCollateral := fc.TotalCollateral.Sub(fc.MissedHostValue)
+	// the valid output is the sum of the existing revenue, existing risked collateral,
+	// the new collateral, and the contract price.
+	renewal.NewContract.HostOutput.Value = hostRevenueRisked.Add(rp.Collateral).Add(prices.ContractPrice)
+	// the missed host value only returns the new collateral since the
+	// existing risked collateral and revenue should be burned on failure.
+	renewal.NewContract.MissedHostValue = rp.Collateral
+	// total collateral is the sum of the existing risked collateral and
+	// the new locked collateral.
+	renewal.NewContract.TotalCollateral = hostRiskedCollateral.Add(rp.Collateral)
+
+	// if the existing host output is greater than the new contract's lock up,
+	// only roll over the new required collateral. Otherwise, roll over the
+	// existing host output. The host will need to fund the difference.
+	hostFunds := hostRevenueRisked.Add(rp.Collateral)
+	if fc.HostOutput.Value.Cmp(hostFunds) > 0 {
+		renewal.HostRollover = hostFunds
+	} else {
+		renewal.HostRollover = fc.HostOutput.Value
+	}
+	renewal.FinalHostOutput.Value = renewal.FinalHostOutput.Value.Sub(renewal.HostRollover)
 
 	// if the remaining renter output is greater than the required allowance,
 	// only roll over the new allowance. Otherwise, roll over the remaining
@@ -899,7 +914,7 @@ func RefreshContractPartialRollover(fc types.V2FileContract, prices HostPrices, 
 	return renewal, Usage{
 		// Refresh usage is only the contract price since duration is not increased
 		RPC:              prices.ContractPrice,
-		RiskedCollateral: renewal.NewContract.TotalCollateral.Sub(renewal.NewContract.MissedHostValue),
+		RiskedCollateral: hostRiskedCollateral,
 	}
 }
 
