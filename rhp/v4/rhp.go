@@ -906,7 +906,7 @@ func RefreshContractPartialRollover(fc types.V2FileContract, prices HostPrices, 
 	// only roll over the new allowance. Otherwise, roll over the remaining
 	// allowance. The renter will need to fund the difference.
 	if fc.RenterOutput.Value.Cmp(rp.Allowance) > 0 {
-		renewal.RenterRollover = rp.Allowance
+		renewal.RenterRollover = rp.Allowance.Add(prices.ContractPrice)
 	} else {
 		renewal.RenterRollover = fc.RenterOutput.Value
 	}
