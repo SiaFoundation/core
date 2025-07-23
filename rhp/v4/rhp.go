@@ -894,7 +894,7 @@ func RefreshContractPartialRollover(fc types.V2FileContract, prices HostPrices, 
 	// if the existing host output is greater than the new contract's lock up,
 	// only roll over the new required collateral. Otherwise, roll over the
 	// existing host output. The host will need to fund the difference.
-	hostFunds := hostRevenueRisked.Add(rp.Collateral)
+	hostFunds := renewal.NewContract.HostOutput.Value.Sub(prices.ContractPrice) // renter pays contract price
 	if fc.HostOutput.Value.Cmp(hostFunds) > 0 {
 		renewal.HostRollover = hostFunds
 	} else {
