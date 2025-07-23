@@ -426,6 +426,14 @@ func TestRefreshPartialRolloverCost(t *testing.T) {
 				t.Fatalf("expected egress usage to be zero, got %v", usage.Egress)
 			} else if !usage.RiskedCollateral.Equals(contract.TotalCollateral.Sub(contract.MissedHostValue)) {
 				t.Fatalf("expected risked collateral %v, got %v", contract.TotalCollateral.Sub(contract.MissedHostValue), usage.RiskedCollateral)
+			} else if refresh.HostSignature != (types.Signature{}) {
+				t.Fatal("expected host signature to be unset")
+			} else if refresh.RenterSignature != (types.Signature{}) {
+				t.Fatal("expected renter signature to be unset")
+			} else if refresh.NewContract.HostSignature != (types.Signature{}) {
+				t.Fatal("expected new contract host signature to be unset")
+			} else if refresh.NewContract.RenterSignature != (types.Signature{}) {
+				t.Fatal("expected new contract renter signature to be unset")
 			}
 
 			contractTotal := refresh.NewContract.HostOutput.Value.Add(refresh.NewContract.RenterOutput.Value)
