@@ -324,6 +324,16 @@ func TestRefreshPartialRolloverCost(t *testing.T) {
 
 		},
 		{
+			Description: "no storage - some renter rollover",
+			Modify: func(rev *types.V2FileContract) {
+				// transfer all but the new allowance and half the contract price to the host.
+				// the renter will need to fund half the contract price
+				transfer := rev.RenterOutput.Value.Sub(newAllowance.Add(prices.ContractPrice.Div64(2)))
+				rev.HostOutput.Value, rev.RenterOutput.Value = rev.HostOutput.Value.Add(transfer), rev.RenterOutput.Value.Sub(transfer)
+			},
+			RenterCost: prices.ContractPrice.Div64(2),
+		},
+		{
 			Description: "no storage - all collateral used",
 			Modify: func(rev *types.V2FileContract) {
 				rev.MissedHostValue = types.ZeroCurrency // the host is "risking" all of its collateral
@@ -434,6 +444,12 @@ func TestRefreshPartialRolloverCost(t *testing.T) {
 				t.Fatal("expected new contract host signature to be unset")
 			} else if refresh.NewContract.RenterSignature != (types.Signature{}) {
 				t.Fatal("expected new contract renter signature to be unset")
+			} else if !refresh.FinalRenterOutput.Value.Add(refresh.RenterRollover).Equals(contract.RenterOutput.Value) {
+				t.Fatalf("expected final renter output %v + rollover %v to equal original renter output %v, got %v",
+					refresh.FinalRenterOutput.Value, refresh.RenterRollover, contract.RenterOutput.Value, refresh.FinalRenterOutput.Value.Add(refresh.RenterRollover))
+			} else if !refresh.FinalHostOutput.Value.Add(refresh.HostRollover).Equals(contract.HostOutput.Value) {
+				t.Fatalf("expected final host output %v + rollover %v to equal original host output %v, got %v",
+					refresh.FinalHostOutput.Value, refresh.HostRollover, contract.HostOutput.Value, refresh.FinalHostOutput.Value.Add(refresh.HostRollover))
 			}
 
 			contractTotal := refresh.NewContract.HostOutput.Value.Add(refresh.NewContract.RenterOutput.Value)

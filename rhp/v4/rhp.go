@@ -873,8 +873,6 @@ func RefreshContractPartialRollover(fc types.V2FileContract, prices HostPrices, 
 	renewal.NewContract.RevisionNumber = 0
 	renewal.NewContract.RenterSignature = types.Signature{}
 	renewal.NewContract.HostSignature = types.Signature{}
-	// the renter output value only needs to cover the new allowance
-	renewal.NewContract.RenterOutput.Value = rp.Allowance
 
 	// the host output needs to cover the existing risked collateral,
 	// existing revenue, and the new collateral to ensure the existing data
@@ -902,11 +900,14 @@ func RefreshContractPartialRollover(fc types.V2FileContract, prices HostPrices, 
 	}
 	renewal.FinalHostOutput.Value = renewal.FinalHostOutput.Value.Sub(renewal.HostRollover)
 
+	// the renter output value only needs to cover the new allowance
+	renewal.NewContract.RenterOutput.Value = rp.Allowance
 	// if the remaining renter output is greater than the required allowance,
 	// only roll over the new allowance. Otherwise, roll over the remaining
 	// allowance. The renter will need to fund the difference.
-	if fc.RenterOutput.Value.Cmp(rp.Allowance) > 0 {
-		renewal.RenterRollover = rp.Allowance.Add(prices.ContractPrice)
+	renterFunds := rp.Allowance.Add(prices.ContractPrice)
+	if fc.RenterOutput.Value.Cmp(renterFunds) > 0 {
+		renewal.RenterRollover = renterFunds
 	} else {
 		renewal.RenterRollover = fc.RenterOutput.Value
 	}
