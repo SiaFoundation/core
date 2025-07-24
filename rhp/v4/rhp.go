@@ -49,6 +49,7 @@ var (
 	RPCFormContractID    = types.NewSpecifier("FormContract")
 	RPCLatestRevisionID  = types.NewSpecifier("LatestRevision")
 	RPCRefreshContractID = types.NewSpecifier("RefreshContract")
+	RPCRefreshPartialID  = types.NewSpecifier("RefreshPartial")
 	RPCRenewContractID   = types.NewSpecifier("RenewContract")
 
 	RPCReadSectorID   = types.NewSpecifier("ReadSector")
