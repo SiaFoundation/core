@@ -62,23 +62,24 @@ func validateMinerPayouts(s State, b types.Block) error {
 		if len(b.MinerPayouts) != 1 {
 			return errors.New("block must have exactly one miner payout")
 		}
+		// after the final cut, the miner payout value may be omitted
+		if s.childHeight() >= s.Network.HardforkV2.FinalCutHeight && b.MinerPayouts[0].Value.IsZero() {
+			return nil
+		}
 	}
-	if s.childHeight() < s.Network.HardforkV2.FinalCutHeight {
-		var sum types.Currency
-		for _, mp := range b.MinerPayouts {
-			if mp.Value.IsZero() {
-				return errors.New("miner payout has zero value")
-			}
-			sum, overflow = sum.AddWithOverflow(mp.Value)
-			if overflow {
-				return errors.New("miner payouts overflow")
-			}
+
+	var sum types.Currency
+	for _, mp := range b.MinerPayouts {
+		if mp.Value.IsZero() {
+			return errors.New("miner payout has zero value")
 		}
-		if sum != expectedSum {
-			return fmt.Errorf("miner payout sum (%v) does not match block reward + fees (%v)", sum, expectedSum)
+		sum, overflow = sum.AddWithOverflow(mp.Value)
+		if overflow {
+			return errors.New("miner payouts overflow")
 		}
-	} else if !b.MinerPayouts[0].Value.IsZero() {
-		return errors.New("miner payout must be zero after finalcut hardfork")
+	}
+	if sum != expectedSum {
+		return fmt.Errorf("miner payout sum (%v) does not match block reward + fees (%v)", sum, expectedSum)
 	}
 	return nil
 }
