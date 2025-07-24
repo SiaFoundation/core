@@ -1,9 +1,7 @@
 ---
-default: major
+default: minor
 ---
 
-# Changed RPCRefresh to allow renters to explicitly set the desired spending for refreshed contracts.
+# Added RPCRefreshPartial ID and RefreshContractPartialRollover helper
 
-Previously, renters had to add to their remaining allowance when refreshing a contract. Now, 
-renters can set the allowance of the new contract explicitly without forcing an increase. This
-brings RPCRefresh in line with the behavior of RPCForm and RPCRenew.
+Previously, renters and hosts had to rollover all funds when refreshing a contract. With this change, renters can set their spendable allowance without forcing an increase and hosts only have to rollover their existing risked collateral and revenue. This change increases efficiency of refreshing without compromising the collateral guarantees of existing data or forcing hosts to lock additional collateral that won't be utilized.
