@@ -262,9 +262,9 @@ func (a *Account) UnmarshalText(b []byte) error {
 	return nil
 }
 
-// Token returns a signed account token authorizing spending from the account on the
-// host.
-func (a *Account) Token(renterKey types.PrivateKey, hostKey types.PublicKey) AccountToken {
+// NewAccountToken returns a signed account token authorizing spending from the
+// account on the host.
+func NewAccountToken(renterKey types.PrivateKey, hostKey types.PublicKey) AccountToken {
 	token := AccountToken{
 		HostKey:    hostKey,
 		Account:    Account(renterKey.PublicKey()),
