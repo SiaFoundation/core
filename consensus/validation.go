@@ -22,7 +22,7 @@ func ValidateHeader(s State, bh types.BlockHeader) error {
 		return errors.New("timestamp too far in the past")
 	} else if bh.Nonce%s.NonceFactor() != 0 {
 		return errors.New("nonce not divisible by required factor")
-	} else if bh.ID().CmpWork(s.ChildTarget) < 0 {
+	} else if bh.ID().CmpWork(s.PoWTarget()) < 0 {
 		return errors.New("insufficient work")
 	}
 	return nil
@@ -61,6 +61,10 @@ func validateMinerPayouts(s State, b types.Block) error {
 		}
 		if len(b.MinerPayouts) != 1 {
 			return errors.New("block must have exactly one miner payout")
+		}
+		// after the final cut, the miner payout value may be omitted
+		if s.childHeight() >= s.Network.HardforkV2.FinalCutHeight && b.MinerPayouts[0].Value.IsZero() {
+			return nil
 		}
 	}
 
