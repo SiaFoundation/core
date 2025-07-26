@@ -1,12 +1,15 @@
 package rhp
 
 import (
-	"errors"
 	"fmt"
 	"time"
 
 	"go.sia.tech/core/types"
 )
+
+func rpcBadRequestError(format string, args ...any) error {
+	return NewRPCError(ErrorCodeBadRequest, fmt.Sprintf(format, args...))
+}
 
 // Validate checks the host prices for validity. It returns an error if the
 // prices have expired or the signature is invalid.
@@ -25,9 +28,9 @@ func (hp *HostPrices) Validate(pk types.PublicKey) error {
 func (at AccountToken) Validate(hostKey types.PublicKey) error {
 	switch {
 	case at.HostKey != hostKey:
-		return NewRPCError(ErrorCodeBadRequest, "host key mismatch")
+		return ErrHostKeyMismatch
 	case time.Now().After(at.ValidUntil):
-		return NewRPCError(ErrorCodeBadRequest, "account token expired")
+		return ErrTokenExpired
 	case !types.PublicKey(at.Account).VerifyHash(at.SigHash(), at.Signature):
 		return ErrInvalidSignature
 	}
@@ -43,11 +46,11 @@ func (req *RPCReadSectorRequest) Validate(hostKey types.PublicKey) error {
 	}
 	switch {
 	case req.Length == 0:
-		return errors.New("length must be greater than 0")
+		return rpcBadRequestError("length must be greater than 0")
 	case req.Offset+req.Length > SectorSize:
-		return errors.New("read request exceeds sector bounds")
+		return rpcBadRequestError("read request exceeds sector bounds")
 	case (req.Offset+req.Length)%LeafSize != 0:
-		return errors.New("read request must be segment aligned")
+		return rpcBadRequestError("read request must be segment aligned")
 	}
 	return nil
 }
@@ -61,11 +64,11 @@ func (req *RPCWriteSectorRequest) Validate(hostKey types.PublicKey) error {
 	}
 	switch {
 	case req.DataLength == 0:
-		return errors.New("sector must not be empty")
+		return rpcBadRequestError("sector must not be empty")
 	case req.DataLength%LeafSize != 0:
-		return errors.New("sector must be segment aligned")
+		return rpcBadRequestError("sector must be segment aligned")
 	case req.DataLength > SectorSize:
-		return errors.New("sector exceeds sector bounds")
+		return rpcBadRequestError("sector exceeds sector bounds")
 	}
 	return nil
 }
@@ -75,15 +78,15 @@ func (req *RPCFreeSectorsRequest) Validate(pk types.PublicKey, fc types.V2FileCo
 	if err := req.Prices.Validate(pk); err != nil {
 		return fmt.Errorf("prices are invalid: %w", err)
 	} else if uint64(len(req.Indices)) > MaxSectorBatchSize {
-		return fmt.Errorf("removing too many sectors at once: %d > %d", len(req.Indices), MaxSectorBatchSize)
+		return rpcBadRequestError("removing too many sectors at once: %d > %d", len(req.Indices), MaxSectorBatchSize)
 	}
 	seen := make(map[uint64]bool)
 	sectors := fc.Filesize / SectorSize
 	for _, index := range req.Indices {
 		if index >= sectors {
-			return fmt.Errorf("sector index %d exceeds contract sectors %d", index, sectors)
+			return rpcBadRequestError("sector index %d exceeds contract sectors %d", index, sectors)
 		} else if seen[index] {
-			return fmt.Errorf("duplicate sector index %d", index)
+			return rpcBadRequestError("duplicate sector index %d", index)
 		}
 		seen[index] = true
 	}
@@ -99,11 +102,11 @@ func (req *RPCSectorRootsRequest) Validate(pk types.PublicKey, fc types.V2FileCo
 	contractSectors := fc.Filesize / SectorSize
 	switch {
 	case req.Length == 0:
-		return errors.New("length must be greater than 0")
+		return rpcBadRequestError("length must be greater than 0")
 	case req.Length+req.Offset > contractSectors:
-		return fmt.Errorf("read request range exceeds contract sectors: %d > %d", req.Length+req.Offset, contractSectors)
+		return rpcBadRequestError("read request range exceeds contract sectors: %d > %d", req.Length+req.Offset, contractSectors)
 	case req.Length > MaxSectorBatchSize:
-		return fmt.Errorf("read request range exceeds maximum sectors: %d > %d", req.Length, MaxSectorBatchSize)
+		return rpcBadRequestError("read request range exceeds maximum sectors: %d > %d", req.Length, MaxSectorBatchSize)
 	}
 	return nil
 }
@@ -120,15 +123,15 @@ func (req *RPCFormContractRequest) Validate(pk types.PublicKey, tip types.ChainI
 	// validate the request fields
 	switch {
 	case req.MinerFee.IsZero():
-		return errors.New("miner fee must be greater than 0")
+		return rpcBadRequestError("miner fee must be greater than 0")
 	case req.Basis == (types.ChainIndex{}):
-		return errors.New("basis must be set")
+		return rpcBadRequestError("basis must be set")
 	case len(req.RenterInputs) == 0:
-		return errors.New("renter inputs must not be empty")
+		return rpcBadRequestError("renter inputs must not be empty")
 	case req.Contract.ProofHeight < minProofHeight:
-		return fmt.Errorf("proof height must be greater than %v", minProofHeight)
+		return rpcBadRequestError("proof height must be greater than %v", minProofHeight)
 	case expirationHeight > maxExpirationHeight:
-		return fmt.Errorf("expiration height %v exceeds max expiration height %v", expirationHeight, maxExpirationHeight)
+		return rpcBadRequestError("expiration height %v exceeds max expiration height %v", expirationHeight, maxExpirationHeight)
 	}
 
 	// validate the contract fields
@@ -140,13 +143,13 @@ func (req *RPCFormContractRequest) Validate(pk types.PublicKey, tip types.ChainI
 
 	switch {
 	case req.Contract.Allowance.IsZero():
-		return errors.New("allowance must be greater than zero")
+		return rpcBadRequestError("allowance must be greater than zero")
 	case req.Contract.Collateral.Cmp(maxCollateral) > 0:
-		return fmt.Errorf("collateral %v exceeds max collateral %v", req.Contract.Collateral, maxCollateral)
+		return rpcBadRequestError("collateral %v exceeds max collateral %v", req.Contract.Collateral, maxCollateral)
 	case duration > maxDuration:
-		return fmt.Errorf("contract duration %v exceeds max duration %v", duration, maxDuration)
+		return rpcBadRequestError("contract duration %v exceeds max duration %v", duration, maxDuration)
 	case req.Contract.Allowance.Cmp(minRenterAllowance) < 0:
-		return fmt.Errorf("allowance %v is less than minimum allowance %v", req.Contract.Allowance, minRenterAllowance)
+		return rpcBadRequestError("allowance %v is less than minimum allowance %v", req.Contract.Allowance, minRenterAllowance)
 	default:
 		return nil
 	}
@@ -165,15 +168,15 @@ func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.Chain
 	// validate the request fields
 	switch {
 	case req.MinerFee.IsZero():
-		return errors.New("miner fee must be greater than 0")
+		return rpcBadRequestError("miner fee must be greater than 0")
 	case req.Basis == (types.ChainIndex{}):
-		return errors.New("basis must be set")
+		return rpcBadRequestError("basis must be set")
 	case req.Renewal.ProofHeight <= existing.ProofHeight:
-		return fmt.Errorf("renewal proof height must be greater than existing proof height %v", existing.ProofHeight)
+		return rpcBadRequestError("renewal proof height must be greater than existing proof height %v", existing.ProofHeight)
 	case req.Renewal.ProofHeight < minProofHeight:
-		return fmt.Errorf("renewal proof height must be at least %v", minProofHeight)
+		return rpcBadRequestError("renewal proof height must be at least %v", minProofHeight)
 	case expirationHeight > maxExpirationHeight:
-		return fmt.Errorf("renewal expiration height %v exceeds max expiration height %v", expirationHeight, maxExpirationHeight)
+		return rpcBadRequestError("renewal expiration height %v exceeds max expiration height %v", expirationHeight, maxExpirationHeight)
 	}
 
 	// validate the contract fields
@@ -189,11 +192,11 @@ func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.Chain
 
 	switch {
 	case req.Renewal.Allowance.IsZero():
-		return errors.New("allowance must be greater than zero")
+		return rpcBadRequestError("allowance must be greater than zero")
 	case totalCollateral.Cmp(maxCollateral) > 0:
-		return fmt.Errorf("required collateral %v exceeds max collateral %v", totalCollateral, maxCollateral)
+		return rpcBadRequestError("required collateral %v exceeds max collateral %v", totalCollateral, maxCollateral)
 	case req.Renewal.Allowance.Cmp(minRenterAllowance) < 0:
-		return fmt.Errorf("allowance %v is less than minimum allowance %v", req.Renewal.Allowance, minRenterAllowance)
+		return rpcBadRequestError("allowance %v is less than minimum allowance %v", req.Renewal.Allowance, minRenterAllowance)
 	default:
 		return nil
 	}
@@ -209,11 +212,11 @@ func (req *RPCRefreshContractRequest) Validate(pk types.PublicKey, tip types.Cha
 	minProofHeight := minProofHeight(tip, req.Prices)
 	switch {
 	case req.MinerFee.IsZero():
-		return errors.New("miner fee must be greater than 0")
+		return rpcBadRequestError("miner fee must be greater than 0")
 	case req.Basis == (types.ChainIndex{}):
-		return errors.New("basis must be set")
+		return rpcBadRequestError("basis must be set")
 	case existing.ProofHeight <= minProofHeight:
-		return fmt.Errorf("contract too close to proof window %v", existing.ProofHeight)
+		return rpcBadRequestError("contract too close to proof window %v", existing.ProofHeight)
 	}
 
 	// validate the contract fields
@@ -225,11 +228,11 @@ func (req *RPCRefreshContractRequest) Validate(pk types.PublicKey, tip types.Cha
 
 	switch {
 	case req.Refresh.Allowance.IsZero():
-		return errors.New("allowance must be greater than zero")
+		return rpcBadRequestError("allowance must be greater than zero")
 	case req.Refresh.Allowance.Cmp(minRenterAllowance) < 0:
-		return fmt.Errorf("renter allowance %v is less than minimum allowance %v", req.Refresh.Allowance, minRenterAllowance)
+		return rpcBadRequestError("renter allowance %v is less than minimum allowance %v", req.Refresh.Allowance, minRenterAllowance)
 	case totalHostCollateral.Cmp(maxCollateral) > 0:
-		return fmt.Errorf("required collateral %v exceeds max collateral %v", totalHostCollateral, maxCollateral)
+		return rpcBadRequestError("required collateral %v exceeds max collateral %v", totalHostCollateral, maxCollateral)
 	default:
 		return nil
 	}
@@ -242,7 +245,7 @@ func (req *RPCVerifySectorRequest) Validate(hostKey types.PublicKey) error {
 	} else if err := req.Token.Validate(hostKey); err != nil {
 		return fmt.Errorf("token is invalid: %w", err)
 	} else if req.LeafIndex >= LeavesPerSector {
-		return fmt.Errorf("leaf index must be less than %d", LeavesPerSector)
+		return rpcBadRequestError("leaf index must be less than %d", LeavesPerSector)
 	}
 	return nil
 }
@@ -252,9 +255,9 @@ func (req *RPCAppendSectorsRequest) Validate(pk types.PublicKey) error {
 	if err := req.Prices.Validate(pk); err != nil {
 		return fmt.Errorf("prices are invalid: %w", err)
 	} else if len(req.Sectors) == 0 {
-		return errors.New("no sectors to append")
+		return rpcBadRequestError("no sectors to append")
 	} else if uint64(len(req.Sectors)) > MaxSectorBatchSize {
-		return fmt.Errorf("too many sectors to append: %d > %d", len(req.Sectors), MaxSectorBatchSize)
+		return rpcBadRequestError("too many sectors to append: %d > %d", len(req.Sectors), MaxSectorBatchSize)
 	}
 	return nil
 }
@@ -263,20 +266,20 @@ func (req *RPCAppendSectorsRequest) Validate(pk types.PublicKey) error {
 func (req *RPCFundAccountsRequest) Validate() error {
 	switch {
 	case req.ContractID == (types.FileContractID{}):
-		return errors.New("contract ID must be set")
+		return rpcBadRequestError("contract ID must be set")
 	case req.RenterSignature == (types.Signature{}):
-		return errors.New("renter signature must be set")
+		return rpcBadRequestError("renter signature must be set")
 	case len(req.Deposits) == 0:
-		return errors.New("no deposits to fund")
+		return rpcBadRequestError("no deposits to fund")
 	case len(req.Deposits) > MaxAccountBatchSize:
-		return fmt.Errorf("too many deposits to fund: %d > %d", len(req.Deposits), MaxAccountBatchSize)
+		return rpcBadRequestError("too many deposits to fund: %d > %d", len(req.Deposits), MaxAccountBatchSize)
 	}
 	for i, deposit := range req.Deposits {
 		switch {
 		case deposit.Account == (Account{}):
-			return fmt.Errorf("deposit %d has no account", i)
+			return rpcBadRequestError("deposit %d has no account", i)
 		case deposit.Amount.IsZero():
-			return fmt.Errorf("deposit %d has no amount", i)
+			return rpcBadRequestError("deposit %d has no amount", i)
 		}
 	}
 	return nil
@@ -286,19 +289,19 @@ func (req *RPCFundAccountsRequest) Validate() error {
 func (req *RPCReplenishAccountsRequest) Validate() error {
 	switch {
 	case req.ContractID == (types.FileContractID{}):
-		return errors.New("contract ID must be set")
+		return rpcBadRequestError("contract ID must be set")
 	case req.ChallengeSignature == (types.Signature{}):
-		return errors.New("challenge signature must be set")
+		return rpcBadRequestError("challenge signature must be set")
 	case len(req.Accounts) == 0:
-		return errors.New("no accounts to replenish")
+		return rpcBadRequestError("no accounts to replenish")
 	case len(req.Accounts) > MaxAccountBatchSize:
-		return fmt.Errorf("too many accounts to replenish: %d > %d", len(req.Accounts), MaxAccountBatchSize)
+		return rpcBadRequestError("too many accounts to replenish: %d > %d", len(req.Accounts), MaxAccountBatchSize)
 	case req.Target.IsZero():
-		return errors.New("target must be greater than zero")
+		return rpcBadRequestError("target must be greater than zero")
 	}
 	for i, account := range req.Accounts {
 		if account == (Account{}) {
-			return fmt.Errorf("account %d is empty", i)
+			return rpcBadRequestError("account %d is empty", i)
 		}
 	}
 	return nil

@@ -2,13 +2,22 @@ package rhp
 
 import (
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
 	"go.sia.tech/core/types"
 	"lukechampine.com/frand"
 )
+
+func assertRequestError(t *testing.T, err, expected error) {
+	t.Helper()
+
+	if !errors.Is(err, expected) {
+		t.Fatalf("expected %v, got %v", expected, err)
+	} else if ErrorCode(err) != ErrorCodeBadRequest {
+		t.Fatalf("expected ErrorCodeBadRequest, got %v", ErrorCode(err))
+	}
+}
 
 func TestValidateAccountToken(t *testing.T) {
 	hostKey := types.GeneratePrivateKey().PublicKey()
@@ -21,20 +30,40 @@ func TestValidateAccountToken(t *testing.T) {
 		ValidUntil: time.Now().Add(-time.Minute),
 	}
 
-	if err := ac.Validate(frand.Entropy256()); !strings.Contains(err.Error(), "host key mismatch") {
-		t.Fatalf("expected host key mismatch, got %v", err)
-	} else if err := ac.Validate(hostKey); !strings.Contains(err.Error(), "token expired") {
-		t.Fatalf("expected token expired, got %v", err)
-	}
+	assertRequestError(t, ac.Validate(frand.Entropy256()), ErrHostKeyMismatch)
+	assertRequestError(t, ac.Validate(hostKey), ErrTokenExpired)
 
 	ac.ValidUntil = time.Now().Add(time.Minute)
-	if err := ac.Validate(hostKey); !errors.Is(err, ErrInvalidSignature) {
-		t.Fatalf("expected ErrInvalidSignature, got %v", err)
-	}
+	assertRequestError(t, ac.Validate(hostKey), ErrInvalidSignature)
 
 	ac.Signature = renterKey.SignHash(ac.SigHash())
-
 	if err := ac.Validate(hostKey); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestValidatePrices(t *testing.T) {
+	hostKey := types.GeneratePrivateKey()
+	prices := HostPrices{
+		ContractPrice:   types.NewCurrency64(1),
+		StoragePrice:    types.NewCurrency64(2),
+		IngressPrice:    types.NewCurrency64(3),
+		EgressPrice:     types.NewCurrency64(4),
+		Collateral:      types.NewCurrency64(5),
+		FreeSectorPrice: types.NewCurrency64(6),
+		TipHeight:       7,
+		ValidUntil:      time.Now().Add(time.Minute),
+	}
+	prices.Signature = hostKey.SignHash(prices.SigHash())
+
+	if err := prices.Validate(hostKey.PublicKey()); err != nil {
+		t.Fatal(err)
+	}
+
+	prices.StoragePrice = types.ZeroCurrency
+	assertRequestError(t, prices.Validate(hostKey.PublicKey()), ErrInvalidSignature)
+
+	prices.ValidUntil = time.Now().Add(-time.Minute)
+	prices.Signature = hostKey.SignHash(prices.SigHash())
+	assertRequestError(t, prices.Validate(hostKey.PublicKey()), ErrPricesExpired)
 }
