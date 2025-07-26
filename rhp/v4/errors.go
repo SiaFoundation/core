@@ -21,6 +21,9 @@ type RPCError struct {
 }
 
 var (
+	// ErrHostKeyMismatch is returned when the host key in an account token does
+	// not match the public key of the host.
+	ErrHostKeyMismatch = NewRPCError(ErrorCodeBadRequest, "host key mismatch")
 	// ErrTokenExpired is returned when an account token has expired.
 	ErrTokenExpired = NewRPCError(ErrorCodeBadRequest, "account token expired")
 	// ErrPricesExpired is returned when the host's prices have expired.
