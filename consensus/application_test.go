@@ -1415,7 +1415,13 @@ func TestAdjustDifficulty(t *testing.T) {
 	n, _ := testnet()
 	n.BlockInterval = 10 * time.Minute
 	cs := n.GenesisState()
-	cs.Index.Height = n.HardforkV2.FinalCutHeight
+	cs.Index.Height = n.HardforkV2.RequireHeight + 100
+
+	// ensure median timestamp is above final cut time
+	for i := range cs.PrevTimestamps {
+		cs.PrevTimestamps[i] = n.HardforkV2.FinalCutTime.Add(time.Second)
+	}
+
 	cs.Difficulty.UnmarshalText([]byte("18000000000"))
 	cs.ChildTarget = invTarget(cs.Difficulty.n)
 	cs.OakTime = n.BlockInterval

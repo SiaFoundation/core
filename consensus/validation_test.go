@@ -38,7 +38,7 @@ func testnet() (*Network, types.Block) {
 	n.HardforkFoundation.FailsafeAddress = types.VoidAddress
 	n.HardforkV2.AllowHeight = 1000
 	n.HardforkV2.RequireHeight = 2000
-	n.HardforkV2.FinalCutHeight = 3000
+	n.HardforkV2.FinalCutTime = types.CurrentTimestamp().Add(time.Hour)
 	b := types.Block{Timestamp: n.HardforkOak.GenesisTimestamp}
 	return n, b
 }
@@ -2386,11 +2386,17 @@ func TestValidateTransactionElements(t *testing.T) {
 func TestValidateFinalCutMinerPayout(t *testing.T) {
 	n, _ := testnet()
 	cs := n.GenesisState()
-	cs.Index.Height = n.HardforkV2.FinalCutHeight - 2
+	cs.Index.Height = n.HardforkV2.RequireHeight + 100
+
+	// ensure median timestamp is just prior to final cut
+	for i := range cs.PrevTimestamps {
+		cs.PrevTimestamps[i] = n.HardforkV2.FinalCutTime.Add(-1 * time.Second)
+	}
+
 	txn := types.V2Transaction{MinerFee: types.Siacoins(1)}
 	b := types.Block{
 		ParentID:  cs.Index.ID,
-		Timestamp: types.CurrentTimestamp(),
+		Timestamp: cs.PrevTimestamps[0].Add(time.Second),
 		MinerPayouts: []types.SiacoinOutput{{
 			Address: types.VoidAddress,
 			Value:   cs.BlockReward().Add(txn.MinerFee),
@@ -2409,8 +2415,10 @@ func TestValidateFinalCutMinerPayout(t *testing.T) {
 		t.Fatal(err)
 	}
 	// after final cut height, should succeed
-	cs.Index.Height++
-	b.V2.Height++
+	for i := range cs.PrevTimestamps {
+		cs.PrevTimestamps[i] = n.HardforkV2.FinalCutTime.Add(1 * time.Second)
+	}
+	b.Timestamp = cs.PrevTimestamps[0].Add(time.Second)
 	if err := ValidateOrphan(cs, b); err != nil {
 		t.Fatal(err)
 	}
