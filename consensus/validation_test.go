@@ -38,6 +38,7 @@ func testnet() (*Network, types.Block) {
 	n.HardforkFoundation.FailsafeAddress = types.VoidAddress
 	n.HardforkV2.AllowHeight = 1000
 	n.HardforkV2.RequireHeight = 2000
+	n.HardforkV2.FinalCutHeight = 3000
 	b := types.Block{Timestamp: n.HardforkOak.GenesisTimestamp}
 	return n, b
 }
@@ -210,7 +211,7 @@ func findBlockNonce(cs State, b *types.Block) {
 	for b.Nonce%cs.NonceFactor() != 0 {
 		b.Nonce++
 	}
-	for b.ID().CmpWork(cs.ChildTarget) < 0 {
+	for b.ID().CmpWork(cs.PoWTarget()) < 0 {
 		b.Nonce += cs.NonceFactor()
 	}
 }
@@ -2379,5 +2380,38 @@ func TestValidateTransactionElements(t *testing.T) {
 			t.Fatal("expected invalid Merkle proof error, got", err)
 		}
 		fn()
+	}
+}
+
+func TestValidateFinalCutMinerPayout(t *testing.T) {
+	n, _ := testnet()
+	cs := n.GenesisState()
+	cs.Index.Height = n.HardforkV2.FinalCutHeight - 2
+	txn := types.V2Transaction{MinerFee: types.Siacoins(1)}
+	b := types.Block{
+		ParentID:  cs.Index.ID,
+		Timestamp: types.CurrentTimestamp(),
+		MinerPayouts: []types.SiacoinOutput{{
+			Address: types.VoidAddress,
+			Value:   cs.BlockReward().Add(txn.MinerFee),
+		}},
+		V2: &types.V2BlockData{
+			Height:       cs.Index.Height + 1,
+			Transactions: []types.V2Transaction{txn},
+		},
+	}
+	if err := ValidateOrphan(cs, b); err != nil {
+		t.Fatal(err)
+	}
+	// omit payout value; should fail below final cut height
+	b.MinerPayouts[0].Value = types.ZeroCurrency
+	if err := ValidateOrphan(cs, b); err == nil || !strings.Contains(err.Error(), "miner payout has zero value") {
+		t.Fatal(err)
+	}
+	// after final cut height, should succeed
+	cs.Index.Height++
+	b.V2.Height++
+	if err := ValidateOrphan(cs, b); err != nil {
+		t.Fatal(err)
 	}
 }
