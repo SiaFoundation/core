@@ -858,7 +858,7 @@ func RenewContract(fc types.V2FileContract, prices HostPrices, rp RPCRenewContra
 	return renewal, Usage{
 		RPC:              prices.ContractPrice,
 		Storage:          renewal.NewContract.HostOutput.Value.Sub(renewal.NewContract.TotalCollateral).Sub(prices.ContractPrice),
-		RiskedCollateral: renewal.NewContract.TotalCollateral.Sub(renewal.NewContract.MissedHostValue),
+		RiskedCollateral: renewal.NewContract.RiskedCollateral(),
 	}
 }
 
@@ -877,8 +877,8 @@ func RefreshContractPartialRollover(fc types.V2FileContract, prices HostPrices, 
 	// the host output needs to cover the existing risked collateral,
 	// existing revenue, and the new collateral to ensure the existing data
 	// is still protected.
-	hostRevenueRisked := fc.HostOutput.Value.Sub(fc.MissedHostValue)
-	hostRiskedCollateral := fc.TotalCollateral.Sub(fc.MissedHostValue)
+	hostRevenueRisked := fc.RiskedHostRevenue()
+	hostRiskedCollateral := fc.RiskedCollateral()
 	// the valid output is the sum of the existing revenue, existing risked collateral,
 	// the new collateral, and the contract price.
 	renewal.NewContract.HostOutput.Value = hostRevenueRisked.Add(rp.Collateral).Add(prices.ContractPrice)
@@ -944,6 +944,6 @@ func RefreshContractFullRollover(fc types.V2FileContract, prices HostPrices, rp 
 	return renewal, Usage{
 		// Refresh usage is only the contract price since duration is not increased
 		RPC:              prices.ContractPrice,
-		RiskedCollateral: renewal.NewContract.TotalCollateral.Sub(renewal.NewContract.MissedHostValue),
+		RiskedCollateral: renewal.NewContract.RiskedCollateral(),
 	}
 }
