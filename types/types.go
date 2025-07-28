@@ -523,20 +523,65 @@ func (txn *Transaction) TotalFees() Currency {
 // or "missed" depending on whether a valid StorageProof is submitted for the
 // contract.
 type V2FileContract struct {
-	Capacity         uint64        `json:"capacity"`
-	Filesize         uint64        `json:"filesize"`
-	FileMerkleRoot   Hash256       `json:"fileMerkleRoot"`
-	ProofHeight      uint64        `json:"proofHeight"`
-	ExpirationHeight uint64        `json:"expirationHeight"`
-	RenterOutput     SiacoinOutput `json:"renterOutput"`
-	HostOutput       SiacoinOutput `json:"hostOutput"`
-	MissedHostValue  Currency      `json:"missedHostValue"`
-	TotalCollateral  Currency      `json:"totalCollateral"`
-	RenterPublicKey  PublicKey     `json:"renterPublicKey"`
-	HostPublicKey    PublicKey     `json:"hostPublicKey"`
-	RevisionNumber   uint64        `json:"revisionNumber"`
+	// Capacity is the total amount of data that a renter has paid the host to
+	// store. If data is removed from a contract, the capacity remains the same
+	// and only the filesize decreases. A renter doesn't need to pay for storing
+	// data if the difference between the filesize and the capacity is large
+	// enough to hold the uploaded data.
+	Capacity uint64 `json:"capacity"`
 
-	// signatures cover above fields
+	// Filesize is the amount of data currently stored in the contract. It is
+	// always smaller than or equal to Capacity.
+	Filesize uint64 `json:"filesize"`
+
+	// FileMerkleRoot is the root of the Merkle tree built from the data stored
+	// in the contract.
+	FileMerkleRoot Hash256 `json:"fileMerkleRoot"`
+
+	// ProofHeight is the height at which the host can begin submitting storage
+	// proofs.
+	ProofHeight uint64 `json:"proofHeight"`
+
+	// ExpirationHeight is the height at which a contract expires if it hasn't
+	// been resolved via a storage proof or renewal by then.
+	ExpirationHeight uint64 `json:"expirationHeight"`
+
+	// RenterOutput is the output that will be created for the renter when the
+	// contract resolves. It equals the amount of leftover allowance the renter
+	// has to spend on uploads and downloads.
+	RenterOutput SiacoinOutput `json:"renterOutput"`
+
+	// HostOutput is the output that will be created for the host if the
+	// contract resolves successfully. It is made up of the host's potential
+	// revenue, the contract price as well as the total collateral.
+	HostOutput SiacoinOutput `json:"hostOutput"`
+
+	// MissedHostValue is the amount of SC that the host is paid if the contract
+	// resolution fails. It equals the amount of collateral that the host hasn't
+	// risked yet.
+	MissedHostValue Currency `json:"missedHostValue"`
+
+	// TotalCollateral is the total amount of collateral a host has locked away
+	// in a contract. Both the risked collateral as well as the not yet risked
+	// collateral.
+	TotalCollateral Currency `json:"totalCollateral"`
+
+	// RenterPublicKey is the public key of the renter that formed this
+	// contract. The corresponding private key is required to revise the
+	// contract.
+	RenterPublicKey PublicKey `json:"renterPublicKey"`
+
+	// HostPublicKey is the public key of the host that the contract was formed
+	// with. It is required to revise the contract.
+	HostPublicKey PublicKey `json:"hostPublicKey"`
+
+	// RevisionNumber is the current revision number of the contract. Every time
+	// the contract is revised, this number is incremented. Broadcasting a
+	// contract with a higher revision number to the network, overwrites any
+	// previous revisions.
+	RevisionNumber uint64 `json:"revisionNumber"`
+
+	// The signatures cover above fields.
 	RenterSignature Signature `json:"renterSignature"`
 	HostSignature   Signature `json:"hostSignature"`
 }
@@ -548,6 +593,30 @@ func (fc V2FileContract) MissedHostOutput() SiacoinOutput {
 		Value:   fc.MissedHostValue,
 		Address: fc.HostOutput.Address,
 	}
+}
+
+// RemainingAllowance is the amount of funds that a renter has locked in the
+// contract which can still be spent.
+func (fc V2FileContract) RemainingAllowance() Currency {
+	return fc.RenterOutput.Value
+}
+
+// RemainingCollateral is the amount of collateral that a host has locked in the
+// contract but is not risked yet.
+func (fc V2FileContract) RemainingCollateral() Currency {
+	return fc.MissedHostValue
+}
+
+// RiskedCollateral is the amount of collateral a host loses if the contract
+// isn't resolved successfully via storage proof or renewal.
+func (fc V2FileContract) RiskedCollateral() Currency {
+	return fc.TotalCollateral.Sub(fc.MissedHostValue)
+}
+
+// RiskedHostRevenue is the amount of revenue that a host gets if the contract
+// resolves successfully via storage proof or renewal.
+func (fc V2FileContract) RiskedHostRevenue() Currency {
+	return fc.HostOutput.Value.Sub(fc.MissedHostValue)
 }
 
 // A V2SiacoinInput spends an unspent SiacoinElement in the state accumulator by
