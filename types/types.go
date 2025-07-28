@@ -581,7 +581,7 @@ type V2FileContract struct {
 	// previous revisions.
 	RevisionNumber uint64 `json:"revisionNumber"`
 
-	// The signatures cover above fields.
+	// Signatures cover above fields
 	RenterSignature Signature `json:"renterSignature"`
 	HostSignature   Signature `json:"hostSignature"`
 }
