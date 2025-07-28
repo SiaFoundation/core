@@ -616,7 +616,7 @@ func (fc V2FileContract) RiskedCollateral() Currency {
 // RiskedHostRevenue is the amount of revenue that a host gets if the contract
 // resolves successfully via storage proof or renewal.
 func (fc V2FileContract) RiskedHostRevenue() Currency {
-	return fc.HostOutput.Value.Sub(fc.MissedHostValue)
+	return fc.HostOutput.Value.Sub(fc.TotalCollateral)
 }
 
 // A V2SiacoinInput spends an unspent SiacoinElement in the state accumulator by

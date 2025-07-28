@@ -877,8 +877,8 @@ func RefreshContractPartialRollover(fc types.V2FileContract, prices HostPrices, 
 	// the host output needs to cover the existing risked collateral,
 	// existing revenue, and the new collateral to ensure the existing data
 	// is still protected.
-	hostRevenueRisked := fc.RiskedHostRevenue()
 	hostRiskedCollateral := fc.RiskedCollateral()
+	hostRevenueRisked := fc.RiskedHostRevenue().Add(hostRiskedCollateral)
 	// the valid output is the sum of the existing revenue, existing risked collateral,
 	// the new collateral, and the contract price.
 	renewal.NewContract.HostOutput.Value = hostRevenueRisked.Add(rp.Collateral).Add(prices.ContractPrice)
