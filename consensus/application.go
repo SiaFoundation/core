@@ -357,7 +357,7 @@ func adjustDifficulty(s State, blockTimestamp time.Time, targetTimestamp time.Ti
 	case s.childHeight() < s.Network.HardforkV2.AllowHeight:
 		target := adjustTarget(s, blockTimestamp, targetTimestamp)
 		return Work{invTarget(target)}, target
-	case s.childHeight() < s.Network.HardforkV2.FinalCutHeight:
+	case !s.medianTimestamp().After(s.Network.HardforkV2.FinalCutTime):
 		difficulty := adjustDifficultyV2(s, blockTimestamp)
 		return difficulty, invTarget(difficulty.n)
 	default:
@@ -390,7 +390,7 @@ func ApplyHeader(s State, bh types.BlockHeader, targetTimestamp time.Time) State
 	copy(next.PrevTimestamps[1:], s.PrevTimestamps[:])
 
 	// zero out deprecated fields
-	if next.Index.Height >= next.Network.HardforkV2.FinalCutHeight {
+	if next.medianTimestamp().After(next.Network.HardforkV2.FinalCutTime) {
 		next.Depth, next.ChildTarget, next.OakTarget = types.BlockID{}, types.BlockID{}, types.BlockID{}
 	}
 
