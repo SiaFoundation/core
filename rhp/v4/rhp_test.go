@@ -490,10 +490,24 @@ func TestProtocolVersionCmp(t *testing.T) {
 	}
 }
 
-func TestProtocolVersionString(t *testing.T) {
+func TestProtocolVersionMarshalling(t *testing.T) {
 	v := ProtocolVersion{1, 2, 3}
 	expected := "v1.2.3"
 	if v.String() != expected {
 		t.Errorf("expected %s, got %s", expected, v.String())
+	}
+
+	b, err := v.MarshalText()
+	if err != nil {
+		t.Fatal(err)
+	} else if string(b) != expected {
+		t.Fatalf("expected %s, got %s", expected, string(b))
+	}
+
+	var v2 ProtocolVersion
+	if err := v2.UnmarshalText(b); err != nil {
+		t.Fatal(err)
+	} else if v2 != v {
+		t.Fatalf("expected %v, got %v", v, v2)
 	}
 }

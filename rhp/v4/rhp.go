@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"strconv"
+	"strings"
 	"time"
 
 	"go.sia.tech/core/consensus"
@@ -319,6 +321,44 @@ func (v ProtocolVersion) Cmp(other ProtocolVersion) int {
 // ProtocolVersion.
 func (v ProtocolVersion) String() string {
 	return fmt.Sprintf("v%d.%d.%d", v[0], v[1], v[2])
+}
+
+// MarshalText implements encoding.TextMarshaler
+func (v ProtocolVersion) MarshalText() ([]byte, error) {
+	return []byte(v.String()), nil
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler
+func (v *ProtocolVersion) UnmarshalText(buf []byte) error {
+	if len(buf) == 0 {
+		return fmt.Errorf("empty version string")
+	}
+	version := string(buf)
+	if version[0] != 'v' {
+		return fmt.Errorf("invalid version format: %s", version)
+	}
+
+	version = version[1:] // Remove the leading 'v'
+	parts := strings.Split(version, ".")
+	if len(parts) != 3 {
+		return fmt.Errorf("invalid version format: %s", version)
+	}
+	major, err := strconv.ParseUint(parts[0], 10, 8)
+	if err != nil {
+		return fmt.Errorf("invalid major version: %s", parts[0])
+	}
+
+	minor, err := strconv.ParseUint(parts[1], 10, 8)
+	if err != nil {
+		return fmt.Errorf("invalid minor version: %s", parts[1])
+	}
+
+	patch, err := strconv.ParseUint(parts[2], 10, 8)
+	if err != nil {
+		return fmt.Errorf("invalid patch version: %s", parts[2])
+	}
+	*v = ProtocolVersion{byte(major), byte(minor), byte(patch)}
+	return nil
 }
 
 type (
