@@ -302,16 +302,6 @@ func GenerateAccount() (types.PrivateKey, Account) {
 // version supported by the RHP server.
 type ProtocolVersion [3]uint8
 
-var (
-	// ProtocolVersionV4 describes the initial version of the RHP4 protocol
-	// introduced with the Sia v2 hardfork.
-	ProtocolVersionV4 = ProtocolVersion{4, 0, 0}
-
-	// ProtocolVersionV5 is the version of the RHP4 protocol that introduced the
-	// 'RefreshContractPartialRollover' RPC.
-	ProtocolVersionV5 = ProtocolVersion{5, 0, 0}
-)
-
 // Cmp compares two ProtocolVersions and returns -1 if v is smaller than other,
 // +1 if it is greater and 0 otherwise.
 func (v *ProtocolVersion) Cmp(other ProtocolVersion) int {
