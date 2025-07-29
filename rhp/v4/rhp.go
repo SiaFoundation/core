@@ -304,7 +304,7 @@ type ProtocolVersion [3]uint8
 
 // Cmp compares two ProtocolVersions and returns -1 if v is smaller than other,
 // +1 if it is greater and 0 otherwise.
-func (v *ProtocolVersion) Cmp(other ProtocolVersion) int {
+func (v ProtocolVersion) Cmp(other ProtocolVersion) int {
 	for i := range v {
 		if v[i] < other[i] {
 			return -1
@@ -317,8 +317,8 @@ func (v *ProtocolVersion) Cmp(other ProtocolVersion) int {
 
 // String implements the fmt.Stringer interface for easier logging of
 // ProtocolVersion.
-func (v *ProtocolVersion) String() string {
-	return fmt.Sprintf("%d.%d.%d", v[0], v[1], v[2])
+func (v ProtocolVersion) String() string {
+	return fmt.Sprintf("v%d.%d.%d", v[0], v[1], v[2])
 }
 
 type (

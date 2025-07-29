@@ -489,3 +489,11 @@ func TestProtocolVersionCmp(t *testing.T) {
 		}
 	}
 }
+
+func TestProtocolVersionString(t *testing.T) {
+	v := ProtocolVersion{1, 2, 3}
+	expected := "v1.2.3"
+	if v.String() != expected {
+		t.Errorf("expected %s, got %s", expected, v.String())
+	}
+}
