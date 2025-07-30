@@ -466,3 +466,48 @@ func TestRefreshPartialRolloverCost(t *testing.T) {
 		})
 	}
 }
+
+func TestProtocolVersionCmp(t *testing.T) {
+	for i := range 3 {
+		v1 := ProtocolVersion{1, 1, 1}
+		v2 := ProtocolVersion{1, 1, 1}
+
+		// both should be equal
+		if v1.Cmp(v2) != 0 {
+			t.Error("expected versions to be equal")
+		} else if v2.Cmp(v1) != 0 {
+			t.Error("expected versions to be equal")
+		}
+
+		// update one of the version bytes and make sure that's no longer the
+		// case
+		v1[i] = 2
+		if v1.Cmp(v2) != 1 {
+			t.Errorf("expected %v to be greater than %v", v1, v2)
+		} else if v2.Cmp(v1) != -1 {
+			t.Errorf("expected %v to be less than %v", v2, v1)
+		}
+	}
+}
+
+func TestProtocolVersionMarshalling(t *testing.T) {
+	v := ProtocolVersion{1, 2, 3}
+	expected := "v1.2.3"
+	if v.String() != expected {
+		t.Errorf("expected %s, got %s", expected, v.String())
+	}
+
+	b, err := v.MarshalText()
+	if err != nil {
+		t.Fatal(err)
+	} else if string(b) != expected {
+		t.Fatalf("expected %s, got %s", expected, string(b))
+	}
+
+	var v2 ProtocolVersion
+	if err := v2.UnmarshalText(b); err != nil {
+		t.Fatal(err)
+	} else if v2 != v {
+		t.Fatalf("expected %v, got %v", v, v2)
+	}
+}

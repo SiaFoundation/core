@@ -214,7 +214,7 @@ func (hp HostPrices) SigHash() types.Hash256 {
 // HostSettings specify the settings of a host.
 type HostSettings struct {
 	// ProtocolVersion is the version of RHP4 the host supports
-	ProtocolVersion [3]uint8 `json:"protocolVersion"`
+	ProtocolVersion ProtocolVersion `json:"protocolVersion"`
 	// Release identifies the software release of the host
 	Release string `json:"release"`
 	// WalletAddress is the address the host uses to receive payments.
@@ -296,6 +296,40 @@ func (at *AccountToken) SigHash() types.Hash256 {
 func GenerateAccount() (types.PrivateKey, Account) {
 	sk := types.GeneratePrivateKey()
 	return sk, Account(sk.PublicKey())
+}
+
+// ProtocolVersion is a 3-byte version number used to identify the protocol
+// version supported by the RHP server.
+type ProtocolVersion [3]uint8
+
+// Cmp compares two ProtocolVersions and returns -1 if v is smaller than other,
+// +1 if it is greater and 0 otherwise.
+func (v ProtocolVersion) Cmp(other ProtocolVersion) int {
+	for i := range v {
+		if v[i] < other[i] {
+			return -1
+		} else if v[i] > other[i] {
+			return 1
+		}
+	}
+	return 0
+}
+
+// String implements the fmt.Stringer interface for easier logging of
+// ProtocolVersion.
+func (v ProtocolVersion) String() string {
+	return fmt.Sprintf("v%d.%d.%d", v[0], v[1], v[2])
+}
+
+// MarshalText implements encoding.TextMarshaler
+func (v ProtocolVersion) MarshalText() ([]byte, error) {
+	return []byte(v.String()), nil
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler
+func (v *ProtocolVersion) UnmarshalText(buf []byte) error {
+	_, err := fmt.Sscanf(string(buf), "v%d.%d.%d", &v[0], &v[1], &v[2])
+	return err
 }
 
 type (
