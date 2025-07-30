@@ -1,3 +1,9 @@
+## 0.17.0 (2025-07-30)
+
+### Breaking Changes
+
+- Add dedicated ProtocolVersion type for RHP version.
+
 ## 0.16.0 (2025-07-28)
 
 ### Breaking Changes
