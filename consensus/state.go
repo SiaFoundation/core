@@ -90,9 +90,9 @@ type Network struct {
 		FailsafeAddress types.Address `json:"failsafeAddress"`
 	} `json:"hardforkFoundation"`
 	HardforkV2 struct {
-		AllowHeight    uint64 `json:"allowHeight"`
-		RequireHeight  uint64 `json:"requireHeight"`
-		FinalCutHeight uint64 `json:"finalCutHeight"`
+		AllowHeight   uint64    `json:"allowHeight"`
+		RequireHeight uint64    `json:"requireHeight"`
+		FinalCutTime  time.Time `json:"finalCutTime"`
 	} `json:"hardforkV2"`
 }
 
@@ -251,7 +251,7 @@ func (s State) BlockReward() types.Currency {
 
 // PoWTarget returns the proof-of-work target for the child block.
 func (s State) PoWTarget() types.BlockID {
-	if s.childHeight() < s.Network.HardforkV2.FinalCutHeight {
+	if !s.medianTimestamp().After(s.Network.HardforkV2.FinalCutTime) {
 		return s.ChildTarget
 	}
 	return invTarget(s.Difficulty.n)
