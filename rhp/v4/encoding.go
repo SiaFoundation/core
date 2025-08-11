@@ -103,6 +103,7 @@ func (r *RPCError) maxLen() int {
 }
 
 const (
+	maxFreeSectorRequestSize     = 2097432 // MaxSectorBatchSize indices
 	reasonableObjectSize         = 10 * 1024
 	reasonableTransactionSetSize = 100 * 1024
 )
@@ -377,7 +378,7 @@ func (r *RPCFreeSectorsRequest) decodeFrom(d *types.Decoder) {
 	r.ChallengeSignature.DecodeFrom(d)
 }
 func (r *RPCFreeSectorsRequest) maxLen() int {
-	return reasonableObjectSize
+	return maxFreeSectorRequestSize
 }
 
 func (r *RPCFreeSectorsResponse) encodeTo(e *types.Encoder) {
@@ -391,7 +392,20 @@ func (r *RPCFreeSectorsResponse) decodeFrom(d *types.Decoder) {
 	r.NewMerkleRoot.DecodeFrom(d)
 }
 func (r *RPCFreeSectorsResponse) maxLen() int {
-	return reasonableObjectSize
+	// It's tricky to estimate a maxLen for this response since it depends a lot
+	// on what indices were picked in the request and how large the contract is.
+	// If we assume that MaxSectorBatchSize leaves are pruned, the contract is
+	// at least 1TiB large and the corresponding merkle tree has a height of 18.
+	// If every sector is pruned, 5x the max request size should be sufficient
+	// because no subtree hashes need to be transmitted if all leaves are sent.
+	// To account for some generous overhead when pruning much larger contracts
+	// and requiring subtree hashes to be transmitted as well, we pick a
+	// conservative 10x resulting in about 20MiB of data.
+	// Considering that a host can't send this response without the renter
+	// initiating the RPC, 20MiB should be tolerable. If that is for some reason
+	// not sufficient, the renter will need to pick a smaller batch size for
+	// freeing sectors.
+	return 10 * maxFreeSectorRequestSize
 }
 
 func (r *RPCFreeSectorsSecondResponse) encodeTo(e *types.Encoder) {
