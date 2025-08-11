@@ -1,3 +1,13 @@
+## 0.17.0 (2025-08-11)
+
+### Breaking Changes
+
+- Add dedicated ProtocolVersion type for RHP version.
+
+### Fixes
+
+- Increase RPCFreeSectorsRequest and RPCFreeSectorsResponse maxLengths to fix issue with large contracts failing to prune.
+
 ## 0.16.0 (2025-07-28)
 
 ### Breaking Changes
