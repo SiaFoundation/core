@@ -80,9 +80,10 @@ type Network struct {
 	} `json:"hardforkOak"`
 	//nolint:tagliatelle
 	HardforkASIC struct {
-		Height    uint64        `json:"height"`
-		OakTime   time.Duration `json:"oakTime"`
-		OakTarget types.BlockID `json:"oakTarget"`
+		Height      uint64        `json:"height"`
+		OakTime     time.Duration `json:"oakTime"`
+		OakTarget   types.BlockID `json:"oakTarget"`
+		NonceFactor uint64        `json:"nonceFactor"`
 	} `json:"hardforkASIC"`
 	HardforkFoundation struct {
 		Height          uint64        `json:"height"`
@@ -299,7 +300,7 @@ func (s State) NonceFactor() uint64 {
 	if s.childHeight() < s.Network.HardforkASIC.Height {
 		return 1
 	}
-	return 1009
+	return s.Network.HardforkASIC.NonceFactor
 }
 
 // MaxBlockWeight is the maximum "weight" of a valid child block.

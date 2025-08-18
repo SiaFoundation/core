@@ -33,6 +33,7 @@ func testnet() (*Network, types.Block) {
 	n.HardforkASIC.Height = 6
 	n.HardforkASIC.OakTime = 10000 * time.Second
 	n.HardforkASIC.OakTarget = n.InitialTarget
+	n.HardforkASIC.NonceFactor = 1009
 	n.HardforkFoundation.Height = 7
 	n.HardforkFoundation.PrimaryAddress = types.AnyoneCanSpend().Address()
 	n.HardforkFoundation.FailsafeAddress = types.VoidAddress
