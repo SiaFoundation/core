@@ -1,3 +1,9 @@
+## 0.17.1 (2025-08-18)
+
+### Features
+
+- Add `NonceFactor` field to the `HardforkASIC` struct and use this as the return value for `State.NonceFactor()`.
+
 ## 0.17.0 (2025-08-11)
 
 ### Breaking Changes
