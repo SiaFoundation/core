@@ -1,3 +1,9 @@
+## 0.17.3 (2025-08-21)
+
+### Fixes
+
+- Fix RPCSectorRoots not supporting MaxSectorBatchSize.
+
 ## 0.17.2 (2025-08-21)
 
 ### Fixes
