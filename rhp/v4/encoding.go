@@ -589,7 +589,12 @@ func (r *RPCSectorRootsResponse) decodeFrom(d *types.Decoder) {
 	r.HostSignature.DecodeFrom(d)
 }
 func (r *RPCSectorRootsResponse) maxLen() int {
-	return 1 << 20 // 1 MiB
+	// It's tricky to estimate a maxLen for this response. We pick a
+	// conservative 20MiB of data. Considering that a host can't
+	// send this response without the renter initiating the RPC, 20MiB should
+	// be tolerable. If that is for some reason not sufficient, the renter
+	// will need to pick a smaller batch size for sector roots.
+	return 20 << 20
 }
 
 func (r *RPCAccountBalanceRequest) encodeTo(e *types.Encoder) {
