@@ -1,3 +1,9 @@
+## 0.17.2 (2025-08-21)
+
+### Fixes
+
+- Fix RPCAppendSectors not allowing up to MaxSectorBatchSize sectors.
+
 ## 0.17.1 (2025-08-18)
 
 ### Features
