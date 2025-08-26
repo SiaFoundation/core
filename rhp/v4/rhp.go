@@ -3,8 +3,10 @@ package rhp
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"go.sia.tech/core/consensus"
@@ -330,6 +332,15 @@ func (v ProtocolVersion) MarshalText() ([]byte, error) {
 func (v *ProtocolVersion) UnmarshalText(buf []byte) error {
 	_, err := fmt.Sscanf(string(buf), "v%d.%d.%d", &v[0], &v[1], &v[2])
 	return err
+}
+
+// UnmarshalJSON implements the [json.Unmarshaler] interface.
+func (v *ProtocolVersion) UnmarshalJSON(buf []byte) error {
+	s := strings.TrimSpace(string(buf))
+	if strings.HasPrefix(s, "[") { // backwards compatible with old json array encoding
+		return json.Unmarshal(buf, (*[3]uint8)(v))
+	}
+	return v.UnmarshalText(buf)
 }
 
 type (

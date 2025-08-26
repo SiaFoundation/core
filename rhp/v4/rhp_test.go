@@ -511,3 +511,55 @@ func TestProtocolVersionMarshalling(t *testing.T) {
 		t.Fatalf("expected %v, got %v", v, v2)
 	}
 }
+
+func TestProtocolVersionCompatMarshalling(t *testing.T) {
+	tests := []struct {
+		json     string
+		expected ProtocolVersion
+		hasError bool
+	}{
+		{
+			json:     `[0, 1, 2]`,
+			expected: ProtocolVersion{0, 1, 2},
+		},
+		{
+			json: `[
+			0, 1, 2]`,
+			expected: ProtocolVersion{0, 1, 2},
+		},
+		{
+			json: `[
+			0, 
+			1, 
+			2
+]`,
+			expected: ProtocolVersion{0, 1, 2},
+		},
+		{
+			json:     `[1, 2, 3, 4]`,
+			expected: ProtocolVersion{1, 2, 3}, // json ignores extra elements
+		},
+		{
+			json:     `[foo, bar, baz]`,
+			hasError: true,
+		},
+		{
+			json:     `[-1, 2, 3]`,
+			hasError: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.json, func(t *testing.T) {
+			var v ProtocolVersion
+			if err := v.UnmarshalJSON([]byte(test.json)); err == nil && test.hasError {
+				t.Fatal("expected error")
+			} else if err != nil && !test.hasError {
+				t.Fatal("unexpected error:", err)
+			} else if err != nil {
+				return // expected error
+			} else if v != test.expected {
+				t.Fatalf("expected %v, got %v", test.expected, v)
+			}
+		})
+	}
+}
