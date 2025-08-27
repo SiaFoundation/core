@@ -1,3 +1,9 @@
+## 0.17.4 (2025-08-27)
+
+### Fixes
+
+- Add compatibility for old protocol version JSON encoding
+
 ## 0.17.3 (2025-08-21)
 
 ### Fixes
