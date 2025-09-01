@@ -340,7 +340,7 @@ func (v *ProtocolVersion) UnmarshalJSON(buf []byte) error {
 	if strings.HasPrefix(s, "[") { // backwards compatible with old json array encoding
 		return json.Unmarshal(buf, (*[3]uint8)(v))
 	}
-	return v.UnmarshalText(buf)
+	return v.UnmarshalText([]byte(strings.Trim(s, `"`)))
 }
 
 type (

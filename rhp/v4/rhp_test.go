@@ -529,8 +529,8 @@ func TestProtocolVersionCompatMarshalling(t *testing.T) {
 		},
 		{
 			json: `[
-			0, 
-			1, 
+			0,
+			1,
 			2
 ]`,
 			expected: ProtocolVersion{0, 1, 2},
@@ -538,6 +538,11 @@ func TestProtocolVersionCompatMarshalling(t *testing.T) {
 		{
 			json:     `[1, 2, 3, 4]`,
 			expected: ProtocolVersion{1, 2, 3}, // json ignores extra elements
+		},
+		{
+			json:     `"v1.0.0"`,
+			hasError: false,
+			expected: ProtocolVersion{1, 0, 0},
 		},
 		{
 			json:     `[foo, bar, baz]`,
