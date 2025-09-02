@@ -1,3 +1,9 @@
+## 0.17.5 (2025-09-01)
+
+### Fixes
+
+- Fix ProtocolVersion marshalling failing.
+
 ## 0.17.4 (2025-08-27)
 
 ### Fixes
