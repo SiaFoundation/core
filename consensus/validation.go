@@ -63,7 +63,7 @@ func validateMinerPayouts(s State, b types.Block) error {
 			return errors.New("block must have exactly one miner payout")
 		}
 		// after the final cut, the miner payout value may be omitted
-		if s.childHeight() >= s.Network.HardforkV2.FinalCutHeight && b.MinerPayouts[0].Value.IsZero() {
+		if s.medianTimestamp().After(s.Network.HardforkV2.FinalCutTime) && b.MinerPayouts[0].Value.IsZero() {
 			return nil
 		}
 	}
