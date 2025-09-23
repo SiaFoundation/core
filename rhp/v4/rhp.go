@@ -248,16 +248,16 @@ type HostSettings struct {
 type Account types.PublicKey
 
 // String implements fmt.Stringer.
-func (a Account) String() string { return hex.EncodeToString(a[:]) }
+func (a Account) String() string { return "ed25519:" + hex.EncodeToString(a[:]) }
 
 // MarshalText implements encoding.TextMarshaler.
 func (a Account) MarshalText() ([]byte, error) { return []byte(a.String()), nil }
 
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (a *Account) UnmarshalText(b []byte) error {
-	n, err := hex.Decode(a[:], bytes.TrimPrefix(b, []byte("acct:")))
+	n, err := hex.Decode(a[:], bytes.TrimPrefix(b, []byte("ed25519:")))
 	if err != nil {
-		return fmt.Errorf("decoding acct:<hex> failed: %w", err)
+		return fmt.Errorf("decoding ed25519:<hex> failed: %w", err)
 	} else if n < len(a) {
 		return io.ErrUnexpectedEOF
 	}
