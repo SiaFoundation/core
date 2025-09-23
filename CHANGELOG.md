@@ -1,3 +1,9 @@
+## 0.18.0 (2025-09-23)
+
+### Breaking Changes
+
+- Changed the encoding of `rhp.Account` to include the `ed25519:` prefix.
+
 ## 0.17.5 (2025-09-01)
 
 ### Fixes
