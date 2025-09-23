@@ -251,6 +251,16 @@ func (req *RPCVerifySectorRequest) Validate(hostKey types.PublicKey) error {
 }
 
 // Validate checks that the request is valid
+func (req *RPCVerifySectorVariableRequest) Validate(hostKey types.PublicKey) error {
+	if err := req.Prices.Validate(hostKey); err != nil {
+		return fmt.Errorf("prices are invalid: %w", err)
+	} else if err := req.Token.Validate(hostKey); err != nil {
+		return fmt.Errorf("token is invalid: %w", err)
+	}
+	return nil
+}
+
+// Validate checks that the request is valid
 func (req *RPCAppendSectorsRequest) Validate(pk types.PublicKey) error {
 	if err := req.Prices.Validate(pk); err != nil {
 		return fmt.Errorf("prices are invalid: %w", err)
@@ -258,6 +268,23 @@ func (req *RPCAppendSectorsRequest) Validate(pk types.PublicKey) error {
 		return rpcBadRequestError("no sectors to append")
 	} else if uint64(len(req.Sectors)) > MaxSectorBatchSize {
 		return rpcBadRequestError("too many sectors to append: %d > %d", len(req.Sectors), MaxSectorBatchSize)
+	}
+	return nil
+}
+
+// Validate checks that the request is valid
+func (req *RPCAppendSectorsVariableRequest) Validate(pk types.PublicKey) error {
+	if err := req.Prices.Validate(pk); err != nil {
+		return fmt.Errorf("prices are invalid: %w", err)
+	} else if len(req.Sectors) == 0 {
+		return rpcBadRequestError("no sectors to append")
+	} else if uint64(len(req.Sectors)) > MaxSectorBatchSize {
+		return rpcBadRequestError("too many sectors to append: %d > %d", len(req.Sectors), MaxSectorBatchSize)
+	}
+	for i, sector := range req.Sectors {
+		if sector.Length == 0 || sector.Length%LeafSize != 0 || sector.Length > SectorSize {
+			return rpcBadRequestError("sector %d length must be non-zero, segment aligned, and less than %d", i, SectorSize)
+		}
 	}
 	return nil
 }

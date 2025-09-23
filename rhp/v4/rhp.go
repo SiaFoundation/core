@@ -44,9 +44,11 @@ var (
 	RPCFundAccountsID      = types.NewSpecifier("FundAccounts")
 	RPCReplenishAccountsID = types.NewSpecifier("ReplAccounts")
 
-	RPCAppendSectorsID = types.NewSpecifier("AppendSectors")
-	RPCFreeSectorsID   = types.NewSpecifier("FreeSectors")
-	RPCSectorRootsID   = types.NewSpecifier("SectorRoots")
+	RPCAppendSectorsID         = types.NewSpecifier("AppendSectors")
+	RPCFreeSectorsID           = types.NewSpecifier("FreeSectors")
+	RPCAppendSectorsVariableID = types.NewSpecifier("AppendSectorsVar")
+	RPCFreeSectorsVariableID   = types.NewSpecifier("FreeSectorsVar")
+	RPCSectorRootsID           = types.NewSpecifier("SectorRoots")
 
 	RPCFormContractID    = types.NewSpecifier("FormContract")
 	RPCLatestRevisionID  = types.NewSpecifier("LatestRevision")
@@ -57,7 +59,11 @@ var (
 	RPCReadSectorID   = types.NewSpecifier("ReadSector")
 	RPCWriteSectorID  = types.NewSpecifier("WriteSector")
 	RPCVerifySectorID = types.NewSpecifier("VerifySector")
-	RPCSettingsID     = types.NewSpecifier("Settings")
+
+	RPCReadSectorVariableID   = types.NewSpecifier("ReadSectorVar")
+	RPCWriteSectorVariableID  = types.NewSpecifier("WriteSectorVar")
+	RPCVerifySectorVariableID = types.NewSpecifier("VerifySectorVar")
+	RPCSettingsID             = types.NewSpecifier("Settings")
 )
 
 func round4KiB(n uint64) uint64 {
@@ -507,10 +513,25 @@ type (
 		Length uint64        `json:"length"`
 	}
 
+	// VariableSector is a sector to be appended to a contract.
+
+	VariableSector struct {
+		Root   types.Hash256 `json:"root"`
+		Length uint64        `json:"length"`
+	}
+
 	// RPCAppendSectorsRequest implements Object.
 	RPCAppendSectorsRequest struct {
 		Prices             HostPrices           `json:"prices"`
 		Sectors            []types.Hash256      `json:"sectors"`
+		ContractID         types.FileContractID `json:"contractID"`
+		ChallengeSignature types.Signature      `json:"challengeSignature"`
+	}
+
+	// RPCAppendSectorsVariableRequest implements Object.
+	RPCAppendSectorsVariableRequest struct {
+		Prices             HostPrices           `json:"prices"`
+		Sectors            []VariableSector     `json:"sectors"`
 		ContractID         types.FileContractID `json:"contractID"`
 		ChallengeSignature types.Signature      `json:"challengeSignature"`
 	}
@@ -535,11 +556,18 @@ type (
 		DataLength uint64          `json:"dataLength"`
 	}
 
+	// RPCReadVariableSectorResponse implements Object.
+	RPCReadVariableSectorResponse struct {
+		Proof        []types.Hash256 `json:"proof"`
+		SectorLength uint64          `json:"sectorLength"`
+		DataLength   uint64          `json:"dataLength"`
+	}
+
 	// RPCWriteSectorRequest implements Object.
 	RPCWriteSectorRequest struct {
 		Prices     HostPrices   `json:"prices"`
 		Token      AccountToken `json:"token"`
-		DataLength uint64       `json:"dataLength"` // extended to SectorSize by host
+		DataLength uint64       `json:"dataLength"`
 	}
 
 	// RPCWriteSectorResponse implements Object.
@@ -603,6 +631,23 @@ type (
 	RPCVerifySectorResponse struct {
 		Proof []types.Hash256 `json:"proof"`
 		Leaf  [64]byte        `json:"leaf"`
+	}
+
+	// RPCVerifySectorVariableRequest implements Object.
+	RPCVerifySectorVariableRequest struct {
+		Prices HostPrices    `json:"prices"`
+		Token  AccountToken  `json:"token"`
+		Root   types.Hash256 `json:"root"`
+	}
+
+	// RPCVerifySectorVariableResponse implements Object.
+	RPCVerifySectorVariableResponse struct {
+		SectorLength uint64 `json:"sectorLength"`
+	}
+
+	// RPCVerifySectorVariableSecondResponse implements Object.
+	RPCVerifySectorVariableSecondResponse struct {
+		LeafIndex uint64 `json:"leafIndex"`
 	}
 
 	// An AccountDeposit represents a transfer into an account.
@@ -795,6 +840,18 @@ func ReviseForAppendSectors(fc types.V2FileContract, prices HostPrices, root typ
 	fc.Capacity += SectorSize * growth
 	fc.FileMerkleRoot = root
 	usage := prices.RPCAppendSectorsCost(growth, fc.ExpirationHeight-prices.TipHeight)
+	if err := PayWithContract(&fc, usage); err != nil {
+		return fc, Usage{}, err
+	}
+	return fc, usage, nil
+}
+
+// ReviseForAppendSectors creates a contract revision for the append sectors RPC
+func ReviseForAppendSectorsVariable(fc types.V2FileContract, prices HostPrices, root types.Hash256, appendedSectors, newSectors uint64) (types.V2FileContract, Usage, error) {
+	fc.Filesize += appendedSectors * SectorSize
+	fc.Capacity += newSectors * SectorSize
+	fc.FileMerkleRoot = root
+	usage := prices.RPCAppendSectorsCost(newSectors, fc.ExpirationHeight-prices.TipHeight)
 	if err := PayWithContract(&fc, usage); err != nil {
 		return fc, Usage{}, err
 	}

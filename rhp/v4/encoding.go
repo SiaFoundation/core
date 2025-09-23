@@ -427,6 +427,32 @@ func (r *RPCFreeSectorsThirdResponse) maxLen() int {
 	return sizeofSignature
 }
 
+func (vs VariableSector) EncodeTo(e *types.Encoder) {
+	vs.Root.EncodeTo(e)
+	e.WriteUint64(vs.Length)
+}
+
+func (vs *VariableSector) DecodeFrom(d *types.Decoder) {
+	vs.Root.DecodeFrom(d)
+	vs.Length = d.ReadUint64()
+}
+
+func (r *RPCAppendSectorsVariableRequest) encodeTo(e *types.Encoder) {
+	r.Prices.EncodeTo(e)
+	types.EncodeSlice(e, r.Sectors)
+	r.ContractID.EncodeTo(e)
+	r.ChallengeSignature.EncodeTo(e)
+}
+func (r *RPCAppendSectorsVariableRequest) decodeFrom(d *types.Decoder) {
+	r.Prices.DecodeFrom(d)
+	types.DecodeSlice(d, &r.Sectors)
+	r.ContractID.DecodeFrom(d)
+	r.ChallengeSignature.DecodeFrom(d)
+}
+func (r *RPCAppendSectorsVariableRequest) maxLen() int {
+	return reasonableObjectSize + (40 * MaxSectorBatchSize)
+}
+
 func (r *RPCAppendSectorsRequest) encodeTo(e *types.Encoder) {
 	r.Prices.EncodeTo(e)
 	types.EncodeSlice(e, r.Sectors)
@@ -533,7 +559,21 @@ func (r *RPCReadSectorResponse) decodeFrom(d *types.Decoder) {
 	r.DataLength = d.ReadUint64()
 }
 func (r *RPCReadSectorResponse) maxLen() int {
-	return reasonableObjectSize + 8 + SectorSize
+	return reasonableObjectSize + 8
+}
+
+func (r *RPCReadVariableSectorResponse) encodeTo(e *types.Encoder) {
+	types.EncodeSlice(e, r.Proof)
+	e.WriteUint64(r.SectorLength)
+	e.WriteUint64(r.DataLength)
+}
+func (r *RPCReadVariableSectorResponse) decodeFrom(d *types.Decoder) {
+	types.DecodeSlice(d, &r.Proof)
+	r.SectorLength = d.ReadUint64()
+	r.DataLength = d.ReadUint64()
+}
+func (r *RPCReadVariableSectorResponse) maxLen() int {
+	return reasonableObjectSize + 8 + 8
 }
 
 func (r RPCWriteSectorRequest) encodeTo(e *types.Encoder) {
@@ -682,7 +722,7 @@ func (r *RPCFundAccountsResponse) encodeTo(e *types.Encoder) {
 	r.HostSignature.EncodeTo(e)
 }
 func (r *RPCFundAccountsResponse) decodeFrom(d *types.Decoder) {
-	types.DecodeSliceCast[types.V2Currency, types.Currency](d, &r.Balances)
+	types.DecodeSliceCast[types.V2Currency](d, &r.Balances)
 	r.HostSignature.DecodeFrom(d)
 }
 func (r *RPCFundAccountsResponse) maxLen() int {
@@ -715,4 +755,38 @@ func (r *RPCVerifySectorResponse) decodeFrom(d *types.Decoder) {
 }
 func (r *RPCVerifySectorResponse) maxLen() int {
 	return reasonableObjectSize
+}
+
+func (r *RPCVerifySectorVariableRequest) encodeTo(e *types.Encoder) {
+	r.Prices.EncodeTo(e)
+	r.Token.encodeTo(e)
+	r.Root.EncodeTo(e)
+}
+func (r *RPCVerifySectorVariableRequest) decodeFrom(d *types.Decoder) {
+	r.Prices.DecodeFrom(d)
+	r.Token.decodeFrom(d)
+	r.Root.DecodeFrom(d)
+}
+func (r *RPCVerifySectorVariableRequest) maxLen() int {
+	return sizeofPrices + sizeofAccountToken + sizeofHash
+}
+
+func (r *RPCVerifySectorVariableResponse) encodeTo(e *types.Encoder) {
+	e.WriteUint64(r.SectorLength)
+}
+func (r *RPCVerifySectorVariableResponse) decodeFrom(d *types.Decoder) {
+	r.SectorLength = d.ReadUint64()
+}
+func (r *RPCVerifySectorVariableResponse) maxLen() int {
+	return 8
+}
+
+func (r *RPCVerifySectorVariableSecondResponse) encodeTo(e *types.Encoder) {
+	e.WriteUint64(r.LeafIndex)
+}
+func (r *RPCVerifySectorVariableSecondResponse) decodeFrom(d *types.Decoder) {
+	r.LeafIndex = d.ReadUint64()
+}
+func (r *RPCVerifySectorVariableSecondResponse) maxLen() int {
+	return 8
 }
