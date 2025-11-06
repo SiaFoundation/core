@@ -203,7 +203,7 @@ func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.Chain
 }
 
 // Validate validates a refresh contract request against the existing contract.
-func (req *RPCRefreshContractRequest) Validate(pk types.PublicKey, tip types.ChainIndex, existing types.V2FileContract, maxCollateral types.Currency) error {
+func (req *RPCRefreshContractRequest) Validate(pk types.PublicKey, tip types.ChainIndex, existing types.V2FileContract, maxCollateral types.Currency, partial bool) error {
 	if err := req.Prices.Validate(pk); err != nil {
 		return fmt.Errorf("prices are invalid: %w", err)
 	}
@@ -224,7 +224,13 @@ func (req *RPCRefreshContractRequest) Validate(pk types.PublicKey, tip types.Cha
 	// calculate the minimum allowance required for the contract based on the
 	// host's locked collateral
 	minRenterAllowance := MinRenterAllowance(hp, req.Refresh.Collateral)
-	totalHostCollateral := existing.TotalCollateral.Add(req.Refresh.Collateral)
+
+	var totalHostCollateral types.Currency
+	if partial {
+		totalHostCollateral = existing.RiskedCollateral().Add(req.Refresh.Collateral)
+	} else {
+		totalHostCollateral = existing.TotalCollateral.Add(req.Refresh.Collateral)
+	}
 
 	switch {
 	case req.Refresh.Allowance.IsZero():
