@@ -1,3 +1,9 @@
+## 0.18.1 (2025-11-10)
+
+### Fixes
+
+- Fix invalid MaxCollateral validation for partial contract refreshes.
+
 ## 0.18.0 (2025-09-23)
 
 ### Breaking Changes
