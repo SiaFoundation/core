@@ -28,6 +28,11 @@ func ReaderRoot(r io.Reader) (types.Hash256, error) {
 	return rhp2.ReaderRoot(r)
 }
 
+// ReadSectorRoot computes the merkle root of a sector read from a reader.
+func ReadSectorRoot(r io.Reader) (types.Hash256, error) {
+	return rhp2.ReadSectorRoot(r)
+}
+
 // ReadSector reads a single sector from r and calculates its root.
 func ReadSector(r io.Reader) (types.Hash256, *[SectorSize]byte, error) {
 	return rhp2.ReadSector(r)

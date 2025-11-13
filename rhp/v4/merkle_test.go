@@ -50,6 +50,8 @@ func TestSectorRoot(t *testing.T) {
 			t.Errorf("wrong Merkle root: got %s, want %s", root, expected)
 		} else if root, err := ReaderRoot(bytes.NewReader(sector[:])); err != nil || root.String() != expected {
 			t.Errorf("ReaderRoot does not match SectorRoot: got %s, want %s", root.String(), expected)
+		} else if root, err := ReadSectorRoot(bytes.NewReader(sector[:])); err != nil || root.String() != expected {
+			t.Errorf("ReadSectorRoot does not match SectorRoot: got %s, want %s", root.String(), expected)
 		}
 	}
 	var sector [SectorSize]byte
@@ -69,18 +71,18 @@ func TestSectorRoot(t *testing.T) {
 	}
 }
 
-func TestPartialReaderRoot(t *testing.T) {
+func TestPartialReadSectorRoot(t *testing.T) {
 	var sector [SectorSize]byte
 	for i := range LeafSize {
 		sector[0] = byte(i)
 	}
 
 	expected := refSectorRoot(&sector)
-	got, err := ReaderRoot(bytes.NewReader(sector[:LeafSize]))
+	got, err := ReadSectorRoot(bytes.NewReader(sector[:LeafSize]))
 	if err != nil {
 		t.Fatal(err)
 	} else if got != expected {
-		t.Fatalf("partial ReaderRoot does not match reference implementation: got %s, want %s", got.String(), expected.String())
+		t.Fatalf("partial ReadSectorRoot does not match reference implementation: got %s, want %s", got.String(), expected.String())
 	}
 }
 
