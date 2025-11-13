@@ -220,12 +220,12 @@ func ReaderRoot(r io.Reader) (types.Hash256, error) {
 
 		nRoots++
 		wg.Add(1)
-		go func(i int, batch []byte) {
+		go func(i int) {
 			defer wg.Done()
 			var sa sectorAccumulator
-			sa.appendLeaves(batch)
+			sa.appendLeaves(leaves)
 			roots[i] = sa.root()
-		}(i, leaves)
+		}(i)
 	}
 	wg.Wait()
 	var sa sectorAccumulator
