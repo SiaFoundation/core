@@ -204,21 +204,17 @@ func ReaderRoot(r io.Reader) (types.Hash256, error) {
 	roots := make([]types.Hash256, p)
 	var wg sync.WaitGroup
 
-	nRoots := 0
 	for i := range roots {
 		leaves := make([]byte, per)
 		n, err := io.ReadFull(r, leaves)
-		if err == io.ErrUnexpectedEOF {
+		if err == io.ErrUnexpectedEOF || err == io.EOF {
 			if n%LeafSize != 0 {
 				return types.Hash256{}, errors.New("stream does not contain integer multiple of leaves")
 			}
-		} else if err == io.EOF {
-			break // when n == 0
 		} else if err != nil {
 			return types.Hash256{}, err
 		}
 
-		nRoots++
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -229,7 +225,7 @@ func ReaderRoot(r io.Reader) (types.Hash256, error) {
 	}
 	wg.Wait()
 	var sa sectorAccumulator
-	for _, r := range roots[:nRoots] {
+	for _, r := range roots {
 		sa.appendNode(r)
 	}
 	return sa.root(), nil

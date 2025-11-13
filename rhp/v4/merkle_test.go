@@ -63,9 +63,24 @@ func TestSectorRoot(t *testing.T) {
 	assertRoot(&sector, "d0ab6691d76750618452e920386e5f6f98fdd1219a70a06f06ef622ac6c6373c")
 
 	// test some random roots against a reference implementation
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		frand.Read(sector[:])
 		assertRoot(&sector, refSectorRoot(&sector).String())
+	}
+}
+
+func TestPartialReaderRoot(t *testing.T) {
+	var sector [SectorSize]byte
+	for i := range LeafSize {
+		sector[0] = byte(i)
+	}
+
+	expected := refSectorRoot(&sector)
+	got, err := ReaderRoot(bytes.NewReader(sector[:LeafSize]))
+	if err != nil {
+		t.Fatal(err)
+	} else if got != expected {
+		t.Fatalf("partial ReaderRoot does not match reference implementation: got %s, want %s", got.String(), expected.String())
 	}
 }
 
