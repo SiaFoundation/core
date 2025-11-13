@@ -198,22 +198,35 @@ func SectorRoot(sector *[SectorSize]byte) types.Hash256 {
 // ReaderRoot returns the Merkle root of the supplied stream, which must contain
 // an integer multiple of leaves.
 func ReaderRoot(r io.Reader) (types.Hash256, error) {
-	var s sectorAccumulator
-	leafBatch := make([]byte, LeafSize*16)
-	for {
-		n, err := io.ReadFull(r, leafBatch)
-		if err == io.EOF {
-			break
+	// assign one subtree to each of 2^n goroutines, then merge
+	p := min(1<<bits.Len(uint(runtime.NumCPU())), LeavesPerSector/4)
+	per := SectorSize / p
+	roots := make([]types.Hash256, p)
+	var wg sync.WaitGroup
+	for i := range roots {
+		wg.Add(1)
+		leaves := make([]byte, per)
+		n, err := io.ReadFull(r, leaves)
+		if err != nil {
+			return types.Hash256{}, err
 		} else if err == io.ErrUnexpectedEOF {
 			if n%LeafSize != 0 {
 				return types.Hash256{}, errors.New("stream does not contain integer multiple of leaves")
 			}
-		} else if err != nil {
-			return types.Hash256{}, err
 		}
-		s.appendLeaves(leafBatch[:n])
+		go func(i int, batch []byte) {
+			defer wg.Done()
+			var sa sectorAccumulator
+			sa.appendLeaves(batch)
+			roots[i] = sa.root()
+		}(i, leaves)
 	}
-	return s.root(), nil
+	wg.Wait()
+	var sa sectorAccumulator
+	for _, r := range roots {
+		sa.appendNode(r)
+	}
+	return sa.root(), nil
 }
 
 // ReadSector reads a single sector from r and calculates its root.
