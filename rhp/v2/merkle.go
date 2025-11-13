@@ -207,12 +207,12 @@ func ReaderRoot(r io.Reader) (types.Hash256, error) {
 		wg.Add(1)
 		leaves := make([]byte, per)
 		n, err := io.ReadFull(r, leaves)
-		if err != nil {
-			return types.Hash256{}, err
-		} else if err == io.ErrUnexpectedEOF {
+		if err == io.ErrUnexpectedEOF {
 			if n%LeafSize != 0 {
 				return types.Hash256{}, errors.New("stream does not contain integer multiple of leaves")
 			}
+		} else if err != nil {
+			return types.Hash256{}, err
 		}
 		go func(i int, batch []byte) {
 			defer wg.Done()
