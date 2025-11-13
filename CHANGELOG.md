@@ -1,3 +1,9 @@
+## 0.18.2 (2025-11-13)
+
+### Fixes
+
+- Parallelize sector root computation in ReaderRoot.
+
 ## 0.18.1 (2025-11-10)
 
 ### Fixes
