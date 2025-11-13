@@ -174,7 +174,7 @@ func (sa *sectorAccumulator) root() types.Hash256 {
 // SectorRoot computes the Merkle root of a sector.
 func SectorRoot(sector *[SectorSize]byte) types.Hash256 {
 	// assign one subtree to each of 2^n goroutines, then merge
-	p := min(1<<bits.Len(uint(runtime.NumCPU())), LeavesPerSector/4)
+	p := 1 << bits.Len(uint(runtime.NumCPU()))
 	per := SectorSize / p
 	roots := make([]types.Hash256, p)
 	var wg sync.WaitGroup
@@ -188,11 +188,7 @@ func SectorRoot(sector *[SectorSize]byte) types.Hash256 {
 		}(i)
 	}
 	wg.Wait()
-	var sa sectorAccumulator
-	for _, r := range roots {
-		sa.appendNode(r)
-	}
-	return sa.root()
+	return MetaRoot(roots)
 }
 
 // ReaderRoot returns the Merkle root of the supplied stream, which must contain
@@ -216,11 +212,42 @@ func ReaderRoot(r io.Reader) (types.Hash256, error) {
 	return s.root(), nil
 }
 
+// ReadSectorRoot computes the merkle root of a sector read from a reader.
+func ReadSectorRoot(r io.Reader) (types.Hash256, error) {
+	// assign one subtree to each of 2^n goroutines, then merge
+	p := 1 << bits.Len(uint(runtime.NumCPU()))
+	per := SectorSize / p
+	roots := make([]types.Hash256, p)
+	var wg sync.WaitGroup
+
+	for i := range roots {
+		leaves := make([]byte, per)
+		n, err := io.ReadFull(r, leaves)
+		if err == io.ErrUnexpectedEOF || err == io.EOF {
+			if n%LeafSize != 0 {
+				return types.Hash256{}, errors.New("stream does not contain integer multiple of leaves")
+			}
+		} else if err != nil {
+			return types.Hash256{}, err
+		}
+
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			var sa sectorAccumulator
+			sa.appendLeaves(leaves)
+			roots[i] = sa.root()
+		}(i)
+	}
+	wg.Wait()
+	return MetaRoot(roots), nil
+}
+
 // ReadSector reads a single sector from r and calculates its root.
 func ReadSector(r io.Reader) (types.Hash256, *[SectorSize]byte, error) {
 	var sector [SectorSize]byte
 	buf := bytes.NewBuffer(sector[:0])
-	root, err := ReaderRoot(io.TeeReader(io.LimitReader(r, SectorSize), buf))
+	root, err := ReadSectorRoot(io.TeeReader(io.LimitReader(r, SectorSize), buf))
 	if buf.Len() != SectorSize {
 		return types.Hash256{}, nil, io.ErrUnexpectedEOF
 	}
