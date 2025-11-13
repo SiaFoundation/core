@@ -244,11 +244,7 @@ func ReadSectorRoot(r io.Reader) (types.Hash256, error) {
 		}(i)
 	}
 	wg.Wait()
-	var sa sectorAccumulator
-	for _, r := range roots {
-		sa.appendNode(r)
-	}
-	return sa.root(), nil
+	return MetaRoot(roots), nil
 }
 
 // ReadSector reads a single sector from r and calculates its root.
