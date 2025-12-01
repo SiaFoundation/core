@@ -1,3 +1,13 @@
+## 0.19.0 (2025-12-01)
+
+### Breaking Changes
+
+- Changed rhp.BuildSectorProof to accept cached subtrees to reduce disk IO required for sector reads.
+
+### Fixes
+
+- Parallelize sector root computation in ReaderRoot.
+
 ## 0.18.1 (2025-11-10)
 
 ### Fixes
