@@ -3,6 +3,7 @@ package rhp
 import (
 	"bytes"
 	"math/bits"
+	"slices"
 	"testing"
 
 	"go.sia.tech/core/types"
@@ -83,6 +84,52 @@ func TestPartialReadSectorRoot(t *testing.T) {
 		t.Fatal(err)
 	} else if got != expected {
 		t.Fatalf("partial ReadSectorRoot does not match reference implementation: got %s, want %s", got.String(), expected.String())
+	}
+}
+
+func TestBuildSectorProof(t *testing.T) {
+	var sector [SectorSize]byte
+	frand.Read(sector[:])
+	root := SectorRoot(&sector)
+
+	subtrees := CachedSectorSubtrees(&sector)
+
+	randomRange := func() [2]int {
+		start := frand.Intn(LeavesPerSector - 1)
+		end := frand.Intn(LeavesPerSector-start) + start + 1
+		return [2]int{start, end}
+	}
+
+	tests := [][2]int{
+		{0, 1},
+		{1, 2},
+		{0, 64},
+		{66, 67},
+		{0, 130},
+		{130, 194},
+		{0, 129},
+		{0, LeavesPerSector / 2},
+		{LeavesPerSector - 1, LeavesPerSector},
+		{LeavesPerSector/2 - 1, LeavesPerSector},
+		{LeavesPerSector / 2, LeavesPerSector},
+		{LeavesPerSector / 4, 3 * LeavesPerSector / 4},
+	}
+	for range 100 {
+		tests = append(tests, randomRange())
+	}
+
+	for _, test := range tests {
+		start, end := uint64(test[0]), uint64(test[1])
+		subtreeStart, subtreeEnd := SectorSubtreeRange(start, end)
+		segment := slices.Clone(sector[subtreeStart*LeafSize : subtreeEnd*LeafSize])
+		proof := BuildSectorProof(segment, start, end, subtrees)
+
+		rpv := NewRangeProofVerifier(start, end)
+		if _, err := rpv.ReadFrom(bytes.NewReader(sector[start*LeafSize : end*LeafSize])); err != nil {
+			t.Fatal(err)
+		} else if !rpv.Verify(proof, root) {
+			t.Fatalf("invalid proof for range [%d, %d)", start, end)
+		}
 	}
 }
 
