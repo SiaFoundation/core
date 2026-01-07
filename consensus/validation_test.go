@@ -1072,6 +1072,20 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			{
+				"must have exactly one miner payout",
+				func(b *types.Block) {
+					b.MinerPayouts = []types.SiacoinOutput{
+						{
+							Address: types.VoidAddress,
+							Value:   cs.BlockReward().Div64(2),
+						},
+						{
+							Address: types.VoidAddress,
+							Value:   cs.BlockReward().Div64(2),
+						}}
+				},
+			},
+			{
 				"miner payout has zero value",
 				func(b *types.Block) {
 					b.MinerPayouts = []types.SiacoinOutput{{
