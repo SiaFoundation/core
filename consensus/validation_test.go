@@ -465,6 +465,15 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
+				"transaction outputs exceed inputs",
+				func(b *types.Block) {
+					txn := &b.Transactions[0]
+					txn.SiafundOutputs = []types.SiafundOutput{
+						{Address: types.VoidAddress, Value: 10001},
+					}
+				},
+			},
+			{
 				"transaction creates a zero-valued output",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
@@ -1164,6 +1173,25 @@ func TestValidateV2Block(t *testing.T) {
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.SiafundOutputs[0].Value--
+				},
+			},
+			{
+				"transaction outputs exceed inputs",
+				func(b *types.Block) {
+					txn := &b.V2.Transactions[0]
+					txn.SiacoinOutputs = []types.SiacoinOutput{
+						{Address: types.VoidAddress, Value: types.MaxCurrency},
+						{Address: types.VoidAddress, Value: types.MaxCurrency},
+					}
+				},
+			},
+			{
+				"transaction outputs exceed inputs",
+				func(b *types.Block) {
+					txn := &b.V2.Transactions[0]
+					txn.SiafundOutputs = []types.SiafundOutput{
+						{Address: types.VoidAddress, Value: 10001},
+					}
 				},
 			},
 			{
