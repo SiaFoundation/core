@@ -2895,7 +2895,6 @@ func TestValidateMinerPayouts(t *testing.T) {
 func TestValidateOrphan(t *testing.T) {
 	n, genesisBlock := testnet()
 
-	// Test all V1 conditions
 	tests := []struct {
 		desc      string
 		mutate    func(b *types.Block, s *State)
