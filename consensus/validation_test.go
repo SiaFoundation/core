@@ -2547,3 +2547,260 @@ func TestValidateHeader(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateMinerPayouts(t *testing.T) {
+	n, genesisBlock := testnet()
+
+	// Test all V1 conditions
+	tests := []struct {
+		desc      string
+		mutate    func(h *types.Block, s *State)
+		errString string
+	}{
+		{
+			desc: "valid V1 block",
+			mutate: func(h *types.Block, s *State) {
+				// no mutation
+			},
+		},
+		{
+			desc: "invalid V1 block - V1 transaction fee has zero value",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.Transaction{
+					MinerFees: []types.Currency{
+						types.ZeroCurrency,
+					},
+				}
+				b.Transactions = append(b.Transactions, txn)
+			},
+			errString: "transaction fee has zero value",
+		},
+		{
+			desc: "invalid V1 block - V1 transaction fees overflow",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.Transaction{
+					MinerFees: []types.Currency{
+						types.MaxCurrency,
+					},
+				}
+				b.Transactions = append(b.Transactions, txn)
+			},
+			errString: "transaction fees overflow",
+		},
+		{
+			desc: "invalid V1 block - miner payout has zero value",
+			mutate: func(b *types.Block, s *State) {
+				b.MinerPayouts = []types.SiacoinOutput{
+					types.SiacoinOutput{
+						Value: types.ZeroCurrency,
+					},
+				}
+			},
+			errString: "miner payout has zero value",
+		},
+		{
+			desc: "invalid V1 block - miner payouts overflow",
+			mutate: func(b *types.Block, s *State) {
+				b.MinerPayouts = []types.SiacoinOutput{
+					types.SiacoinOutput{
+						Value: types.Siacoins(1),
+					},
+					types.SiacoinOutput{
+						Value: types.MaxCurrency,
+					},
+				}
+			},
+			errString: "miner payouts overflow",
+		},
+		{
+			desc: "invalid V1 block - miner payouts too low",
+			mutate: func(b *types.Block, s *State) {
+				b.MinerPayouts = []types.SiacoinOutput{
+					types.SiacoinOutput{
+						Value: types.Siacoins(1),
+					},
+				}
+			},
+			errString: "miner payout sum (1 SC) does not match block reward + fees (300 KS)",
+		},
+		{
+			desc: "invalid V1 block - miner payouts too high",
+			mutate: func(b *types.Block, s *State) {
+				b.MinerPayouts = append(b.MinerPayouts, types.SiacoinOutput{
+					Value: types.Siacoins(1),
+				})
+			},
+			errString: "miner payout sum (300.001 KS) does not match block reward + fees (300 KS)",
+		},
+	}
+
+	for _, test := range tests {
+		_, s := newConsensusDB(n, genesisBlock)
+		b := types.Block{
+			ParentID:  s.Index.ID,
+			Timestamp: time.Now(),
+			MinerPayouts: []types.SiacoinOutput{
+				types.SiacoinOutput{
+					Value:   s.BlockReward(),
+					Address: types.VoidAddress,
+				},
+			},
+		}
+		findBlockNonce(s, &b)
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(&b, &s)
+
+			err := validateMinerPayouts(s, b)
+
+			// check the valid case
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+
+	// Test all V2 conditions
+	tests = []struct {
+		desc      string
+		mutate    func(h *types.Block, s *State)
+		errString string
+	}{
+		{
+			desc: "valid V2 block",
+			mutate: func(h *types.Block, s *State) {
+				// no mutation
+			},
+		},
+		{
+			desc: "invalid V2 block - V2 transaction fees overflow",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.V2Transaction{
+					MinerFee: types.MaxCurrency,
+				}
+				b.V2.Transactions = []types.V2Transaction{txn}
+			},
+			errString: "v2 transaction fees overflow",
+		},
+		{
+			desc: "invalid V2 block - V1/V2 mixed transaction fees overflow",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.Transaction{
+					MinerFees: []types.Currency{
+						types.MaxCurrency.Sub(s.BlockReward()).Sub(types.Siacoins(1)),
+					},
+				}
+				b.Transactions = append(b.Transactions, txn)
+
+				txn2 := types.V2Transaction{
+					MinerFee: types.MaxCurrency,
+				}
+				b.V2.Transactions = []types.V2Transaction{txn2}
+			},
+			errString: "v2 transaction fees overflow",
+		},
+		{
+			desc: "invalid V2 block - V2 block with no MinerPayouts",
+			mutate: func(b *types.Block, s *State) {
+				b.MinerPayouts = []types.SiacoinOutput{}
+			},
+			errString: "block must have exactly one miner payout",
+		},
+		{
+			desc: "invalid V2 block - V2 block with multiple MinerPayouts",
+			mutate: func(b *types.Block, s *State) {
+				b.MinerPayouts = []types.SiacoinOutput{
+					types.SiacoinOutput{},
+					types.SiacoinOutput{},
+				}
+			},
+			errString: "block must have exactly one miner payout",
+		},
+		{
+			desc: "invalid V2 block - V2 block with 0 value MinerPayout before FinalCutHeight",
+			mutate: func(b *types.Block, s *State) {
+				b.MinerPayouts = []types.SiacoinOutput{
+					types.SiacoinOutput{
+						Value: types.ZeroCurrency,
+					},
+				}
+			},
+			errString: "miner payout has zero value",
+		},
+		{
+			desc: "valid V2 block - V2 block with 0 value MinerPayout after FinalCutHeight",
+			mutate: func(b *types.Block, s *State) {
+				b.MinerPayouts = []types.SiacoinOutput{
+					types.SiacoinOutput{
+						Value: types.ZeroCurrency,
+					},
+				}
+				s.Network.HardforkV2.FinalCutHeight = 1
+			},
+		},
+		{
+			desc: "invalid V2 block - V2 block miner payouts too low before FinalCutHeight",
+			mutate: func(b *types.Block, s *State) {
+				b.MinerPayouts = []types.SiacoinOutput{
+					types.SiacoinOutput{
+						Value: types.Siacoins(1),
+					},
+				}
+			},
+			errString: "miner payout sum (1 SC) does not match block reward + fees (300 KS)",
+		},
+		{
+			desc: "invalid V2 block - V2 block miner payouts too high before FinalCutHeight",
+			mutate: func(b *types.Block, s *State) {
+				b.MinerPayouts = []types.SiacoinOutput{
+					types.SiacoinOutput{
+						Value: types.Siacoins(300001),
+					},
+				}
+			},
+			errString: "miner payout sum (300.001 KS) does not match block reward + fees (300 KS)",
+		},
+	}
+
+	for _, test := range tests {
+		_, s := newConsensusDB(n, genesisBlock)
+		b := types.Block{
+			ParentID:  s.Index.ID,
+			Timestamp: time.Now(),
+			MinerPayouts: []types.SiacoinOutput{
+				types.SiacoinOutput{
+					Value:   s.BlockReward(),
+					Address: types.VoidAddress,
+				},
+			},
+			// Initialize any V2BlockData to trigger `if v.V2 != nil` condition
+			V2: &types.V2BlockData{
+				Transactions: []types.V2Transaction{},
+			},
+		}
+		findBlockNonce(s, &b)
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(&b, &s)
+
+			err := validateMinerPayouts(s, b)
+
+			// check the valid case
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
