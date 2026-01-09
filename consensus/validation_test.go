@@ -347,6 +347,8 @@ func TestValidateBlock(t *testing.T) {
 	revision.WindowStart = cs.Index.Height + 1
 	revision.WindowEnd = revision.WindowStart + 100
 
+	minerFee := types.Siacoins(1)
+
 	b := types.Block{
 		ParentID:  genesisBlock.ID(),
 		Timestamp: types.CurrentTimestamp(),
@@ -362,7 +364,7 @@ func TestValidateBlock(t *testing.T) {
 					UnlockConditions: types.StandardUnlockConditions(giftPublicKey),
 				}},
 				SiacoinOutputs: []types.SiacoinOutput{
-					{Value: giftAmountSC.Sub(fc.Payout), Address: giftAddress},
+					{Value: giftAmountSC.Sub(fc.Payout).Sub(minerFee), Address: giftAddress},
 				},
 				SiafundOutputs: []types.SiafundOutput{
 					{Value: giftAmountSF / 2, Address: giftAddress},
@@ -379,11 +381,12 @@ func TestValidateBlock(t *testing.T) {
 						FileContract: revision,
 					},
 				},
+				MinerFees: []types.Currency{minerFee},
 			},
 		},
 		MinerPayouts: []types.SiacoinOutput{{
 			Address: types.VoidAddress,
-			Value:   cs.BlockReward(),
+			Value:   cs.BlockReward().Add(minerFee),
 		}},
 	}
 	b.Transactions[0].FileContracts[0].FileMerkleRoot = types.HashBytes(make([]byte, 65))
@@ -432,7 +435,7 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
-				"miner payout sum (0 SC) does not match block reward + fees (300 KS)",
+				"miner payout sum (0 SC) does not match block reward + fees (300.001 KS)",
 				func(b *types.Block) {
 					b.MinerPayouts = nil
 				},
@@ -447,7 +450,7 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
-				"miner payout sum (150 KS) does not match block reward + fees (300 KS)",
+				"miner payout sum (150 KS) does not match block reward + fees (300.001 KS)",
 				func(b *types.Block) {
 					b.MinerPayouts = []types.SiacoinOutput{{
 						Address: types.VoidAddress,
