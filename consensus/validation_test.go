@@ -3241,3 +3241,1377 @@ func TestValidateOrphan(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateCurrencyOverflow(t *testing.T) {
+	n, genesisBlock := testnet()
+
+	// Test all V1 conditions
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.Transaction)
+		errString string
+	}{
+		{
+			desc: "valid Transaction",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				// no mutation
+			},
+		},
+		{
+			desc: "valid Transaction - include valid SiacoinOutput Values",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Address: types.VoidAddress,
+							Value:   types.Siacoins(1),
+						},
+						{
+							Address: types.VoidAddress,
+							Value:   types.Siacoins(2),
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "invalid Transaction - overflow SiacoinOutput Values",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Address: types.VoidAddress,
+							Value:   types.NewCurrency64(1),
+						},
+						{
+							Address: types.VoidAddress,
+							Value:   types.MaxCurrency,
+						},
+					},
+				}
+			},
+			errString: "transaction outputs exceed inputs",
+		},
+		{
+			desc: "valid Transaction - include a valid SiafundOutput",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: 1,
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - include a valid max Value SiafundOutput",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: ms.base.SiafundCount(),
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - include two max Value SiafundOutputs",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: ms.base.SiafundCount(),
+						},
+						{
+							Value: ms.base.SiafundCount(),
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "invalid Transaction - include a SiafundOutput greater than max Value",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: ms.base.SiafundCount() + 1,
+						},
+					},
+				}
+			},
+			errString: "transaction outputs exceed inputs",
+		},
+		{
+			desc: "invalid Transaction - overflow FileContracts Payout Value",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					FileContracts: []types.FileContract{
+						{
+							Payout: types.MaxCurrency,
+						},
+						{
+							Payout: types.NewCurrency64(1),
+						},
+					},
+				}
+			},
+			errString: "transaction outputs exceed inputs",
+		},
+		{
+			desc: "invalid Transaction - overflow FileContracts ValidProofOutputs Values",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					FileContracts: []types.FileContract{
+						{
+							ValidProofOutputs: []types.SiacoinOutput{
+								{
+									Value: types.MaxCurrency,
+								},
+								{
+									Value: types.NewCurrency64(1),
+								},
+							},
+						},
+					},
+				}
+			},
+			errString: "transaction outputs exceed inputs",
+		},
+		{
+			desc: "invalid Transaction - overflow FileContracts MissedProofOutputs Values",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					FileContracts: []types.FileContract{
+						{
+							MissedProofOutputs: []types.SiacoinOutput{
+								{
+									Value: types.MaxCurrency,
+								},
+								{
+									Value: types.NewCurrency64(1),
+								},
+							},
+						},
+					},
+				}
+			},
+			errString: "transaction outputs exceed inputs",
+		},
+		{
+			desc: "invalid Transaction - overflow FileContractRevisions ValidProofOutputs Values",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					FileContractRevisions: []types.FileContractRevision{
+						{
+							FileContract: types.FileContract{
+								ValidProofOutputs: []types.SiacoinOutput{
+									{
+										Value: types.MaxCurrency,
+									},
+									{
+										Value: types.NewCurrency64(1),
+									},
+								},
+							},
+						},
+					},
+				}
+			},
+			errString: "transaction outputs exceed inputs",
+		},
+		{
+			desc: "invalid Transaction - overflow FileContractRevisions MissedProofOutputs Values",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					FileContractRevisions: []types.FileContractRevision{
+						{
+							FileContract: types.FileContract{
+								MissedProofOutputs: []types.SiacoinOutput{
+									{
+										Value: types.MaxCurrency,
+									},
+									{
+										Value: types.NewCurrency64(1),
+									},
+								},
+							},
+						},
+					},
+				}
+			},
+			errString: "transaction outputs exceed inputs",
+		},
+		{
+			desc: "valid Transaction - include MinerFees that would overflow if checked",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					MinerFees: []types.Currency{
+						types.MaxCurrency,
+						types.MaxCurrency,
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - populate each Value field",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value: types.Siacoins(1),
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: 1,
+						},
+					},
+					FileContracts: []types.FileContract{
+						{
+							Payout: types.Siacoins(1),
+							ValidProofOutputs: []types.SiacoinOutput{
+								{
+									Value: types.Siacoins(1),
+								},
+							},
+							MissedProofOutputs: []types.SiacoinOutput{
+								{
+									Value: types.Siacoins(1),
+								},
+							},
+						},
+					},
+					FileContractRevisions: []types.FileContractRevision{
+						{
+							FileContract: types.FileContract{
+								ValidProofOutputs: []types.SiacoinOutput{
+									{
+										Value: types.Siacoins(1),
+									},
+								},
+								MissedProofOutputs: []types.SiacoinOutput{
+									{
+										Value: types.Siacoins(1),
+									},
+								},
+							},
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - populate each Value field twice",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value: types.Siacoins(1),
+						},
+						{
+							Value: types.Siacoins(2),
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: 1,
+						},
+						{
+							Value: 2,
+						},
+					},
+					FileContracts: []types.FileContract{
+						{
+							Payout: types.Siacoins(1),
+							ValidProofOutputs: []types.SiacoinOutput{
+								{
+									Value: types.Siacoins(1),
+								},
+								{
+									Value: types.Siacoins(2),
+								},
+							},
+							MissedProofOutputs: []types.SiacoinOutput{
+								{
+									Value: types.Siacoins(1),
+								},
+								{
+									Value: types.Siacoins(2),
+								},
+							},
+						},
+					},
+					FileContractRevisions: []types.FileContractRevision{
+						{
+							FileContract: types.FileContract{
+								ValidProofOutputs: []types.SiacoinOutput{
+									{
+										Value: types.Siacoins(1),
+									},
+									{
+										Value: types.Siacoins(2),
+									},
+								},
+								MissedProofOutputs: []types.SiacoinOutput{
+									{
+										Value: types.Siacoins(1),
+									},
+									{
+										Value: types.Siacoins(2),
+									},
+								},
+							},
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "invalid Transaction - overflow across multiple fields",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{{Value: types.MaxCurrency}},
+					FileContracts:  []types.FileContract{{Payout: types.NewCurrency64(1)}},
+				}
+			},
+			errString: "transaction outputs exceed inputs",
+		},
+		{
+			desc: "invalid Transaction - valid SiafundOutput but overflow SiacoinOutput",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiafundOutputs: []types.SiafundOutput{{Value: 1}},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{Value: types.MaxCurrency},
+						{Value: types.NewCurrency64(1)},
+					},
+				}
+			},
+			errString: "transaction outputs exceed inputs",
+		},
+	}
+
+	for _, test := range tests {
+		_, s := newConsensusDB(n, genesisBlock)
+		ms := NewMidState(s)
+		txn := types.Transaction{}
+
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(ms, &txn)
+
+			err := validateCurrencyOverflow(ms, txn)
+
+			// check the valid case
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
+
+func TestValidateMinimumValues(t *testing.T) {
+	n, genesisBlock := testnet()
+
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.Transaction)
+		errString string
+	}{
+		{
+			desc: "valid Transaction - empty",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				// no mutation
+			},
+		},
+		{
+			desc: "valid Transaction - non-zero SiacoinOutput",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{Value: types.Siacoins(1)},
+					},
+				}
+			},
+		},
+		{
+			desc: "invalid Transaction - zero SiacoinOutput",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{Value: types.ZeroCurrency},
+					},
+				}
+			},
+			errString: "transaction creates a zero-valued output",
+		},
+		{
+			desc: "invalid Transaction - second SiacoinOutput is zero",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{Value: types.Siacoins(1)},
+						{Value: types.ZeroCurrency},
+					},
+				}
+			},
+			errString: "transaction creates a zero-valued output",
+		},
+		{
+			desc: "valid Transaction - non-zero FileContract Payout",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					FileContracts: []types.FileContract{
+						{Payout: types.Siacoins(1)},
+					},
+				}
+			},
+		},
+		{
+			desc: "invalid Transaction - zero FileContract Payout",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					FileContracts: []types.FileContract{
+						{Payout: types.ZeroCurrency},
+					},
+				}
+			},
+			errString: "transaction creates a zero-valued output",
+		},
+		{
+			desc: "valid Transaction - non-zero SiafundOutput",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{Value: 1},
+					},
+				}
+			},
+		},
+		{
+			desc: "invalid Transaction - zero SiafundOutput",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{Value: 0},
+					},
+				}
+			},
+			errString: "transaction creates a zero-valued output",
+		},
+		{
+			desc: "valid Transaction - non-zero MinerFee",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					MinerFees: []types.Currency{
+						types.Siacoins(1),
+					},
+				}
+			},
+		},
+		{
+			desc: "invalid Transaction - zero MinerFee",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					MinerFees: []types.Currency{
+						types.ZeroCurrency,
+					},
+				}
+			},
+			errString: "transaction creates a zero-valued output",
+		},
+		{
+			desc: "valid Transaction - all fields set to non-zero",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{Value: types.Siacoins(1)},
+					},
+					FileContracts: []types.FileContract{
+						{Payout: types.Siacoins(1)},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{Value: 1},
+					},
+					MinerFees: []types.Currency{
+						types.Siacoins(1),
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - all non-covered Currency fields set to zero",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					FileContracts: []types.FileContract{
+						{
+							Payout: types.Siacoins(1),
+							ValidProofOutputs: []types.SiacoinOutput{
+								{
+									Value: types.ZeroCurrency,
+								},
+							},
+							MissedProofOutputs: []types.SiacoinOutput{
+								{
+									Value: types.ZeroCurrency,
+								},
+							},
+						},
+					},
+					FileContractRevisions: []types.FileContractRevision{
+						{
+							FileContract: types.FileContract{
+								ValidProofOutputs: []types.SiacoinOutput{
+									{
+										Value: types.ZeroCurrency,
+									},
+								},
+								MissedProofOutputs: []types.SiacoinOutput{
+									{
+										Value: types.ZeroCurrency,
+									},
+								},
+							},
+						},
+					},
+				}
+			},
+		},
+	}
+
+	for _, test := range tests {
+		_, s := newConsensusDB(n, genesisBlock)
+		ms := NewMidState(s)
+		txn := types.Transaction{}
+
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(ms, &txn)
+
+			err := validateMinimumValues(ms, txn)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
+
+func TestValidateSiacoins(t *testing.T) {
+	n, genesisBlock := testnet()
+
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement)
+		errString string
+	}{
+		{
+			desc: "valid Transaction - empty",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				// no mutation
+			},
+		},
+		{
+			desc: "valid Transaction - spend a StandardUnlockConditions UTXO",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value: types.Siacoins(1),
+						},
+					},
+				}
+
+			},
+		},
+		{
+			desc: "valid Transaction - spend multiple UTXOs",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID:            types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{Value: types.Siacoins(1), Address: unlockConditions.UnlockHash()},
+						},
+						{
+							ID:            types.SiacoinOutputID{0x02},
+							SiacoinOutput: types.SiacoinOutput{Value: types.Siacoins(2), Address: unlockConditions.UnlockHash()},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{ParentID: types.SiacoinOutputID{0x01}, UnlockConditions: unlockConditions},
+						{ParentID: types.SiacoinOutputID{0x02}, UnlockConditions: unlockConditions},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{Value: types.Siacoins(3)},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - spend a time locked UTXO as soon as possible",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.UnlockConditions{
+					Timelock: ms.base.childHeight(),
+					PublicKeys: []types.UnlockKey{
+						key.PublicKey().UnlockKey(),
+					},
+					SignaturesRequired: 1,
+				}
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value: types.Siacoins(1),
+						},
+					},
+				}
+
+			},
+		},
+		{
+			desc: "valid Transaction - spend a time locked UTXO long after it unlocks",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.UnlockConditions{
+					Timelock: 500000,
+					PublicKeys: []types.UnlockKey{
+						key.PublicKey().UnlockKey(),
+					},
+					SignaturesRequired: 1,
+				}
+
+				// Fake the current height
+				ms.base.Index.Height = 1000000
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value: types.Siacoins(1),
+						},
+					},
+				}
+
+			},
+		},
+		{
+			desc: "invalid Transaction - attempt to spend timelocked UTXO",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.UnlockConditions{
+					Timelock: ms.base.childHeight() + 1,
+					PublicKeys: []types.UnlockKey{
+						key.PublicKey().UnlockKey(),
+					},
+					SignaturesRequired: 1,
+				}
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value: types.Siacoins(1),
+						},
+					},
+				}
+
+			},
+			errString: "siacoin input 0 has timelocked parent",
+		},
+		{
+			desc: "invalid Transaction - attempt to spend a previously spent UTXO",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				ms.spends[types.SiacoinOutputID{0x01}] = types.TransactionID{0x00}
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value: types.Siacoins(1),
+						},
+					},
+				}
+
+			},
+			errString: "siacoin input 0 double-spends parent output (previously spent in 0000000000000000000000000000000000000000000000000000000000000000)",
+		},
+		{
+			desc: "invalid Transaction - attempt to spend a nonexistent UTXO",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value: types.Siacoins(1),
+						},
+					},
+				}
+
+			},
+			errString: "siacoin input 0 spends nonexistent siacoin output 0100000000000000000000000000000000000000000000000000000000000000",
+		},
+		{
+			desc: "invalid Transaction - attempt to spend with incorrect UnlockConditions",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: types.UnlockConditions{},
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value: types.Siacoins(1),
+						},
+					},
+				}
+
+			},
+			errString: "siacoin input 0 claims incorrect unlock conditions for siacoin output 0100000000000000000000000000000000000000000000000000000000000000",
+		},
+		{
+			desc: "valid Transaction - spend a UTXO at MaturityHeight",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+							MaturityHeight: ms.base.childHeight(),
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value: types.Siacoins(1),
+						},
+					},
+				}
+
+			},
+		},
+		{
+			desc: "valid Transaction - spend a UTXO immediately after MaturityHeight",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				// Fake the current height
+				ms.base.Index.Height = 2
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+							MaturityHeight: ms.base.childHeight(),
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value: types.Siacoins(1),
+						},
+					},
+				}
+
+			},
+		},
+		{
+			desc: "invalid Transaction - attempt to spend a UTXO immediately before MaturityHeight",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+							MaturityHeight: ms.base.childHeight() + 1,
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value: types.Siacoins(1),
+						},
+					},
+				}
+
+			},
+			errString: "siacoin input 0 has immature parent",
+		},
+		{
+			desc: "valid Transaction - spend a UTXO to SiacoinOutput",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{Value: types.Siacoins(1)},
+					},
+				}
+
+			},
+		},
+		{
+			desc: "valid Transaction - spend a UTXO to multiple SiacoinOutputs",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(2),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{Value: types.Siacoins(1)},
+						{Value: types.Siacoins(1)},
+					},
+				}
+
+			},
+		},
+		{
+			desc: "valid Transaction - spend a UTXO to FileContracts Payout",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					FileContracts: []types.FileContract{
+						{
+							Payout: types.Siacoins(1),
+						},
+					},
+				}
+
+			},
+		},
+		{
+			desc: "valid Transaction - spend a UTXO to multiple FileContracts Payouts",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(2),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					FileContracts: []types.FileContract{
+						{
+							Payout: types.Siacoins(1),
+						},
+						{
+							Payout: types.Siacoins(1),
+						},
+					},
+				}
+
+			},
+		},
+		{
+			desc: "valid Transaction - spend a UTXO to MinerFee",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					MinerFees: []types.Currency{types.Siacoins(1)},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - spend a UTXO to multiple MinerFees",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(2),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					MinerFees: []types.Currency{
+						types.Siacoins(1),
+						types.Siacoins(1),
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - spend a UTXO to multiple SiacoinOutputs, Payouts and MinerFees",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(6),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					MinerFees: []types.Currency{
+						types.Siacoins(1),
+						types.Siacoins(1),
+					},
+					FileContracts: []types.FileContract{
+						{
+							Payout: types.Siacoins(1),
+						},
+						{
+							Payout: types.Siacoins(1),
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{Value: types.Siacoins(1)},
+						{Value: types.Siacoins(1)},
+					},
+				}
+			},
+		},
+		{
+			desc: "invalid Transaction - attempt to spend too much to SiacoinOutput",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{Value: types.Siacoins(2)},
+					},
+				}
+
+			},
+			errString: "siacoin inputs (1 SC) do not equal outputs (2 SC)",
+		},
+		{
+			desc: "invalid Transaction - attempt to spend too much to MinerFee",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					MinerFees: []types.Currency{
+						types.Siacoins(2),
+					},
+				}
+
+			},
+			errString: "siacoin inputs (1 SC) do not equal outputs (2 SC)",
+		},
+		{
+			desc: "invalid Transaction - attempt to spend too much to Payout",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					FileContracts: []types.FileContract{
+						{
+							Payout: types.Siacoins(2),
+						},
+					},
+				}
+
+			},
+			errString: "siacoin inputs (1 SC) do not equal outputs (2 SC)",
+		},
+		{
+			desc: "invalid Transaction - attempt to spend a UTXO to nowhere",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+				}
+			},
+			errString: "siacoin inputs (1 SC) do not equal outputs (0 SC)",
+		},
+	}
+
+	for _, test := range tests {
+		_, s := newConsensusDB(n, genesisBlock)
+		ms := NewMidState(s)
+		txn := types.Transaction{}
+		ts := V1TransactionSupplement{}
+
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(ms, &txn, &ts)
+
+			err := validateSiacoins(ms, txn, ts)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
