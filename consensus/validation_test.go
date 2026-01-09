@@ -2554,13 +2554,78 @@ func TestValidateMinerPayouts(t *testing.T) {
 	// Test all V1 conditions
 	tests := []struct {
 		desc      string
-		mutate    func(h *types.Block, s *State)
+		mutate    func(b *types.Block, s *State)
 		errString string
 	}{
 		{
 			desc: "valid V1 block",
-			mutate: func(h *types.Block, s *State) {
+			mutate: func(b *types.Block, s *State) {
 				// no mutation
+			},
+		},
+		{
+			desc: "valid V1 block - V1 transaction with single MinerFee",
+			mutate: func(b *types.Block, s *State) {
+				b.Transactions = []types.Transaction{
+					{
+						MinerFees: []types.Currency{
+							types.Siacoins(1),
+						},
+					},
+				}
+				b.MinerPayouts[0].Value = b.MinerPayouts[0].Value.Add(types.Siacoins(1))
+			},
+		},
+		{
+			desc: "valid V1 block - V1 transaction with multiple MinerFee",
+			mutate: func(b *types.Block, s *State) {
+				b.Transactions = []types.Transaction{
+					{
+						MinerFees: []types.Currency{
+							types.Siacoins(1),
+							types.Siacoins(1),
+						},
+					},
+				}
+				b.MinerPayouts[0].Value = b.MinerPayouts[0].Value.Add(types.Siacoins(2))
+			},
+		},
+		{
+			desc: "valid V1 block - multiple V1 transactions with single MinerFee",
+			mutate: func(b *types.Block, s *State) {
+				b.Transactions = []types.Transaction{
+					{
+						MinerFees: []types.Currency{
+							types.Siacoins(1),
+						},
+					},
+					{
+						MinerFees: []types.Currency{
+							types.Siacoins(1),
+						},
+					},
+				}
+				b.MinerPayouts[0].Value = b.MinerPayouts[0].Value.Add(types.Siacoins(2))
+			},
+		},
+		{
+			desc: "valid V1 block - multiple V1 transactions with multiple MinerFee",
+			mutate: func(b *types.Block, s *State) {
+				b.Transactions = []types.Transaction{
+					{
+						MinerFees: []types.Currency{
+							types.Siacoins(1),
+							types.Siacoins(1),
+						},
+					},
+					{
+						MinerFees: []types.Currency{
+							types.Siacoins(1),
+							types.Siacoins(1),
+						},
+					},
+				}
+				b.MinerPayouts[0].Value = b.MinerPayouts[0].Value.Add(types.Siacoins(4))
 			},
 		},
 		{
@@ -2591,7 +2656,7 @@ func TestValidateMinerPayouts(t *testing.T) {
 			desc: "invalid V1 block - miner payout has zero value",
 			mutate: func(b *types.Block, s *State) {
 				b.MinerPayouts = []types.SiacoinOutput{
-					types.SiacoinOutput{
+					{
 						Value: types.ZeroCurrency,
 					},
 				}
@@ -2602,10 +2667,10 @@ func TestValidateMinerPayouts(t *testing.T) {
 			desc: "invalid V1 block - miner payouts overflow",
 			mutate: func(b *types.Block, s *State) {
 				b.MinerPayouts = []types.SiacoinOutput{
-					types.SiacoinOutput{
+					{
 						Value: types.Siacoins(1),
 					},
-					types.SiacoinOutput{
+					{
 						Value: types.MaxCurrency,
 					},
 				}
@@ -2616,7 +2681,7 @@ func TestValidateMinerPayouts(t *testing.T) {
 			desc: "invalid V1 block - miner payouts too low",
 			mutate: func(b *types.Block, s *State) {
 				b.MinerPayouts = []types.SiacoinOutput{
-					types.SiacoinOutput{
+					{
 						Value: types.Siacoins(1),
 					},
 				}
@@ -2640,7 +2705,7 @@ func TestValidateMinerPayouts(t *testing.T) {
 			ParentID:  s.Index.ID,
 			Timestamp: time.Now(),
 			MinerPayouts: []types.SiacoinOutput{
-				types.SiacoinOutput{
+				{
 					Value:   s.BlockReward(),
 					Address: types.VoidAddress,
 				},
@@ -2669,13 +2734,38 @@ func TestValidateMinerPayouts(t *testing.T) {
 	// Test all V2 conditions
 	tests = []struct {
 		desc      string
-		mutate    func(h *types.Block, s *State)
+		mutate    func(b *types.Block, s *State)
 		errString string
 	}{
 		{
 			desc: "valid V2 block",
-			mutate: func(h *types.Block, s *State) {
+			mutate: func(b *types.Block, s *State) {
 				// no mutation
+			},
+		},
+		{
+			desc: "valid V2 block - V2 transaction with valid MinerFee",
+			mutate: func(b *types.Block, s *State) {
+				b.V2.Transactions = []types.V2Transaction{
+					{
+						MinerFee: types.Siacoins(1),
+					},
+				}
+				b.MinerPayouts[0].Value = b.MinerPayouts[0].Value.Add(types.Siacoins(1))
+			},
+		},
+		{
+			desc: "valid V2 block - V2 transactions with valid MinerFee",
+			mutate: func(b *types.Block, s *State) {
+				b.V2.Transactions = []types.V2Transaction{
+					{
+						MinerFee: types.Siacoins(1),
+					},
+					{
+						MinerFee: types.Siacoins(1),
+					},
+				}
+				b.MinerPayouts[0].Value = b.MinerPayouts[0].Value.Add(types.Siacoins(2))
 			},
 		},
 		{
@@ -2715,10 +2805,7 @@ func TestValidateMinerPayouts(t *testing.T) {
 		{
 			desc: "invalid V2 block - V2 block with multiple MinerPayouts",
 			mutate: func(b *types.Block, s *State) {
-				b.MinerPayouts = []types.SiacoinOutput{
-					types.SiacoinOutput{},
-					types.SiacoinOutput{},
-				}
+				b.MinerPayouts = []types.SiacoinOutput{{}, {}}
 			},
 			errString: "block must have exactly one miner payout",
 		},
@@ -2726,7 +2813,7 @@ func TestValidateMinerPayouts(t *testing.T) {
 			desc: "invalid V2 block - V2 block with 0 value MinerPayout before FinalCutHeight",
 			mutate: func(b *types.Block, s *State) {
 				b.MinerPayouts = []types.SiacoinOutput{
-					types.SiacoinOutput{
+					{
 						Value: types.ZeroCurrency,
 					},
 				}
@@ -2737,7 +2824,7 @@ func TestValidateMinerPayouts(t *testing.T) {
 			desc: "valid V2 block - V2 block with 0 value MinerPayout after FinalCutHeight",
 			mutate: func(b *types.Block, s *State) {
 				b.MinerPayouts = []types.SiacoinOutput{
-					types.SiacoinOutput{
+					{
 						Value: types.ZeroCurrency,
 					},
 				}
@@ -2748,7 +2835,7 @@ func TestValidateMinerPayouts(t *testing.T) {
 			desc: "invalid V2 block - V2 block miner payouts too low before FinalCutHeight",
 			mutate: func(b *types.Block, s *State) {
 				b.MinerPayouts = []types.SiacoinOutput{
-					types.SiacoinOutput{
+					{
 						Value: types.Siacoins(1),
 					},
 				}
@@ -2759,7 +2846,7 @@ func TestValidateMinerPayouts(t *testing.T) {
 			desc: "invalid V2 block - V2 block miner payouts too high before FinalCutHeight",
 			mutate: func(b *types.Block, s *State) {
 				b.MinerPayouts = []types.SiacoinOutput{
-					types.SiacoinOutput{
+					{
 						Value: types.Siacoins(300001),
 					},
 				}
@@ -2774,14 +2861,14 @@ func TestValidateMinerPayouts(t *testing.T) {
 			ParentID:  s.Index.ID,
 			Timestamp: time.Now(),
 			MinerPayouts: []types.SiacoinOutput{
-				types.SiacoinOutput{
+				{
 					Value:   s.BlockReward(),
 					Address: types.VoidAddress,
 				},
 			},
 			// Initialize any V2BlockData to trigger `if v.V2 != nil` condition
 			V2: &types.V2BlockData{
-				Transactions: []types.V2Transaction{},
+				// Transactions: []types.V2Transaction{},
 			},
 		}
 		findBlockNonce(s, &b)
