@@ -2891,3 +2891,354 @@ func TestValidateMinerPayouts(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateOrphan(t *testing.T) {
+	n, genesisBlock := testnet()
+
+	// Test all V1 conditions
+	tests := []struct {
+		desc      string
+		mutate    func(b *types.Block, s *State)
+		errString string
+	}{
+		{
+			desc: "valid V1 block",
+			mutate: func(b *types.Block, s *State) {
+				// no mutation
+			},
+		},
+		{
+			desc: "valid V1 block - include Transactions",
+			mutate: func(b *types.Block, s *State) {
+				b.Transactions = []types.Transaction{
+					{
+						ArbitraryData: [][]byte{{0x00}},
+					},
+					{
+						ArbitraryData: [][]byte{{0x01}},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid V1 block - include a single max sized Transaction",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.Transaction{
+					ArbitraryData: [][]byte{{}},
+				}
+				overhead := s.TransactionWeight(txn)
+
+				txn.ArbitraryData[0] = make([]byte, s.MaxBlockWeight()-overhead)
+				b.Transactions = []types.Transaction{txn}
+			},
+		},
+		{
+			desc: "valid V1 block - include two transactions that sum to max weight",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.Transaction{
+					ArbitraryData: [][]byte{{}},
+				}
+				txn2 := types.Transaction{
+					ArbitraryData: [][]byte{{}},
+				}
+				overhead := s.TransactionWeight(txn)
+
+				txn.ArbitraryData[0] = make([]byte, s.MaxBlockWeight()-overhead*2)
+				b.Transactions = []types.Transaction{txn, txn2}
+			},
+		},
+		{
+			desc: "invalid V1 block - include two Transactions that sum to greater than max weight",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.Transaction{
+					ArbitraryData: [][]byte{{}},
+				}
+				txn2 := types.Transaction{
+					ArbitraryData: [][]byte{{}},
+				}
+				overhead := s.TransactionWeight(txn)
+
+				txn.ArbitraryData[0] = make([]byte, s.MaxBlockWeight()-overhead*2+1)
+				b.Transactions = []types.Transaction{txn, txn2}
+			},
+			errString: "block exceeds maximum weight (2000001 > 2000000)",
+		},
+		{
+			desc: "invalid V1 block - include two max weight Transactions",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.Transaction{
+					ArbitraryData: [][]byte{{}},
+				}
+				overhead := s.TransactionWeight(txn)
+
+				txn.ArbitraryData[0] = make([]byte, s.MaxBlockWeight()-overhead)
+
+				b.Transactions = []types.Transaction{txn, txn}
+			},
+			errString: "block exceeds maximum weight (4000000 > 2000000)",
+		},
+		{
+			desc: "invalid V1 block - include a single over sized Transaction",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.Transaction{
+					ArbitraryData: [][]byte{{}},
+				}
+				overhead := s.TransactionWeight(txn)
+
+				txn.ArbitraryData[0] = make([]byte, s.MaxBlockWeight()-overhead+1)
+				b.Transactions = []types.Transaction{txn}
+			},
+			errString: "block exceeds maximum weight (2000001 > 2000000)",
+		},
+		{
+			desc: "invalid V1 block - invalid miner payouts",
+			mutate: func(b *types.Block, s *State) {
+				b.MinerPayouts = []types.SiacoinOutput{
+					{Value: types.Siacoins(1)},
+				}
+			},
+			errString: "miner payout sum (1 SC) does not match block reward + fees (300 KS)",
+		},
+		{
+			desc: "invalid V1 block - invalid header",
+			mutate: func(b *types.Block, s *State) {
+				b.ParentID = types.BlockID{0x00}
+			},
+			errString: "block has wrong parent ID",
+		},
+		{
+			desc: "valid V2 block",
+			mutate: func(b *types.Block, s *State) {
+				b.V2 = &types.V2BlockData{
+					Height: s.Index.Height + 1,
+				}
+			},
+		},
+		{
+			desc: "valid V2 block - include V1 Transaction",
+			mutate: func(b *types.Block, s *State) {
+				b.Transactions = []types.Transaction{
+					{ArbitraryData: [][]byte{{0x01}}},
+				}
+				b.V2 = &types.V2BlockData{
+					Height: s.Index.Height + 1,
+				}
+			},
+		},
+		{
+			desc: "valid V2 block - include V2Transaction",
+			mutate: func(b *types.Block, s *State) {
+				b.V2 = &types.V2BlockData{
+					Height: s.Index.Height + 1,
+					Transactions: []types.V2Transaction{
+						{
+							ArbitraryData: []byte{0x01},
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid V2 block - include V1 Transaction and V2Transaction",
+			mutate: func(b *types.Block, s *State) {
+				b.Transactions = []types.Transaction{
+					{ArbitraryData: [][]byte{{0x01}}},
+				}
+				b.V2 = &types.V2BlockData{
+					Height: s.Index.Height + 1,
+					Transactions: []types.V2Transaction{
+						{
+							ArbitraryData: []byte{0x01},
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid V2 block - include max sized V2Transaction",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.V2Transaction{
+					ArbitraryData: []byte{},
+				}
+				overhead := s.V2TransactionWeight(txn)
+
+				txn.ArbitraryData = make([]byte, s.MaxBlockWeight()-overhead)
+
+				b.V2 = &types.V2BlockData{
+					Height:       s.Index.Height + 1,
+					Transactions: []types.V2Transaction{txn},
+				}
+			},
+		},
+		{
+			desc: "invalid V2 block - include over sized V2Transaction",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.V2Transaction{
+					ArbitraryData: []byte{},
+				}
+				overhead := s.V2TransactionWeight(txn)
+
+				txn.ArbitraryData = make([]byte, s.MaxBlockWeight()-overhead+1)
+
+				b.V2 = &types.V2BlockData{
+					Height:       s.Index.Height + 1,
+					Transactions: []types.V2Transaction{txn},
+				}
+			},
+			errString: "block exceeds maximum weight (2000001 > 2000000)",
+		},
+		{
+			desc: "invalid V2 block - include 2 max sized V2Transactions",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.V2Transaction{
+					ArbitraryData: []byte{},
+				}
+				overhead := s.V2TransactionWeight(txn)
+
+				txn.ArbitraryData = make([]byte, s.MaxBlockWeight()-overhead)
+
+				b.V2 = &types.V2BlockData{
+					Height:       s.Index.Height + 1,
+					Transactions: []types.V2Transaction{txn, txn},
+				}
+			},
+			errString: "block exceeds maximum weight (4000000 > 2000000)",
+		},
+		{
+			desc: "invalid V2 block - include max sized V1 Transaction and max sized V2Transaction",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.Transaction{
+					ArbitraryData: [][]byte{{}},
+				}
+				overhead := s.TransactionWeight(txn)
+				txn.ArbitraryData[0] = make([]byte, s.MaxBlockWeight()-overhead)
+
+				txn2 := types.V2Transaction{
+					ArbitraryData: []byte{},
+				}
+				overhead = s.V2TransactionWeight(txn2)
+				txn2.ArbitraryData = make([]byte, s.MaxBlockWeight()-overhead)
+
+				b.Transactions = []types.Transaction{txn}
+				b.V2 = &types.V2BlockData{
+					Height:       s.Index.Height + 1,
+					Transactions: []types.V2Transaction{txn2},
+				}
+			},
+			errString: "block exceeds maximum weight (4000000 > 2000000)",
+		},
+		{
+			desc: "valid V2 block - include V1 Transaction and V2Transaction that sum to max weight",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.Transaction{
+					ArbitraryData: [][]byte{{}},
+				}
+				txn2 := types.V2Transaction{
+					ArbitraryData: []byte{},
+				}
+				overhead := s.TransactionWeight(txn)
+				overhead += s.V2TransactionWeight(txn2)
+
+				txn2.ArbitraryData = make([]byte, s.MaxBlockWeight()-overhead)
+				b.Transactions = []types.Transaction{txn}
+				b.V2 = &types.V2BlockData{
+					Height:       s.Index.Height + 1,
+					Transactions: []types.V2Transaction{txn2},
+				}
+			},
+		},
+		{
+			desc: "invalid V2 block - include V1 Transaction and V2Transaction that exceed max weight",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.Transaction{
+					ArbitraryData: [][]byte{{}},
+				}
+				txn2 := types.V2Transaction{
+					ArbitraryData: []byte{},
+				}
+				overhead := s.TransactionWeight(txn)
+				overhead += s.V2TransactionWeight(txn2)
+
+				txn2.ArbitraryData = make([]byte, s.MaxBlockWeight()-overhead+1)
+				b.Transactions = []types.Transaction{txn}
+				b.V2 = &types.V2BlockData{
+					Height:       s.Index.Height + 1,
+					Transactions: []types.V2Transaction{txn2},
+				}
+			},
+			errString: "block exceeds maximum weight (2000001 > 2000000)",
+		},
+		{
+			desc: "invalid V2 block - height too low",
+			mutate: func(b *types.Block, s *State) {
+				b.V2 = &types.V2BlockData{
+					Height: s.Index.Height,
+				}
+			},
+			errString: "block height does not increment parent height",
+		},
+		{
+			desc: "invalid V2 block - height too high",
+			mutate: func(b *types.Block, s *State) {
+				b.V2 = &types.V2BlockData{
+					Height: s.Index.Height + 2,
+				}
+			},
+			errString: "block height does not increment parent height",
+		},
+		{
+			desc: "invalid V2 block - invalid miner payouts",
+			mutate: func(b *types.Block, s *State) {
+				b.MinerPayouts = []types.SiacoinOutput{
+					{Value: types.Siacoins(1)},
+				}
+				b.V2 = &types.V2BlockData{
+					Height: s.Index.Height + 1,
+				}
+			},
+			errString: "miner payout sum (1 SC) does not match block reward + fees (300 KS)",
+		},
+		{
+			desc: "invalid V2 block - invalid header",
+			mutate: func(b *types.Block, s *State) {
+				b.ParentID = types.BlockID{0x00}
+				b.V2 = &types.V2BlockData{
+					Height: s.Index.Height + 1,
+				}
+			},
+			errString: "block has wrong parent ID",
+		},
+	}
+
+	for _, test := range tests {
+		_, s := newConsensusDB(n, genesisBlock)
+		b := types.Block{
+			ParentID:  s.Index.ID,
+			Timestamp: time.Now(),
+			MinerPayouts: []types.SiacoinOutput{
+				{
+					Value:   s.BlockReward(),
+					Address: types.VoidAddress,
+				},
+			},
+		}
+		findBlockNonce(s, &b)
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(&b, &s)
+
+			err := ValidateOrphan(s, b)
+
+			// check the valid case
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
