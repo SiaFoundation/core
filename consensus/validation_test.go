@@ -217,6 +217,16 @@ func findBlockNonce(cs State, b *types.Block) {
 	}
 }
 
+func findHeaderNonce(cs State, b *types.BlockHeader) {
+	// ensure nonce meets factor requirement
+	for b.Nonce%cs.NonceFactor() != 0 {
+		b.Nonce++
+	}
+	for b.ID().CmpWork(cs.PoWTarget()) < 0 {
+		b.Nonce += cs.NonceFactor()
+	}
+}
+
 func deepCopyBlock(b types.Block) (b2 types.Block) {
 	var buf bytes.Buffer
 	e := types.NewEncoder(&buf)
@@ -2456,5 +2466,81 @@ func TestValidateFinalCutMinerPayout(t *testing.T) {
 	b.V2.Height++
 	if err := ValidateOrphan(cs, b); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestValidateHeader(t *testing.T) {
+	n, genesisBlock := testnet()
+	n.InitialTarget = types.BlockID{0xFF}
+	n.HardforkV2.FinalCutHeight = 1
+	n.HardforkASIC.Height = 1
+	n.HardforkASIC.NonceFactor = 2
+
+	tests := []struct {
+		desc      string
+		mutate    func(h *types.BlockHeader, s *State)
+		errString string
+	}{
+		{
+			desc: "valid header",
+			mutate: func(h *types.BlockHeader, s *State) {
+				// no mutation
+			},
+		},
+		{
+			desc: "invalid header - nonce factor",
+			mutate: func(h *types.BlockHeader, s *State) {
+				h.Nonce = 1
+			},
+			errString: "nonce not divisible by required factor",
+		},
+		{
+			desc: "invalid header - wrong parentID",
+			mutate: func(h *types.BlockHeader, s *State) {
+				h.ParentID = types.BlockID{}
+			},
+			errString: "wrong parent ID",
+		},
+		{
+			desc: "invalid header - timestamp too old",
+			mutate: func(h *types.BlockHeader, s *State) {
+				h.Timestamp = time.Unix(0, 0).UTC()
+			},
+			errString: "timestamp too far in the past",
+		},
+		{
+			desc: "invalid header - insufficient work",
+			mutate: func(h *types.BlockHeader, s *State) {
+				// Max diff
+				s.Difficulty = Work{n: [32]byte{0xff}}
+			},
+			errString: "insufficient work",
+		},
+	}
+
+	for _, test := range tests {
+		_, s := newConsensusDB(n, genesisBlock)
+		h := types.BlockHeader{
+			ParentID:  s.Index.ID,
+			Timestamp: time.Now(),
+		}
+		findHeaderNonce(s, &h)
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(&h, &s)
+
+			err := ValidateHeader(s, h)
+
+			// check the valid case
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
 	}
 }
