@@ -4615,3 +4615,545 @@ func TestValidateSiacoins(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateSiafunds(t *testing.T) {
+	n, genesisBlock := testnet()
+
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement)
+		errString string
+	}{
+		{
+			desc: "valid Transaction - empty",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				// no mutation
+			},
+		},
+		{
+			desc: "valid Transaction - spend a StandardUnlockConditions UTXO",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   1,
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value:   1,
+							Address: unlockConditions.UnlockHash(),
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - spend multiple UTXOs",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   1,
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+						{
+							ID: types.SiafundOutputID{0x02},
+							SiafundOutput: types.SiafundOutput{
+								Value:   2,
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+						{
+							ParentID:         types.SiafundOutputID{0x02},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value:   3,
+							Address: unlockConditions.UnlockHash(),
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - spend a time locked UTXO as soon as possible",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.UnlockConditions{
+					Timelock: ms.base.childHeight(),
+					PublicKeys: []types.UnlockKey{
+						key.PublicKey().UnlockKey(),
+					},
+					SignaturesRequired: 1,
+				}
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   1,
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: 1,
+						},
+					},
+				}
+
+			},
+		},
+		{
+			desc: "valid Transaction - spend a time locked UTXO long after it unlocks",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.UnlockConditions{
+					Timelock: 500000,
+					PublicKeys: []types.UnlockKey{
+						key.PublicKey().UnlockKey(),
+					},
+					SignaturesRequired: 1,
+				}
+
+				// Fake the current height
+				ms.base.Index.Height = 1000000
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   1,
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: 1,
+						},
+					},
+				}
+
+			},
+		},
+		{
+			desc: "invalid Transaction - attempt to spend timelocked UTXO",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.UnlockConditions{
+					Timelock: ms.base.childHeight() + 100,
+					PublicKeys: []types.UnlockKey{
+						key.PublicKey().UnlockKey(),
+					},
+					SignaturesRequired: 1,
+				}
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   1,
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: 1,
+						},
+					},
+				}
+			},
+			errString: "siafund input 0 has timelocked parent",
+		},
+		{
+			desc: "invalid Transaction - attempt to spend a previously spent UTXO",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				ms.spends[types.SiafundOutputID{0x01}] = types.TransactionID{0x00}
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   1,
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: 1,
+						},
+					},
+				}
+
+			},
+			errString: "siafund input 0 double-spends parent output (previously spent in 0000000000000000000000000000000000000000000000000000000000000000)",
+		},
+		{
+			desc: "invalid Transaction - attempt to spend a nonexistent UTXO",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: 1,
+						},
+					},
+				}
+
+			},
+			errString: "siafund input 0 spends nonexistent siafund output 0100000000000000000000000000000000000000000000000000000000000000",
+		},
+		{
+			desc: "invalid Transaction - attempt to spend with incorrect UnlockConditions",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   1,
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: types.UnlockConditions{},
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: 1,
+						},
+					},
+				}
+
+			},
+			errString: "siafund input 0 claims incorrect unlock conditions for siafund output 0100000000000000000000000000000000000000000000000000000000000000",
+		},
+		{
+			desc: "valid Transaction - spend with incorrect UnlockConditions dev addr special case",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				// Fake the current height
+				ms.base.Index.Height = ms.base.Network.HardforkDevAddr.Height
+
+				// Set the new dev address
+				ms.base.Network.HardforkDevAddr.NewAddress = unlockConditions.UnlockHash()
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   1,
+								Address: ms.base.Network.HardforkDevAddr.OldAddress,
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: 1,
+						},
+					},
+				}
+
+			},
+		},
+		{
+			desc: "invalid Transaction - dev addr special case before hardfork height",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				ms.base.Network.HardforkDevAddr.Height = 100
+				ms.base.Network.HardforkDevAddr.NewAddress = unlockConditions.UnlockHash()
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   1,
+								Address: ms.base.Network.HardforkDevAddr.OldAddress,
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{Value: 1},
+					},
+				}
+			},
+			errString: "siafund input 0 claims incorrect unlock conditions",
+		},
+		{
+			desc: "valid Transaction - spend a UTXO to multiple SiafundOutputs",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   2,
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{Value: 1},
+						{Value: 1},
+					},
+				}
+
+			},
+		},
+		{
+			desc: "invalid Transaction - attempt to spend too much to SiafundOutput",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   1,
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{Value: 2},
+					},
+				}
+
+			},
+			errString: "siafund inputs (1) do not equal outputs (2)",
+		},
+		{
+			desc: "invalid Transaction - attempt to spend too little to SiafundOutput",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   2,
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{Value: 1},
+					},
+				}
+
+			},
+			errString: "siafund inputs (2) do not equal outputs (1)",
+		},
+		{
+			desc: "invalid Transaction - attempt to spend to nothing",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   1,
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+				}
+
+			},
+			errString: "siafund inputs (1) do not equal outputs (0)",
+		},
+	}
+
+	for _, test := range tests {
+		_, s := newConsensusDB(n, genesisBlock)
+		ms := NewMidState(s)
+		txn := types.Transaction{}
+		ts := V1TransactionSupplement{}
+
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(ms, &txn, &ts)
+
+			err := validateSiafunds(ms, txn, ts)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
