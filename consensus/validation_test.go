@@ -699,6 +699,13 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
+				"file contract revision 0 has timelocked parent",
+				func(b *types.Block) {
+					txn := &b.Transactions[0]
+					txn.FileContractRevisions[0].UnlockConditions.Timelock = cs.Index.Height + 10
+				},
+			},
+			{
 				"file contract revision 0 has window that starts in the past",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
