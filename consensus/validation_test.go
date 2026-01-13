@@ -851,6 +851,13 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
+				"timelock of signature 0 has not expired",
+				func(b *types.Block) {
+					txn := &b.Transactions[0]
+					txn.Signatures[0].Timelock = txn.Signatures[0].Timelock + 100
+				},
+			},
+			{
 				"invalid partial signature",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
