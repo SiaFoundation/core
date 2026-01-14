@@ -6963,3 +6963,55 @@ func TestValidateTransaction(t *testing.T) {
 		})
 	}
 }
+
+// This test is non-exhaustive and only focuses on missing test coverage.
+// See TestValidateV2Block for remaining cases
+func TestValidateV2Transaction(t *testing.T) {
+	n, genesisBlock := testnet()
+	n.HardforkTax.Height = 0
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.V2Transaction)
+		errString string
+	}{
+		{
+			desc: "valid V2Transaction",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				// no mutation
+			},
+		},
+		{
+			desc: "invalid Transaction - greater than max weight",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				txn.ArbitraryData = make([]byte, ms.base.MaxBlockWeight()+1)
+			},
+			errString: "transaction exceeds maximum block weight (2000001 > 2000000)",
+		},
+	}
+
+	for _, test := range tests {
+		_, s := newConsensusDB(n, genesisBlock)
+		ms := NewMidState(s)
+		ms.base.Network.HardforkV2.AllowHeight = 0
+
+		txn := types.V2Transaction{
+			ArbitraryData: []byte("foo"),
+		}
+
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(ms, &txn)
+			err := ValidateV2Transaction(ms, txn)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
