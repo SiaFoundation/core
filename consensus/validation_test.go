@@ -5975,3 +5975,490 @@ func TestValidateV2Siacoins(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateV2Siafunds(t *testing.T) {
+	n, genesisBlock := testnet()
+
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.V2Transaction)
+		errString string
+	}{
+		{
+			desc: "valid V2Transaction - empty",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				// no mutation
+			},
+		},
+		{
+			desc: "valid V2Transaction - spend a siafund UTXO from the Accumulator",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a siafund UTXO to the Accumulator
+				spendTxn := types.V2Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value:   1000,
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						Parent: diff.SiafundElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiafundOutputs = []types.SiafundOutput{
+					{
+						Value:   1000,
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+		},
+		{
+			desc: "invalid V2Transaction - double spend parent output (ephemeral)",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				parentID := types.SiafundOutputID{0x01}
+
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						Parent: types.SiafundElement{
+							ID: parentID,
+						},
+					},
+				}
+
+				ms.spends[parentID] = types.TransactionID{0x00}
+			},
+			errString: "siafund input 0 double-spends parent output (previously spent in 0000000000000000000000000000000000000000000000000000000000000000)",
+		},
+		{
+			desc: "invalid V2Transaction - double spend output already spent in accumulator",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Create a siafund UTXO and add it to the accumulator as spent
+				spendTxn := types.V2Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value:   1000,
+							Address: address,
+						},
+					},
+				}
+				outputID := txn.SiafundOutputID(spendTxn.ID(), 0)
+				sfe := types.SiafundElement{
+					ID:            outputID,
+					SiafundOutput: spendTxn.SiafundOutputs[0],
+				}
+
+				// Add the element to the accumulator as spent
+				leaves := []elementLeaf{siafundLeaf(&sfe, true)}
+				ms.base.Elements.addLeaves(leaves)
+
+				// Try to spend it
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						Parent: sfe,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiafundOutputs = []types.SiafundOutput{
+					{
+						Value:   1000,
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siafund input 0 double-spends output",
+		},
+		{
+			desc: "invalid V2Transaction - double spend within the same transaction",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				address := types.PolicyPublicKey(key.PublicKey()).Address()
+
+				// Add a siafund UTXO to the Accumulator
+				spendTxn := types.V2Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value:   1000,
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						Parent: diff.SiafundElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: types.PolicyPublicKey(key.PublicKey()),
+						},
+					},
+					{
+						Parent: diff.SiafundElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: types.PolicyPublicKey(key.PublicKey()),
+						},
+					},
+				}
+				txn.SiafundOutputs = []types.SiafundOutput{
+					{
+						Value:   1000,
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+				txn.SiafundInputs[1].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siafund input 1 double-spends parent output (previously spent by input 0)",
+		},
+		{
+			desc: "invalid V2Transaction - spend nonexistent ephemeral output !ok case",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				address := types.PolicyPublicKey(key.PublicKey()).Address()
+
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						Parent: types.SiafundElement{
+							StateElement: types.StateElement{
+								LeafIndex: types.UnassignedLeafIndex,
+							},
+						},
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: types.PolicyPublicKey(key.PublicKey()),
+						},
+					},
+				}
+				txn.SiafundOutputs = []types.SiafundOutput{
+					{
+						Value:   1000,
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siafund input 0 spends nonexistent ephemeral output 0000000000000000000000000000000000000000000000000000000000000000",
+		},
+		{
+			desc: "invalid V2Transaction - spend nonexistent ephemeral output !ms.sfes[i].Created case",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				address := types.PolicyPublicKey(key.PublicKey()).Address()
+
+				// Add a siafund UTXO to the Accumulator
+				spendTxn := types.V2Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value:   1000,
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						Parent: types.SiafundElement{
+							StateElement: types.StateElement{
+								LeafIndex: types.UnassignedLeafIndex,
+							},
+						},
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: types.PolicyPublicKey(key.PublicKey()),
+						},
+					},
+				}
+				txn.SiafundOutputs = []types.SiafundOutput{
+					{
+						Value:   1000,
+						Address: address,
+					},
+				}
+
+				ms.elements[txn.SiafundInputs[0].Parent.ID] = 0
+				ms.sfes[0] = *diff
+				ms.sfes[0].Created = false
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siafund input 0 spends nonexistent ephemeral output 0000000000000000000000000000000000000000000000000000000000000000",
+		},
+		{
+			desc: "invalid V2Transaction - attempt to spend UTXO not in the Accumulator",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiafundOutputs = []types.SiafundOutput{
+					{
+						Value:   1000,
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siafund input 0 spends output (0000000000000000000000000000000000000000000000000000000000000000) not present in the accumulator",
+		},
+		{
+			desc: "invalid V2Transaction - claim incorrect policy for parent address",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a siafund UTXO to the Accumulator
+				spendTxn := types.V2Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value:   1000,
+							Address: types.VoidAddress,
+						},
+					},
+				}
+				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						Parent: diff.SiafundElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiafundOutputs = []types.SiafundOutput{
+					{
+						Value:   1000,
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siafund input 0 claims incorrect policy for parent address",
+		},
+		{
+			desc: "invalid V2Transaction - fail to satisfy policy",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a siafund UTXO to the Accumulator
+				spendTxn := types.V2Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value:   1000,
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						Parent: diff.SiafundElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiafundOutputs = []types.SiafundOutput{
+					{
+						Value:   1000,
+						Address: address,
+					},
+				}
+			},
+			errString: "siafund input 0 failed to satisfy spend policy: invalid signature",
+		},
+		{
+			desc: "invalid V2Transaction - include 0 value output",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a siafund UTXO to the Accumulator
+				spendTxn := types.V2Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value:   1000,
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						Parent: diff.SiafundElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiafundOutputs = []types.SiafundOutput{
+					{
+						Value:   500,
+						Address: address,
+					},
+					{
+						Value:   0,
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siafund output 1 has zero value",
+		},
+		{
+			desc: "invalid V2Transaction - inputs greater than outputs",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a siafund UTXO to the Accumulator
+				spendTxn := types.V2Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value:   1000,
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						Parent: diff.SiafundElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiafundOutputs = []types.SiafundOutput{
+					{
+						Value:   500,
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siafund inputs (1000 SF) do not equal outputs (500 SF)",
+		},
+		{
+			desc: "invalid V2Transaction - inputs less than outputs",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a siafund UTXO to the Accumulator
+				spendTxn := types.V2Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value:   1000,
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						Parent: diff.SiafundElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiafundOutputs = []types.SiafundOutput{
+					{
+						Value:   2000,
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siafund inputs (1000 SF) do not equal outputs (2000 SF)",
+		},
+	}
+
+	for _, test := range tests {
+		_, s := newConsensusDB(n, genesisBlock)
+		ms := NewMidState(s)
+		txn := types.V2Transaction{}
+
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(ms, &txn)
+
+			err := validateV2Siafunds(ms, txn)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
