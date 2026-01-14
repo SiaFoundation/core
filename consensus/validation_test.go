@@ -5171,3 +5171,807 @@ func TestValidateSiafunds(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateArbitraryData(t *testing.T) {
+	n, genesisBlock := testnet()
+	n.HardforkFoundation.Height = 0 // Enable foundation validation
+
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.Transaction)
+		errString string
+	}{
+		{
+			desc: "valid ArbitraryData - no arbitrary data",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				// no mutation - empty transaction is valid
+			},
+		},
+		{
+			desc: "valid ArbitraryData - any data is valid before HardforkFoundation",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				ms.base.Network.HardforkFoundation.Height = 0
+			},
+		},
+		{
+			desc: "valid ArbitraryData - arbitrary data without foundation prefix",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				// Arbitrary data without the foundation prefix should be valid
+				txn.ArbitraryData = [][]byte{
+					[]byte("hello"),
+					[]byte("world"),
+				}
+			},
+		},
+		{
+			desc: "invalid ArbitraryData - include only foundation prefix",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				// Arbitrary data without the foundation prefix should be valid
+				txn.ArbitraryData = [][]byte{
+					types.SpecifierFoundation[:],
+				}
+			},
+			errString: "transaction contains an improperly-encoded FoundationAddressUpdate",
+		},
+		{
+			desc: "invalid ArbitraryData - include only foundation prefix",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				// Arbitrary data without the foundation prefix should be valid
+				txn.ArbitraryData = [][]byte{
+					types.SpecifierFoundation[:],
+				}
+			},
+			errString: "transaction contains an improperly-encoded FoundationAddressUpdate",
+		},
+		{
+			desc: "invalid ArbitraryData - include foundation prefix followed by garbage",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				// Arbitrary data without the foundation prefix should be valid
+				txn.ArbitraryData = [][]byte{
+					types.SpecifierFoundation[:],
+				}
+
+				txn.ArbitraryData = [][]byte{
+					append(types.SpecifierFoundation[:], 0xFF, 0xFF, 0xFF),
+				}
+			},
+			errString: "transaction contains an improperly-encoded FoundationAddressUpdate",
+		},
+		{
+			desc: "invalid ArbitraryData - set NewPrimary to VoidAddress",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				key := types.GeneratePrivateKey()
+				otherAddress := types.StandardUnlockConditions(key.PublicKey()).UnlockHash()
+
+				update := types.FoundationAddressUpdate{
+					NewPrimary:  types.VoidAddress,
+					NewFailsafe: otherAddress,
+				}
+
+				var buf bytes.Buffer
+				e := types.NewEncoder(&buf)
+				types.SpecifierFoundation.EncodeTo(e)
+				update.EncodeTo(e)
+				e.Flush()
+
+				txn.ArbitraryData = [][]byte{
+					buf.Bytes(),
+				}
+			},
+			errString: "transaction contains an uninitialized FoundationAddressUpdate",
+		},
+		{
+			desc: "invalid ArbitraryData - set NewFailsafe to VoidAddress",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				key := types.GeneratePrivateKey()
+				otherAddress := types.StandardUnlockConditions(key.PublicKey()).UnlockHash()
+
+				update := types.FoundationAddressUpdate{
+					NewPrimary:  otherAddress,
+					NewFailsafe: types.VoidAddress,
+				}
+
+				var buf bytes.Buffer
+				e := types.NewEncoder(&buf)
+				types.SpecifierFoundation.EncodeTo(e)
+				update.EncodeTo(e)
+				e.Flush()
+
+				txn.ArbitraryData = [][]byte{
+					buf.Bytes(),
+				}
+			},
+			errString: "transaction contains an uninitialized FoundationAddressUpdate",
+		},
+		{
+			desc: "invalid Arbitrary Data - update without including signatures",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				key := types.GeneratePrivateKey()
+				address := types.StandardUnlockConditions(key.PublicKey()).UnlockHash()
+
+				update := types.FoundationAddressUpdate{
+					NewPrimary:  address,
+					NewFailsafe: address,
+				}
+
+				var buf bytes.Buffer
+				e := types.NewEncoder(&buf)
+				types.SpecifierFoundation.EncodeTo(e)
+				update.EncodeTo(e)
+				e.Flush()
+
+				txn.ArbitraryData = [][]byte{
+					buf.Bytes(),
+				}
+			},
+			errString: "transaction contains an unsigned FoundationAddressUpdate",
+		},
+		{
+			desc: "valid Arbitrary Data - update addresses via FoundationSubsidyAddress",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				key := types.GeneratePrivateKey()
+				uc := types.StandardUnlockConditions(key.PublicKey())
+				address := uc.UnlockHash()
+
+				ms.base.FoundationSubsidyAddress = address
+
+				update := types.FoundationAddressUpdate{
+					NewPrimary:  address,
+					NewFailsafe: address,
+				}
+
+				var buf bytes.Buffer
+				e := types.NewEncoder(&buf)
+				types.SpecifierFoundation.EncodeTo(e)
+				update.EncodeTo(e)
+				e.Flush()
+
+				parentID := types.SiacoinOutputID{0x01}
+				txn.ArbitraryData = [][]byte{
+					buf.Bytes(),
+				}
+				txn.SiacoinInputs = []types.SiacoinInput{
+					{
+						ParentID:         parentID,
+						UnlockConditions: uc,
+					},
+				}
+				txn.Signatures = []types.TransactionSignature{
+					{
+						ParentID: types.Hash256(parentID),
+						CoveredFields: types.CoveredFields{
+							WholeTransaction: true,
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Arbitrary Data - update addresses via FoundationManagementAddress",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				key := types.GeneratePrivateKey()
+				uc := types.StandardUnlockConditions(key.PublicKey())
+				address := uc.UnlockHash()
+
+				ms.base.FoundationManagementAddress = address
+
+				update := types.FoundationAddressUpdate{
+					NewPrimary:  address,
+					NewFailsafe: address,
+				}
+
+				var buf bytes.Buffer
+				e := types.NewEncoder(&buf)
+				types.SpecifierFoundation.EncodeTo(e)
+				update.EncodeTo(e)
+				e.Flush()
+
+				parentID := types.SiacoinOutputID{0x01}
+				txn.ArbitraryData = [][]byte{
+					buf.Bytes(),
+				}
+				txn.SiacoinInputs = []types.SiacoinInput{
+					{
+						ParentID:         parentID,
+						UnlockConditions: uc,
+					},
+				}
+				txn.Signatures = []types.TransactionSignature{
+					{
+						ParentID: types.Hash256(parentID),
+						CoveredFields: types.CoveredFields{
+							WholeTransaction: true,
+						},
+					},
+				}
+			},
+		},
+	}
+
+	for _, test := range tests {
+		_, s := newConsensusDB(n, genesisBlock)
+		n.HardforkFoundation.Height = 0
+
+		ms := NewMidState(s)
+		txn := types.Transaction{}
+
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(ms, &txn)
+			err := validateArbitraryData(ms, txn)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
+
+func TestValidateV2Siacoins(t *testing.T) {
+	n, genesisBlock := testnet()
+
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.V2Transaction)
+		errString string
+	}{
+		{
+			desc: "valid V2Transaction - empty",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				// no mutation
+			},
+		},
+		{
+			desc: "valid V2Transaction - spend a UTXO from the Accumulator",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a UTXO to the Accmulator
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(1000),
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: diff.SiacoinElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiacoinOutputs = []types.SiacoinOutput{
+					{
+						Value:   types.Siacoins(1000),
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+		},
+		{
+			desc: "valid V2Transaction - populate all Currency fields summed in outputSum and inputSum",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a UTXO to the Accmulator
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(11),
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: diff.SiacoinElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiacoinOutputs = []types.SiacoinOutput{
+					{
+						Value:   types.Siacoins(2),
+						Address: address,
+					},
+					{
+						Value:   types.Siacoins(2),
+						Address: address,
+					},
+				}
+				txn.FileContracts = []types.V2FileContract{
+					{
+						RenterOutput: types.SiacoinOutput{
+							Value: types.Siacoins(2),
+						},
+						HostOutput: types.SiacoinOutput{
+							Value: types.Siacoins(2),
+						},
+					},
+				}
+				txn.FileContractResolutions = []types.V2FileContractResolution{
+					{
+						Resolution: &types.V2FileContractRenewal{
+							RenterRollover: types.Siacoins(1),
+							HostRollover:   types.Siacoins(1),
+							NewContract: types.V2FileContract{
+								RenterOutput: types.SiacoinOutput{
+									Value: types.Siacoins(2),
+								},
+								HostOutput: types.SiacoinOutput{
+									Value: types.Siacoins(2),
+								},
+							},
+						},
+					},
+				}
+				fcOffset := ms.base.V2FileContractTax(txn.FileContracts[0])
+				revOffset := ms.base.V2FileContractTax(txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal).NewContract)
+				txn.MinerFee = types.Siacoins(1).Sub(revOffset).Sub(fcOffset)
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+		},
+		{
+			desc: "invalid V2Transaction - double spend parent output (ephemeral)",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				parentID := types.SiacoinOutputID{0x01}
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: types.SiacoinElement{
+							ID: parentID,
+						},
+					},
+				}
+
+				ms.spends[parentID] = types.TransactionID{0x00}
+			},
+			errString: "siacoin input 0 double-spends parent output (previously spent in 0000000000000000000000000000000000000000000000000000000000000000)",
+		},
+		{
+			desc: "invalid V2Transaction - double spend output already spent in accumulator",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Create a UTXO and add it to the accumulator as spent
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(1000),
+							Address: address,
+						},
+					},
+				}
+				outputID := txn.SiacoinOutputID(spendTxn.ID(), 0)
+				sce := types.SiacoinElement{
+					ID:            outputID,
+					SiacoinOutput: spendTxn.SiacoinOutputs[0],
+				}
+
+				// Add the element to the accumulator as spent
+				leaves := []elementLeaf{siacoinLeaf(&sce, true)}
+				ms.base.Elements.addLeaves(leaves)
+
+				// Try to spend it
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: sce,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiacoinOutputs = []types.SiacoinOutput{
+					{
+						Value:   types.Siacoins(1000),
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siacoin input 0 double-spends output",
+		},
+		{
+			desc: "invalid V2Transaction - double spend within the same transaction",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				address := types.PolicyPublicKey(key.PublicKey()).Address()
+
+				// Add a UTXO to the Accmulator
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(1000),
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: diff.SiacoinElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: types.PolicyPublicKey(key.PublicKey()),
+						},
+					},
+				}
+
+				// Double spend the same UTXO
+				txn.SiacoinInputs = append(txn.SiacoinInputs, txn.SiacoinInputs[0])
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+				txn.SiacoinInputs[1].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siacoin input 1 double-spends parent output (previously spent by input 0)",
+		},
+		{
+			desc: "invalid V2Transaction - spend an immature parent UTXO",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				address := types.PolicyPublicKey(key.PublicKey()).Address()
+
+				// Add a UTXO to the Accmulator
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(1000),
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createImmatureSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: diff.SiacoinElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: types.PolicyPublicKey(key.PublicKey()),
+						},
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siacoin input 0 has immature parent",
+		},
+		{
+			desc: "invalid V2Transaction - spend nonexistent ephemeral output !ok case",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: types.SiacoinElement{
+							StateElement: types.StateElement{
+								LeafIndex: types.UnassignedLeafIndex,
+							},
+						},
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: types.PolicyPublicKey(key.PublicKey()),
+						},
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siacoin input 0 spends nonexistent ephemeral output 0000000000000000000000000000000000000000000000000000000000000000",
+		},
+		{
+			desc: "invalid V2Transaction - spend nonexistent ephemeral output !ms.sces[i].Created case",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				address := types.PolicyPublicKey(key.PublicKey()).Address()
+
+				// Add a UTXO to the Accmulator
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(1000),
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: types.SiacoinElement{
+							StateElement: types.StateElement{
+								LeafIndex: types.UnassignedLeafIndex,
+							},
+						},
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: types.PolicyPublicKey(key.PublicKey()),
+						},
+					},
+				}
+
+				ms.elements[txn.SiacoinInputs[0].Parent.ID] = 0
+				ms.sces[0] = *diff
+				ms.sces[0].Created = false
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siacoin input 0 spends nonexistent ephemeral output 0000000000000000000000000000000000000000000000000000000000000000",
+		},
+		{
+			desc: "invalid V2Transaction - attempt to spend UTXO not in the Accumulator",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiacoinOutputs = []types.SiacoinOutput{
+					{
+						Value:   types.Siacoins(1000),
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siacoin input 0 spends output (0000000000000000000000000000000000000000000000000000000000000000) not present in the accumulator",
+		},
+		{
+			desc: "invalid V2Transaction - claim incorrect policy for parent address",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a UTXO to the Accmulator
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(1000),
+							Address: types.VoidAddress,
+						},
+					},
+				}
+				diff := ms.createSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: diff.SiacoinElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiacoinOutputs = []types.SiacoinOutput{
+					{
+						Value:   types.Siacoins(1000),
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siacoin input 0 claims incorrect policy for parent address",
+		},
+		{
+			desc: "invalid V2Transaction - fail to satisfy policy",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a UTXO to the Accmulator
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(1000),
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: diff.SiacoinElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiacoinOutputs = []types.SiacoinOutput{
+					{
+						Value:   types.Siacoins(1000),
+						Address: address,
+					},
+				}
+			},
+			errString: "siacoin input 0 failed to satisfy spend policy: invalid signature",
+		},
+		{
+			desc: "invalid V2Transaction - include 0 value output",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a UTXO to the Accmulator
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(1000),
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: diff.SiacoinElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiacoinOutputs = []types.SiacoinOutput{
+					{
+						Value:   types.ZeroCurrency,
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siacoin output 0 has zero value",
+		},
+		{
+			desc: "valid V2Transaction - inputs greater than outputs",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a UTXO to the Accmulator
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(1000),
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: diff.SiacoinElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiacoinOutputs = []types.SiacoinOutput{
+					{
+						Value:   types.Siacoins(500),
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siacoin inputs (1 KS) do not equal outputs (500 SC)",
+		},
+		{
+			desc: "valid V2Transaction - inputs less than outputs",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a UTXO to the Accmulator
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(1000),
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: diff.SiacoinElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiacoinOutputs = []types.SiacoinOutput{
+					{
+						Value:   types.Siacoins(2000),
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siacoin inputs (1 KS) do not equal outputs (2 KS)",
+		},
+	}
+
+	for _, test := range tests {
+		_, s := newConsensusDB(n, genesisBlock)
+		ms := NewMidState(s)
+		txn := types.V2Transaction{}
+
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(ms, &txn)
+
+			err := validateV2Siacoins(ms, txn)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
