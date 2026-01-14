@@ -6904,3 +6904,62 @@ func TestValidateSignatures(t *testing.T) {
 		})
 	}
 }
+
+// This test is non-exhaustive and only focuses on missing test coverage.
+// See TestValidateBlock for remaining cases
+func TestValidateTransaction(t *testing.T) {
+	n, genesisBlock := testnet()
+	n.HardforkTax.Height = 0
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement)
+		errString string
+	}{
+		{
+			desc: "valid File Contract",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				// no mutation
+			},
+		},
+		{
+			desc: "invalid Transaction - v1 transaction after v2 hardfork",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				ms.base.Network.HardforkV2.RequireHeight = 0
+			},
+			errString: "v1 transactions are not allowed after v2 hardfork is complete",
+		},
+		{
+			desc: "invalid Transaction - greater than max weight",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				ms.base.Network.HardforkV2.RequireHeight = 2
+
+				data := make([]byte, ms.base.MaxBlockWeight())
+				txn.ArbitraryData = [][]byte{data}
+			},
+			errString: "transaction exceeds maximum block weight (2000088 > 2000000)",
+		},
+	}
+
+	for _, test := range tests {
+		_, s := newConsensusDB(n, genesisBlock)
+		ms := NewMidState(s)
+		txn := types.Transaction{}
+		ts := V1TransactionSupplement{}
+
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(ms, &txn, &ts)
+			err := ValidateTransaction(ms, txn, ts)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
