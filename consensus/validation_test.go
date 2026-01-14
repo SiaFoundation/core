@@ -6464,6 +6464,7 @@ func TestValidateV2Siafunds(t *testing.T) {
 }
 
 // This test is non-exhaustive and only focuses on missing test coverage.
+// See TestValidateBlock for remaining cases
 func TestValidateFileContracts(t *testing.T) {
 	n, genesisBlock := testnet()
 	n.HardforkTax.Height = 0
@@ -6824,6 +6825,71 @@ func TestValidateFileContracts(t *testing.T) {
 
 			test.mutate(ms, &txn, &ts)
 			err := validateFileContracts(ms, txn, ts)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
+
+// This test is non-exhaustive and only focuses on missing test coverage.
+// See TestValidateBlock for remaining cases
+func TestValidateSignatures(t *testing.T) {
+	n, genesisBlock := testnet()
+	n.HardforkTax.Height = 0
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.Transaction)
+		errString string
+	}{
+		{
+			desc: "valid transaction",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				// no mutation
+			},
+		},
+		{
+			desc: "invalid transaction - attempt to spend entropy public key",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				uc := types.UnlockConditions{
+					PublicKeys: []types.UnlockKey{
+						{
+							Algorithm: types.SpecifierEntropy,
+						},
+					},
+					SignaturesRequired: 1,
+				}
+
+				txn.SiacoinInputs = []types.SiacoinInput{
+					{
+						UnlockConditions: uc,
+					},
+				}
+				txn.Signatures = []types.TransactionSignature{
+					{},
+				}
+			},
+			errString: "signature 0 uses an entropy public key",
+		},
+	}
+
+	for _, test := range tests {
+		_, s := newConsensusDB(n, genesisBlock)
+		ms := NewMidState(s)
+		txn := types.Transaction{}
+
+		t.Run(test.desc, func(t *testing.T) {
+
+			test.mutate(ms, &txn)
+			err := validateSignatures(ms, txn)
 
 			if test.errString == "" {
 				if err != nil {
