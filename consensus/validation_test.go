@@ -6599,7 +6599,7 @@ func TestValidateFileContracts(t *testing.T) {
 				txn.FileContracts[0].FileMerkleRoot = merkleRoot
 				txn.FileContracts[0].WindowStart = 0
 				txn.FileContracts[0].WindowEnd = 10
-				txn.FileContracts[0].Filesize = 128
+				txn.FileContracts[0].Filesize = 127
 
 				ts.StorageProofs = []V1StorageProofSupplement{
 					{
