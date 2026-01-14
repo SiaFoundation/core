@@ -6462,3 +6462,379 @@ func TestValidateV2Siafunds(t *testing.T) {
 		})
 	}
 }
+
+// This test is non-exhaustive and only focuses on missing test coverage.
+func TestValidateFileContracts(t *testing.T) {
+	n, genesisBlock := testnet()
+	n.HardforkTax.Height = 0
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement)
+		errString string
+	}{
+		{
+			desc: "valid File Contract",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				// no mutation
+			},
+		},
+		{
+			desc: "invalid Storage Proof - root does not match contract Merkle root ",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				ts.StorageProofs = []V1StorageProofSupplement{
+					{
+						FileContract: types.FileContractElement{
+							ID:           txn.FileContractID(0),
+							FileContract: txn.FileContracts[0],
+						},
+					},
+				}
+
+				storageProof := types.StorageProof{
+					ParentID: txn.FileContractID(0),
+				}
+				var txn2 types.Transaction
+				txn2.StorageProofs = append(txn.StorageProofs, storageProof)
+
+				*txn = txn2
+			},
+			errString: "storage proof 0 has root that does not match contract Merkle root",
+		},
+		{
+			desc: "valid Storage Proof - filesize == 0 does not require a valid proof",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				ms.base.Network.HardforkTax.Height = 0
+				ms.base.Network.HardforkStorageProof.Height = 0
+				txn.FileContracts[0].Filesize = 0
+
+				ts.StorageProofs = []V1StorageProofSupplement{
+					{
+						FileContract: types.FileContractElement{
+							ID:           txn.FileContractID(0),
+							FileContract: txn.FileContracts[0],
+						},
+					},
+				}
+
+				storageProof := types.StorageProof{
+					ParentID: txn.FileContractID(0),
+				}
+				var txn2 types.Transaction
+				txn2.StorageProofs = append(txn.StorageProofs, storageProof)
+
+				*txn = txn2
+			},
+		},
+		{
+			desc: "valid Storage Proof - before HardforkTax.Height",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				ms.base.Network.HardforkTax.Height = 10
+
+				leaf0Data := [64]byte{1}
+				leaf1Data := [64]byte{2}
+
+				// Hash each leaf
+				hash0 := ms.base.StorageProofLeafHash(leaf0Data[:])
+				hash1 := ms.base.StorageProofLeafHash(leaf1Data[:])
+
+				// Combine to create Merkle root
+				merkleRoot := blake2b.SumPair(hash0, hash1)
+
+				txn.FileContracts[0].FileMerkleRoot = merkleRoot
+				txn.FileContracts[0].WindowStart = 0
+				txn.FileContracts[0].WindowEnd = 10
+				txn.FileContracts[0].Filesize = 128
+
+				ts.StorageProofs = []V1StorageProofSupplement{
+					{
+						FileContract: types.FileContractElement{
+							ID:           txn.FileContractID(0),
+							FileContract: txn.FileContracts[0],
+						},
+					},
+				}
+
+				leafIndex := ms.base.StorageProofLeafIndex(
+					txn.FileContracts[0].Filesize,
+					types.BlockID{},
+					txn.FileContractID(0),
+				)
+
+				sp := types.StorageProof{
+					ParentID: txn.FileContractID(0),
+				}
+				if leafIndex == 0 {
+					// Prove leaf 0, include hash of leaf 1 as proof
+					sp.Leaf = leaf0Data
+					sp.Proof = []types.Hash256{hash1}
+				} else {
+					// Prove leaf 1, include hash of leaf 0 as proof
+					sp.Leaf = leaf1Data
+					sp.Proof = []types.Hash256{hash0}
+				}
+
+				var txn2 types.Transaction
+				txn2.StorageProofs = append(txn.StorageProofs, sp)
+
+				*txn = txn2
+			},
+		},
+		{
+			desc: "valid Storage Proof - after HardforkTax.Height before HardforkStorageProof.Height",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				ms.base.Network.HardforkTax.Height = 0
+				ms.base.Network.HardforkStorageProof.Height = 20
+
+				leaf0Data := [64]byte{1}
+				leaf1Data := [64]byte{2}
+
+				// Hash each leaf
+				hash0 := ms.base.StorageProofLeafHash(leaf0Data[:])
+				hash1 := ms.base.StorageProofLeafHash(leaf1Data[:])
+
+				// Combine to create Merkle root
+				merkleRoot := blake2b.SumPair(hash0, hash1)
+
+				txn.FileContracts[0].FileMerkleRoot = merkleRoot
+				txn.FileContracts[0].WindowStart = 0
+				txn.FileContracts[0].WindowEnd = 10
+				txn.FileContracts[0].Filesize = 128
+
+				ts.StorageProofs = []V1StorageProofSupplement{
+					{
+						FileContract: types.FileContractElement{
+							ID:           txn.FileContractID(0),
+							FileContract: txn.FileContracts[0],
+						},
+					},
+				}
+
+				leafIndex := ms.base.StorageProofLeafIndex(
+					txn.FileContracts[0].Filesize,
+					types.BlockID{},
+					txn.FileContractID(0),
+				)
+
+				sp := types.StorageProof{
+					ParentID: txn.FileContractID(0),
+				}
+				if leafIndex == 0 {
+					// Prove leaf 0, include hash of leaf 1 as proof
+					sp.Leaf = leaf0Data
+					sp.Proof = []types.Hash256{hash1}
+				} else {
+					// Prove leaf 1, include hash of leaf 0 as proof
+					sp.Leaf = leaf1Data
+					sp.Proof = []types.Hash256{hash0}
+				}
+
+				var txn2 types.Transaction
+				txn2.StorageProofs = append(txn.StorageProofs, sp)
+
+				*txn = txn2
+			},
+		},
+		{
+			desc: "valid Storage Proof - after HardforkTax.Height and HardforkStorageProof.Height",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				ms.base.Network.HardforkTax.Height = 0
+				ms.base.Network.HardforkStorageProof.Height = 0
+
+				leaf0Data := [64]byte{1}
+				leaf1Data := [64]byte{2}
+
+				// Hash each leaf
+				hash0 := ms.base.StorageProofLeafHash(leaf0Data[:])
+				hash1 := ms.base.StorageProofLeafHash(leaf1Data[:])
+
+				// Combine to create Merkle root
+				merkleRoot := blake2b.SumPair(hash0, hash1)
+
+				txn.FileContracts[0].FileMerkleRoot = merkleRoot
+				txn.FileContracts[0].WindowStart = 0
+				txn.FileContracts[0].WindowEnd = 10
+				txn.FileContracts[0].Filesize = 128
+
+				ts.StorageProofs = []V1StorageProofSupplement{
+					{
+						FileContract: types.FileContractElement{
+							ID:           txn.FileContractID(0),
+							FileContract: txn.FileContracts[0],
+						},
+					},
+				}
+
+				leafIndex := ms.base.StorageProofLeafIndex(
+					txn.FileContracts[0].Filesize,
+					types.BlockID{},
+					txn.FileContractID(0),
+				)
+
+				sp := types.StorageProof{
+					ParentID: txn.FileContractID(0),
+				}
+				if leafIndex == 0 {
+					// Prove leaf 0, include hash of leaf 1 as proof
+					sp.Leaf = leaf0Data
+					sp.Proof = []types.Hash256{hash1}
+				} else {
+					// Prove leaf 1, include hash of leaf 0 as proof
+					sp.Leaf = leaf1Data
+					sp.Proof = []types.Hash256{hash0}
+				}
+
+				var txn2 types.Transaction
+				txn2.StorageProofs = append(txn.StorageProofs, sp)
+
+				*txn = txn2
+			},
+		},
+		{
+			desc: "valid Storage Proof - after HardforkTax before HardforkStorageProof - last leaf trimmed",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				ms.base.Network.HardforkTax.Height = 0
+				ms.base.Network.HardforkStorageProof.Height = 100
+
+				leafData := [64]byte{1, 2, 3, 4, 5}
+
+				// Single leaf tree: Merkle root is just the leaf hash
+				merkleRoot := ms.base.StorageProofLeafHash(leafData[:])
+
+				txn.FileContracts[0].FileMerkleRoot = merkleRoot
+				txn.FileContracts[0].Filesize = 36
+				txn.FileContracts[0].WindowStart = ms.base.childHeight()
+				txn.FileContracts[0].WindowEnd = ms.base.childHeight() + 10
+
+				contractID := txn.FileContractID(0)
+				windowID := ms.base.Index.ID
+
+				ts.StorageProofs = []V1StorageProofSupplement{
+					{
+						FileContract: types.FileContractElement{
+							ID:           contractID,
+							FileContract: txn.FileContracts[0],
+						},
+						WindowID: windowID,
+					},
+				}
+
+				var sp types.StorageProof
+				sp.ParentID = contractID
+				sp.Leaf = leafData
+				sp.Proof = []types.Hash256{}
+
+				var txn2 types.Transaction
+				txn2.StorageProofs = append(txn2.StorageProofs, sp)
+				*txn = txn2
+			},
+		},
+		{
+			desc: "valid Storage Proof - after HardforkTax and HardforkStorageProof - last leaf trimmed",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				ms.base.Network.HardforkTax.Height = 0
+				ms.base.Network.HardforkStorageProof.Height = 0
+
+				leafData := [64]byte{1, 2, 3, 4, 5}
+
+				// Single leaf tree: Merkle root is just the leaf hash
+				merkleRoot := ms.base.StorageProofLeafHash(leafData[:])
+
+				txn.FileContracts[0].FileMerkleRoot = merkleRoot
+				txn.FileContracts[0].Filesize = 36
+				txn.FileContracts[0].WindowStart = ms.base.childHeight()
+				txn.FileContracts[0].WindowEnd = ms.base.childHeight() + 10
+
+				contractID := txn.FileContractID(0)
+				windowID := ms.base.Index.ID
+
+				ts.StorageProofs = []V1StorageProofSupplement{
+					{
+						FileContract: types.FileContractElement{
+							ID:           contractID,
+							FileContract: txn.FileContracts[0],
+						},
+						WindowID: windowID,
+					},
+				}
+
+				var sp types.StorageProof
+				sp.ParentID = contractID
+				sp.Leaf = leafData
+				sp.Proof = []types.Hash256{}
+
+				var txn2 types.Transaction
+				txn2.StorageProofs = append(txn2.StorageProofs, sp)
+				*txn = txn2
+			},
+		},
+		{
+			desc: "valid Storage Proof - proving left leaf to hit SumPair(root, h)",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				filesize := uint64(128)
+
+				leaf0Data := [64]byte{1}
+				leaf1Data := [64]byte{2}
+
+				hash0 := ms.base.StorageProofLeafHash(leaf0Data[:])
+				hash1 := ms.base.StorageProofLeafHash(leaf1Data[:])
+				merkleRoot := blake2b.SumPair(hash0, hash1)
+
+				txn.FileContracts[0].FileMerkleRoot = merkleRoot
+				txn.FileContracts[0].Filesize = filesize
+				txn.FileContracts[0].WindowStart = ms.base.childHeight()
+				txn.FileContracts[0].WindowEnd = ms.base.childHeight() + 10
+
+				// Use a known contractID that gives leafIndex=0
+				contractID := types.FileContractID{0x03}
+
+				ts.StorageProofs = []V1StorageProofSupplement{
+					{
+						FileContract: types.FileContractElement{
+							ID:           contractID,
+							FileContract: txn.FileContracts[0],
+						},
+					},
+				}
+
+				// Prove leaf 0
+				var sp types.StorageProof
+				sp.ParentID = contractID
+				sp.Leaf = leaf0Data
+				sp.Proof = []types.Hash256{hash1}
+
+				var txn2 types.Transaction
+				txn2.StorageProofs = append(txn2.StorageProofs, sp)
+				*txn = txn2
+			},
+		},
+	}
+
+	for _, test := range tests {
+		_, s := newConsensusDB(n, genesisBlock)
+		ms := NewMidState(s)
+		txn := types.Transaction{}
+		ts := V1TransactionSupplement{}
+
+		t.Run(test.desc, func(t *testing.T) {
+
+			renterKey := types.GeneratePrivateKey()
+			hostKey := types.GeneratePrivateKey()
+			fc := prepareContractFormation(renterKey.PublicKey(), hostKey.PublicKey(), types.Siacoins(1), types.Siacoins(1), ms.base.Index.Height+1, 100, types.VoidAddress)
+			txn.FileContracts = append(txn.FileContracts, fc)
+
+			test.mutate(ms, &txn, &ts)
+			err := validateFileContracts(ms, txn, ts)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
