@@ -3233,10 +3233,9 @@ func TestValidateOrphan(t *testing.T) {
 				},
 			},
 		}
-		findBlockNonce(s, &b)
 		t.Run(test.desc, func(t *testing.T) {
 			test.mutate(&b, &s)
-
+			findBlockNonce(s, &b)
 			err := ValidateOrphan(s, b)
 
 			// check the valid case
