@@ -7015,3 +7015,295 @@ func TestValidateV2Transaction(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateSupplement(t *testing.T) {
+	tests := []struct {
+		desc      string
+		mutate    func(s *State, b *types.Block, bs *V1BlockSupplement)
+		errString string
+	}{
+		{
+			desc: "valid supplement - empty",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				// no mutation
+			},
+		},
+		{
+			desc: "valid supplement - spend a siacoin element",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				// create a SiacoinElement
+				siacoinOutput := types.SiacoinOutput{
+					Value:   types.Siacoins(100),
+					Address: types.VoidAddress,
+				}
+				sce := types.SiacoinElement{
+					StateElement: types.StateElement{
+						LeafIndex: s.Elements.NumLeaves,
+					},
+					ID:            types.SiacoinOutputID{0x01},
+					SiacoinOutput: siacoinOutput,
+				}
+
+				// Add unspent SiacoinElement to the Accumulator
+				leaves := []elementLeaf{siacoinLeaf(&sce, false)}
+				s.Elements.addLeaves(leaves)
+
+				b.Transactions = []types.Transaction{{}}
+
+				// Create the supplement with the siacoin element
+				bs.Transactions = []V1TransactionSupplement{
+					{
+						SiacoinInputs: []types.SiacoinElement{sce},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid supplement - spend a siafund element",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				// create a SiafundElement
+				siafundOutput := types.SiafundOutput{
+					Value:   100,
+					Address: types.VoidAddress,
+				}
+				sfe := types.SiafundElement{
+					StateElement: types.StateElement{
+						LeafIndex: s.Elements.NumLeaves,
+					},
+					ID:            types.SiafundOutputID{0x01},
+					SiafundOutput: siafundOutput,
+				}
+
+				// Add unspent SiafundElement to the Accumulator
+				leaves := []elementLeaf{siafundLeaf(&sfe, false)}
+				s.Elements.addLeaves(leaves)
+
+				b.Transactions = []types.Transaction{{}}
+
+				// Create the supplement with the siafund element
+				bs.Transactions = []V1TransactionSupplement{
+					{
+						SiafundInputs: []types.SiafundElement{sfe},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid supplement - revise a file contract",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				// create a FileContractElement
+				fc := types.FileContract{}
+				fce := types.FileContractElement{
+					StateElement: types.StateElement{
+						LeafIndex: s.Elements.NumLeaves,
+					},
+					ID:           types.FileContractID{0x01},
+					FileContract: fc,
+				}
+
+				// Add unspent FileContractElement to the Accumulator
+				leaves := []elementLeaf{fileContractLeaf(&fce, &fc, false)}
+				s.Elements.addLeaves(leaves)
+
+				b.Transactions = []types.Transaction{{}}
+
+				// Create the supplement with the FileContractElement
+				bs.Transactions = []V1TransactionSupplement{
+					{
+						RevisedFileContracts: []types.FileContractElement{fce},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid supplement - include a StorageProof",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				// create a FileContractElement
+				fc := types.FileContract{}
+				fce := types.FileContractElement{
+					StateElement: types.StateElement{
+						LeafIndex: s.Elements.NumLeaves,
+					},
+					ID:           types.FileContractID{0x01},
+					FileContract: fc,
+				}
+
+				// Add unspent FileContractElement to the Accumulator
+				leaves := []elementLeaf{fileContractLeaf(&fce, &fc, false)}
+				s.Elements.addLeaves(leaves)
+
+				b.Transactions = []types.Transaction{{}}
+
+				// Create the supplement with the FileContractElement
+				bs.Transactions = []V1TransactionSupplement{
+					{
+						StorageProofs: []V1StorageProofSupplement{
+							{
+								FileContract: fce,
+							},
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid supplement - include ExpiringFileContracts",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				// create a FileContractElement
+				fc := types.FileContract{}
+				fce := types.FileContractElement{
+					StateElement: types.StateElement{
+						LeafIndex: s.Elements.NumLeaves,
+					},
+					ID:           types.FileContractID{0x01},
+					FileContract: fc,
+				}
+
+				// Add unspent FileContractElement to the Accumulator
+				leaves := []elementLeaf{fileContractLeaf(&fce, &fc, false)}
+				s.Elements.addLeaves(leaves)
+
+				// Create the supplement with the FileContractElement
+				bs.ExpiringFileContracts = []types.FileContractElement{fce}
+			},
+		},
+		{
+			desc: "invalid supplement - include supplement with transactions after HardforkV2.RequireHeight",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				s.Network.HardforkV2.RequireHeight = 0
+				bs.Transactions = []V1TransactionSupplement{
+					{},
+				}
+			},
+			errString: "v1 block supplements are not allowed after v2 hardfork is complete",
+		},
+		{
+			desc: "invalid supplement - include supplement with ExpiringFileContracts after HardforkV2.RequireHeight",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				s.Network.HardforkV2.RequireHeight = 0
+				bs.ExpiringFileContracts = []types.FileContractElement{
+					{},
+				}
+			},
+			errString: "v1 block supplements are not allowed after v2 hardfork is complete",
+		},
+		{
+			desc: "invalid supplement - block has too many txes",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				b.Transactions = []types.Transaction{
+					{},
+				}
+			},
+			errString: "incorrect number of transactions",
+		},
+		{
+			desc: "invalid supplement - block supplement has too many txes",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				bs.Transactions = []V1TransactionSupplement{
+					{},
+				}
+			},
+			errString: "incorrect number of transactions",
+		},
+		{
+			desc: "invalid supplement - attempt to spend Siacoin UTXO not in the Accumulator",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				b.Transactions = []types.Transaction{
+					{},
+				}
+				bs.Transactions = []V1TransactionSupplement{
+					{
+						SiacoinInputs: []types.SiacoinElement{
+							{},
+						},
+					},
+				}
+			},
+			errString: "siacoin element 0000000000000000000000000000000000000000000000000000000000000000 is not present in the accumulator",
+		},
+		{
+			desc: "invalid supplement - attempt to spend Siafund UTXO not in the Accumulator",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				b.Transactions = []types.Transaction{
+					{},
+				}
+				bs.Transactions = []V1TransactionSupplement{
+					{
+						SiafundInputs: []types.SiafundElement{
+							{},
+						},
+					},
+				}
+			},
+			errString: "siafund element 0000000000000000000000000000000000000000000000000000000000000000 is not present in the accumulator",
+		},
+		{
+			desc: "invalid supplement - attempt to revise file contract not in the Accumulator",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				b.Transactions = []types.Transaction{
+					{},
+				}
+				bs.Transactions = []V1TransactionSupplement{
+					{
+						RevisedFileContracts: []types.FileContractElement{
+							{},
+						},
+					},
+				}
+			},
+			errString: "revised file contract 0000000000000000000000000000000000000000000000000000000000000000 is not present in the accumulator",
+		},
+		{
+			desc: "invalid supplement - attempt to provide storage proof for file contract not in the Accumulator",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				b.Transactions = []types.Transaction{
+					{},
+				}
+				bs.Transactions = []V1TransactionSupplement{
+					{
+						StorageProofs: []V1StorageProofSupplement{
+							{},
+						},
+					},
+				}
+			},
+			errString: "valid file contract 0000000000000000000000000000000000000000000000000000000000000000 is not present in the accumulator",
+		},
+		{
+			desc: "invalid supplement - attempt to include ExpiringFileContracts not in the Accumulator",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				bs.ExpiringFileContracts = []types.FileContractElement{
+					{},
+				}
+			},
+			errString: "expiring file contract 0000000000000000000000000000000000000000000000000000000000000000 is not present in the accumulator",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.desc, func(t *testing.T) {
+			n, genesisBlock := testnet()
+			db, s := newConsensusDB(n, genesisBlock)
+			b := types.Block{
+				ParentID:     genesisBlock.ID(),
+				Timestamp:    types.CurrentTimestamp(),
+				MinerPayouts: []types.SiacoinOutput{{Address: types.VoidAddress, Value: s.BlockReward()}},
+			}
+			bs := db.supplementTipBlock(b)
+			test.mutate(&s, &b, &bs)
+
+			err := validateSupplement(s, b, bs)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
