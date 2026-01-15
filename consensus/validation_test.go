@@ -2487,12 +2487,6 @@ func TestValidateFinalCutMinerPayout(t *testing.T) {
 }
 
 func TestValidateHeader(t *testing.T) {
-	n, genesisBlock := testnet()
-	n.InitialTarget = types.BlockID{0xFF}
-	n.HardforkV2.FinalCutHeight = 1
-	n.HardforkASIC.Height = 1
-	n.HardforkASIC.NonceFactor = 2
-
 	tests := []struct {
 		desc      string
 		mutate    func(h *types.BlockHeader, s *State)
@@ -2536,6 +2530,11 @@ func TestValidateHeader(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		n, genesisBlock := testnet()
+		n.InitialTarget = types.BlockID{0xFF}
+		n.HardforkV2.FinalCutHeight = 1
+		n.HardforkASIC.Height = 1
+		n.HardforkASIC.NonceFactor = 2
 		_, s := newConsensusDB(n, genesisBlock)
 		h := types.BlockHeader{
 			ParentID:  s.Index.ID,
@@ -2563,8 +2562,6 @@ func TestValidateHeader(t *testing.T) {
 }
 
 func TestValidateMinerPayouts(t *testing.T) {
-	n, genesisBlock := testnet()
-
 	// Test all V1 conditions
 	tests := []struct {
 		desc      string
@@ -2714,6 +2711,7 @@ func TestValidateMinerPayouts(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		n, genesisBlock := testnet()
 		_, s := newConsensusDB(n, genesisBlock)
 		b := types.Block{
 			ParentID:  s.Index.ID,
@@ -2870,6 +2868,7 @@ func TestValidateMinerPayouts(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		n, genesisBlock := testnet()
 		_, s := newConsensusDB(n, genesisBlock)
 		b := types.Block{
 			ParentID:  s.Index.ID,
@@ -2907,8 +2906,6 @@ func TestValidateMinerPayouts(t *testing.T) {
 }
 
 func TestValidateOrphan(t *testing.T) {
-	n, genesisBlock := testnet()
-
 	tests := []struct {
 		desc      string
 		mutate    func(b *types.Block, s *State)
@@ -3224,6 +3221,7 @@ func TestValidateOrphan(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		n, genesisBlock := testnet()
 		_, s := newConsensusDB(n, genesisBlock)
 		b := types.Block{
 			ParentID:  s.Index.ID,
@@ -3257,8 +3255,6 @@ func TestValidateOrphan(t *testing.T) {
 }
 
 func TestValidateCurrencyOverflow(t *testing.T) {
-	n, genesisBlock := testnet()
-
 	// Test all V1 conditions
 	tests := []struct {
 		desc      string
@@ -3609,6 +3605,7 @@ func TestValidateCurrencyOverflow(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		n, genesisBlock := testnet()
 		_, s := newConsensusDB(n, genesisBlock)
 		ms := NewMidState(s)
 		txn := types.Transaction{}
@@ -3634,8 +3631,6 @@ func TestValidateCurrencyOverflow(t *testing.T) {
 }
 
 func TestValidateMinimumValues(t *testing.T) {
-	n, genesisBlock := testnet()
-
 	tests := []struct {
 		desc      string
 		mutate    func(ms *MidState, txn *types.Transaction)
@@ -3803,6 +3798,7 @@ func TestValidateMinimumValues(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		n, genesisBlock := testnet()
 		_, s := newConsensusDB(n, genesisBlock)
 		ms := NewMidState(s)
 		txn := types.Transaction{}
@@ -3827,8 +3823,6 @@ func TestValidateMinimumValues(t *testing.T) {
 }
 
 func TestValidateSiacoins(t *testing.T) {
-	n, genesisBlock := testnet()
-
 	tests := []struct {
 		desc      string
 		mutate    func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement)
@@ -4606,6 +4600,7 @@ func TestValidateSiacoins(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		n, genesisBlock := testnet()
 		_, s := newConsensusDB(n, genesisBlock)
 		ms := NewMidState(s)
 		txn := types.Transaction{}
@@ -4631,8 +4626,6 @@ func TestValidateSiacoins(t *testing.T) {
 }
 
 func TestValidateSiafunds(t *testing.T) {
-	n, genesisBlock := testnet()
-
 	tests := []struct {
 		desc      string
 		mutate    func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement)
@@ -5148,6 +5141,7 @@ func TestValidateSiafunds(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		n, genesisBlock := testnet()
 		_, s := newConsensusDB(n, genesisBlock)
 		ms := NewMidState(s)
 		txn := types.Transaction{}
@@ -5173,9 +5167,6 @@ func TestValidateSiafunds(t *testing.T) {
 }
 
 func TestValidateArbitraryData(t *testing.T) {
-	n, genesisBlock := testnet()
-	n.HardforkFoundation.Height = 0 // Enable foundation validation
-
 	tests := []struct {
 		desc      string
 		mutate    func(ms *MidState, txn *types.Transaction)
@@ -5389,6 +5380,8 @@ func TestValidateArbitraryData(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		n, genesisBlock := testnet()
+		n.HardforkFoundation.Height = 0 // Enable foundation validation
 		_, s := newConsensusDB(n, genesisBlock)
 		n.HardforkFoundation.Height = 0
 
@@ -5414,8 +5407,6 @@ func TestValidateArbitraryData(t *testing.T) {
 }
 
 func TestValidateV2Siacoins(t *testing.T) {
-	n, genesisBlock := testnet()
-
 	tests := []struct {
 		desc      string
 		mutate    func(ms *MidState, txn *types.V2Transaction)
@@ -5953,6 +5944,7 @@ func TestValidateV2Siacoins(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		n, genesisBlock := testnet()
 		_, s := newConsensusDB(n, genesisBlock)
 		ms := NewMidState(s)
 		txn := types.V2Transaction{}
@@ -5977,8 +5969,6 @@ func TestValidateV2Siacoins(t *testing.T) {
 }
 
 func TestValidateV2Siafunds(t *testing.T) {
-	n, genesisBlock := testnet()
-
 	tests := []struct {
 		desc      string
 		mutate    func(ms *MidState, txn *types.V2Transaction)
@@ -6440,6 +6430,7 @@ func TestValidateV2Siafunds(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		n, genesisBlock := testnet()
 		_, s := newConsensusDB(n, genesisBlock)
 		ms := NewMidState(s)
 		txn := types.V2Transaction{}
@@ -6466,8 +6457,6 @@ func TestValidateV2Siafunds(t *testing.T) {
 // This test is non-exhaustive and only focuses on missing test coverage.
 // See TestValidateBlock for remaining cases
 func TestValidateFileContracts(t *testing.T) {
-	n, genesisBlock := testnet()
-	n.HardforkTax.Height = 0
 	tests := []struct {
 		desc      string
 		mutate    func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement)
@@ -6811,6 +6800,8 @@ func TestValidateFileContracts(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		n, genesisBlock := testnet()
+		n.HardforkTax.Height = 0
 		_, s := newConsensusDB(n, genesisBlock)
 		ms := NewMidState(s)
 		txn := types.Transaction{}
@@ -6843,8 +6834,6 @@ func TestValidateFileContracts(t *testing.T) {
 // This test is non-exhaustive and only focuses on missing test coverage.
 // See TestValidateBlock for remaining cases
 func TestValidateSignatures(t *testing.T) {
-	n, genesisBlock := testnet()
-	n.HardforkTax.Height = 0
 	tests := []struct {
 		desc      string
 		mutate    func(ms *MidState, txn *types.Transaction)
@@ -6882,6 +6871,8 @@ func TestValidateSignatures(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		n, genesisBlock := testnet()
+		n.HardforkTax.Height = 0
 		_, s := newConsensusDB(n, genesisBlock)
 		ms := NewMidState(s)
 		txn := types.Transaction{}
@@ -6908,8 +6899,6 @@ func TestValidateSignatures(t *testing.T) {
 // This test is non-exhaustive and only focuses on missing test coverage.
 // See TestValidateBlock for remaining cases
 func TestValidateTransaction(t *testing.T) {
-	n, genesisBlock := testnet()
-	n.HardforkTax.Height = 0
 	tests := []struct {
 		desc      string
 		mutate    func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement)
@@ -6941,6 +6930,8 @@ func TestValidateTransaction(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		n, genesisBlock := testnet()
+		n.HardforkTax.Height = 0
 		_, s := newConsensusDB(n, genesisBlock)
 		ms := NewMidState(s)
 		txn := types.Transaction{}
@@ -6967,8 +6958,6 @@ func TestValidateTransaction(t *testing.T) {
 // This test is non-exhaustive and only focuses on missing test coverage.
 // See TestValidateV2Block for remaining cases
 func TestValidateV2Transaction(t *testing.T) {
-	n, genesisBlock := testnet()
-	n.HardforkTax.Height = 0
 	tests := []struct {
 		desc      string
 		mutate    func(ms *MidState, txn *types.V2Transaction)
@@ -6990,6 +6979,8 @@ func TestValidateV2Transaction(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		n, genesisBlock := testnet()
+		n.HardforkTax.Height = 0
 		_, s := newConsensusDB(n, genesisBlock)
 		ms := NewMidState(s)
 		ms.base.Network.HardforkV2.AllowHeight = 0
