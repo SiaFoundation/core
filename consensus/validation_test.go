@@ -8523,3 +8523,365 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 		})
 	}
 }
+
+// see TestV2RenewalResolution for additional cases
+func TestValidateV2FileContractsResolutions(t *testing.T) {
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement)
+		errString string
+	}{
+		{
+			desc: "valid V2FileContractResolution - valid expiration",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				fce.V2FileContract.ProofHeight = 0
+				fce.V2FileContract.ExpirationHeight = 0
+
+				resolution := types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: &types.V2FileContractExpiration{},
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&resolution.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
+			},
+		},
+		{
+			desc: "invalid V2FileContractResolution - attempt to expire before ExpirationHeight",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				fce.V2FileContract.ProofHeight = 0
+
+				resolution := types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: &types.V2FileContractExpiration{},
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&resolution.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
+			},
+			errString: "file contract expiration 0 cannot be submitted until after expiration height (20)",
+		},
+		{
+			desc: "valid V2FileContractResolution - valid storage proof",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				fce.V2FileContract.ProofHeight = 1
+
+				// Create a ChainIndexElement at height 1
+				cie := types.ChainIndexElement{
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					ChainIndex: types.ChainIndex{
+						Height: 1,
+						// This ID is a magic value to ensure leafIndex will be 0
+						ID: types.BlockID{0x01},
+					},
+				}
+
+				// Create a simple 2-leaf file (128 bytes)
+				filesize := uint64(128)
+				leaf0Data := [64]byte{1}
+				leaf1Data := [64]byte{2}
+
+				// Build Merkle root
+				hash0 := ms.base.StorageProofLeafHash(leaf0Data[:])
+				hash1 := ms.base.StorageProofLeafHash(leaf1Data[:])
+				merkleRoot := blake2b.SumPair(hash0, hash1)
+
+				// Set this as the contract's FileMerkleRoot
+				fce.V2FileContract.FileMerkleRoot = merkleRoot
+				fce.V2FileContract.Filesize = filesize
+
+				leafIndex := ms.base.StorageProofLeafIndex(filesize, cie.ChainIndex.ID, types.FileContractID(fce.ID))
+				if leafIndex != 0 {
+					panic("unreachable or this test is broken")
+				}
+
+				// Prove for leaf 0
+				storageProof := types.V2StorageProof{
+					ProofIndex: cie,
+					Leaf:       leaf0Data,
+					Proof:      []types.Hash256{hash1},
+				}
+
+				// Add the ChainIndexElement and the Parent to the accumulator
+				leaves := []elementLeaf{
+					chainIndexLeaf(&storageProof.ProofIndex),
+					v2FileContractLeaf(&fce, nil, false),
+				}
+				ms.base.Elements.addLeaves(leaves)
+
+				resolution := types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: &storageProof,
+				}
+
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
+			},
+		},
+		{
+			desc: "invalid V2FileContractResolution - attempt to submit StorageProof before ProofHeight",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				// Create a ChainIndexElement at height 1
+				cie := types.ChainIndexElement{
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					ChainIndex: types.ChainIndex{
+						Height: 1,
+						// This ID is a magic value to ensure leafIndex will be 0
+						ID: types.BlockID{0x01},
+					},
+				}
+
+				// Create a simple 2-leaf file (128 bytes)
+				filesize := uint64(128)
+				leaf0Data := [64]byte{1}
+				leaf1Data := [64]byte{2}
+
+				// Build Merkle root
+				hash0 := ms.base.StorageProofLeafHash(leaf0Data[:])
+				hash1 := ms.base.StorageProofLeafHash(leaf1Data[:])
+				merkleRoot := blake2b.SumPair(hash0, hash1)
+
+				// Set this as the contract's FileMerkleRoot
+				fce.V2FileContract.FileMerkleRoot = merkleRoot
+				fce.V2FileContract.Filesize = filesize
+
+				leafIndex := ms.base.StorageProofLeafIndex(filesize, cie.ChainIndex.ID, types.FileContractID(fce.ID))
+				if leafIndex != 0 {
+					panic("unreachable or this test is broken")
+				}
+
+				// Prove for leaf 0
+				storageProof := types.V2StorageProof{
+					ProofIndex: cie,
+					Leaf:       leaf0Data,
+					Proof:      []types.Hash256{hash1},
+				}
+
+				// Add the ChainIndexElement and the Parent to the accumulator
+				leaves := []elementLeaf{
+					chainIndexLeaf(&storageProof.ProofIndex),
+					v2FileContractLeaf(&fce, nil, false),
+				}
+				ms.base.Elements.addLeaves(leaves)
+
+				resolution := types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: &storageProof,
+				}
+
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
+			},
+			errString: "file contract storage proof 0 cannot be submitted until after proof height (10)",
+		},
+		{
+			desc: "invalid V2FileContractResolution - StorageProof with invalid ChainIndexElement",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				fce.V2FileContract.ProofHeight = 1
+
+				// Create a ChainIndexElement at height 1
+				cie := types.ChainIndexElement{
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					ChainIndex: types.ChainIndex{
+						Height: 2,
+						// This ID is a magic value to ensure leafIndex will be 0
+						ID: types.BlockID{0x01},
+					},
+				}
+
+				// Create a simple 2-leaf file (128 bytes)
+				filesize := uint64(128)
+				leaf0Data := [64]byte{1}
+				leaf1Data := [64]byte{2}
+
+				// Build Merkle root
+				hash0 := ms.base.StorageProofLeafHash(leaf0Data[:])
+				hash1 := ms.base.StorageProofLeafHash(leaf1Data[:])
+				merkleRoot := blake2b.SumPair(hash0, hash1)
+
+				// Set this as the contract's FileMerkleRoot
+				fce.V2FileContract.FileMerkleRoot = merkleRoot
+				fce.V2FileContract.Filesize = filesize
+
+				leafIndex := ms.base.StorageProofLeafIndex(filesize, cie.ChainIndex.ID, types.FileContractID(fce.ID))
+				if leafIndex != 0 {
+					panic("unreachable or this test is broken")
+				}
+
+				// Prove for leaf 0
+				storageProof := types.V2StorageProof{
+					ProofIndex: cie,
+					Leaf:       leaf0Data,
+					Proof:      []types.Hash256{hash1},
+				}
+
+				// Add the ChainIndexElement and the Parent to the accumulator
+				leaves := []elementLeaf{
+					chainIndexLeaf(&storageProof.ProofIndex),
+					v2FileContractLeaf(&fce, nil, false),
+				}
+				ms.base.Elements.addLeaves(leaves)
+
+				resolution := types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: &storageProof,
+				}
+
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
+			},
+			errString: "file contract storage proof 0 has ProofIndex height (2) that does not match contract ProofHeight (1)",
+		},
+		{
+			desc: "invalid V2FileContractResolution - invalid history proof",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				fce.V2FileContract.ProofHeight = 1
+
+				// Add the ChainIndexElement and the Parent to the accumulator
+				leaves := []elementLeaf{
+					v2FileContractLeaf(&fce, nil, false),
+				}
+				ms.base.Elements.addLeaves(leaves)
+
+				resolution := types.V2FileContractResolution{
+					Parent: fce,
+					Resolution: &types.V2StorageProof{
+						ProofIndex: types.ChainIndexElement{
+							ChainIndex: types.ChainIndex{
+								Height: 1,
+							},
+						},
+					},
+				}
+
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
+			},
+			errString: "file contract storage proof 0 has invalid history proof",
+		},
+		{
+			desc: "invalid V2FileContractResolution - root that does not match contract Merkle root",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				fce.V2FileContract.ProofHeight = 1
+
+				// Create a ChainIndexElement at height 1
+				cie := types.ChainIndexElement{
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					ChainIndex: types.ChainIndex{
+						Height: 1,
+						// This ID is a magic value to ensure leafIndex will be 0
+						ID: types.BlockID{0x01},
+					},
+				}
+
+				// Create a simple 2-leaf file (128 bytes)
+				filesize := uint64(128)
+				leaf0Data := [64]byte{1}
+				leaf1Data := [64]byte{2}
+
+				// Build Merkle root
+				hash0 := ms.base.StorageProofLeafHash(leaf0Data[:])
+				hash1 := ms.base.StorageProofLeafHash(leaf1Data[:])
+				merkleRoot := blake2b.SumPair(hash0, hash1)
+
+				// Set this as the contract's FileMerkleRoot
+				fce.V2FileContract.FileMerkleRoot = merkleRoot
+				fce.V2FileContract.Filesize = filesize
+
+				leafIndex := ms.base.StorageProofLeafIndex(filesize, cie.ChainIndex.ID, types.FileContractID(fce.ID))
+				if leafIndex != 0 {
+					panic("unreachable or this test is broken")
+				}
+
+				// Prove for leaf 1, the wrong leaf
+				storageProof := types.V2StorageProof{
+					ProofIndex: cie,
+					Leaf:       leaf1Data,
+					Proof:      []types.Hash256{hash0},
+				}
+
+				// Add the ChainIndexElement and the Parent to the accumulator
+				leaves := []elementLeaf{
+					chainIndexLeaf(&storageProof.ProofIndex),
+					v2FileContractLeaf(&fce, nil, false),
+				}
+				ms.base.Elements.addLeaves(leaves)
+
+				resolution := types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: &storageProof,
+				}
+
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
+			},
+			errString: "file contract storage proof 0 has root that does not match contract Merkle root",
+		}}
+
+	for _, test := range tests {
+
+		t.Run(test.desc, func(t *testing.T) {
+			n, genesisBlock := testnet()
+			_, s := newConsensusDB(n, genesisBlock)
+			ms := NewMidState(s)
+
+			hostKey := types.GeneratePrivateKey()
+			renterKey := types.GeneratePrivateKey()
+
+			txn := types.V2Transaction{}
+
+			baseFileContract := types.V2FileContract{
+				Capacity:         128,
+				Filesize:         64,
+				FileMerkleRoot:   types.Hash256{},
+				ProofHeight:      10,
+				ExpirationHeight: 20,
+				RenterOutput: types.SiacoinOutput{
+					Value:   types.Siacoins(1),
+					Address: types.PolicyPublicKey(renterKey.PublicKey()).Address(),
+				},
+				HostOutput: types.SiacoinOutput{
+					Value:   types.Siacoins(1),
+					Address: types.PolicyPublicKey(hostKey.PublicKey()).Address(),
+				},
+				MissedHostValue: types.Siacoins(1),
+				TotalCollateral: types.Siacoins(1),
+				RenterPublicKey: renterKey.PublicKey(),
+				HostPublicKey:   hostKey.PublicKey(),
+				RevisionNumber:  0,
+			}
+
+			fce := types.V2FileContractElement{
+				ID: types.FileContractID{0x01},
+				StateElement: types.StateElement{
+					LeafIndex: ms.base.Elements.NumLeaves,
+				},
+				V2FileContract: baseFileContract,
+			}
+
+			test.mutate(ms, &txn, hostKey, renterKey, fce)
+
+			err := validateV2FileContracts(ms, txn)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
