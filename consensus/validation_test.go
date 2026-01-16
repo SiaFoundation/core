@@ -2182,6 +2182,20 @@ func TestV2RenewalResolution(t *testing.T) {
 			},
 			errString: "exceeding new contract cost",
 		},
+		{
+			desc: "invalid renewal - invalid host signature",
+			renewFn: func(vt *types.V2Transaction) {
+				//  signatures are created after this function is called
+			},
+			errString: "file contract renewal 0 has invalid host signature",
+		},
+		{
+			desc: "invalid renewal - invalid renter signature",
+			renewFn: func(vt *types.V2Transaction) {
+				//  signatures are created after this function is called
+			},
+			errString: "file contract renewal 0 has invalid renter signature",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
@@ -2235,6 +2249,13 @@ func TestV2RenewalResolution(t *testing.T) {
 			sigHash := cs.RenewalSigHash(*resolution)
 			resolution.RenterSignature = pk.SignHash(sigHash)
 			resolution.HostSignature = pk.SignHash(sigHash)
+
+			if strings.HasSuffix(test.desc, "invalid host signature") {
+				resolution.HostSignature = types.Signature{}
+			} else if strings.HasSuffix(test.desc, "invalid renter signature") {
+				resolution.RenterSignature = types.Signature{}
+			}
+
 			// apply the renewal
 			ms := NewMidState(cs)
 			err := ValidateV2Transaction(ms, renewTxn)
