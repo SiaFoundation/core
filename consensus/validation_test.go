@@ -7297,3 +7297,1179 @@ func TestValidateSupplement(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateV2FileContractsValidateContractClosure(t *testing.T) {
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey)
+		errString string
+	}{
+		{
+			desc: "valid V2FileContract",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				contractHash := ms.base.ContractSigHash(*fc)
+				fc.HostSignature = hostKey.SignHash(contractHash)
+				fc.RenterSignature = renterKey.SignHash(contractHash)
+			},
+		},
+		{
+			desc: "invalid V2FileContract - filesize exceeds capacity",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				fc.Filesize = 2
+				fc.Capacity = 1
+			},
+			errString: "file contract 0 has filesize (2) exceeding capacity (1)",
+		},
+		{
+			desc: "invalid V2FileContract - proof height has already passed",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				fc.ProofHeight = 0
+			},
+			errString: "file contract 0 has proof height (0) that has already passed",
+		},
+		{
+			desc: "invalid V2FileContract - no time between proof height and expiration height - different height",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				fc.ExpirationHeight = 1
+				fc.ProofHeight = 2
+			},
+			errString: "file contract 0 leaves no time between proof height (2) and expiration height (1)",
+		},
+		{
+			desc: "invalid V2FileContract - no time between proof height and expiration height - same height",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				fc.ProofHeight = 1
+				fc.ExpirationHeight = 1
+			},
+			errString: "file contract 0 leaves no time between proof height (1) and expiration height (1)",
+		},
+		{
+			desc: "invalid V2FileContract - renter output and host output have zero value",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				fc.RenterOutput.Value = types.ZeroCurrency
+				fc.HostOutput.Value = types.ZeroCurrency
+
+			},
+			errString: "file contract 0 has zero value",
+		},
+		{
+			desc: "valid V2FileContract - renter output has zero value",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				fc.RenterOutput.Value = types.ZeroCurrency
+
+				contractHash := ms.base.ContractSigHash(*fc)
+				fc.HostSignature = hostKey.SignHash(contractHash)
+				fc.RenterSignature = renterKey.SignHash(contractHash)
+			},
+		},
+		{
+			desc: "valid V2FileContract - host output has zero value",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				fc.HostOutput.Value = types.ZeroCurrency
+				fc.MissedHostValue = types.ZeroCurrency
+				fc.TotalCollateral = types.ZeroCurrency
+
+				contractHash := ms.base.ContractSigHash(*fc)
+				fc.HostSignature = hostKey.SignHash(contractHash)
+				fc.RenterSignature = renterKey.SignHash(contractHash)
+			},
+		},
+		{
+			desc: "invalid V2FileContract - MissedHostValue greater than HostOutput",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				fc.HostOutput.Value = types.ZeroCurrency
+			},
+			errString: "file contract 0 has missed host value (1 SC) exceeding valid host value (0 SC)",
+		},
+		{
+			desc: "valid V2FileContract - MissedHostValue equals HostOutput",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				fc.HostOutput.Value = types.Siacoins(1)
+				fc.MissedHostValue = types.Siacoins(1)
+				fc.TotalCollateral = types.ZeroCurrency
+
+				contractHash := ms.base.ContractSigHash(*fc)
+				fc.HostSignature = hostKey.SignHash(contractHash)
+				fc.RenterSignature = renterKey.SignHash(contractHash)
+			},
+		},
+		{
+			desc: "invalid V2FileContract - TotalCollateral greater than HostOutput",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				fc.TotalCollateral = types.Siacoins(2)
+			},
+			errString: "file contract 0 has total collateral (2 SC) exceeding valid host value (1 SC)",
+		},
+		{
+			desc: "invalid V2FileContract - invalid HostSignature",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				contractHash := ms.base.ContractSigHash(*fc)
+				fc.RenterSignature = renterKey.SignHash(contractHash)
+			},
+			errString: "file contract 0 has invalid host signature",
+		},
+		{
+			desc: "invalid V2FileContract - invalid RenterSignature",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				contractHash := ms.base.ContractSigHash(*fc)
+				fc.HostSignature = hostKey.SignHash(contractHash)
+			},
+			errString: "file contract 0 has invalid renter signature",
+		},
+	}
+
+	for _, test := range tests {
+
+		t.Run(test.desc, func(t *testing.T) {
+			n, genesisBlock := testnet()
+			_, s := newConsensusDB(n, genesisBlock)
+			ms := NewMidState(s)
+
+			hostKey := types.GeneratePrivateKey()
+			renterKey := types.GeneratePrivateKey()
+
+			fc := types.V2FileContract{
+				Capacity:         128,
+				Filesize:         64,
+				FileMerkleRoot:   types.Hash256{},
+				ProofHeight:      10,
+				ExpirationHeight: 20,
+				RenterOutput: types.SiacoinOutput{
+					Value:   types.Siacoins(1),
+					Address: types.PolicyPublicKey(renterKey.PublicKey()).Address(),
+				},
+				HostOutput: types.SiacoinOutput{
+					Value:   types.Siacoins(1),
+					Address: types.PolicyPublicKey(hostKey.PublicKey()).Address(),
+				},
+				MissedHostValue: types.Siacoins(1),
+				TotalCollateral: types.Siacoins(1),
+				RenterPublicKey: renterKey.PublicKey(),
+				HostPublicKey:   hostKey.PublicKey(),
+				RevisionNumber:  0,
+				// signatures are not included here and can be populated per test case
+			}
+
+			test.mutate(ms, &fc, hostKey, renterKey)
+
+			txn := types.V2Transaction{
+				FileContracts: []types.V2FileContract{fc},
+			}
+
+			err := validateV2FileContracts(ms, txn)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
+
+func TestValidateV2FileContractsValidateParentClosure(t *testing.T) {
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, baseFileContract types.V2FileContract)
+		errString string
+	}{
+		{
+			desc: "valid V2FileContractRevision",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, baseFileContract types.V2FileContract) {
+				fce := types.V2FileContractElement{
+					ID: types.FileContractID{0x01},
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					V2FileContract: baseFileContract,
+				}
+
+				revision := baseFileContract
+				revision.RevisionNumber = 1
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+		},
+		{
+			desc: "valid V2FileContractResolution",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, baseFileContract types.V2FileContract) {
+				baseFileContract.ProofHeight = 0
+				baseFileContract.ExpirationHeight = 0
+
+				fce := types.V2FileContractElement{
+					ID: types.FileContractID{0x01},
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					V2FileContract: baseFileContract,
+				}
+
+				resolution := types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: &types.V2FileContractExpiration{},
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&resolution.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
+			},
+		},
+		{
+			desc: "invalid V2FileContractRevision - Attempt to revise contract that was resolved within this same block",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, baseFileContract types.V2FileContract) {
+				fce := types.V2FileContractElement{
+					ID: types.FileContractID{0x01},
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					V2FileContract: baseFileContract,
+				}
+
+				revision := baseFileContract
+				revision.RevisionNumber = 1
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Update the MidState as if the Parent is already resolved in a previous transaction
+				// within the same block
+				ms.resolveV2FileContractElement(fce, &types.V2FileContractExpiration{}, types.TransactionID{})
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 parent (0100000000000000000000000000000000000000000000000000000000000000) has already been resolved in transaction 0000000000000000000000000000000000000000000000000000000000000000",
+		},
+		{
+			desc: "invalid V2FileContractResolution - Attempt to resolve contract that was resolved within this same block",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, baseFileContract types.V2FileContract) {
+				baseFileContract.ProofHeight = 0
+				baseFileContract.ExpirationHeight = 0
+
+				fce := types.V2FileContractElement{
+					ID: types.FileContractID{0x01},
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					V2FileContract: baseFileContract,
+				}
+
+				resolution := types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: &types.V2FileContractExpiration{},
+				}
+
+				// Update the MidState as if the Parent is already resolved in a previous transaction
+				// within the same block
+				ms.resolveV2FileContractElement(fce, &types.V2FileContractExpiration{}, types.TransactionID{})
+
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
+			},
+			errString: "file contract renewal 0 parent (0100000000000000000000000000000000000000000000000000000000000000) has already been resolved in transaction 0000000000000000000000000000000000000000000000000000000000000000",
+		},
+		{
+			desc: "invalid V2FileContractRevision - Attempt to revise twice in the same transaction",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, baseFileContract types.V2FileContract) {
+				fce := types.V2FileContractElement{
+					ID: types.FileContractID{0x01},
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					V2FileContract: baseFileContract,
+				}
+
+				revision := baseFileContract
+				revision.RevisionNumber = 1
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr, fcr)
+			},
+			errString: "file contract revision 1 parent (0100000000000000000000000000000000000000000000000000000000000000) has already been revised by contract revision 0",
+		},
+		{
+			desc: "invalid V2FileContractResolution - attempt to resolve twice within the same transaction",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, baseFileContract types.V2FileContract) {
+				baseFileContract.ProofHeight = 0
+				baseFileContract.ExpirationHeight = 0
+
+				fce := types.V2FileContractElement{
+					ID: types.FileContractID{0x01},
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					V2FileContract: baseFileContract,
+				}
+
+				resolution := types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: &types.V2FileContractExpiration{},
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&resolution.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution, resolution)
+			},
+			errString: "file contract renewal 1 parent (0100000000000000000000000000000000000000000000000000000000000000) has already been resolved by contract resolution 0",
+		},
+		{
+			desc: "invalid V2Transaction - Attempt to revise and resolve in the same transaction",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, baseFileContract types.V2FileContract) {
+				fce := types.V2FileContractElement{
+					ID: types.FileContractID{0x01},
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					V2FileContract: baseFileContract,
+				}
+
+				revision := baseFileContract
+				revision.RevisionNumber = 1
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				resolution := types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: &types.V2FileContractExpiration{},
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
+
+			},
+			errString: "file contract renewal 0 parent (0100000000000000000000000000000000000000000000000000000000000000) has already been revised by contract revision 0",
+		},
+		{
+			desc: "invalid V2FileContractRevision - attempt to revise contract already resolved in previous block",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, baseFileContract types.V2FileContract) {
+				fce := types.V2FileContractElement{
+					ID: types.FileContractID{0x01},
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					V2FileContract: baseFileContract,
+				}
+
+				revision := baseFileContract
+				revision.RevisionNumber = 1
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator as spent
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, true)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 parent (0100000000000000000000000000000000000000000000000000000000000000) has already been resolved in a previous block",
+		},
+		{
+			desc: "invalid V2FileContractResolution - attempt to resolve contract already resolved in previous block",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, baseFileContract types.V2FileContract) {
+				baseFileContract.ProofHeight = 0
+				baseFileContract.ExpirationHeight = 0
+
+				fce := types.V2FileContractElement{
+					ID: types.FileContractID{0x01},
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					V2FileContract: baseFileContract,
+				}
+
+				resolution := types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: &types.V2FileContractExpiration{},
+				}
+
+				// Add the Parent to the Accumulator as spent
+				leaves := []elementLeaf{v2FileContractLeaf(&resolution.Parent, nil, true)}
+				ms.base.Elements.addLeaves(leaves)
+
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
+			},
+			errString: "file contract renewal 0 parent (0100000000000000000000000000000000000000000000000000000000000000) has already been resolved in a previous block",
+		},
+		{
+			desc: "invalid V2FileContractRevision - attempt to revise nonexistent contract",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, baseFileContract types.V2FileContract) {
+				fce := types.V2FileContractElement{
+					ID: types.FileContractID{0x01},
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					V2FileContract: baseFileContract,
+				}
+
+				revision := baseFileContract
+				revision.RevisionNumber = 1
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 parent (0100000000000000000000000000000000000000000000000000000000000000) is not present in the accumulator",
+		},
+		{
+			desc: "invalid V2FileContractResolution - attempt to resolve nonexistent contract",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, baseFileContract types.V2FileContract) {
+				baseFileContract.ProofHeight = 0
+				baseFileContract.ExpirationHeight = 0
+
+				fce := types.V2FileContractElement{
+					ID: types.FileContractID{0x01},
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					V2FileContract: baseFileContract,
+				}
+
+				resolution := types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: &types.V2FileContractExpiration{},
+				}
+
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
+			},
+			errString: "file contract renewal 0 parent (0100000000000000000000000000000000000000000000000000000000000000) is not present in the accumulator",
+		},
+	}
+
+	for _, test := range tests {
+
+		t.Run(test.desc, func(t *testing.T) {
+			n, genesisBlock := testnet()
+			_, s := newConsensusDB(n, genesisBlock)
+			ms := NewMidState(s)
+
+			hostKey := types.GeneratePrivateKey()
+			renterKey := types.GeneratePrivateKey()
+
+			txn := types.V2Transaction{}
+
+			baseFileContract := types.V2FileContract{
+				Capacity:         128,
+				Filesize:         64,
+				FileMerkleRoot:   types.Hash256{},
+				ProofHeight:      10,
+				ExpirationHeight: 20,
+				RenterOutput: types.SiacoinOutput{
+					Value:   types.Siacoins(1),
+					Address: types.PolicyPublicKey(renterKey.PublicKey()).Address(),
+				},
+				HostOutput: types.SiacoinOutput{
+					Value:   types.Siacoins(1),
+					Address: types.PolicyPublicKey(hostKey.PublicKey()).Address(),
+				},
+				MissedHostValue: types.Siacoins(1),
+				TotalCollateral: types.Siacoins(1),
+				RenterPublicKey: renterKey.PublicKey(),
+				HostPublicKey:   hostKey.PublicKey(),
+				RevisionNumber:  0,
+			}
+
+			test.mutate(ms, &txn, hostKey, renterKey, baseFileContract)
+
+			err := validateV2FileContracts(ms, txn)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
+
+func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement)
+		errString string
+	}{
+		{
+			desc: "valid V2FileContractRevision",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+		},
+		{
+			desc: "valid V2FileContractRevision - revise twice in the same block",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision0 := fce.V2FileContract
+				revision0.RevisionNumber++
+
+				// Add revision to MidState as if it was already included in this same block
+				ms.reviseV2FileContractElement(fce, revision0)
+
+				revision1 := revision0
+				revision1.RevisionNumber = 2
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision1,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+		},
+		{
+			desc: "invalid V2FileContractRevision - revise twice in the same block without iterating RevisionNumber",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision0 := fce.V2FileContract
+				revision0.RevisionNumber++
+
+				// Add revision to MidState as if it was already included in this same block
+				ms.reviseV2FileContractElement(fce, revision0)
+
+				revision1 := revision0
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision1,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 does not increase revision number (1 -> 1)",
+		},
+		{
+			desc: "invalid V2FileContractRevision - invalid Parent",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 parent (0100000000000000000000000000000000000000000000000000000000000000) is not present in the accumulator",
+		},
+		{
+			desc: "invalid V2FileContractRevision - attempt to revise after proof height",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				fce.V2FileContract.ProofHeight = 0
+
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 cannot be applied to contract after proof height (0)",
+		},
+		{
+			desc: "invalid V2FileContractRevision - attempt to decrease capacity",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.Capacity = 0
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 decreases capacity",
+		},
+		{
+			// Test that the "check for prior revision within block" logic works as intended
+			desc: "invalid V2FileContractRevision - attempt to increase capacity then decrease capacity within same block",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision0 := fce.V2FileContract
+				revision0.RevisionNumber++
+
+				// increase capacity
+				revision0.Capacity = 512
+
+				// Add revision to MidState as if it was already included in this same block
+				ms.reviseV2FileContractElement(fce, revision0)
+
+				revision1 := revision0
+				revision1.RevisionNumber = 2
+				// set capacity higher than baseFileContract.Capacity but lower than revision0.Capacity
+				revision1.Capacity = 256
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision1,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 decreases capacity",
+		},
+		{
+			desc: "invalid V2FileContractRevision - attempt to set FileSize greater than Capacity",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.Filesize = revision.Capacity + 1
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 has filesize (129) exceeding capacity (128)",
+		},
+		{
+			desc: "valid V2FileContractRevision - FileSize equal to Capacity",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.Filesize = revision.Capacity
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+		},
+		{
+			desc: "valid V2FileContractRevision - revise contract at ProofHeight",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				fce.V2FileContract.ProofHeight = 1
+
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+		},
+		{
+			desc: "invalid V2FileContractRevision - does not increase revision number",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 does not increase revision number (0 -> 0)",
+		},
+		{
+			desc: "invalid V2FileContractRevision - modify OutputSum by increasing RenterOutput.Value",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.RenterOutput.Value = revision.RenterOutput.Value.Add(types.Siacoins(1))
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 modifies output sum (2 SC -> 3 SC)",
+		},
+		{
+			desc: "invalid V2FileContractRevision - modify OutputSum by increasing HostOutput.Value",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.HostOutput.Value = revision.HostOutput.Value.Add(types.Siacoins(1))
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 modifies output sum (2 SC -> 3 SC)",
+		},
+		{
+			desc: "invalid V2FileContractRevision - attempt to increase MissedHostValue",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.MissedHostValue = revision.MissedHostValue.Add(types.Siacoins(1))
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 has missed host value (2 SC) exceeding old value (1 SC)",
+		},
+		{
+			desc: "valid V2FileContractRevision - decrease MissedHostValue",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.MissedHostValue = types.ZeroCurrency
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+		},
+		{
+			desc: "invalid V2FileContractRevision - attempt to increase TotalCollateral",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.TotalCollateral = revision.TotalCollateral.Add(types.Siacoins(1))
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 modifies total collateral",
+		},
+		{
+			desc: "invalid V2FileContractRevision - attempt to decrease TotalCollateral",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.TotalCollateral = revision.TotalCollateral.Sub(types.Siacoins(1))
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 modifies total collateral",
+		},
+		{
+			desc: "invalid V2FileContractRevision - attempt to set ProofHeight in the past",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.ProofHeight = 0
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 has proof height (0) that has already passed",
+		},
+		{
+			desc: "valid V2FileContractRevision - set ProofHeight to current height",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.ProofHeight = ms.base.childHeight()
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+		},
+		{
+			desc: "invalid V2FileContractRevision - attempt to set ExpirationHeight equal to ProofHeight",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.ExpirationHeight = revision.ProofHeight
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 leaves no time between proof height (10) and expiration height (10)",
+		},
+		{
+			desc: "invalid V2FileContractRevision - attempt to set ExpirationHeight less than ProofHeight",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				fce.V2FileContract.ProofHeight = 1
+
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.ExpirationHeight = 0
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 leaves no time between proof height (1) and expiration height (0)",
+		},
+		{
+			desc: "invalid V2FileContractRevision - invalid host signature",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = types.Signature{}
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 has invalid host signature",
+		},
+		{
+			desc: "invalid V2FileContractRevision - invalid renter signature",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = types.Signature{}
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 has invalid renter signature",
+		},
+	}
+
+	for _, test := range tests {
+
+		t.Run(test.desc, func(t *testing.T) {
+			n, genesisBlock := testnet()
+			_, s := newConsensusDB(n, genesisBlock)
+			ms := NewMidState(s)
+
+			hostKey := types.GeneratePrivateKey()
+			renterKey := types.GeneratePrivateKey()
+
+			baseFileContract := types.V2FileContract{
+				Capacity:         128,
+				Filesize:         64,
+				FileMerkleRoot:   types.Hash256{},
+				ProofHeight:      10,
+				ExpirationHeight: 20,
+				RenterOutput: types.SiacoinOutput{
+					Value:   types.Siacoins(1),
+					Address: types.PolicyPublicKey(renterKey.PublicKey()).Address(),
+				},
+				HostOutput: types.SiacoinOutput{
+					Value:   types.Siacoins(1),
+					Address: types.PolicyPublicKey(hostKey.PublicKey()).Address(),
+				},
+				MissedHostValue: types.Siacoins(1),
+				TotalCollateral: types.Siacoins(1),
+				RenterPublicKey: renterKey.PublicKey(),
+				HostPublicKey:   hostKey.PublicKey(),
+				RevisionNumber:  0,
+				// signatures are not included here and can be populated per test case
+			}
+
+			fce := types.V2FileContractElement{
+				ID: types.FileContractID{0x01},
+				StateElement: types.StateElement{
+					LeafIndex: ms.base.Elements.NumLeaves,
+				},
+				V2FileContract: baseFileContract,
+			}
+
+			txn := types.V2Transaction{}
+
+			test.mutate(ms, &txn, hostKey, renterKey, fce)
+
+			err := validateV2FileContracts(ms, txn)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
