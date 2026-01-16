@@ -8081,6 +8081,35 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 			},
 		},
 		{
+			desc: "invalid V2FileContractRevision - attempt to revise contract after ProofHeight",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision0 := fce.V2FileContract
+				revision0.ProofHeight = 0
+				revision0.RevisionNumber++
+
+				// Add revision to MidState as if it was already included in this same block
+				ms.reviseV2FileContractElement(fce, revision0)
+
+				revision1 := revision0
+				revision1.RevisionNumber = 2
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision1,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 revises contract after its proof window has opened",
+		},
+		{
 			desc: "valid V2FileContractRevision - revise contract at ProofHeight",
 			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
 				fce.V2FileContract.ProofHeight = 1
