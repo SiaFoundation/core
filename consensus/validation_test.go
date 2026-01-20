@@ -217,6 +217,16 @@ func findBlockNonce(cs State, b *types.Block) {
 	}
 }
 
+func findHeaderNonce(cs State, b *types.BlockHeader) {
+	// ensure nonce meets factor requirement
+	for b.Nonce%cs.NonceFactor() != 0 {
+		b.Nonce++
+	}
+	for b.ID().CmpWork(cs.PoWTarget()) < 0 {
+		b.Nonce += cs.NonceFactor()
+	}
+}
+
 func deepCopyBlock(b types.Block) (b2 types.Block) {
 	var buf bytes.Buffer
 	e := types.NewEncoder(&buf)
@@ -337,6 +347,8 @@ func TestValidateBlock(t *testing.T) {
 	revision.WindowStart = cs.Index.Height + 1
 	revision.WindowEnd = revision.WindowStart + 100
 
+	minerFee := types.Siacoins(1)
+
 	b := types.Block{
 		ParentID:  genesisBlock.ID(),
 		Timestamp: types.CurrentTimestamp(),
@@ -352,7 +364,7 @@ func TestValidateBlock(t *testing.T) {
 					UnlockConditions: types.StandardUnlockConditions(giftPublicKey),
 				}},
 				SiacoinOutputs: []types.SiacoinOutput{
-					{Value: giftAmountSC.Sub(fc.Payout), Address: giftAddress},
+					{Value: giftAmountSC.Sub(fc.Payout).Sub(minerFee), Address: giftAddress},
 				},
 				SiafundOutputs: []types.SiafundOutput{
 					{Value: giftAmountSF / 2, Address: giftAddress},
@@ -369,11 +381,12 @@ func TestValidateBlock(t *testing.T) {
 						FileContract: revision,
 					},
 				},
+				MinerFees: []types.Currency{minerFee},
 			},
 		},
 		MinerPayouts: []types.SiacoinOutput{{
 			Address: types.VoidAddress,
-			Value:   cs.BlockReward(),
+			Value:   cs.BlockReward().Add(minerFee),
 		}},
 	}
 	b.Transactions[0].FileContracts[0].FileMerkleRoot = types.HashBytes(make([]byte, 65))
@@ -422,7 +435,7 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
-				"miner payout sum (0 SC) does not match block reward + fees (300 KS)",
+				"miner payout sum (0 SC) does not match block reward + fees (300.001 KS)",
 				func(b *types.Block) {
 					b.MinerPayouts = nil
 				},
@@ -437,7 +450,7 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
-				"miner payout sum (150 KS) does not match block reward + fees (300 KS)",
+				"miner payout sum (150 KS) does not match block reward + fees (300.001 KS)",
 				func(b *types.Block) {
 					b.MinerPayouts = []types.SiacoinOutput{{
 						Address: types.VoidAddress,
@@ -461,6 +474,15 @@ func TestValidateBlock(t *testing.T) {
 					txn.SiacoinOutputs = []types.SiacoinOutput{
 						{Address: types.VoidAddress, Value: types.MaxCurrency},
 						{Address: types.VoidAddress, Value: types.MaxCurrency},
+					}
+				},
+			},
+			{
+				"transaction outputs exceed inputs",
+				func(b *types.Block) {
+					txn := &b.Transactions[0]
+					txn.SiafundOutputs = []types.SiafundOutput{
+						{Address: types.VoidAddress, Value: 10001},
 					}
 				},
 			},
@@ -677,6 +699,13 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
+				"file contract revision 0 has timelocked parent",
+				func(b *types.Block) {
+					txn := &b.Transactions[0]
+					txn.FileContractRevisions[0].UnlockConditions.Timelock = cs.Index.Height + 10
+				},
+			},
+			{
 				"file contract revision 0 has window that starts in the past",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
@@ -819,6 +848,13 @@ func TestValidateBlock(t *testing.T) {
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.Signatures = append(txn.Signatures, txn.Signatures[0])
+				},
+			},
+			{
+				"timelock of signature 0 has not expired",
+				func(b *types.Block) {
+					txn := &b.Transactions[0]
+					txn.Signatures[0].Timelock += 100
 				},
 			},
 			{
@@ -1072,6 +1108,20 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			{
+				"must have exactly one miner payout",
+				func(b *types.Block) {
+					b.MinerPayouts = []types.SiacoinOutput{
+						{
+							Address: types.VoidAddress,
+							Value:   cs.BlockReward().Div64(2),
+						},
+						{
+							Address: types.VoidAddress,
+							Value:   cs.BlockReward().Div64(2),
+						}}
+				},
+			},
+			{
 				"miner payout has zero value",
 				func(b *types.Block) {
 					b.MinerPayouts = []types.SiacoinOutput{{
@@ -1150,6 +1200,25 @@ func TestValidateV2Block(t *testing.T) {
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.SiafundOutputs[0].Value--
+				},
+			},
+			{
+				"transaction outputs exceed inputs",
+				func(b *types.Block) {
+					txn := &b.V2.Transactions[0]
+					txn.SiacoinOutputs = []types.SiacoinOutput{
+						{Address: types.VoidAddress, Value: types.MaxCurrency},
+						{Address: types.VoidAddress, Value: types.MaxCurrency},
+					}
+				},
+			},
+			{
+				"transaction outputs exceed inputs",
+				func(b *types.Block) {
+					txn := &b.V2.Transactions[0]
+					txn.SiafundOutputs = []types.SiafundOutput{
+						{Address: types.VoidAddress, Value: 10001},
+					}
 				},
 			},
 			{
@@ -1547,6 +1616,12 @@ func TestValidateV2Block(t *testing.T) {
 					}}
 				},
 			},
+			{
+				"invalid commitment",
+				func(b *types.Block) {
+					// commitment is later set to 00..00 for this case
+				},
+			},
 		}
 		for _, test := range tests {
 			corruptBlock := deepCopyBlock(validBlock)
@@ -1554,6 +1629,9 @@ func TestValidateV2Block(t *testing.T) {
 			signTxn(cs, &corruptBlock.V2.Transactions[0])
 			if len(corruptBlock.MinerPayouts) > 0 {
 				corruptBlock.V2.Commitment = cs.Commitment(corruptBlock.MinerPayouts[0].Address, corruptBlock.Transactions, corruptBlock.V2Transactions())
+			}
+			if test.desc == "invalid commitment" {
+				corruptBlock.V2.Commitment = types.Hash256{}
 			}
 			findBlockNonce(cs, &corruptBlock)
 
@@ -2113,6 +2191,20 @@ func TestV2RenewalResolution(t *testing.T) {
 			},
 			errString: "exceeding new contract cost",
 		},
+		{
+			desc: "invalid renewal - invalid host signature",
+			renewFn: func(vt *types.V2Transaction) {
+				//  signatures are created after this function is called
+			},
+			errString: "file contract renewal 0 has invalid host signature",
+		},
+		{
+			desc: "invalid renewal - invalid renter signature",
+			renewFn: func(vt *types.V2Transaction) {
+				//  signatures are created after this function is called
+			},
+			errString: "file contract renewal 0 has invalid renter signature",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
@@ -2166,6 +2258,13 @@ func TestV2RenewalResolution(t *testing.T) {
 			sigHash := cs.RenewalSigHash(*resolution)
 			resolution.RenterSignature = pk.SignHash(sigHash)
 			resolution.HostSignature = pk.SignHash(sigHash)
+
+			if strings.HasSuffix(test.desc, "invalid host signature") {
+				resolution.HostSignature = types.Signature{}
+			} else if strings.HasSuffix(test.desc, "invalid renter signature") {
+				resolution.RenterSignature = types.Signature{}
+			}
+
 			// apply the renewal
 			ms := NewMidState(cs)
 			err := ValidateV2Transaction(ms, renewTxn)
@@ -2414,5 +2513,6348 @@ func TestValidateFinalCutMinerPayout(t *testing.T) {
 	b.V2.Height++
 	if err := ValidateOrphan(cs, b); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestValidateHeader(t *testing.T) {
+	tests := []struct {
+		desc      string
+		mutate    func(h *types.BlockHeader, s *State)
+		errString string
+	}{
+		{
+			desc: "valid header",
+			mutate: func(h *types.BlockHeader, s *State) {
+				// no mutation
+			},
+		},
+		{
+			desc: "invalid header - nonce factor",
+			mutate: func(h *types.BlockHeader, s *State) {
+				h.Nonce = 1
+			},
+			errString: "nonce not divisible by required factor",
+		},
+		{
+			desc: "invalid header - wrong parentID",
+			mutate: func(h *types.BlockHeader, s *State) {
+				h.ParentID = types.BlockID{}
+			},
+			errString: "wrong parent ID",
+		},
+		{
+			desc: "invalid header - timestamp too old",
+			mutate: func(h *types.BlockHeader, s *State) {
+				h.Timestamp = time.Unix(0, 0).UTC()
+			},
+			errString: "timestamp too far in the past",
+		},
+		{
+			desc: "invalid header - insufficient work",
+			mutate: func(h *types.BlockHeader, s *State) {
+				// Max diff
+				s.Difficulty = Work{n: [32]byte{0xff}}
+			},
+			errString: "insufficient work",
+		},
+	}
+
+	for _, test := range tests {
+		n, genesisBlock := testnet()
+		n.InitialTarget = types.BlockID{0xFF}
+		n.HardforkV2.FinalCutHeight = 1
+		n.HardforkASIC.Height = 1
+		n.HardforkASIC.NonceFactor = 2
+		_, s := newConsensusDB(n, genesisBlock)
+		h := types.BlockHeader{
+			ParentID:  s.Index.ID,
+			Timestamp: time.Now(),
+		}
+		findHeaderNonce(s, &h)
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(&h, &s)
+
+			err := ValidateHeader(s, h)
+
+			// check the valid case
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
+
+func TestValidateMinerPayouts(t *testing.T) {
+	// Test all V1 conditions
+	tests := []struct {
+		desc      string
+		mutate    func(b *types.Block, s *State)
+		errString string
+	}{
+		{
+			desc: "valid V1 block",
+			mutate: func(b *types.Block, s *State) {
+				// no mutation
+			},
+		},
+		{
+			desc: "valid V1 block - V1 transaction with single MinerFee",
+			mutate: func(b *types.Block, s *State) {
+				b.Transactions = []types.Transaction{
+					{
+						MinerFees: []types.Currency{
+							types.Siacoins(1),
+						},
+					},
+				}
+				b.MinerPayouts[0].Value = b.MinerPayouts[0].Value.Add(types.Siacoins(1))
+			},
+		},
+		{
+			desc: "valid V1 block - V1 transaction with multiple MinerFee",
+			mutate: func(b *types.Block, s *State) {
+				b.Transactions = []types.Transaction{
+					{
+						MinerFees: []types.Currency{
+							types.Siacoins(1),
+							types.Siacoins(1),
+						},
+					},
+				}
+				b.MinerPayouts[0].Value = b.MinerPayouts[0].Value.Add(types.Siacoins(2))
+			},
+		},
+		{
+			desc: "valid V1 block - multiple V1 transactions with single MinerFee",
+			mutate: func(b *types.Block, s *State) {
+				b.Transactions = []types.Transaction{
+					{
+						MinerFees: []types.Currency{
+							types.Siacoins(1),
+						},
+					},
+					{
+						MinerFees: []types.Currency{
+							types.Siacoins(1),
+						},
+					},
+				}
+				b.MinerPayouts[0].Value = b.MinerPayouts[0].Value.Add(types.Siacoins(2))
+			},
+		},
+		{
+			desc: "valid V1 block - multiple V1 transactions with multiple MinerFee",
+			mutate: func(b *types.Block, s *State) {
+				b.Transactions = []types.Transaction{
+					{
+						MinerFees: []types.Currency{
+							types.Siacoins(1),
+							types.Siacoins(1),
+						},
+					},
+					{
+						MinerFees: []types.Currency{
+							types.Siacoins(1),
+							types.Siacoins(1),
+						},
+					},
+				}
+				b.MinerPayouts[0].Value = b.MinerPayouts[0].Value.Add(types.Siacoins(4))
+			},
+		},
+		{
+			desc: "invalid V1 block - V1 transaction fee has zero value",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.Transaction{
+					MinerFees: []types.Currency{
+						types.ZeroCurrency,
+					},
+				}
+				b.Transactions = append(b.Transactions, txn)
+			},
+			errString: "transaction fee has zero value",
+		},
+		{
+			desc: "invalid V1 block - V1 transaction fees overflow",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.Transaction{
+					MinerFees: []types.Currency{
+						types.MaxCurrency,
+					},
+				}
+				b.Transactions = append(b.Transactions, txn)
+			},
+			errString: "transaction fees overflow",
+		},
+		{
+			desc: "invalid V1 block - miner payout has zero value",
+			mutate: func(b *types.Block, s *State) {
+				b.MinerPayouts = []types.SiacoinOutput{
+					{
+						Value: types.ZeroCurrency,
+					},
+				}
+			},
+			errString: "miner payout has zero value",
+		},
+		{
+			desc: "invalid V1 block - miner payouts overflow",
+			mutate: func(b *types.Block, s *State) {
+				b.MinerPayouts = []types.SiacoinOutput{
+					{
+						Value: types.Siacoins(1),
+					},
+					{
+						Value: types.MaxCurrency,
+					},
+				}
+			},
+			errString: "miner payouts overflow",
+		},
+		{
+			desc: "invalid V1 block - miner payouts too low",
+			mutate: func(b *types.Block, s *State) {
+				b.MinerPayouts = []types.SiacoinOutput{
+					{
+						Value: types.Siacoins(1),
+					},
+				}
+			},
+			errString: "miner payout sum (1 SC) does not match block reward + fees (300 KS)",
+		},
+		{
+			desc: "invalid V1 block - miner payouts too high",
+			mutate: func(b *types.Block, s *State) {
+				b.MinerPayouts = append(b.MinerPayouts, types.SiacoinOutput{
+					Value: types.Siacoins(1),
+				})
+			},
+			errString: "miner payout sum (300.001 KS) does not match block reward + fees (300 KS)",
+		},
+	}
+
+	for _, test := range tests {
+		n, genesisBlock := testnet()
+		_, s := newConsensusDB(n, genesisBlock)
+		b := types.Block{
+			ParentID:  s.Index.ID,
+			Timestamp: time.Now(),
+			MinerPayouts: []types.SiacoinOutput{
+				{
+					Value:   s.BlockReward(),
+					Address: types.VoidAddress,
+				},
+			},
+		}
+		findBlockNonce(s, &b)
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(&b, &s)
+
+			err := validateMinerPayouts(s, b)
+
+			// check the valid case
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+
+	// Test all V2 conditions
+	tests = []struct {
+		desc      string
+		mutate    func(b *types.Block, s *State)
+		errString string
+	}{
+		{
+			desc: "valid V2 block",
+			mutate: func(b *types.Block, s *State) {
+				// no mutation
+			},
+		},
+		{
+			desc: "valid V2 block - V2 transaction with valid MinerFee",
+			mutate: func(b *types.Block, s *State) {
+				b.V2.Transactions = []types.V2Transaction{
+					{
+						MinerFee: types.Siacoins(1),
+					},
+				}
+				b.MinerPayouts[0].Value = b.MinerPayouts[0].Value.Add(types.Siacoins(1))
+			},
+		},
+		{
+			desc: "valid V2 block - V2 transactions with valid MinerFee",
+			mutate: func(b *types.Block, s *State) {
+				b.V2.Transactions = []types.V2Transaction{
+					{
+						MinerFee: types.Siacoins(1),
+					},
+					{
+						MinerFee: types.Siacoins(1),
+					},
+				}
+				b.MinerPayouts[0].Value = b.MinerPayouts[0].Value.Add(types.Siacoins(2))
+			},
+		},
+		{
+			desc: "invalid V2 block - V2 transaction fees overflow",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.V2Transaction{
+					MinerFee: types.MaxCurrency,
+				}
+				b.V2.Transactions = []types.V2Transaction{txn}
+			},
+			errString: "v2 transaction fees overflow",
+		},
+		{
+			desc: "invalid V2 block - V1/V2 mixed transaction fees overflow",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.Transaction{
+					MinerFees: []types.Currency{
+						types.MaxCurrency.Sub(s.BlockReward()).Sub(types.Siacoins(1)),
+					},
+				}
+				b.Transactions = append(b.Transactions, txn)
+
+				txn2 := types.V2Transaction{
+					MinerFee: types.MaxCurrency,
+				}
+				b.V2.Transactions = []types.V2Transaction{txn2}
+			},
+			errString: "v2 transaction fees overflow",
+		},
+		{
+			desc: "invalid V2 block - V2 block with no MinerPayouts",
+			mutate: func(b *types.Block, s *State) {
+				b.MinerPayouts = []types.SiacoinOutput{}
+			},
+			errString: "block must have exactly one miner payout",
+		},
+		{
+			desc: "invalid V2 block - V2 block with multiple MinerPayouts",
+			mutate: func(b *types.Block, s *State) {
+				b.MinerPayouts = []types.SiacoinOutput{{}, {}}
+			},
+			errString: "block must have exactly one miner payout",
+		},
+		{
+			desc: "invalid V2 block - V2 block with 0 value MinerPayout before FinalCutHeight",
+			mutate: func(b *types.Block, s *State) {
+				b.MinerPayouts = []types.SiacoinOutput{
+					{
+						Value: types.ZeroCurrency,
+					},
+				}
+			},
+			errString: "miner payout has zero value",
+		},
+		{
+			desc: "valid V2 block - V2 block with 0 value MinerPayout after FinalCutHeight",
+			mutate: func(b *types.Block, s *State) {
+				b.MinerPayouts = []types.SiacoinOutput{
+					{
+						Value: types.ZeroCurrency,
+					},
+				}
+				s.Network.HardforkV2.FinalCutHeight = 1
+			},
+		},
+		{
+			desc: "invalid V2 block - V2 block miner payouts too low before FinalCutHeight",
+			mutate: func(b *types.Block, s *State) {
+				b.MinerPayouts = []types.SiacoinOutput{
+					{
+						Value: types.Siacoins(1),
+					},
+				}
+			},
+			errString: "miner payout sum (1 SC) does not match block reward + fees (300 KS)",
+		},
+		{
+			desc: "invalid V2 block - V2 block miner payouts too high before FinalCutHeight",
+			mutate: func(b *types.Block, s *State) {
+				b.MinerPayouts = []types.SiacoinOutput{
+					{
+						Value: types.Siacoins(300001),
+					},
+				}
+			},
+			errString: "miner payout sum (300.001 KS) does not match block reward + fees (300 KS)",
+		},
+	}
+
+	for _, test := range tests {
+		n, genesisBlock := testnet()
+		_, s := newConsensusDB(n, genesisBlock)
+		b := types.Block{
+			ParentID:  s.Index.ID,
+			Timestamp: time.Now(),
+			MinerPayouts: []types.SiacoinOutput{
+				{
+					Value:   s.BlockReward(),
+					Address: types.VoidAddress,
+				},
+			},
+			// Initialize any V2BlockData to trigger `if v.V2 != nil` condition
+			V2: &types.V2BlockData{
+				// Transactions: []types.V2Transaction{},
+			},
+		}
+		findBlockNonce(s, &b)
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(&b, &s)
+
+			err := validateMinerPayouts(s, b)
+
+			// check the valid case
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
+
+func TestValidateOrphan(t *testing.T) {
+	tests := []struct {
+		desc      string
+		mutate    func(b *types.Block, s *State)
+		errString string
+	}{
+		{
+			desc: "valid V1 block",
+			mutate: func(b *types.Block, s *State) {
+				// no mutation
+			},
+		},
+		{
+			desc: "valid V1 block - include Transactions",
+			mutate: func(b *types.Block, s *State) {
+				b.Transactions = []types.Transaction{
+					{
+						ArbitraryData: [][]byte{{0x00}},
+					},
+					{
+						ArbitraryData: [][]byte{{0x01}},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid V1 block - include a single max sized Transaction",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.Transaction{
+					ArbitraryData: [][]byte{{}},
+				}
+				overhead := s.TransactionWeight(txn)
+
+				txn.ArbitraryData[0] = make([]byte, s.MaxBlockWeight()-overhead)
+				b.Transactions = []types.Transaction{txn}
+			},
+		},
+		{
+			desc: "valid V1 block - include two transactions that sum to max weight",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.Transaction{
+					ArbitraryData: [][]byte{{}},
+				}
+				txn2 := types.Transaction{
+					ArbitraryData: [][]byte{{}},
+				}
+				overhead := s.TransactionWeight(txn)
+
+				txn.ArbitraryData[0] = make([]byte, s.MaxBlockWeight()-overhead*2)
+				b.Transactions = []types.Transaction{txn, txn2}
+			},
+		},
+		{
+			desc: "invalid V1 block - include two Transactions that sum to greater than max weight",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.Transaction{
+					ArbitraryData: [][]byte{{}},
+				}
+				txn2 := types.Transaction{
+					ArbitraryData: [][]byte{{}},
+				}
+				overhead := s.TransactionWeight(txn)
+
+				txn.ArbitraryData[0] = make([]byte, s.MaxBlockWeight()-overhead*2+1)
+				b.Transactions = []types.Transaction{txn, txn2}
+			},
+			errString: "block exceeds maximum weight (2000001 > 2000000)",
+		},
+		{
+			desc: "invalid V1 block - include two max weight Transactions",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.Transaction{
+					ArbitraryData: [][]byte{{}},
+				}
+				overhead := s.TransactionWeight(txn)
+
+				txn.ArbitraryData[0] = make([]byte, s.MaxBlockWeight()-overhead)
+
+				b.Transactions = []types.Transaction{txn, txn}
+			},
+			errString: "block exceeds maximum weight (4000000 > 2000000)",
+		},
+		{
+			desc: "invalid V1 block - include a single over sized Transaction",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.Transaction{
+					ArbitraryData: [][]byte{{}},
+				}
+				overhead := s.TransactionWeight(txn)
+
+				txn.ArbitraryData[0] = make([]byte, s.MaxBlockWeight()-overhead+1)
+				b.Transactions = []types.Transaction{txn}
+			},
+			errString: "block exceeds maximum weight (2000001 > 2000000)",
+		},
+		{
+			desc: "invalid V1 block - invalid miner payouts",
+			mutate: func(b *types.Block, s *State) {
+				b.MinerPayouts = []types.SiacoinOutput{
+					{Value: types.Siacoins(1)},
+				}
+			},
+			errString: "miner payout sum (1 SC) does not match block reward + fees (300 KS)",
+		},
+		{
+			desc: "invalid V1 block - invalid header",
+			mutate: func(b *types.Block, s *State) {
+				b.ParentID = types.BlockID{0x00}
+			},
+			errString: "block has wrong parent ID",
+		},
+		{
+			desc: "valid V2 block",
+			mutate: func(b *types.Block, s *State) {
+				b.V2 = &types.V2BlockData{
+					Height: s.Index.Height + 1,
+				}
+			},
+		},
+		{
+			desc: "valid V2 block - include V1 Transaction",
+			mutate: func(b *types.Block, s *State) {
+				b.Transactions = []types.Transaction{
+					{ArbitraryData: [][]byte{{0x01}}},
+				}
+				b.V2 = &types.V2BlockData{
+					Height: s.Index.Height + 1,
+				}
+			},
+		},
+		{
+			desc: "valid V2 block - include V2Transaction",
+			mutate: func(b *types.Block, s *State) {
+				b.V2 = &types.V2BlockData{
+					Height: s.Index.Height + 1,
+					Transactions: []types.V2Transaction{
+						{
+							ArbitraryData: []byte{0x01},
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid V2 block - include V1 Transaction and V2Transaction",
+			mutate: func(b *types.Block, s *State) {
+				b.Transactions = []types.Transaction{
+					{ArbitraryData: [][]byte{{0x01}}},
+				}
+				b.V2 = &types.V2BlockData{
+					Height: s.Index.Height + 1,
+					Transactions: []types.V2Transaction{
+						{
+							ArbitraryData: []byte{0x01},
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid V2 block - include max sized V2Transaction",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.V2Transaction{
+					ArbitraryData: []byte{},
+				}
+				overhead := s.V2TransactionWeight(txn)
+
+				txn.ArbitraryData = make([]byte, s.MaxBlockWeight()-overhead)
+
+				b.V2 = &types.V2BlockData{
+					Height:       s.Index.Height + 1,
+					Transactions: []types.V2Transaction{txn},
+				}
+			},
+		},
+		{
+			desc: "invalid V2 block - include over sized V2Transaction",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.V2Transaction{
+					ArbitraryData: []byte{},
+				}
+				overhead := s.V2TransactionWeight(txn)
+
+				txn.ArbitraryData = make([]byte, s.MaxBlockWeight()-overhead+1)
+
+				b.V2 = &types.V2BlockData{
+					Height:       s.Index.Height + 1,
+					Transactions: []types.V2Transaction{txn},
+				}
+			},
+			errString: "block exceeds maximum weight (2000001 > 2000000)",
+		},
+		{
+			desc: "invalid V2 block - include 2 max sized V2Transactions",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.V2Transaction{
+					ArbitraryData: []byte{},
+				}
+				overhead := s.V2TransactionWeight(txn)
+
+				txn.ArbitraryData = make([]byte, s.MaxBlockWeight()-overhead)
+
+				b.V2 = &types.V2BlockData{
+					Height:       s.Index.Height + 1,
+					Transactions: []types.V2Transaction{txn, txn},
+				}
+			},
+			errString: "block exceeds maximum weight (4000000 > 2000000)",
+		},
+		{
+			desc: "invalid V2 block - include max sized V1 Transaction and max sized V2Transaction",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.Transaction{
+					ArbitraryData: [][]byte{{}},
+				}
+				overhead := s.TransactionWeight(txn)
+				txn.ArbitraryData[0] = make([]byte, s.MaxBlockWeight()-overhead)
+
+				txn2 := types.V2Transaction{
+					ArbitraryData: []byte{},
+				}
+				overhead = s.V2TransactionWeight(txn2)
+				txn2.ArbitraryData = make([]byte, s.MaxBlockWeight()-overhead)
+
+				b.Transactions = []types.Transaction{txn}
+				b.V2 = &types.V2BlockData{
+					Height:       s.Index.Height + 1,
+					Transactions: []types.V2Transaction{txn2},
+				}
+			},
+			errString: "block exceeds maximum weight (4000000 > 2000000)",
+		},
+		{
+			desc: "valid V2 block - include V1 Transaction and V2Transaction that sum to max weight",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.Transaction{
+					ArbitraryData: [][]byte{{}},
+				}
+				txn2 := types.V2Transaction{
+					ArbitraryData: []byte{},
+				}
+				overhead := s.TransactionWeight(txn)
+				overhead += s.V2TransactionWeight(txn2)
+
+				txn2.ArbitraryData = make([]byte, s.MaxBlockWeight()-overhead)
+				b.Transactions = []types.Transaction{txn}
+				b.V2 = &types.V2BlockData{
+					Height:       s.Index.Height + 1,
+					Transactions: []types.V2Transaction{txn2},
+				}
+			},
+		},
+		{
+			desc: "invalid V2 block - include V1 Transaction and V2Transaction that exceed max weight",
+			mutate: func(b *types.Block, s *State) {
+				txn := types.Transaction{
+					ArbitraryData: [][]byte{{}},
+				}
+				txn2 := types.V2Transaction{
+					ArbitraryData: []byte{},
+				}
+				overhead := s.TransactionWeight(txn)
+				overhead += s.V2TransactionWeight(txn2)
+
+				txn2.ArbitraryData = make([]byte, s.MaxBlockWeight()-overhead+1)
+				b.Transactions = []types.Transaction{txn}
+				b.V2 = &types.V2BlockData{
+					Height:       s.Index.Height + 1,
+					Transactions: []types.V2Transaction{txn2},
+				}
+			},
+			errString: "block exceeds maximum weight (2000001 > 2000000)",
+		},
+		{
+			desc: "invalid V2 block - height too low",
+			mutate: func(b *types.Block, s *State) {
+				b.V2 = &types.V2BlockData{
+					Height: s.Index.Height,
+				}
+			},
+			errString: "block height does not increment parent height",
+		},
+		{
+			desc: "invalid V2 block - height too high",
+			mutate: func(b *types.Block, s *State) {
+				b.V2 = &types.V2BlockData{
+					Height: s.Index.Height + 2,
+				}
+			},
+			errString: "block height does not increment parent height",
+		},
+		{
+			desc: "invalid V2 block - invalid miner payouts",
+			mutate: func(b *types.Block, s *State) {
+				b.MinerPayouts = []types.SiacoinOutput{
+					{Value: types.Siacoins(1)},
+				}
+				b.V2 = &types.V2BlockData{
+					Height: s.Index.Height + 1,
+				}
+			},
+			errString: "miner payout sum (1 SC) does not match block reward + fees (300 KS)",
+		},
+		{
+			desc: "invalid V2 block - invalid header",
+			mutate: func(b *types.Block, s *State) {
+				b.ParentID = types.BlockID{0x00}
+				b.V2 = &types.V2BlockData{
+					Height: s.Index.Height + 1,
+				}
+			},
+			errString: "block has wrong parent ID",
+		},
+	}
+
+	for _, test := range tests {
+		n, genesisBlock := testnet()
+		_, s := newConsensusDB(n, genesisBlock)
+		b := types.Block{
+			ParentID:  s.Index.ID,
+			Timestamp: time.Now(),
+			MinerPayouts: []types.SiacoinOutput{
+				{
+					Value:   s.BlockReward(),
+					Address: types.VoidAddress,
+				},
+			},
+		}
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(&b, &s)
+			findBlockNonce(s, &b)
+			err := ValidateOrphan(s, b)
+
+			// check the valid case
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
+
+func TestValidateCurrencyOverflow(t *testing.T) {
+	// Test all V1 conditions
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.Transaction)
+		errString string
+	}{
+		{
+			desc: "valid Transaction",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				// no mutation
+			},
+		},
+		{
+			desc: "valid Transaction - include valid SiacoinOutput Values",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Address: types.VoidAddress,
+							Value:   types.Siacoins(1),
+						},
+						{
+							Address: types.VoidAddress,
+							Value:   types.Siacoins(2),
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "invalid Transaction - overflow SiacoinOutput Values",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Address: types.VoidAddress,
+							Value:   types.NewCurrency64(1),
+						},
+						{
+							Address: types.VoidAddress,
+							Value:   types.MaxCurrency,
+						},
+					},
+				}
+			},
+			errString: "transaction outputs exceed inputs",
+		},
+		{
+			desc: "valid Transaction - include a valid SiafundOutput",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: 1,
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - include a valid max Value SiafundOutput",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: ms.base.SiafundCount(),
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - include two max Value SiafundOutputs",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: ms.base.SiafundCount(),
+						},
+						{
+							Value: ms.base.SiafundCount(),
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "invalid Transaction - include a SiafundOutput greater than max Value",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: ms.base.SiafundCount() + 1,
+						},
+					},
+				}
+			},
+			errString: "transaction outputs exceed inputs",
+		},
+		{
+			desc: "invalid Transaction - overflow FileContracts Payout Value",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					FileContracts: []types.FileContract{
+						{
+							Payout: types.MaxCurrency,
+						},
+						{
+							Payout: types.NewCurrency64(1),
+						},
+					},
+				}
+			},
+			errString: "transaction outputs exceed inputs",
+		},
+		{
+			desc: "invalid Transaction - overflow FileContracts ValidProofOutputs Values",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					FileContracts: []types.FileContract{
+						{
+							ValidProofOutputs: []types.SiacoinOutput{
+								{
+									Value: types.MaxCurrency,
+								},
+								{
+									Value: types.NewCurrency64(1),
+								},
+							},
+						},
+					},
+				}
+			},
+			errString: "transaction outputs exceed inputs",
+		},
+		{
+			desc: "invalid Transaction - overflow FileContracts MissedProofOutputs Values",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					FileContracts: []types.FileContract{
+						{
+							MissedProofOutputs: []types.SiacoinOutput{
+								{
+									Value: types.MaxCurrency,
+								},
+								{
+									Value: types.NewCurrency64(1),
+								},
+							},
+						},
+					},
+				}
+			},
+			errString: "transaction outputs exceed inputs",
+		},
+		{
+			desc: "invalid Transaction - overflow FileContractRevisions ValidProofOutputs Values",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					FileContractRevisions: []types.FileContractRevision{
+						{
+							FileContract: types.FileContract{
+								ValidProofOutputs: []types.SiacoinOutput{
+									{
+										Value: types.MaxCurrency,
+									},
+									{
+										Value: types.NewCurrency64(1),
+									},
+								},
+							},
+						},
+					},
+				}
+			},
+			errString: "transaction outputs exceed inputs",
+		},
+		{
+			desc: "invalid Transaction - overflow FileContractRevisions MissedProofOutputs Values",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					FileContractRevisions: []types.FileContractRevision{
+						{
+							FileContract: types.FileContract{
+								MissedProofOutputs: []types.SiacoinOutput{
+									{
+										Value: types.MaxCurrency,
+									},
+									{
+										Value: types.NewCurrency64(1),
+									},
+								},
+							},
+						},
+					},
+				}
+			},
+			errString: "transaction outputs exceed inputs",
+		},
+		{
+			desc: "valid Transaction - include MinerFees that would overflow if checked",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					MinerFees: []types.Currency{
+						types.MaxCurrency,
+						types.MaxCurrency,
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - populate each Value field",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value: types.Siacoins(1),
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: 1,
+						},
+					},
+					FileContracts: []types.FileContract{
+						{
+							Payout: types.Siacoins(1),
+							ValidProofOutputs: []types.SiacoinOutput{
+								{
+									Value: types.Siacoins(1),
+								},
+							},
+							MissedProofOutputs: []types.SiacoinOutput{
+								{
+									Value: types.Siacoins(1),
+								},
+							},
+						},
+					},
+					FileContractRevisions: []types.FileContractRevision{
+						{
+							FileContract: types.FileContract{
+								ValidProofOutputs: []types.SiacoinOutput{
+									{
+										Value: types.Siacoins(1),
+									},
+								},
+								MissedProofOutputs: []types.SiacoinOutput{
+									{
+										Value: types.Siacoins(1),
+									},
+								},
+							},
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - populate each Value field twice",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value: types.Siacoins(1),
+						},
+						{
+							Value: types.Siacoins(2),
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: 1,
+						},
+						{
+							Value: 2,
+						},
+					},
+					FileContracts: []types.FileContract{
+						{
+							Payout: types.Siacoins(1),
+							ValidProofOutputs: []types.SiacoinOutput{
+								{
+									Value: types.Siacoins(1),
+								},
+								{
+									Value: types.Siacoins(2),
+								},
+							},
+							MissedProofOutputs: []types.SiacoinOutput{
+								{
+									Value: types.Siacoins(1),
+								},
+								{
+									Value: types.Siacoins(2),
+								},
+							},
+						},
+					},
+					FileContractRevisions: []types.FileContractRevision{
+						{
+							FileContract: types.FileContract{
+								ValidProofOutputs: []types.SiacoinOutput{
+									{
+										Value: types.Siacoins(1),
+									},
+									{
+										Value: types.Siacoins(2),
+									},
+								},
+								MissedProofOutputs: []types.SiacoinOutput{
+									{
+										Value: types.Siacoins(1),
+									},
+									{
+										Value: types.Siacoins(2),
+									},
+								},
+							},
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "invalid Transaction - overflow across multiple fields",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{{Value: types.MaxCurrency}},
+					FileContracts:  []types.FileContract{{Payout: types.NewCurrency64(1)}},
+				}
+			},
+			errString: "transaction outputs exceed inputs",
+		},
+		{
+			desc: "invalid Transaction - valid SiafundOutput but overflow SiacoinOutput",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiafundOutputs: []types.SiafundOutput{{Value: 1}},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{Value: types.MaxCurrency},
+						{Value: types.NewCurrency64(1)},
+					},
+				}
+			},
+			errString: "transaction outputs exceed inputs",
+		},
+	}
+
+	for _, test := range tests {
+		n, genesisBlock := testnet()
+		_, s := newConsensusDB(n, genesisBlock)
+		ms := NewMidState(s)
+		txn := types.Transaction{}
+
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(ms, &txn)
+
+			err := validateCurrencyOverflow(ms, txn)
+
+			// check the valid case
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
+
+func TestValidateMinimumValues(t *testing.T) {
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.Transaction)
+		errString string
+	}{
+		{
+			desc: "valid Transaction - empty",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				// no mutation
+			},
+		},
+		{
+			desc: "valid Transaction - non-zero SiacoinOutput",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{Value: types.Siacoins(1)},
+					},
+				}
+			},
+		},
+		{
+			desc: "invalid Transaction - zero SiacoinOutput",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{Value: types.ZeroCurrency},
+					},
+				}
+			},
+			errString: "transaction creates a zero-valued output",
+		},
+		{
+			desc: "invalid Transaction - second SiacoinOutput is zero",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{Value: types.Siacoins(1)},
+						{Value: types.ZeroCurrency},
+					},
+				}
+			},
+			errString: "transaction creates a zero-valued output",
+		},
+		{
+			desc: "valid Transaction - non-zero FileContract Payout",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					FileContracts: []types.FileContract{
+						{Payout: types.Siacoins(1)},
+					},
+				}
+			},
+		},
+		{
+			desc: "invalid Transaction - zero FileContract Payout",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					FileContracts: []types.FileContract{
+						{Payout: types.ZeroCurrency},
+					},
+				}
+			},
+			errString: "transaction creates a zero-valued output",
+		},
+		{
+			desc: "valid Transaction - non-zero SiafundOutput",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{Value: 1},
+					},
+				}
+			},
+		},
+		{
+			desc: "invalid Transaction - zero SiafundOutput",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{Value: 0},
+					},
+				}
+			},
+			errString: "transaction creates a zero-valued output",
+		},
+		{
+			desc: "valid Transaction - non-zero MinerFee",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					MinerFees: []types.Currency{
+						types.Siacoins(1),
+					},
+				}
+			},
+		},
+		{
+			desc: "invalid Transaction - zero MinerFee",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					MinerFees: []types.Currency{
+						types.ZeroCurrency,
+					},
+				}
+			},
+			errString: "transaction creates a zero-valued output",
+		},
+		{
+			desc: "valid Transaction - all fields set to non-zero",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{Value: types.Siacoins(1)},
+					},
+					FileContracts: []types.FileContract{
+						{Payout: types.Siacoins(1)},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{Value: 1},
+					},
+					MinerFees: []types.Currency{
+						types.Siacoins(1),
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - all non-covered Currency fields set to zero",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				*txn = types.Transaction{
+					FileContracts: []types.FileContract{
+						{
+							Payout: types.Siacoins(1),
+							ValidProofOutputs: []types.SiacoinOutput{
+								{
+									Value: types.ZeroCurrency,
+								},
+							},
+							MissedProofOutputs: []types.SiacoinOutput{
+								{
+									Value: types.ZeroCurrency,
+								},
+							},
+						},
+					},
+					FileContractRevisions: []types.FileContractRevision{
+						{
+							FileContract: types.FileContract{
+								ValidProofOutputs: []types.SiacoinOutput{
+									{
+										Value: types.ZeroCurrency,
+									},
+								},
+								MissedProofOutputs: []types.SiacoinOutput{
+									{
+										Value: types.ZeroCurrency,
+									},
+								},
+							},
+						},
+					},
+				}
+			},
+		},
+	}
+
+	for _, test := range tests {
+		n, genesisBlock := testnet()
+		_, s := newConsensusDB(n, genesisBlock)
+		ms := NewMidState(s)
+		txn := types.Transaction{}
+
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(ms, &txn)
+
+			err := validateMinimumValues(ms, txn)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
+
+func TestValidateSiacoins(t *testing.T) {
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement)
+		errString string
+	}{
+		{
+			desc: "valid Transaction - empty",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				// no mutation
+			},
+		},
+		{
+			desc: "valid Transaction - spend a StandardUnlockConditions UTXO",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value: types.Siacoins(1),
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - spend multiple UTXOs",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID:            types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{Value: types.Siacoins(1), Address: unlockConditions.UnlockHash()},
+						},
+						{
+							ID:            types.SiacoinOutputID{0x02},
+							SiacoinOutput: types.SiacoinOutput{Value: types.Siacoins(2), Address: unlockConditions.UnlockHash()},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{ParentID: types.SiacoinOutputID{0x01}, UnlockConditions: unlockConditions},
+						{ParentID: types.SiacoinOutputID{0x02}, UnlockConditions: unlockConditions},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{Value: types.Siacoins(3)},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - spend a time locked UTXO as soon as possible",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.UnlockConditions{
+					Timelock: ms.base.childHeight(),
+					PublicKeys: []types.UnlockKey{
+						key.PublicKey().UnlockKey(),
+					},
+					SignaturesRequired: 1,
+				}
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value: types.Siacoins(1),
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - spend a time locked UTXO long after it unlocks",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.UnlockConditions{
+					Timelock: 500000,
+					PublicKeys: []types.UnlockKey{
+						key.PublicKey().UnlockKey(),
+					},
+					SignaturesRequired: 1,
+				}
+
+				// Fake the current height
+				ms.base.Index.Height = 1000000
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value: types.Siacoins(1),
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "invalid Transaction - attempt to spend timelocked UTXO",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.UnlockConditions{
+					Timelock: ms.base.childHeight() + 1,
+					PublicKeys: []types.UnlockKey{
+						key.PublicKey().UnlockKey(),
+					},
+					SignaturesRequired: 1,
+				}
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value: types.Siacoins(1),
+						},
+					},
+				}
+			},
+			errString: "siacoin input 0 has timelocked parent",
+		},
+		{
+			desc: "invalid Transaction - attempt to spend a previously spent UTXO",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				ms.spends[types.SiacoinOutputID{0x01}] = types.TransactionID{0x00}
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value: types.Siacoins(1),
+						},
+					},
+				}
+			},
+			errString: "siacoin input 0 double-spends parent output (previously spent in 0000000000000000000000000000000000000000000000000000000000000000)",
+		},
+		{
+			desc: "invalid Transaction - attempt to spend a nonexistent UTXO",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value: types.Siacoins(1),
+						},
+					},
+				}
+			},
+			errString: "siacoin input 0 spends nonexistent siacoin output 0100000000000000000000000000000000000000000000000000000000000000",
+		},
+		{
+			desc: "invalid Transaction - attempt to spend with incorrect UnlockConditions",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: types.UnlockConditions{},
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value: types.Siacoins(1),
+						},
+					},
+				}
+			},
+			errString: "siacoin input 0 claims incorrect unlock conditions for siacoin output 0100000000000000000000000000000000000000000000000000000000000000",
+		},
+		{
+			desc: "valid Transaction - spend a UTXO at MaturityHeight",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+							MaturityHeight: ms.base.childHeight(),
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value: types.Siacoins(1),
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - spend a UTXO immediately after MaturityHeight",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				// Fake the current height
+				ms.base.Index.Height = 2
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+							MaturityHeight: ms.base.childHeight(),
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value: types.Siacoins(1),
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "invalid Transaction - attempt to spend a UTXO immediately before MaturityHeight",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+							MaturityHeight: ms.base.childHeight() + 1,
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value: types.Siacoins(1),
+						},
+					},
+				}
+			},
+			errString: "siacoin input 0 has immature parent",
+		},
+		{
+			desc: "valid Transaction - spend a UTXO to SiacoinOutput",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{Value: types.Siacoins(1)},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - spend a UTXO to multiple SiacoinOutputs",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(2),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{Value: types.Siacoins(1)},
+						{Value: types.Siacoins(1)},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - spend a UTXO to FileContracts Payout",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					FileContracts: []types.FileContract{
+						{
+							Payout: types.Siacoins(1),
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - spend a UTXO to multiple FileContracts Payouts",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(2),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					FileContracts: []types.FileContract{
+						{
+							Payout: types.Siacoins(1),
+						},
+						{
+							Payout: types.Siacoins(1),
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - spend a UTXO to MinerFee",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					MinerFees: []types.Currency{types.Siacoins(1)},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - spend a UTXO to multiple MinerFees",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(2),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					MinerFees: []types.Currency{
+						types.Siacoins(1),
+						types.Siacoins(1),
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - spend a UTXO to multiple SiacoinOutputs, Payouts and MinerFees",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(6),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					MinerFees: []types.Currency{
+						types.Siacoins(1),
+						types.Siacoins(1),
+					},
+					FileContracts: []types.FileContract{
+						{
+							Payout: types.Siacoins(1),
+						},
+						{
+							Payout: types.Siacoins(1),
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{Value: types.Siacoins(1)},
+						{Value: types.Siacoins(1)},
+					},
+				}
+			},
+		},
+		{
+			desc: "invalid Transaction - attempt to spend too much to SiacoinOutput",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiacoinOutputs: []types.SiacoinOutput{
+						{Value: types.Siacoins(2)},
+					},
+				}
+			},
+			errString: "siacoin inputs (1 SC) do not equal outputs (2 SC)",
+		},
+		{
+			desc: "invalid Transaction - attempt to spend too much to MinerFee",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					MinerFees: []types.Currency{
+						types.Siacoins(2),
+					},
+				}
+			},
+			errString: "siacoin inputs (1 SC) do not equal outputs (2 SC)",
+		},
+		{
+			desc: "invalid Transaction - attempt to spend too much to Payout",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					FileContracts: []types.FileContract{
+						{
+							Payout: types.Siacoins(2),
+						},
+					},
+				}
+			},
+			errString: "siacoin inputs (1 SC) do not equal outputs (2 SC)",
+		},
+		{
+			desc: "invalid Transaction - attempt to spend a UTXO to nowhere",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiacoinInputs: []types.SiacoinElement{
+						{
+							ID: types.SiacoinOutputID{0x01},
+							SiacoinOutput: types.SiacoinOutput{
+								Value:   types.Siacoins(1),
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiacoinInputs: []types.SiacoinInput{
+						{
+							ParentID:         types.SiacoinOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+				}
+			},
+			errString: "siacoin inputs (1 SC) do not equal outputs (0 SC)",
+		},
+	}
+
+	for _, test := range tests {
+		n, genesisBlock := testnet()
+		_, s := newConsensusDB(n, genesisBlock)
+		ms := NewMidState(s)
+		txn := types.Transaction{}
+		ts := V1TransactionSupplement{}
+
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(ms, &txn, &ts)
+
+			err := validateSiacoins(ms, txn, ts)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
+
+func TestValidateSiafunds(t *testing.T) {
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement)
+		errString string
+	}{
+		{
+			desc: "valid Transaction - empty",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				// no mutation
+			},
+		},
+		{
+			desc: "valid Transaction - spend a StandardUnlockConditions UTXO",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   1,
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value:   1,
+							Address: unlockConditions.UnlockHash(),
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - spend multiple UTXOs",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   1,
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+						{
+							ID: types.SiafundOutputID{0x02},
+							SiafundOutput: types.SiafundOutput{
+								Value:   2,
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+						{
+							ParentID:         types.SiafundOutputID{0x02},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value:   3,
+							Address: unlockConditions.UnlockHash(),
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - spend a time locked UTXO as soon as possible",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.UnlockConditions{
+					Timelock: ms.base.childHeight(),
+					PublicKeys: []types.UnlockKey{
+						key.PublicKey().UnlockKey(),
+					},
+					SignaturesRequired: 1,
+				}
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   1,
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: 1,
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Transaction - spend a time locked UTXO long after it unlocks",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.UnlockConditions{
+					Timelock: 500000,
+					PublicKeys: []types.UnlockKey{
+						key.PublicKey().UnlockKey(),
+					},
+					SignaturesRequired: 1,
+				}
+
+				// Fake the current height
+				ms.base.Index.Height = 1000000
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   1,
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: 1,
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "invalid Transaction - attempt to spend timelocked UTXO",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.UnlockConditions{
+					Timelock: ms.base.childHeight() + 100,
+					PublicKeys: []types.UnlockKey{
+						key.PublicKey().UnlockKey(),
+					},
+					SignaturesRequired: 1,
+				}
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   1,
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: 1,
+						},
+					},
+				}
+			},
+			errString: "siafund input 0 has timelocked parent",
+		},
+		{
+			desc: "invalid Transaction - attempt to spend a previously spent UTXO",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				ms.spends[types.SiafundOutputID{0x01}] = types.TransactionID{0x00}
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   1,
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: 1,
+						},
+					},
+				}
+			},
+			errString: "siafund input 0 double-spends parent output (previously spent in 0000000000000000000000000000000000000000000000000000000000000000)",
+		},
+		{
+			desc: "invalid Transaction - attempt to spend a nonexistent UTXO",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: 1,
+						},
+					},
+				}
+			},
+			errString: "siafund input 0 spends nonexistent siafund output 0100000000000000000000000000000000000000000000000000000000000000",
+		},
+		{
+			desc: "invalid Transaction - attempt to spend with incorrect UnlockConditions",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   1,
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: types.UnlockConditions{},
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: 1,
+						},
+					},
+				}
+			},
+			errString: "siafund input 0 claims incorrect unlock conditions for siafund output 0100000000000000000000000000000000000000000000000000000000000000",
+		},
+		{
+			desc: "valid Transaction - spend with incorrect UnlockConditions dev addr special case",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				// Fake the current height
+				ms.base.Index.Height = ms.base.Network.HardforkDevAddr.Height
+
+				// Set the new dev address
+				ms.base.Network.HardforkDevAddr.NewAddress = unlockConditions.UnlockHash()
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   1,
+								Address: ms.base.Network.HardforkDevAddr.OldAddress,
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value: 1,
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "invalid Transaction - dev addr special case before hardfork height",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				ms.base.Network.HardforkDevAddr.Height = 100
+				ms.base.Network.HardforkDevAddr.NewAddress = unlockConditions.UnlockHash()
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   1,
+								Address: ms.base.Network.HardforkDevAddr.OldAddress,
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{Value: 1},
+					},
+				}
+			},
+			errString: "siafund input 0 claims incorrect unlock conditions",
+		},
+		{
+			desc: "valid Transaction - spend a UTXO to multiple SiafundOutputs",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   2,
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{Value: 1},
+						{Value: 1},
+					},
+				}
+			},
+		},
+		{
+			desc: "invalid Transaction - attempt to spend too much to SiafundOutput",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   1,
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{Value: 2},
+					},
+				}
+			},
+			errString: "siafund inputs (1) do not equal outputs (2)",
+		},
+		{
+			desc: "invalid Transaction - attempt to spend too little to SiafundOutput",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   2,
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+					SiafundOutputs: []types.SiafundOutput{
+						{Value: 1},
+					},
+				}
+			},
+			errString: "siafund inputs (2) do not equal outputs (1)",
+		},
+		{
+			desc: "invalid Transaction - attempt to spend to nothing",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				key := types.GeneratePrivateKey()
+				unlockConditions := types.StandardUnlockConditions(key.PublicKey())
+
+				*ts = V1TransactionSupplement{
+					SiafundInputs: []types.SiafundElement{
+						{
+							ID: types.SiafundOutputID{0x01},
+							SiafundOutput: types.SiafundOutput{
+								Value:   1,
+								Address: unlockConditions.UnlockHash(),
+							},
+						},
+					},
+				}
+
+				*txn = types.Transaction{
+					SiafundInputs: []types.SiafundInput{
+						{
+							ParentID:         types.SiafundOutputID{0x01},
+							UnlockConditions: unlockConditions,
+						},
+					},
+				}
+			},
+			errString: "siafund inputs (1) do not equal outputs (0)",
+		},
+	}
+
+	for _, test := range tests {
+		n, genesisBlock := testnet()
+		_, s := newConsensusDB(n, genesisBlock)
+		ms := NewMidState(s)
+		txn := types.Transaction{}
+		ts := V1TransactionSupplement{}
+
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(ms, &txn, &ts)
+
+			err := validateSiafunds(ms, txn, ts)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
+
+func TestValidateArbitraryData(t *testing.T) {
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.Transaction)
+		errString string
+	}{
+		{
+			desc: "valid ArbitraryData - no arbitrary data",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				// no mutation - empty transaction is valid
+			},
+		},
+		{
+			desc: "valid ArbitraryData - any data is valid before HardforkFoundation",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				ms.base.Network.HardforkFoundation.Height = 0
+			},
+		},
+		{
+			desc: "valid ArbitraryData - arbitrary data without foundation prefix",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				// Arbitrary data without the foundation prefix should be valid
+				txn.ArbitraryData = [][]byte{
+					[]byte("hello"),
+					[]byte("world"),
+				}
+			},
+		},
+		{
+			desc: "invalid ArbitraryData - include only foundation prefix",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				// Arbitrary data without the foundation prefix should be valid
+				txn.ArbitraryData = [][]byte{
+					types.SpecifierFoundation[:],
+				}
+			},
+			errString: "transaction contains an improperly-encoded FoundationAddressUpdate",
+		},
+		{
+			desc: "invalid ArbitraryData - include only foundation prefix",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				// Arbitrary data without the foundation prefix should be valid
+				txn.ArbitraryData = [][]byte{
+					types.SpecifierFoundation[:],
+				}
+			},
+			errString: "transaction contains an improperly-encoded FoundationAddressUpdate",
+		},
+		{
+			desc: "invalid ArbitraryData - include foundation prefix followed by garbage",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				// Arbitrary data without the foundation prefix should be valid
+				txn.ArbitraryData = [][]byte{
+					types.SpecifierFoundation[:],
+				}
+
+				txn.ArbitraryData = [][]byte{
+					append(types.SpecifierFoundation[:], 0xFF, 0xFF, 0xFF),
+				}
+			},
+			errString: "transaction contains an improperly-encoded FoundationAddressUpdate",
+		},
+		{
+			desc: "invalid ArbitraryData - set NewPrimary to VoidAddress",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				key := types.GeneratePrivateKey()
+				otherAddress := types.StandardUnlockConditions(key.PublicKey()).UnlockHash()
+
+				update := types.FoundationAddressUpdate{
+					NewPrimary:  types.VoidAddress,
+					NewFailsafe: otherAddress,
+				}
+
+				var buf bytes.Buffer
+				e := types.NewEncoder(&buf)
+				types.SpecifierFoundation.EncodeTo(e)
+				update.EncodeTo(e)
+				e.Flush()
+
+				txn.ArbitraryData = [][]byte{
+					buf.Bytes(),
+				}
+			},
+			errString: "transaction contains an uninitialized FoundationAddressUpdate",
+		},
+		{
+			desc: "invalid ArbitraryData - set NewFailsafe to VoidAddress",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				key := types.GeneratePrivateKey()
+				otherAddress := types.StandardUnlockConditions(key.PublicKey()).UnlockHash()
+
+				update := types.FoundationAddressUpdate{
+					NewPrimary:  otherAddress,
+					NewFailsafe: types.VoidAddress,
+				}
+
+				var buf bytes.Buffer
+				e := types.NewEncoder(&buf)
+				types.SpecifierFoundation.EncodeTo(e)
+				update.EncodeTo(e)
+				e.Flush()
+
+				txn.ArbitraryData = [][]byte{
+					buf.Bytes(),
+				}
+			},
+			errString: "transaction contains an uninitialized FoundationAddressUpdate",
+		},
+		{
+			desc: "invalid Arbitrary Data - update without including signatures",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				key := types.GeneratePrivateKey()
+				address := types.StandardUnlockConditions(key.PublicKey()).UnlockHash()
+
+				update := types.FoundationAddressUpdate{
+					NewPrimary:  address,
+					NewFailsafe: address,
+				}
+
+				var buf bytes.Buffer
+				e := types.NewEncoder(&buf)
+				types.SpecifierFoundation.EncodeTo(e)
+				update.EncodeTo(e)
+				e.Flush()
+
+				txn.ArbitraryData = [][]byte{
+					buf.Bytes(),
+				}
+			},
+			errString: "transaction contains an unsigned FoundationAddressUpdate",
+		},
+		{
+			desc: "valid Arbitrary Data - update addresses via FoundationSubsidyAddress",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				key := types.GeneratePrivateKey()
+				uc := types.StandardUnlockConditions(key.PublicKey())
+				address := uc.UnlockHash()
+
+				ms.base.FoundationSubsidyAddress = address
+
+				update := types.FoundationAddressUpdate{
+					NewPrimary:  address,
+					NewFailsafe: address,
+				}
+
+				var buf bytes.Buffer
+				e := types.NewEncoder(&buf)
+				types.SpecifierFoundation.EncodeTo(e)
+				update.EncodeTo(e)
+				e.Flush()
+
+				parentID := types.SiacoinOutputID{0x01}
+				txn.ArbitraryData = [][]byte{
+					buf.Bytes(),
+				}
+				txn.SiacoinInputs = []types.SiacoinInput{
+					{
+						ParentID:         parentID,
+						UnlockConditions: uc,
+					},
+				}
+				txn.Signatures = []types.TransactionSignature{
+					{
+						ParentID: types.Hash256(parentID),
+						CoveredFields: types.CoveredFields{
+							WholeTransaction: true,
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid Arbitrary Data - update addresses via FoundationManagementAddress",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				key := types.GeneratePrivateKey()
+				uc := types.StandardUnlockConditions(key.PublicKey())
+				address := uc.UnlockHash()
+
+				ms.base.FoundationManagementAddress = address
+
+				update := types.FoundationAddressUpdate{
+					NewPrimary:  address,
+					NewFailsafe: address,
+				}
+
+				var buf bytes.Buffer
+				e := types.NewEncoder(&buf)
+				types.SpecifierFoundation.EncodeTo(e)
+				update.EncodeTo(e)
+				e.Flush()
+
+				parentID := types.SiacoinOutputID{0x01}
+				txn.ArbitraryData = [][]byte{
+					buf.Bytes(),
+				}
+				txn.SiacoinInputs = []types.SiacoinInput{
+					{
+						ParentID:         parentID,
+						UnlockConditions: uc,
+					},
+				}
+				txn.Signatures = []types.TransactionSignature{
+					{
+						ParentID: types.Hash256(parentID),
+						CoveredFields: types.CoveredFields{
+							WholeTransaction: true,
+						},
+					},
+				}
+			},
+		},
+	}
+
+	for _, test := range tests {
+		n, genesisBlock := testnet()
+		n.HardforkFoundation.Height = 0 // Enable foundation validation
+		_, s := newConsensusDB(n, genesisBlock)
+		n.HardforkFoundation.Height = 0
+
+		ms := NewMidState(s)
+		txn := types.Transaction{}
+
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(ms, &txn)
+			err := validateArbitraryData(ms, txn)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
+
+func TestValidateV2Siacoins(t *testing.T) {
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.V2Transaction)
+		errString string
+	}{
+		{
+			desc: "valid V2Transaction - empty",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				// no mutation
+			},
+		},
+		{
+			desc: "valid V2Transaction - spend a UTXO from the Accumulator",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a UTXO to the Accmulator
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(1000),
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: diff.SiacoinElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiacoinOutputs = []types.SiacoinOutput{
+					{
+						Value:   types.Siacoins(1000),
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+		},
+		{
+			desc: "valid V2Transaction - populate all Currency fields summed in outputSum and inputSum",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a UTXO to the Accmulator
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(11),
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: diff.SiacoinElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiacoinOutputs = []types.SiacoinOutput{
+					{
+						Value:   types.Siacoins(2),
+						Address: address,
+					},
+					{
+						Value:   types.Siacoins(2),
+						Address: address,
+					},
+				}
+				txn.FileContracts = []types.V2FileContract{
+					{
+						RenterOutput: types.SiacoinOutput{
+							Value: types.Siacoins(2),
+						},
+						HostOutput: types.SiacoinOutput{
+							Value: types.Siacoins(2),
+						},
+					},
+				}
+				txn.FileContractResolutions = []types.V2FileContractResolution{
+					{
+						Resolution: &types.V2FileContractRenewal{
+							RenterRollover: types.Siacoins(1),
+							HostRollover:   types.Siacoins(1),
+							NewContract: types.V2FileContract{
+								RenterOutput: types.SiacoinOutput{
+									Value: types.Siacoins(2),
+								},
+								HostOutput: types.SiacoinOutput{
+									Value: types.Siacoins(2),
+								},
+							},
+						},
+					},
+				}
+				fcOffset := ms.base.V2FileContractTax(txn.FileContracts[0])
+				revOffset := ms.base.V2FileContractTax(txn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal).NewContract)
+				txn.MinerFee = types.Siacoins(1).Sub(revOffset).Sub(fcOffset)
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+		},
+		{
+			desc: "invalid V2Transaction - double spend parent output (ephemeral)",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				parentID := types.SiacoinOutputID{0x01}
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: types.SiacoinElement{
+							ID: parentID,
+						},
+					},
+				}
+
+				ms.spends[parentID] = types.TransactionID{0x00}
+			},
+			errString: "siacoin input 0 double-spends parent output (previously spent in 0000000000000000000000000000000000000000000000000000000000000000)",
+		},
+		{
+			desc: "invalid V2Transaction - double spend output already spent in accumulator",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Create a UTXO and add it to the accumulator as spent
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(1000),
+							Address: address,
+						},
+					},
+				}
+				outputID := txn.SiacoinOutputID(spendTxn.ID(), 0)
+				sce := types.SiacoinElement{
+					ID:            outputID,
+					SiacoinOutput: spendTxn.SiacoinOutputs[0],
+				}
+
+				// Add the element to the accumulator as spent
+				leaves := []elementLeaf{siacoinLeaf(&sce, true)}
+				ms.base.Elements.addLeaves(leaves)
+
+				// Try to spend it
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: sce,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiacoinOutputs = []types.SiacoinOutput{
+					{
+						Value:   types.Siacoins(1000),
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siacoin input 0 double-spends output",
+		},
+		{
+			desc: "invalid V2Transaction - double spend within the same transaction",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				address := types.PolicyPublicKey(key.PublicKey()).Address()
+
+				// Add a UTXO to the Accmulator
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(1000),
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: diff.SiacoinElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: types.PolicyPublicKey(key.PublicKey()),
+						},
+					},
+				}
+
+				// Double spend the same UTXO
+				txn.SiacoinInputs = append(txn.SiacoinInputs, txn.SiacoinInputs[0])
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+				txn.SiacoinInputs[1].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siacoin input 1 double-spends parent output (previously spent by input 0)",
+		},
+		{
+			desc: "invalid V2Transaction - spend an immature parent UTXO",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				address := types.PolicyPublicKey(key.PublicKey()).Address()
+
+				// Add a UTXO to the Accmulator
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(1000),
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createImmatureSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: diff.SiacoinElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: types.PolicyPublicKey(key.PublicKey()),
+						},
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siacoin input 0 has immature parent",
+		},
+		{
+			desc: "invalid V2Transaction - spend nonexistent ephemeral output !ok case",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: types.SiacoinElement{
+							StateElement: types.StateElement{
+								LeafIndex: types.UnassignedLeafIndex,
+							},
+						},
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: types.PolicyPublicKey(key.PublicKey()),
+						},
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siacoin input 0 spends nonexistent ephemeral output 0000000000000000000000000000000000000000000000000000000000000000",
+		},
+		{
+			desc: "invalid V2Transaction - spend nonexistent ephemeral output !ms.sces[i].Created case",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				address := types.PolicyPublicKey(key.PublicKey()).Address()
+
+				// Add a UTXO to the Accmulator
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(1000),
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: types.SiacoinElement{
+							StateElement: types.StateElement{
+								LeafIndex: types.UnassignedLeafIndex,
+							},
+						},
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: types.PolicyPublicKey(key.PublicKey()),
+						},
+					},
+				}
+
+				ms.elements[txn.SiacoinInputs[0].Parent.ID] = 0
+				ms.sces[0] = *diff
+				ms.sces[0].Created = false
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siacoin input 0 spends nonexistent ephemeral output 0000000000000000000000000000000000000000000000000000000000000000",
+		},
+		{
+			desc: "invalid V2Transaction - attempt to spend UTXO not in the Accumulator",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiacoinOutputs = []types.SiacoinOutput{
+					{
+						Value:   types.Siacoins(1000),
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siacoin input 0 spends output (0000000000000000000000000000000000000000000000000000000000000000) not present in the accumulator",
+		},
+		{
+			desc: "invalid V2Transaction - claim incorrect policy for parent address",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a UTXO to the Accmulator
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(1000),
+							Address: types.VoidAddress,
+						},
+					},
+				}
+				diff := ms.createSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: diff.SiacoinElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiacoinOutputs = []types.SiacoinOutput{
+					{
+						Value:   types.Siacoins(1000),
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siacoin input 0 claims incorrect policy for parent address",
+		},
+		{
+			desc: "invalid V2Transaction - fail to satisfy policy",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a UTXO to the Accmulator
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(1000),
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: diff.SiacoinElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiacoinOutputs = []types.SiacoinOutput{
+					{
+						Value:   types.Siacoins(1000),
+						Address: address,
+					},
+				}
+			},
+			errString: "siacoin input 0 failed to satisfy spend policy: invalid signature",
+		},
+		{
+			desc: "invalid V2Transaction - include 0 value output",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a UTXO to the Accmulator
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(1000),
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: diff.SiacoinElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiacoinOutputs = []types.SiacoinOutput{
+					{
+						Value:   types.ZeroCurrency,
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siacoin output 0 has zero value",
+		},
+		{
+			desc: "valid V2Transaction - inputs greater than outputs",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a UTXO to the Accmulator
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(1000),
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: diff.SiacoinElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiacoinOutputs = []types.SiacoinOutput{
+					{
+						Value:   types.Siacoins(500),
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siacoin inputs (1 KS) do not equal outputs (500 SC)",
+		},
+		{
+			desc: "valid V2Transaction - inputs less than outputs",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a UTXO to the Accmulator
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(1000),
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
+
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: diff.SiacoinElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiacoinOutputs = []types.SiacoinOutput{
+					{
+						Value:   types.Siacoins(2000),
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siacoin inputs (1 KS) do not equal outputs (2 KS)",
+		},
+	}
+
+	for _, test := range tests {
+		n, genesisBlock := testnet()
+		_, s := newConsensusDB(n, genesisBlock)
+		ms := NewMidState(s)
+		txn := types.V2Transaction{}
+
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(ms, &txn)
+
+			err := validateV2Siacoins(ms, txn)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
+
+func TestValidateV2Siafunds(t *testing.T) {
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.V2Transaction)
+		errString string
+	}{
+		{
+			desc: "valid V2Transaction - empty",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				// no mutation
+			},
+		},
+		{
+			desc: "valid V2Transaction - spend a siafund UTXO from the Accumulator",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a siafund UTXO to the Accumulator
+				spendTxn := types.V2Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value:   1000,
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						Parent: diff.SiafundElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiafundOutputs = []types.SiafundOutput{
+					{
+						Value:   1000,
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+		},
+		{
+			desc: "invalid V2Transaction - double spend parent output (ephemeral)",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				parentID := types.SiafundOutputID{0x01}
+
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						Parent: types.SiafundElement{
+							ID: parentID,
+						},
+					},
+				}
+
+				ms.spends[parentID] = types.TransactionID{0x00}
+			},
+			errString: "siafund input 0 double-spends parent output (previously spent in 0000000000000000000000000000000000000000000000000000000000000000)",
+		},
+		{
+			desc: "invalid V2Transaction - double spend output already spent in accumulator",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Create a siafund UTXO and add it to the accumulator as spent
+				spendTxn := types.V2Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value:   1000,
+							Address: address,
+						},
+					},
+				}
+				outputID := txn.SiafundOutputID(spendTxn.ID(), 0)
+				sfe := types.SiafundElement{
+					ID:            outputID,
+					SiafundOutput: spendTxn.SiafundOutputs[0],
+				}
+
+				// Add the element to the accumulator as spent
+				leaves := []elementLeaf{siafundLeaf(&sfe, true)}
+				ms.base.Elements.addLeaves(leaves)
+
+				// Try to spend it
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						Parent: sfe,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiafundOutputs = []types.SiafundOutput{
+					{
+						Value:   1000,
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siafund input 0 double-spends output",
+		},
+		{
+			desc: "invalid V2Transaction - double spend within the same transaction",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				address := types.PolicyPublicKey(key.PublicKey()).Address()
+
+				// Add a siafund UTXO to the Accumulator
+				spendTxn := types.V2Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value:   1000,
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						Parent: diff.SiafundElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: types.PolicyPublicKey(key.PublicKey()),
+						},
+					},
+					{
+						Parent: diff.SiafundElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: types.PolicyPublicKey(key.PublicKey()),
+						},
+					},
+				}
+				txn.SiafundOutputs = []types.SiafundOutput{
+					{
+						Value:   1000,
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+				txn.SiafundInputs[1].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siafund input 1 double-spends parent output (previously spent by input 0)",
+		},
+		{
+			desc: "invalid V2Transaction - spend nonexistent ephemeral output !ok case",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				address := types.PolicyPublicKey(key.PublicKey()).Address()
+
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						Parent: types.SiafundElement{
+							StateElement: types.StateElement{
+								LeafIndex: types.UnassignedLeafIndex,
+							},
+						},
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: types.PolicyPublicKey(key.PublicKey()),
+						},
+					},
+				}
+				txn.SiafundOutputs = []types.SiafundOutput{
+					{
+						Value:   1000,
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siafund input 0 spends nonexistent ephemeral output 0000000000000000000000000000000000000000000000000000000000000000",
+		},
+		{
+			desc: "invalid V2Transaction - spend nonexistent ephemeral output !ms.sfes[i].Created case",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				address := types.PolicyPublicKey(key.PublicKey()).Address()
+
+				// Add a siafund UTXO to the Accumulator
+				spendTxn := types.V2Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value:   1000,
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						Parent: types.SiafundElement{
+							StateElement: types.StateElement{
+								LeafIndex: types.UnassignedLeafIndex,
+							},
+						},
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: types.PolicyPublicKey(key.PublicKey()),
+						},
+					},
+				}
+				txn.SiafundOutputs = []types.SiafundOutput{
+					{
+						Value:   1000,
+						Address: address,
+					},
+				}
+
+				ms.elements[txn.SiafundInputs[0].Parent.ID] = 0
+				ms.sfes[0] = *diff
+				ms.sfes[0].Created = false
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siafund input 0 spends nonexistent ephemeral output 0000000000000000000000000000000000000000000000000000000000000000",
+		},
+		{
+			desc: "invalid V2Transaction - attempt to spend UTXO not in the Accumulator",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiafundOutputs = []types.SiafundOutput{
+					{
+						Value:   1000,
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siafund input 0 spends output (0000000000000000000000000000000000000000000000000000000000000000) not present in the accumulator",
+		},
+		{
+			desc: "invalid V2Transaction - claim incorrect policy for parent address",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a siafund UTXO to the Accumulator
+				spendTxn := types.V2Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value:   1000,
+							Address: types.VoidAddress,
+						},
+					},
+				}
+				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						Parent: diff.SiafundElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiafundOutputs = []types.SiafundOutput{
+					{
+						Value:   1000,
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siafund input 0 claims incorrect policy for parent address",
+		},
+		{
+			desc: "invalid V2Transaction - fail to satisfy policy",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a siafund UTXO to the Accumulator
+				spendTxn := types.V2Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value:   1000,
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						Parent: diff.SiafundElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiafundOutputs = []types.SiafundOutput{
+					{
+						Value:   1000,
+						Address: address,
+					},
+				}
+			},
+			errString: "siafund input 0 failed to satisfy spend policy: invalid signature",
+		},
+		{
+			desc: "invalid V2Transaction - include 0 value output",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a siafund UTXO to the Accumulator
+				spendTxn := types.V2Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value:   1000,
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						Parent: diff.SiafundElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiafundOutputs = []types.SiafundOutput{
+					{
+						Value:   500,
+						Address: address,
+					},
+					{
+						Value:   0,
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siafund output 1 has zero value",
+		},
+		{
+			desc: "invalid V2Transaction - inputs greater than outputs",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a siafund UTXO to the Accumulator
+				spendTxn := types.V2Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value:   1000,
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						Parent: diff.SiafundElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiafundOutputs = []types.SiafundOutput{
+					{
+						Value:   500,
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siafund inputs (1000 SF) do not equal outputs (500 SF)",
+		},
+		{
+			desc: "invalid V2Transaction - inputs less than outputs",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// Add a siafund UTXO to the Accumulator
+				spendTxn := types.V2Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value:   1000,
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						Parent: diff.SiafundElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiafundOutputs = []types.SiafundOutput{
+					{
+						Value:   2000,
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siafund inputs (1000 SF) do not equal outputs (2000 SF)",
+		},
+	}
+
+	for _, test := range tests {
+		n, genesisBlock := testnet()
+		_, s := newConsensusDB(n, genesisBlock)
+		ms := NewMidState(s)
+		txn := types.V2Transaction{}
+
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(ms, &txn)
+
+			err := validateV2Siafunds(ms, txn)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
+
+// This test is non-exhaustive and only focuses on missing test coverage.
+// See TestValidateBlock for remaining cases
+func TestValidateFileContracts(t *testing.T) {
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement)
+		errString string
+	}{
+		{
+			desc: "valid File Contract",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				// no mutation
+			},
+		},
+		{
+			desc: "invalid Storage Proof - root does not match contract Merkle root ",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				ts.StorageProofs = []V1StorageProofSupplement{
+					{
+						FileContract: types.FileContractElement{
+							ID:           txn.FileContractID(0),
+							FileContract: txn.FileContracts[0],
+						},
+					},
+				}
+
+				storageProof := types.StorageProof{
+					ParentID: txn.FileContractID(0),
+				}
+				var txn2 types.Transaction
+				txn2.StorageProofs = []types.StorageProof{storageProof}
+				*txn = txn2
+			},
+			errString: "storage proof 0 has root that does not match contract Merkle root",
+		},
+		{
+			desc: "valid Storage Proof - filesize == 0 does not require a valid proof",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				ms.base.Network.HardforkTax.Height = 0
+				ms.base.Network.HardforkStorageProof.Height = 0
+				txn.FileContracts[0].Filesize = 0
+
+				ts.StorageProofs = []V1StorageProofSupplement{
+					{
+						FileContract: types.FileContractElement{
+							ID:           txn.FileContractID(0),
+							FileContract: txn.FileContracts[0],
+						},
+					},
+				}
+
+				storageProof := types.StorageProof{
+					ParentID: txn.FileContractID(0),
+				}
+				var txn2 types.Transaction
+				txn2.StorageProofs = []types.StorageProof{storageProof}
+
+				*txn = txn2
+			},
+		},
+		{
+			desc: "valid Storage Proof - before HardforkTax.Height",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				ms.base.Network.HardforkTax.Height = 10
+
+				leaf0Data := [64]byte{1}
+				leaf1Data := [64]byte{2}
+
+				// Hash each leaf
+				hash0 := ms.base.StorageProofLeafHash(leaf0Data[:])
+				hash1 := ms.base.StorageProofLeafHash(leaf1Data[:])
+
+				// Combine to create Merkle root
+				merkleRoot := blake2b.SumPair(hash0, hash1)
+
+				txn.FileContracts[0].FileMerkleRoot = merkleRoot
+				txn.FileContracts[0].WindowStart = 0
+				txn.FileContracts[0].WindowEnd = 10
+				txn.FileContracts[0].Filesize = 128
+
+				ts.StorageProofs = []V1StorageProofSupplement{
+					{
+						FileContract: types.FileContractElement{
+							ID:           txn.FileContractID(0),
+							FileContract: txn.FileContracts[0],
+						},
+					},
+				}
+
+				leafIndex := ms.base.StorageProofLeafIndex(
+					txn.FileContracts[0].Filesize,
+					types.BlockID{},
+					txn.FileContractID(0),
+				)
+
+				sp := types.StorageProof{
+					ParentID: txn.FileContractID(0),
+				}
+				if leafIndex == 0 {
+					// Prove leaf 0, include hash of leaf 1 as proof
+					sp.Leaf = leaf0Data
+					sp.Proof = []types.Hash256{hash1}
+				} else {
+					// Prove leaf 1, include hash of leaf 0 as proof
+					sp.Leaf = leaf1Data
+					sp.Proof = []types.Hash256{hash0}
+				}
+
+				var txn2 types.Transaction
+				txn2.StorageProofs = []types.StorageProof{sp}
+
+				*txn = txn2
+			},
+		},
+		{
+			desc: "valid Storage Proof - after HardforkTax.Height before HardforkStorageProof.Height",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				ms.base.Network.HardforkTax.Height = 0
+				ms.base.Network.HardforkStorageProof.Height = 20
+
+				leaf0Data := [64]byte{1}
+				leaf1Data := [64]byte{2}
+
+				// Hash each leaf
+				hash0 := ms.base.StorageProofLeafHash(leaf0Data[:])
+				hash1 := ms.base.StorageProofLeafHash(leaf1Data[:])
+
+				// Combine to create Merkle root
+				merkleRoot := blake2b.SumPair(hash0, hash1)
+
+				txn.FileContracts[0].FileMerkleRoot = merkleRoot
+				txn.FileContracts[0].WindowStart = 0
+				txn.FileContracts[0].WindowEnd = 10
+				txn.FileContracts[0].Filesize = 127
+
+				ts.StorageProofs = []V1StorageProofSupplement{
+					{
+						FileContract: types.FileContractElement{
+							ID:           txn.FileContractID(0),
+							FileContract: txn.FileContracts[0],
+						},
+					},
+				}
+
+				leafIndex := ms.base.StorageProofLeafIndex(
+					txn.FileContracts[0].Filesize,
+					types.BlockID{},
+					txn.FileContractID(0),
+				)
+
+				sp := types.StorageProof{
+					ParentID: txn.FileContractID(0),
+				}
+				if leafIndex == 0 {
+					// Prove leaf 0, include hash of leaf 1 as proof
+					sp.Leaf = leaf0Data
+					sp.Proof = []types.Hash256{hash1}
+				} else {
+					// Prove leaf 1, include hash of leaf 0 as proof
+					sp.Leaf = leaf1Data
+					sp.Proof = []types.Hash256{hash0}
+				}
+
+				var txn2 types.Transaction
+				txn2.StorageProofs = []types.StorageProof{sp}
+
+				*txn = txn2
+			},
+		},
+		{
+			desc: "valid Storage Proof - after HardforkTax.Height and HardforkStorageProof.Height",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				ms.base.Network.HardforkTax.Height = 0
+				ms.base.Network.HardforkStorageProof.Height = 0
+
+				leaf0Data := [64]byte{1}
+				leaf1Data := [64]byte{2}
+
+				// Hash each leaf
+				hash0 := ms.base.StorageProofLeafHash(leaf0Data[:])
+				hash1 := ms.base.StorageProofLeafHash(leaf1Data[:])
+
+				// Combine to create Merkle root
+				merkleRoot := blake2b.SumPair(hash0, hash1)
+
+				txn.FileContracts[0].FileMerkleRoot = merkleRoot
+				txn.FileContracts[0].WindowStart = 0
+				txn.FileContracts[0].WindowEnd = 10
+				txn.FileContracts[0].Filesize = 128
+
+				ts.StorageProofs = []V1StorageProofSupplement{
+					{
+						FileContract: types.FileContractElement{
+							ID:           txn.FileContractID(0),
+							FileContract: txn.FileContracts[0],
+						},
+					},
+				}
+
+				leafIndex := ms.base.StorageProofLeafIndex(
+					txn.FileContracts[0].Filesize,
+					types.BlockID{},
+					txn.FileContractID(0),
+				)
+
+				sp := types.StorageProof{
+					ParentID: txn.FileContractID(0),
+				}
+				if leafIndex == 0 {
+					// Prove leaf 0, include hash of leaf 1 as proof
+					sp.Leaf = leaf0Data
+					sp.Proof = []types.Hash256{hash1}
+				} else {
+					// Prove leaf 1, include hash of leaf 0 as proof
+					sp.Leaf = leaf1Data
+					sp.Proof = []types.Hash256{hash0}
+				}
+
+				var txn2 types.Transaction
+				txn2.StorageProofs = []types.StorageProof{sp}
+
+				*txn = txn2
+			},
+		},
+		{
+			desc: "valid Storage Proof - after HardforkTax before HardforkStorageProof - last leaf trimmed",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				ms.base.Network.HardforkTax.Height = 0
+				ms.base.Network.HardforkStorageProof.Height = 100
+
+				leafData := [64]byte{1, 2, 3, 4, 5}
+
+				// Single leaf tree: Merkle root is just the leaf hash
+				merkleRoot := ms.base.StorageProofLeafHash(leafData[:])
+
+				txn.FileContracts[0].FileMerkleRoot = merkleRoot
+				txn.FileContracts[0].Filesize = 36
+				txn.FileContracts[0].WindowStart = ms.base.childHeight()
+				txn.FileContracts[0].WindowEnd = ms.base.childHeight() + 10
+
+				contractID := txn.FileContractID(0)
+				windowID := ms.base.Index.ID
+
+				ts.StorageProofs = []V1StorageProofSupplement{
+					{
+						FileContract: types.FileContractElement{
+							ID:           contractID,
+							FileContract: txn.FileContracts[0],
+						},
+						WindowID: windowID,
+					},
+				}
+
+				var sp types.StorageProof
+				sp.ParentID = contractID
+				sp.Leaf = leafData
+				sp.Proof = []types.Hash256{}
+
+				var txn2 types.Transaction
+				txn2.StorageProofs = append(txn2.StorageProofs, sp)
+				*txn = txn2
+			},
+		},
+		{
+			desc: "valid Storage Proof - after HardforkTax and HardforkStorageProof - last leaf trimmed",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				ms.base.Network.HardforkTax.Height = 0
+				ms.base.Network.HardforkStorageProof.Height = 0
+
+				leafData := [64]byte{1, 2, 3, 4, 5}
+
+				// Single leaf tree: Merkle root is just the leaf hash
+				merkleRoot := ms.base.StorageProofLeafHash(leafData[:])
+
+				txn.FileContracts[0].FileMerkleRoot = merkleRoot
+				txn.FileContracts[0].Filesize = 36
+				txn.FileContracts[0].WindowStart = ms.base.childHeight()
+				txn.FileContracts[0].WindowEnd = ms.base.childHeight() + 10
+
+				contractID := txn.FileContractID(0)
+				windowID := ms.base.Index.ID
+
+				ts.StorageProofs = []V1StorageProofSupplement{
+					{
+						FileContract: types.FileContractElement{
+							ID:           contractID,
+							FileContract: txn.FileContracts[0],
+						},
+						WindowID: windowID,
+					},
+				}
+
+				var sp types.StorageProof
+				sp.ParentID = contractID
+				sp.Leaf = leafData
+				sp.Proof = []types.Hash256{}
+
+				var txn2 types.Transaction
+				txn2.StorageProofs = append(txn2.StorageProofs, sp)
+				*txn = txn2
+			},
+		},
+		{
+			desc: "valid Storage Proof - proving left leaf to hit SumPair(root, h)",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				filesize := uint64(128)
+
+				leaf0Data := [64]byte{1}
+				leaf1Data := [64]byte{2}
+
+				hash0 := ms.base.StorageProofLeafHash(leaf0Data[:])
+				hash1 := ms.base.StorageProofLeafHash(leaf1Data[:])
+				merkleRoot := blake2b.SumPair(hash0, hash1)
+
+				txn.FileContracts[0].FileMerkleRoot = merkleRoot
+				txn.FileContracts[0].Filesize = filesize
+				txn.FileContracts[0].WindowStart = ms.base.childHeight()
+				txn.FileContracts[0].WindowEnd = ms.base.childHeight() + 10
+
+				// Use a known contractID that gives leafIndex=0
+				contractID := types.FileContractID{0x03}
+
+				ts.StorageProofs = []V1StorageProofSupplement{
+					{
+						FileContract: types.FileContractElement{
+							ID:           contractID,
+							FileContract: txn.FileContracts[0],
+						},
+					},
+				}
+
+				// Prove leaf 0
+				var sp types.StorageProof
+				sp.ParentID = contractID
+				sp.Leaf = leaf0Data
+				sp.Proof = []types.Hash256{hash1}
+
+				var txn2 types.Transaction
+				txn2.StorageProofs = append(txn2.StorageProofs, sp)
+				*txn = txn2
+			},
+		},
+	}
+
+	for _, test := range tests {
+		n, genesisBlock := testnet()
+		n.HardforkTax.Height = 0
+		_, s := newConsensusDB(n, genesisBlock)
+		ms := NewMidState(s)
+		txn := types.Transaction{}
+		ts := V1TransactionSupplement{}
+
+		t.Run(test.desc, func(t *testing.T) {
+			renterKey := types.GeneratePrivateKey()
+			hostKey := types.GeneratePrivateKey()
+			fc := prepareContractFormation(renterKey.PublicKey(), hostKey.PublicKey(), types.Siacoins(1), types.Siacoins(1), ms.base.Index.Height+1, 100, types.VoidAddress)
+			txn.FileContracts = append(txn.FileContracts, fc)
+
+			test.mutate(ms, &txn, &ts)
+			err := validateFileContracts(ms, txn, ts)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
+
+// This test is non-exhaustive and only focuses on missing test coverage.
+// See TestValidateBlock for remaining cases
+func TestValidateSignatures(t *testing.T) {
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.Transaction)
+		errString string
+	}{
+		{
+			desc: "valid transaction",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				// no mutation
+			},
+		},
+		{
+			desc: "invalid transaction - attempt to spend entropy public key",
+			mutate: func(ms *MidState, txn *types.Transaction) {
+				uc := types.UnlockConditions{
+					PublicKeys: []types.UnlockKey{
+						{
+							Algorithm: types.SpecifierEntropy,
+						},
+					},
+					SignaturesRequired: 1,
+				}
+
+				txn.SiacoinInputs = []types.SiacoinInput{
+					{
+						UnlockConditions: uc,
+					},
+				}
+				txn.Signatures = []types.TransactionSignature{
+					{},
+				}
+			},
+			errString: "signature 0 uses an entropy public key",
+		},
+	}
+
+	for _, test := range tests {
+		n, genesisBlock := testnet()
+		n.HardforkTax.Height = 0
+		_, s := newConsensusDB(n, genesisBlock)
+		ms := NewMidState(s)
+		txn := types.Transaction{}
+
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(ms, &txn)
+			err := validateSignatures(ms, txn)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
+
+// This test is non-exhaustive and only focuses on missing test coverage.
+// See TestValidateBlock for remaining cases
+func TestValidateTransaction(t *testing.T) {
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement)
+		errString string
+	}{
+		{
+			desc: "valid File Contract",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				// no mutation
+			},
+		},
+		{
+			desc: "invalid Transaction - v1 transaction after v2 hardfork",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				ms.base.Network.HardforkV2.RequireHeight = 0
+			},
+			errString: "v1 transactions are not allowed after v2 hardfork is complete",
+		},
+		{
+			desc: "invalid Transaction - greater than max weight",
+			mutate: func(ms *MidState, txn *types.Transaction, ts *V1TransactionSupplement) {
+				ms.base.Network.HardforkV2.RequireHeight = 2
+
+				data := make([]byte, ms.base.MaxBlockWeight())
+				txn.ArbitraryData = [][]byte{data}
+			},
+			errString: "transaction exceeds maximum block weight (2000088 > 2000000)",
+		},
+	}
+
+	for _, test := range tests {
+		n, genesisBlock := testnet()
+		n.HardforkTax.Height = 0
+		_, s := newConsensusDB(n, genesisBlock)
+		ms := NewMidState(s)
+		txn := types.Transaction{}
+		ts := V1TransactionSupplement{}
+
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(ms, &txn, &ts)
+			err := ValidateTransaction(ms, txn, ts)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
+
+// This test is non-exhaustive and only focuses on missing test coverage.
+// See TestValidateV2Block for remaining cases
+func TestValidateV2Transaction(t *testing.T) {
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.V2Transaction)
+		errString string
+	}{
+		{
+			desc: "valid V2Transaction",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				// no mutation
+			},
+		},
+		{
+			desc: "invalid Transaction - greater than max weight",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				txn.ArbitraryData = make([]byte, ms.base.MaxBlockWeight()+1)
+			},
+			errString: "transaction exceeds maximum block weight (2000001 > 2000000)",
+		},
+	}
+
+	for _, test := range tests {
+		n, genesisBlock := testnet()
+		n.HardforkTax.Height = 0
+		_, s := newConsensusDB(n, genesisBlock)
+		ms := NewMidState(s)
+		ms.base.Network.HardforkV2.AllowHeight = 0
+
+		txn := types.V2Transaction{
+			ArbitraryData: []byte("foo"),
+		}
+
+		t.Run(test.desc, func(t *testing.T) {
+			test.mutate(ms, &txn)
+			err := ValidateV2Transaction(ms, txn)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
+
+func TestValidateSupplement(t *testing.T) {
+	tests := []struct {
+		desc      string
+		mutate    func(s *State, b *types.Block, bs *V1BlockSupplement)
+		errString string
+	}{
+		{
+			desc: "valid supplement - empty",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				// no mutation
+			},
+		},
+		{
+			desc: "valid supplement - spend a siacoin element",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				// create a SiacoinElement
+				siacoinOutput := types.SiacoinOutput{
+					Value:   types.Siacoins(100),
+					Address: types.VoidAddress,
+				}
+				sce := types.SiacoinElement{
+					StateElement: types.StateElement{
+						LeafIndex: s.Elements.NumLeaves,
+					},
+					ID:            types.SiacoinOutputID{0x01},
+					SiacoinOutput: siacoinOutput,
+				}
+
+				// Add unspent SiacoinElement to the Accumulator
+				leaves := []elementLeaf{siacoinLeaf(&sce, false)}
+				s.Elements.addLeaves(leaves)
+
+				b.Transactions = []types.Transaction{{}}
+
+				// Create the supplement with the siacoin element
+				bs.Transactions = []V1TransactionSupplement{
+					{
+						SiacoinInputs: []types.SiacoinElement{sce},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid supplement - spend a siafund element",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				// create a SiafundElement
+				siafundOutput := types.SiafundOutput{
+					Value:   100,
+					Address: types.VoidAddress,
+				}
+				sfe := types.SiafundElement{
+					StateElement: types.StateElement{
+						LeafIndex: s.Elements.NumLeaves,
+					},
+					ID:            types.SiafundOutputID{0x01},
+					SiafundOutput: siafundOutput,
+				}
+
+				// Add unspent SiafundElement to the Accumulator
+				leaves := []elementLeaf{siafundLeaf(&sfe, false)}
+				s.Elements.addLeaves(leaves)
+
+				b.Transactions = []types.Transaction{{}}
+
+				// Create the supplement with the siafund element
+				bs.Transactions = []V1TransactionSupplement{
+					{
+						SiafundInputs: []types.SiafundElement{sfe},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid supplement - revise a file contract",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				// create a FileContractElement
+				fc := types.FileContract{}
+				fce := types.FileContractElement{
+					StateElement: types.StateElement{
+						LeafIndex: s.Elements.NumLeaves,
+					},
+					ID:           types.FileContractID{0x01},
+					FileContract: fc,
+				}
+
+				// Add unspent FileContractElement to the Accumulator
+				leaves := []elementLeaf{fileContractLeaf(&fce, &fc, false)}
+				s.Elements.addLeaves(leaves)
+
+				b.Transactions = []types.Transaction{{}}
+
+				// Create the supplement with the FileContractElement
+				bs.Transactions = []V1TransactionSupplement{
+					{
+						RevisedFileContracts: []types.FileContractElement{fce},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid supplement - include a StorageProof",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				// create a FileContractElement
+				fc := types.FileContract{}
+				fce := types.FileContractElement{
+					StateElement: types.StateElement{
+						LeafIndex: s.Elements.NumLeaves,
+					},
+					ID:           types.FileContractID{0x01},
+					FileContract: fc,
+				}
+
+				// Add unspent FileContractElement to the Accumulator
+				leaves := []elementLeaf{fileContractLeaf(&fce, &fc, false)}
+				s.Elements.addLeaves(leaves)
+
+				b.Transactions = []types.Transaction{{}}
+
+				// Create the supplement with the FileContractElement
+				bs.Transactions = []V1TransactionSupplement{
+					{
+						StorageProofs: []V1StorageProofSupplement{
+							{
+								FileContract: fce,
+							},
+						},
+					},
+				}
+			},
+		},
+		{
+			desc: "valid supplement - include ExpiringFileContracts",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				// create a FileContractElement
+				fc := types.FileContract{}
+				fce := types.FileContractElement{
+					StateElement: types.StateElement{
+						LeafIndex: s.Elements.NumLeaves,
+					},
+					ID:           types.FileContractID{0x01},
+					FileContract: fc,
+				}
+
+				// Add unspent FileContractElement to the Accumulator
+				leaves := []elementLeaf{fileContractLeaf(&fce, &fc, false)}
+				s.Elements.addLeaves(leaves)
+
+				// Create the supplement with the FileContractElement
+				bs.ExpiringFileContracts = []types.FileContractElement{fce}
+			},
+		},
+		{
+			desc: "invalid supplement - include supplement with transactions after HardforkV2.RequireHeight",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				s.Network.HardforkV2.RequireHeight = 0
+				bs.Transactions = []V1TransactionSupplement{
+					{},
+				}
+			},
+			errString: "v1 block supplements are not allowed after v2 hardfork is complete",
+		},
+		{
+			desc: "invalid supplement - include supplement with ExpiringFileContracts after HardforkV2.RequireHeight",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				s.Network.HardforkV2.RequireHeight = 0
+				bs.ExpiringFileContracts = []types.FileContractElement{
+					{},
+				}
+			},
+			errString: "v1 block supplements are not allowed after v2 hardfork is complete",
+		},
+		{
+			desc: "invalid supplement - block has too many txes",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				b.Transactions = []types.Transaction{
+					{},
+				}
+			},
+			errString: "incorrect number of transactions",
+		},
+		{
+			desc: "invalid supplement - block supplement has too many txes",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				bs.Transactions = []V1TransactionSupplement{
+					{},
+				}
+			},
+			errString: "incorrect number of transactions",
+		},
+		{
+			desc: "invalid supplement - attempt to spend Siacoin UTXO not in the Accumulator",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				b.Transactions = []types.Transaction{
+					{},
+				}
+				bs.Transactions = []V1TransactionSupplement{
+					{
+						SiacoinInputs: []types.SiacoinElement{
+							{},
+						},
+					},
+				}
+			},
+			errString: "siacoin element 0000000000000000000000000000000000000000000000000000000000000000 is not present in the accumulator",
+		},
+		{
+			desc: "invalid supplement - attempt to spend Siafund UTXO not in the Accumulator",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				b.Transactions = []types.Transaction{
+					{},
+				}
+				bs.Transactions = []V1TransactionSupplement{
+					{
+						SiafundInputs: []types.SiafundElement{
+							{},
+						},
+					},
+				}
+			},
+			errString: "siafund element 0000000000000000000000000000000000000000000000000000000000000000 is not present in the accumulator",
+		},
+		{
+			desc: "invalid supplement - attempt to revise file contract not in the Accumulator",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				b.Transactions = []types.Transaction{
+					{},
+				}
+				bs.Transactions = []V1TransactionSupplement{
+					{
+						RevisedFileContracts: []types.FileContractElement{
+							{},
+						},
+					},
+				}
+			},
+			errString: "revised file contract 0000000000000000000000000000000000000000000000000000000000000000 is not present in the accumulator",
+		},
+		{
+			desc: "invalid supplement - attempt to provide storage proof for file contract not in the Accumulator",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				b.Transactions = []types.Transaction{
+					{},
+				}
+				bs.Transactions = []V1TransactionSupplement{
+					{
+						StorageProofs: []V1StorageProofSupplement{
+							{},
+						},
+					},
+				}
+			},
+			errString: "valid file contract 0000000000000000000000000000000000000000000000000000000000000000 is not present in the accumulator",
+		},
+		{
+			desc: "invalid supplement - attempt to include ExpiringFileContracts not in the Accumulator",
+			mutate: func(s *State, b *types.Block, bs *V1BlockSupplement) {
+				bs.ExpiringFileContracts = []types.FileContractElement{
+					{},
+				}
+			},
+			errString: "expiring file contract 0000000000000000000000000000000000000000000000000000000000000000 is not present in the accumulator",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.desc, func(t *testing.T) {
+			n, genesisBlock := testnet()
+			db, s := newConsensusDB(n, genesisBlock)
+			b := types.Block{
+				ParentID:     genesisBlock.ID(),
+				Timestamp:    types.CurrentTimestamp(),
+				MinerPayouts: []types.SiacoinOutput{{Address: types.VoidAddress, Value: s.BlockReward()}},
+			}
+			bs := db.supplementTipBlock(b)
+			test.mutate(&s, &b, &bs)
+
+			err := validateSupplement(s, b, bs)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
+
+func TestValidateV2FileContractsValidateContractClosure(t *testing.T) {
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey)
+		errString string
+	}{
+		{
+			desc: "valid V2FileContract",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				contractHash := ms.base.ContractSigHash(*fc)
+				fc.HostSignature = hostKey.SignHash(contractHash)
+				fc.RenterSignature = renterKey.SignHash(contractHash)
+			},
+		},
+		{
+			desc: "invalid V2FileContract - filesize exceeds capacity",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				fc.Filesize = 2
+				fc.Capacity = 1
+			},
+			errString: "file contract 0 has filesize (2) exceeding capacity (1)",
+		},
+		{
+			desc: "invalid V2FileContract - proof height has already passed",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				fc.ProofHeight = 0
+			},
+			errString: "file contract 0 has proof height (0) that has already passed",
+		},
+		{
+			desc: "invalid V2FileContract - no time between proof height and expiration height - different height",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				fc.ExpirationHeight = 1
+				fc.ProofHeight = 2
+			},
+			errString: "file contract 0 leaves no time between proof height (2) and expiration height (1)",
+		},
+		{
+			desc: "invalid V2FileContract - no time between proof height and expiration height - same height",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				fc.ProofHeight = 1
+				fc.ExpirationHeight = 1
+			},
+			errString: "file contract 0 leaves no time between proof height (1) and expiration height (1)",
+		},
+		{
+			desc: "invalid V2FileContract - renter output and host output have zero value",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				fc.RenterOutput.Value = types.ZeroCurrency
+				fc.HostOutput.Value = types.ZeroCurrency
+			},
+			errString: "file contract 0 has zero value",
+		},
+		{
+			desc: "valid V2FileContract - renter output has zero value",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				fc.RenterOutput.Value = types.ZeroCurrency
+
+				contractHash := ms.base.ContractSigHash(*fc)
+				fc.HostSignature = hostKey.SignHash(contractHash)
+				fc.RenterSignature = renterKey.SignHash(contractHash)
+			},
+		},
+		{
+			desc: "valid V2FileContract - host output has zero value",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				fc.HostOutput.Value = types.ZeroCurrency
+				fc.MissedHostValue = types.ZeroCurrency
+				fc.TotalCollateral = types.ZeroCurrency
+
+				contractHash := ms.base.ContractSigHash(*fc)
+				fc.HostSignature = hostKey.SignHash(contractHash)
+				fc.RenterSignature = renterKey.SignHash(contractHash)
+			},
+		},
+		{
+			desc: "invalid V2FileContract - MissedHostValue greater than HostOutput",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				fc.HostOutput.Value = types.ZeroCurrency
+			},
+			errString: "file contract 0 has missed host value (1 SC) exceeding valid host value (0 SC)",
+		},
+		{
+			desc: "valid V2FileContract - MissedHostValue equals HostOutput",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				fc.HostOutput.Value = types.Siacoins(1)
+				fc.MissedHostValue = types.Siacoins(1)
+				fc.TotalCollateral = types.ZeroCurrency
+
+				contractHash := ms.base.ContractSigHash(*fc)
+				fc.HostSignature = hostKey.SignHash(contractHash)
+				fc.RenterSignature = renterKey.SignHash(contractHash)
+			},
+		},
+		{
+			desc: "invalid V2FileContract - TotalCollateral greater than HostOutput",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				fc.TotalCollateral = types.Siacoins(2)
+			},
+			errString: "file contract 0 has total collateral (2 SC) exceeding valid host value (1 SC)",
+		},
+		{
+			desc: "invalid V2FileContract - invalid HostSignature",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				contractHash := ms.base.ContractSigHash(*fc)
+				fc.RenterSignature = renterKey.SignHash(contractHash)
+			},
+			errString: "file contract 0 has invalid host signature",
+		},
+		{
+			desc: "invalid V2FileContract - invalid RenterSignature",
+			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
+				contractHash := ms.base.ContractSigHash(*fc)
+				fc.HostSignature = hostKey.SignHash(contractHash)
+			},
+			errString: "file contract 0 has invalid renter signature",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.desc, func(t *testing.T) {
+			n, genesisBlock := testnet()
+			_, s := newConsensusDB(n, genesisBlock)
+			ms := NewMidState(s)
+
+			hostKey := types.GeneratePrivateKey()
+			renterKey := types.GeneratePrivateKey()
+
+			fc := types.V2FileContract{
+				Capacity:         128,
+				Filesize:         64,
+				FileMerkleRoot:   types.Hash256{},
+				ProofHeight:      10,
+				ExpirationHeight: 20,
+				RenterOutput: types.SiacoinOutput{
+					Value:   types.Siacoins(1),
+					Address: types.PolicyPublicKey(renterKey.PublicKey()).Address(),
+				},
+				HostOutput: types.SiacoinOutput{
+					Value:   types.Siacoins(1),
+					Address: types.PolicyPublicKey(hostKey.PublicKey()).Address(),
+				},
+				MissedHostValue: types.Siacoins(1),
+				TotalCollateral: types.Siacoins(1),
+				RenterPublicKey: renterKey.PublicKey(),
+				HostPublicKey:   hostKey.PublicKey(),
+				RevisionNumber:  0,
+				// signatures are not included here and can be populated per test case
+			}
+
+			test.mutate(ms, &fc, hostKey, renterKey)
+
+			txn := types.V2Transaction{
+				FileContracts: []types.V2FileContract{fc},
+			}
+
+			err := validateV2FileContracts(ms, txn)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
+
+func TestValidateV2FileContractsValidateParentClosure(t *testing.T) {
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, baseFileContract types.V2FileContract)
+		errString string
+	}{
+		{
+			desc: "valid V2FileContractRevision",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, baseFileContract types.V2FileContract) {
+				fce := types.V2FileContractElement{
+					ID: types.FileContractID{0x01},
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					V2FileContract: baseFileContract,
+				}
+
+				revision := baseFileContract
+				revision.RevisionNumber = 1
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+		},
+		{
+			desc: "valid V2FileContractResolution",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, baseFileContract types.V2FileContract) {
+				baseFileContract.ProofHeight = 0
+				baseFileContract.ExpirationHeight = 0
+
+				fce := types.V2FileContractElement{
+					ID: types.FileContractID{0x01},
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					V2FileContract: baseFileContract,
+				}
+
+				resolution := types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: &types.V2FileContractExpiration{},
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&resolution.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
+			},
+		},
+		{
+			desc: "invalid V2FileContractRevision - Attempt to revise contract that was resolved within this same block",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, baseFileContract types.V2FileContract) {
+				fce := types.V2FileContractElement{
+					ID: types.FileContractID{0x01},
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					V2FileContract: baseFileContract,
+				}
+
+				revision := baseFileContract
+				revision.RevisionNumber = 1
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Update the MidState as if the Parent is already resolved in a previous transaction
+				// within the same block
+				ms.resolveV2FileContractElement(fce, &types.V2FileContractExpiration{}, types.TransactionID{})
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 parent (0100000000000000000000000000000000000000000000000000000000000000) has already been resolved in transaction 0000000000000000000000000000000000000000000000000000000000000000",
+		},
+		{
+			desc: "invalid V2FileContractResolution - Attempt to resolve contract that was resolved within this same block",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, baseFileContract types.V2FileContract) {
+				baseFileContract.ProofHeight = 0
+				baseFileContract.ExpirationHeight = 0
+
+				fce := types.V2FileContractElement{
+					ID: types.FileContractID{0x01},
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					V2FileContract: baseFileContract,
+				}
+
+				resolution := types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: &types.V2FileContractExpiration{},
+				}
+
+				// Update the MidState as if the Parent is already resolved in a previous transaction
+				// within the same block
+				ms.resolveV2FileContractElement(fce, &types.V2FileContractExpiration{}, types.TransactionID{})
+
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
+			},
+			errString: "file contract renewal 0 parent (0100000000000000000000000000000000000000000000000000000000000000) has already been resolved in transaction 0000000000000000000000000000000000000000000000000000000000000000",
+		},
+		{
+			desc: "invalid V2FileContractRevision - Attempt to revise twice in the same transaction",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, baseFileContract types.V2FileContract) {
+				fce := types.V2FileContractElement{
+					ID: types.FileContractID{0x01},
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					V2FileContract: baseFileContract,
+				}
+
+				revision := baseFileContract
+				revision.RevisionNumber = 1
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr, fcr)
+			},
+			errString: "file contract revision 1 parent (0100000000000000000000000000000000000000000000000000000000000000) has already been revised by contract revision 0",
+		},
+		{
+			desc: "invalid V2FileContractResolution - attempt to resolve twice within the same transaction",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, baseFileContract types.V2FileContract) {
+				baseFileContract.ProofHeight = 0
+				baseFileContract.ExpirationHeight = 0
+
+				fce := types.V2FileContractElement{
+					ID: types.FileContractID{0x01},
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					V2FileContract: baseFileContract,
+				}
+
+				resolution := types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: &types.V2FileContractExpiration{},
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&resolution.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution, resolution)
+			},
+			errString: "file contract renewal 1 parent (0100000000000000000000000000000000000000000000000000000000000000) has already been resolved by contract resolution 0",
+		},
+		{
+			desc: "invalid V2Transaction - Attempt to revise and resolve in the same transaction",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, baseFileContract types.V2FileContract) {
+				fce := types.V2FileContractElement{
+					ID: types.FileContractID{0x01},
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					V2FileContract: baseFileContract,
+				}
+
+				revision := baseFileContract
+				revision.RevisionNumber = 1
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				resolution := types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: &types.V2FileContractExpiration{},
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
+			},
+			errString: "file contract renewal 0 parent (0100000000000000000000000000000000000000000000000000000000000000) has already been revised by contract revision 0",
+		},
+		{
+			desc: "invalid V2FileContractRevision - attempt to revise contract already resolved in previous block",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, baseFileContract types.V2FileContract) {
+				fce := types.V2FileContractElement{
+					ID: types.FileContractID{0x01},
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					V2FileContract: baseFileContract,
+				}
+
+				revision := baseFileContract
+				revision.RevisionNumber = 1
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator as spent
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, true)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 parent (0100000000000000000000000000000000000000000000000000000000000000) has already been resolved in a previous block",
+		},
+		{
+			desc: "invalid V2FileContractResolution - attempt to resolve contract already resolved in previous block",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, baseFileContract types.V2FileContract) {
+				baseFileContract.ProofHeight = 0
+				baseFileContract.ExpirationHeight = 0
+
+				fce := types.V2FileContractElement{
+					ID: types.FileContractID{0x01},
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					V2FileContract: baseFileContract,
+				}
+
+				resolution := types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: &types.V2FileContractExpiration{},
+				}
+
+				// Add the Parent to the Accumulator as spent
+				leaves := []elementLeaf{v2FileContractLeaf(&resolution.Parent, nil, true)}
+				ms.base.Elements.addLeaves(leaves)
+
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
+			},
+			errString: "file contract renewal 0 parent (0100000000000000000000000000000000000000000000000000000000000000) has already been resolved in a previous block",
+		},
+		{
+			desc: "invalid V2FileContractRevision - attempt to revise nonexistent contract",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, baseFileContract types.V2FileContract) {
+				fce := types.V2FileContractElement{
+					ID: types.FileContractID{0x01},
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					V2FileContract: baseFileContract,
+				}
+
+				revision := baseFileContract
+				revision.RevisionNumber = 1
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 parent (0100000000000000000000000000000000000000000000000000000000000000) is not present in the accumulator",
+		},
+		{
+			desc: "invalid V2FileContractResolution - attempt to resolve nonexistent contract",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, baseFileContract types.V2FileContract) {
+				baseFileContract.ProofHeight = 0
+				baseFileContract.ExpirationHeight = 0
+
+				fce := types.V2FileContractElement{
+					ID: types.FileContractID{0x01},
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					V2FileContract: baseFileContract,
+				}
+
+				resolution := types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: &types.V2FileContractExpiration{},
+				}
+
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
+			},
+			errString: "file contract renewal 0 parent (0100000000000000000000000000000000000000000000000000000000000000) is not present in the accumulator",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.desc, func(t *testing.T) {
+			n, genesisBlock := testnet()
+			_, s := newConsensusDB(n, genesisBlock)
+			ms := NewMidState(s)
+
+			hostKey := types.GeneratePrivateKey()
+			renterKey := types.GeneratePrivateKey()
+
+			txn := types.V2Transaction{}
+
+			baseFileContract := types.V2FileContract{
+				Capacity:         128,
+				Filesize:         64,
+				FileMerkleRoot:   types.Hash256{},
+				ProofHeight:      10,
+				ExpirationHeight: 20,
+				RenterOutput: types.SiacoinOutput{
+					Value:   types.Siacoins(1),
+					Address: types.PolicyPublicKey(renterKey.PublicKey()).Address(),
+				},
+				HostOutput: types.SiacoinOutput{
+					Value:   types.Siacoins(1),
+					Address: types.PolicyPublicKey(hostKey.PublicKey()).Address(),
+				},
+				MissedHostValue: types.Siacoins(1),
+				TotalCollateral: types.Siacoins(1),
+				RenterPublicKey: renterKey.PublicKey(),
+				HostPublicKey:   hostKey.PublicKey(),
+				RevisionNumber:  0,
+			}
+
+			test.mutate(ms, &txn, hostKey, renterKey, baseFileContract)
+
+			err := validateV2FileContracts(ms, txn)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
+
+func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement)
+		errString string
+	}{
+		{
+			desc: "valid V2FileContractRevision",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+		},
+		{
+			desc: "valid V2FileContractRevision - revise twice in the same block",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision0 := fce.V2FileContract
+				revision0.RevisionNumber++
+
+				// Add revision to MidState as if it was already included in this same block
+				ms.reviseV2FileContractElement(fce, revision0)
+
+				revision1 := revision0
+				revision1.RevisionNumber = 2
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision1,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+		},
+		{
+			desc: "invalid V2FileContractRevision - revise twice in the same block without iterating RevisionNumber",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision0 := fce.V2FileContract
+				revision0.RevisionNumber++
+
+				// Add revision to MidState as if it was already included in this same block
+				ms.reviseV2FileContractElement(fce, revision0)
+
+				revision1 := revision0
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision1,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 does not increase revision number (1 -> 1)",
+		},
+		{
+			desc: "invalid V2FileContractRevision - invalid Parent",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 parent (0100000000000000000000000000000000000000000000000000000000000000) is not present in the accumulator",
+		},
+		{
+			desc: "invalid V2FileContractRevision - attempt to revise after proof height",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				fce.V2FileContract.ProofHeight = 0
+
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 cannot be applied to contract after proof height (0)",
+		},
+		{
+			desc: "invalid V2FileContractRevision - attempt to decrease capacity",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.Capacity = 0
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 decreases capacity",
+		},
+		{
+			// Test that the "check for prior revision within block" logic works as intended
+			desc: "invalid V2FileContractRevision - attempt to increase capacity then decrease capacity within same block",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision0 := fce.V2FileContract
+				revision0.RevisionNumber++
+
+				// increase capacity
+				revision0.Capacity = 512
+
+				// Add revision to MidState as if it was already included in this same block
+				ms.reviseV2FileContractElement(fce, revision0)
+
+				revision1 := revision0
+				revision1.RevisionNumber = 2
+				// set capacity higher than baseFileContract.Capacity but lower than revision0.Capacity
+				revision1.Capacity = 256
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision1,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 decreases capacity",
+		},
+		{
+			desc: "invalid V2FileContractRevision - attempt to set FileSize greater than Capacity",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.Filesize = revision.Capacity + 1
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 has filesize (129) exceeding capacity (128)",
+		},
+		{
+			desc: "valid V2FileContractRevision - FileSize equal to Capacity",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.Filesize = revision.Capacity
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+		},
+		{
+			desc: "invalid V2FileContractRevision - attempt to revise contract after ProofHeight",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision0 := fce.V2FileContract
+				revision0.ProofHeight = 0
+				revision0.RevisionNumber++
+
+				// Add revision to MidState as if it was already included in this same block
+				ms.reviseV2FileContractElement(fce, revision0)
+
+				revision1 := revision0
+				revision1.RevisionNumber = 2
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision1,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 revises contract after its proof window has opened",
+		},
+		{
+			desc: "valid V2FileContractRevision - revise contract at ProofHeight",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				fce.V2FileContract.ProofHeight = 1
+
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+		},
+		{
+			desc: "invalid V2FileContractRevision - does not increase revision number",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 does not increase revision number (0 -> 0)",
+		},
+		{
+			desc: "invalid V2FileContractRevision - modify OutputSum by increasing RenterOutput.Value",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.RenterOutput.Value = revision.RenterOutput.Value.Add(types.Siacoins(1))
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 modifies output sum (2 SC -> 3 SC)",
+		},
+		{
+			desc: "invalid V2FileContractRevision - modify OutputSum by increasing HostOutput.Value",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.HostOutput.Value = revision.HostOutput.Value.Add(types.Siacoins(1))
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 modifies output sum (2 SC -> 3 SC)",
+		},
+		{
+			desc: "invalid V2FileContractRevision - attempt to increase MissedHostValue",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.MissedHostValue = revision.MissedHostValue.Add(types.Siacoins(1))
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 has missed host value (2 SC) exceeding old value (1 SC)",
+		},
+		{
+			desc: "valid V2FileContractRevision - decrease MissedHostValue",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.MissedHostValue = types.ZeroCurrency
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+		},
+		{
+			desc: "invalid V2FileContractRevision - attempt to increase TotalCollateral",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.TotalCollateral = revision.TotalCollateral.Add(types.Siacoins(1))
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 modifies total collateral",
+		},
+		{
+			desc: "invalid V2FileContractRevision - attempt to decrease TotalCollateral",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.TotalCollateral = revision.TotalCollateral.Sub(types.Siacoins(1))
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 modifies total collateral",
+		},
+		{
+			desc: "invalid V2FileContractRevision - attempt to set ProofHeight in the past",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.ProofHeight = 0
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 has proof height (0) that has already passed",
+		},
+		{
+			desc: "valid V2FileContractRevision - set ProofHeight to current height",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.ProofHeight = ms.base.childHeight()
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+		},
+		{
+			desc: "invalid V2FileContractRevision - attempt to set ExpirationHeight equal to ProofHeight",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.ExpirationHeight = revision.ProofHeight
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 leaves no time between proof height (10) and expiration height (10)",
+		},
+		{
+			desc: "invalid V2FileContractRevision - attempt to set ExpirationHeight less than ProofHeight",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				fce.V2FileContract.ProofHeight = 1
+
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+				revision.ExpirationHeight = 0
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 leaves no time between proof height (1) and expiration height (0)",
+		},
+		{
+			desc: "invalid V2FileContractRevision - invalid host signature",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = types.Signature{}
+				fcr.Revision.RenterSignature = renterKey.SignHash(contractHash)
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 has invalid host signature",
+		},
+		{
+			desc: "invalid V2FileContractRevision - invalid renter signature",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				revision := fce.V2FileContract
+				revision.RevisionNumber++
+
+				fcr := types.V2FileContractRevision{
+					Parent:   fce,
+					Revision: revision,
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&fcr.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				contractHash := ms.base.ContractSigHash(fcr.Revision)
+				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
+				fcr.Revision.RenterSignature = types.Signature{}
+
+				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
+			},
+			errString: "file contract revision 0 has invalid renter signature",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.desc, func(t *testing.T) {
+			n, genesisBlock := testnet()
+			_, s := newConsensusDB(n, genesisBlock)
+			ms := NewMidState(s)
+
+			hostKey := types.GeneratePrivateKey()
+			renterKey := types.GeneratePrivateKey()
+
+			baseFileContract := types.V2FileContract{
+				Capacity:         128,
+				Filesize:         64,
+				FileMerkleRoot:   types.Hash256{},
+				ProofHeight:      10,
+				ExpirationHeight: 20,
+				RenterOutput: types.SiacoinOutput{
+					Value:   types.Siacoins(1),
+					Address: types.PolicyPublicKey(renterKey.PublicKey()).Address(),
+				},
+				HostOutput: types.SiacoinOutput{
+					Value:   types.Siacoins(1),
+					Address: types.PolicyPublicKey(hostKey.PublicKey()).Address(),
+				},
+				MissedHostValue: types.Siacoins(1),
+				TotalCollateral: types.Siacoins(1),
+				RenterPublicKey: renterKey.PublicKey(),
+				HostPublicKey:   hostKey.PublicKey(),
+				RevisionNumber:  0,
+				// signatures are not included here and can be populated per test case
+			}
+
+			fce := types.V2FileContractElement{
+				ID: types.FileContractID{0x01},
+				StateElement: types.StateElement{
+					LeafIndex: ms.base.Elements.NumLeaves,
+				},
+				V2FileContract: baseFileContract,
+			}
+
+			txn := types.V2Transaction{}
+
+			test.mutate(ms, &txn, hostKey, renterKey, fce)
+
+			err := validateV2FileContracts(ms, txn)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
+	}
+}
+
+// see TestV2RenewalResolution for additional cases
+func TestValidateV2FileContractsResolutions(t *testing.T) {
+	tests := []struct {
+		desc      string
+		mutate    func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement)
+		errString string
+	}{
+		{
+			desc: "valid V2FileContractResolution - valid expiration",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				fce.V2FileContract.ProofHeight = 0
+				fce.V2FileContract.ExpirationHeight = 0
+
+				resolution := types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: &types.V2FileContractExpiration{},
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&resolution.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
+			},
+		},
+		{
+			desc: "invalid V2FileContractResolution - attempt to expire before ExpirationHeight",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				fce.V2FileContract.ProofHeight = 0
+
+				resolution := types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: &types.V2FileContractExpiration{},
+				}
+
+				// Add the Parent to the Accumulator
+				leaves := []elementLeaf{v2FileContractLeaf(&resolution.Parent, nil, false)}
+				ms.base.Elements.addLeaves(leaves)
+
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
+			},
+			errString: "file contract expiration 0 cannot be submitted until after expiration height (20)",
+		},
+		{
+			desc: "valid V2FileContractResolution - valid storage proof",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				fce.V2FileContract.ProofHeight = 1
+
+				// Create a ChainIndexElement at height 1
+				cie := types.ChainIndexElement{
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					ChainIndex: types.ChainIndex{
+						Height: 1,
+						// This ID is a magic value to ensure leafIndex will be 0
+						ID: types.BlockID{0x01},
+					},
+				}
+
+				// Create a simple 2-leaf file (128 bytes)
+				filesize := uint64(128)
+				leaf0Data := [64]byte{1}
+				leaf1Data := [64]byte{2}
+
+				// Build Merkle root
+				hash0 := ms.base.StorageProofLeafHash(leaf0Data[:])
+				hash1 := ms.base.StorageProofLeafHash(leaf1Data[:])
+				merkleRoot := blake2b.SumPair(hash0, hash1)
+
+				// Set this as the contract's FileMerkleRoot
+				fce.V2FileContract.FileMerkleRoot = merkleRoot
+				fce.V2FileContract.Filesize = filesize
+
+				leafIndex := ms.base.StorageProofLeafIndex(filesize, cie.ChainIndex.ID, types.FileContractID(fce.ID))
+				if leafIndex != 0 {
+					panic("unreachable or this test is broken")
+				}
+
+				// Prove for leaf 0
+				storageProof := types.V2StorageProof{
+					ProofIndex: cie,
+					Leaf:       leaf0Data,
+					Proof:      []types.Hash256{hash1},
+				}
+
+				// Add the ChainIndexElement and the Parent to the accumulator
+				leaves := []elementLeaf{
+					chainIndexLeaf(&storageProof.ProofIndex),
+					v2FileContractLeaf(&fce, nil, false),
+				}
+				ms.base.Elements.addLeaves(leaves)
+
+				resolution := types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: &storageProof,
+				}
+
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
+			},
+		},
+		{
+			desc: "invalid V2FileContractResolution - attempt to submit StorageProof before ProofHeight",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				// Create a ChainIndexElement at height 1
+				cie := types.ChainIndexElement{
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					ChainIndex: types.ChainIndex{
+						Height: 1,
+						// This ID is a magic value to ensure leafIndex will be 0
+						ID: types.BlockID{0x01},
+					},
+				}
+
+				// Create a simple 2-leaf file (128 bytes)
+				filesize := uint64(128)
+				leaf0Data := [64]byte{1}
+				leaf1Data := [64]byte{2}
+
+				// Build Merkle root
+				hash0 := ms.base.StorageProofLeafHash(leaf0Data[:])
+				hash1 := ms.base.StorageProofLeafHash(leaf1Data[:])
+				merkleRoot := blake2b.SumPair(hash0, hash1)
+
+				// Set this as the contract's FileMerkleRoot
+				fce.V2FileContract.FileMerkleRoot = merkleRoot
+				fce.V2FileContract.Filesize = filesize
+
+				leafIndex := ms.base.StorageProofLeafIndex(filesize, cie.ChainIndex.ID, types.FileContractID(fce.ID))
+				if leafIndex != 0 {
+					panic("unreachable or this test is broken")
+				}
+
+				// Prove for leaf 0
+				storageProof := types.V2StorageProof{
+					ProofIndex: cie,
+					Leaf:       leaf0Data,
+					Proof:      []types.Hash256{hash1},
+				}
+
+				// Add the ChainIndexElement and the Parent to the accumulator
+				leaves := []elementLeaf{
+					chainIndexLeaf(&storageProof.ProofIndex),
+					v2FileContractLeaf(&fce, nil, false),
+				}
+				ms.base.Elements.addLeaves(leaves)
+
+				resolution := types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: &storageProof,
+				}
+
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
+			},
+			errString: "file contract storage proof 0 cannot be submitted until after proof height (10)",
+		},
+		{
+			desc: "invalid V2FileContractResolution - StorageProof with invalid ChainIndexElement",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				fce.V2FileContract.ProofHeight = 1
+
+				// Create a ChainIndexElement at height 1
+				cie := types.ChainIndexElement{
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					ChainIndex: types.ChainIndex{
+						Height: 2,
+						// This ID is a magic value to ensure leafIndex will be 0
+						ID: types.BlockID{0x01},
+					},
+				}
+
+				// Create a simple 2-leaf file (128 bytes)
+				filesize := uint64(128)
+				leaf0Data := [64]byte{1}
+				leaf1Data := [64]byte{2}
+
+				// Build Merkle root
+				hash0 := ms.base.StorageProofLeafHash(leaf0Data[:])
+				hash1 := ms.base.StorageProofLeafHash(leaf1Data[:])
+				merkleRoot := blake2b.SumPair(hash0, hash1)
+
+				// Set this as the contract's FileMerkleRoot
+				fce.V2FileContract.FileMerkleRoot = merkleRoot
+				fce.V2FileContract.Filesize = filesize
+
+				leafIndex := ms.base.StorageProofLeafIndex(filesize, cie.ChainIndex.ID, types.FileContractID(fce.ID))
+				if leafIndex != 0 {
+					panic("unreachable or this test is broken")
+				}
+
+				// Prove for leaf 0
+				storageProof := types.V2StorageProof{
+					ProofIndex: cie,
+					Leaf:       leaf0Data,
+					Proof:      []types.Hash256{hash1},
+				}
+
+				// Add the ChainIndexElement and the Parent to the accumulator
+				leaves := []elementLeaf{
+					chainIndexLeaf(&storageProof.ProofIndex),
+					v2FileContractLeaf(&fce, nil, false),
+				}
+				ms.base.Elements.addLeaves(leaves)
+
+				resolution := types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: &storageProof,
+				}
+
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
+			},
+			errString: "file contract storage proof 0 has ProofIndex height (2) that does not match contract ProofHeight (1)",
+		},
+		{
+			desc: "invalid V2FileContractResolution - invalid history proof",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				fce.V2FileContract.ProofHeight = 1
+
+				// Add the ChainIndexElement and the Parent to the accumulator
+				leaves := []elementLeaf{
+					v2FileContractLeaf(&fce, nil, false),
+				}
+				ms.base.Elements.addLeaves(leaves)
+
+				resolution := types.V2FileContractResolution{
+					Parent: fce,
+					Resolution: &types.V2StorageProof{
+						ProofIndex: types.ChainIndexElement{
+							ChainIndex: types.ChainIndex{
+								Height: 1,
+							},
+						},
+					},
+				}
+
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
+			},
+			errString: "file contract storage proof 0 has invalid history proof",
+		},
+		{
+			desc: "invalid V2FileContractResolution - root that does not match contract Merkle root",
+			mutate: func(ms *MidState, txn *types.V2Transaction, hostKey, renterKey types.PrivateKey, fce types.V2FileContractElement) {
+				fce.V2FileContract.ProofHeight = 1
+
+				// Create a ChainIndexElement at height 1
+				cie := types.ChainIndexElement{
+					StateElement: types.StateElement{
+						LeafIndex: ms.base.Elements.NumLeaves,
+					},
+					ChainIndex: types.ChainIndex{
+						Height: 1,
+						// This ID is a magic value to ensure leafIndex will be 0
+						ID: types.BlockID{0x01},
+					},
+				}
+
+				// Create a simple 2-leaf file (128 bytes)
+				filesize := uint64(128)
+				leaf0Data := [64]byte{1}
+				leaf1Data := [64]byte{2}
+
+				// Build Merkle root
+				hash0 := ms.base.StorageProofLeafHash(leaf0Data[:])
+				hash1 := ms.base.StorageProofLeafHash(leaf1Data[:])
+				merkleRoot := blake2b.SumPair(hash0, hash1)
+
+				// Set this as the contract's FileMerkleRoot
+				fce.V2FileContract.FileMerkleRoot = merkleRoot
+				fce.V2FileContract.Filesize = filesize
+
+				leafIndex := ms.base.StorageProofLeafIndex(filesize, cie.ChainIndex.ID, types.FileContractID(fce.ID))
+				if leafIndex != 0 {
+					panic("unreachable or this test is broken")
+				}
+
+				// Prove for leaf 1, the wrong leaf
+				storageProof := types.V2StorageProof{
+					ProofIndex: cie,
+					Leaf:       leaf1Data,
+					Proof:      []types.Hash256{hash0},
+				}
+
+				// Add the ChainIndexElement and the Parent to the accumulator
+				leaves := []elementLeaf{
+					chainIndexLeaf(&storageProof.ProofIndex),
+					v2FileContractLeaf(&fce, nil, false),
+				}
+				ms.base.Elements.addLeaves(leaves)
+
+				resolution := types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: &storageProof,
+				}
+
+				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
+			},
+			errString: "file contract storage proof 0 has root that does not match contract Merkle root",
+		}}
+
+	for _, test := range tests {
+		t.Run(test.desc, func(t *testing.T) {
+			n, genesisBlock := testnet()
+			_, s := newConsensusDB(n, genesisBlock)
+			ms := NewMidState(s)
+
+			hostKey := types.GeneratePrivateKey()
+			renterKey := types.GeneratePrivateKey()
+
+			txn := types.V2Transaction{}
+
+			baseFileContract := types.V2FileContract{
+				Capacity:         128,
+				Filesize:         64,
+				FileMerkleRoot:   types.Hash256{},
+				ProofHeight:      10,
+				ExpirationHeight: 20,
+				RenterOutput: types.SiacoinOutput{
+					Value:   types.Siacoins(1),
+					Address: types.PolicyPublicKey(renterKey.PublicKey()).Address(),
+				},
+				HostOutput: types.SiacoinOutput{
+					Value:   types.Siacoins(1),
+					Address: types.PolicyPublicKey(hostKey.PublicKey()).Address(),
+				},
+				MissedHostValue: types.Siacoins(1),
+				TotalCollateral: types.Siacoins(1),
+				RenterPublicKey: renterKey.PublicKey(),
+				HostPublicKey:   hostKey.PublicKey(),
+				RevisionNumber:  0,
+			}
+
+			fce := types.V2FileContractElement{
+				ID: types.FileContractID{0x01},
+				StateElement: types.StateElement{
+					LeafIndex: ms.base.Elements.NumLeaves,
+				},
+				V2FileContract: baseFileContract,
+			}
+
+			test.mutate(ms, &txn, hostKey, renterKey, fce)
+
+			err := validateV2FileContracts(ms, txn)
+
+			if test.errString == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), test.errString) {
+				t.Fatalf("expected error containing %q, got %v", test.errString, err)
+			}
+		})
 	}
 }
