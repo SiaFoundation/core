@@ -3894,7 +3894,6 @@ func TestValidateSiacoins(t *testing.T) {
 						},
 					},
 				}
-
 			},
 		},
 		{
@@ -3964,7 +3963,6 @@ func TestValidateSiacoins(t *testing.T) {
 						},
 					},
 				}
-
 			},
 		},
 		{
@@ -4007,7 +4005,6 @@ func TestValidateSiacoins(t *testing.T) {
 						},
 					},
 				}
-
 			},
 		},
 		{
@@ -4047,7 +4044,6 @@ func TestValidateSiacoins(t *testing.T) {
 						},
 					},
 				}
-
 			},
 			errString: "siacoin input 0 has timelocked parent",
 		},
@@ -4084,7 +4080,6 @@ func TestValidateSiacoins(t *testing.T) {
 						},
 					},
 				}
-
 			},
 			errString: "siacoin input 0 double-spends parent output (previously spent in 0000000000000000000000000000000000000000000000000000000000000000)",
 		},
@@ -4107,7 +4102,6 @@ func TestValidateSiacoins(t *testing.T) {
 						},
 					},
 				}
-
 			},
 			errString: "siacoin input 0 spends nonexistent siacoin output 0100000000000000000000000000000000000000000000000000000000000000",
 		},
@@ -4142,7 +4136,6 @@ func TestValidateSiacoins(t *testing.T) {
 						},
 					},
 				}
-
 			},
 			errString: "siacoin input 0 claims incorrect unlock conditions for siacoin output 0100000000000000000000000000000000000000000000000000000000000000",
 		},
@@ -4178,7 +4171,6 @@ func TestValidateSiacoins(t *testing.T) {
 						},
 					},
 				}
-
 			},
 		},
 		{
@@ -4216,7 +4208,6 @@ func TestValidateSiacoins(t *testing.T) {
 						},
 					},
 				}
-
 			},
 		},
 		{
@@ -4251,7 +4242,6 @@ func TestValidateSiacoins(t *testing.T) {
 						},
 					},
 				}
-
 			},
 			errString: "siacoin input 0 has immature parent",
 		},
@@ -4284,7 +4274,6 @@ func TestValidateSiacoins(t *testing.T) {
 						{Value: types.Siacoins(1)},
 					},
 				}
-
 			},
 		},
 		{
@@ -4317,7 +4306,6 @@ func TestValidateSiacoins(t *testing.T) {
 						{Value: types.Siacoins(1)},
 					},
 				}
-
 			},
 		},
 		{
@@ -4351,7 +4339,6 @@ func TestValidateSiacoins(t *testing.T) {
 						},
 					},
 				}
-
 			},
 		},
 		{
@@ -4388,7 +4375,6 @@ func TestValidateSiacoins(t *testing.T) {
 						},
 					},
 				}
-
 			},
 		},
 		{
@@ -4525,7 +4511,6 @@ func TestValidateSiacoins(t *testing.T) {
 						{Value: types.Siacoins(2)},
 					},
 				}
-
 			},
 			errString: "siacoin inputs (1 SC) do not equal outputs (2 SC)",
 		},
@@ -4558,7 +4543,6 @@ func TestValidateSiacoins(t *testing.T) {
 						types.Siacoins(2),
 					},
 				}
-
 			},
 			errString: "siacoin inputs (1 SC) do not equal outputs (2 SC)",
 		},
@@ -4593,7 +4577,6 @@ func TestValidateSiacoins(t *testing.T) {
 						},
 					},
 				}
-
 			},
 			errString: "siacoin inputs (1 SC) do not equal outputs (2 SC)",
 		},
@@ -4782,7 +4765,6 @@ func TestValidateSiafunds(t *testing.T) {
 						},
 					},
 				}
-
 			},
 		},
 		{
@@ -4825,7 +4807,6 @@ func TestValidateSiafunds(t *testing.T) {
 						},
 					},
 				}
-
 			},
 		},
 		{
@@ -4901,7 +4882,6 @@ func TestValidateSiafunds(t *testing.T) {
 						},
 					},
 				}
-
 			},
 			errString: "siafund input 0 double-spends parent output (previously spent in 0000000000000000000000000000000000000000000000000000000000000000)",
 		},
@@ -4924,7 +4904,6 @@ func TestValidateSiafunds(t *testing.T) {
 						},
 					},
 				}
-
 			},
 			errString: "siafund input 0 spends nonexistent siafund output 0100000000000000000000000000000000000000000000000000000000000000",
 		},
@@ -4959,7 +4938,6 @@ func TestValidateSiafunds(t *testing.T) {
 						},
 					},
 				}
-
 			},
 			errString: "siafund input 0 claims incorrect unlock conditions for siafund output 0100000000000000000000000000000000000000000000000000000000000000",
 		},
@@ -5000,7 +4978,6 @@ func TestValidateSiafunds(t *testing.T) {
 						},
 					},
 				}
-
 			},
 		},
 		{
@@ -5068,7 +5045,6 @@ func TestValidateSiafunds(t *testing.T) {
 						{Value: 1},
 					},
 				}
-
 			},
 		},
 		{
@@ -5100,7 +5076,6 @@ func TestValidateSiafunds(t *testing.T) {
 						{Value: 2},
 					},
 				}
-
 			},
 			errString: "siafund inputs (1) do not equal outputs (2)",
 		},
@@ -5133,7 +5108,6 @@ func TestValidateSiafunds(t *testing.T) {
 						{Value: 1},
 					},
 				}
-
 			},
 			errString: "siafund inputs (2) do not equal outputs (1)",
 		},
@@ -5163,7 +5137,6 @@ func TestValidateSiafunds(t *testing.T) {
 						},
 					},
 				}
-
 			},
 			errString: "siafund inputs (1) do not equal outputs (0)",
 		},
@@ -6836,7 +6809,6 @@ func TestValidateFileContracts(t *testing.T) {
 		ts := V1TransactionSupplement{}
 
 		t.Run(test.desc, func(t *testing.T) {
-
 			renterKey := types.GeneratePrivateKey()
 			hostKey := types.GeneratePrivateKey()
 			fc := prepareContractFormation(renterKey.PublicKey(), hostKey.PublicKey(), types.Siacoins(1), types.Siacoins(1), ms.base.Index.Height+1, 100, types.VoidAddress)
@@ -6906,7 +6878,6 @@ func TestValidateSignatures(t *testing.T) {
 		txn := types.Transaction{}
 
 		t.Run(test.desc, func(t *testing.T) {
-
 			test.mutate(ms, &txn)
 			err := validateSignatures(ms, txn)
 
@@ -7377,7 +7348,6 @@ func TestValidateV2FileContractsValidateContractClosure(t *testing.T) {
 			mutate: func(ms *MidState, fc *types.V2FileContract, hostKey, renterKey types.PrivateKey) {
 				fc.RenterOutput.Value = types.ZeroCurrency
 				fc.HostOutput.Value = types.ZeroCurrency
-
 			},
 			errString: "file contract 0 has zero value",
 		},
@@ -7448,7 +7418,6 @@ func TestValidateV2FileContractsValidateContractClosure(t *testing.T) {
 	}
 
 	for _, test := range tests {
-
 		t.Run(test.desc, func(t *testing.T) {
 			n, genesisBlock := testnet()
 			_, s := newConsensusDB(n, genesisBlock)
@@ -7713,7 +7682,6 @@ func TestValidateV2FileContractsValidateParentClosure(t *testing.T) {
 
 				txn.FileContractRevisions = append(txn.FileContractRevisions, fcr)
 				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
-
 			},
 			errString: "file contract renewal 0 parent (0100000000000000000000000000000000000000000000000000000000000000) has already been revised by contract revision 0",
 		},
@@ -7828,7 +7796,6 @@ func TestValidateV2FileContractsValidateParentClosure(t *testing.T) {
 	}
 
 	for _, test := range tests {
-
 		t.Run(test.desc, func(t *testing.T) {
 			n, genesisBlock := testnet()
 			_, s := newConsensusDB(n, genesisBlock)
@@ -8473,7 +8440,6 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 	}
 
 	for _, test := range tests {
-
 		t.Run(test.desc, func(t *testing.T) {
 			n, genesisBlock := testnet()
 			_, s := newConsensusDB(n, genesisBlock)
@@ -8836,7 +8802,6 @@ func TestValidateV2FileContractsResolutions(t *testing.T) {
 		}}
 
 	for _, test := range tests {
-
 		t.Run(test.desc, func(t *testing.T) {
 			n, genesisBlock := testnet()
 			_, s := newConsensusDB(n, genesisBlock)
