@@ -854,7 +854,7 @@ func TestValidateBlock(t *testing.T) {
 				"timelock of signature 0 has not expired",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
-					txn.Signatures[0].Timelock = txn.Signatures[0].Timelock + 100
+					txn.Signatures[0].Timelock += 100
 				},
 			},
 			{
@@ -6513,8 +6513,7 @@ func TestValidateFileContracts(t *testing.T) {
 					ParentID: txn.FileContractID(0),
 				}
 				var txn2 types.Transaction
-				txn2.StorageProofs = append(txn.StorageProofs, storageProof)
-
+				txn2.StorageProofs = []types.StorageProof{storageProof}
 				*txn = txn2
 			},
 			errString: "storage proof 0 has root that does not match contract Merkle root",
@@ -6539,7 +6538,7 @@ func TestValidateFileContracts(t *testing.T) {
 					ParentID: txn.FileContractID(0),
 				}
 				var txn2 types.Transaction
-				txn2.StorageProofs = append(txn.StorageProofs, storageProof)
+				txn2.StorageProofs = []types.StorageProof{storageProof}
 
 				*txn = txn2
 			},
@@ -6593,7 +6592,7 @@ func TestValidateFileContracts(t *testing.T) {
 				}
 
 				var txn2 types.Transaction
-				txn2.StorageProofs = append(txn.StorageProofs, sp)
+				txn2.StorageProofs = []types.StorageProof{sp}
 
 				*txn = txn2
 			},
@@ -6648,7 +6647,7 @@ func TestValidateFileContracts(t *testing.T) {
 				}
 
 				var txn2 types.Transaction
-				txn2.StorageProofs = append(txn.StorageProofs, sp)
+				txn2.StorageProofs = []types.StorageProof{sp}
 
 				*txn = txn2
 			},
@@ -6703,7 +6702,7 @@ func TestValidateFileContracts(t *testing.T) {
 				}
 
 				var txn2 types.Transaction
-				txn2.StorageProofs = append(txn.StorageProofs, sp)
+				txn2.StorageProofs = []types.StorageProof{sp}
 
 				*txn = txn2
 			},
