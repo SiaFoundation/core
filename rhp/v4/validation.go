@@ -112,7 +112,7 @@ func (req *RPCSectorRootsRequest) Validate(pk types.PublicKey, fc types.V2FileCo
 }
 
 // Validate validates a form contract request. Prices are not validated
-func (req *RPCFormContractRequest) Validate(pk types.PublicKey, tip types.ChainIndex, maxCollateral types.Currency, maxDuration uint64) error {
+func (req *RPCFormContractRequest) Validate(pk types.PublicKey, tip types.ChainIndex, maxDuration uint64) error {
 	if err := req.Prices.Validate(pk); err != nil {
 		return fmt.Errorf("prices are invalid: %w", err)
 	}
@@ -139,13 +139,14 @@ func (req *RPCFormContractRequest) Validate(pk types.PublicKey, tip types.ChainI
 	duration := expirationHeight - hp.TipHeight
 	// calculate the minimum allowance required for the contract based on the
 	// host's locked collateral
-	minRenterAllowance := MinRenterAllowance(hp, req.Contract.Collateral)
+	minRenterAllowance := MinRenterAllowance(hp, req.Contract.Collateral, duration)
+	requestedStorage := requestedContractStorage(req.Contract.Collateral, req.Prices.Collateral, duration)
 
 	switch {
 	case req.Contract.Allowance.IsZero():
 		return rpcBadRequestError("allowance must be greater than zero")
-	case req.Contract.Collateral.Cmp(maxCollateral) > 0:
-		return rpcBadRequestError("collateral %v exceeds max collateral %v", req.Contract.Collateral, maxCollateral)
+	case requestedStorage > maxContractStorage:
+		return rpcBadRequestError("requested storage %v exceeds max storage %v", requestedStorage, maxContractStorage)
 	case duration > maxDuration:
 		return rpcBadRequestError("contract duration %v exceeds max duration %v", duration, maxDuration)
 	case req.Contract.Allowance.Cmp(minRenterAllowance) < 0:
@@ -156,7 +157,7 @@ func (req *RPCFormContractRequest) Validate(pk types.PublicKey, tip types.ChainI
 }
 
 // Validate validates a renew contract request. Prices are not validated
-func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.ChainIndex, existing types.V2FileContract, maxCollateral types.Currency, maxDuration uint64) error {
+func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.ChainIndex, existing types.V2FileContract, maxDuration uint64) error {
 	if err := req.Prices.Validate(pk); err != nil {
 		return fmt.Errorf("prices are invalid: %w", err)
 	}
@@ -184,17 +185,17 @@ func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.Chain
 	duration := expirationHeight - hp.TipHeight
 	// calculate the minimum allowance required for the contract based on the
 	// host's locked collateral and the contract duration
-	minRenterAllowance := MinRenterAllowance(hp, req.Renewal.Collateral)
-	// collateral is risked for the entire contract duration
-	riskedCollateral := req.Prices.Collateral.Mul64(existing.Filesize).Mul64(duration)
-	// renewals add collateral on top of the required risked collateral
-	totalCollateral := req.Renewal.Collateral.Add(riskedCollateral)
+	minRenterAllowance := MinRenterAllowance(hp, req.Renewal.Collateral, duration)
+
+	// only consider the new collateral for requested storage, as the
+	// existing collateral is for a different duration.
+	requestedStorage := existing.Filesize + requestedContractStorage(req.Renewal.Collateral, req.Prices.Collateral, duration)
 
 	switch {
 	case req.Renewal.Allowance.IsZero():
 		return rpcBadRequestError("allowance must be greater than zero")
-	case totalCollateral.Cmp(maxCollateral) > 0:
-		return rpcBadRequestError("required collateral %v exceeds max collateral %v", totalCollateral, maxCollateral)
+	case requestedStorage > maxContractStorage:
+		return rpcBadRequestError("requested storage %v exceeds max storage %v", requestedStorage, maxContractStorage)
 	case req.Renewal.Allowance.Cmp(minRenterAllowance) < 0:
 		return rpcBadRequestError("allowance %v is less than minimum allowance %v", req.Renewal.Allowance, minRenterAllowance)
 	default:
@@ -203,7 +204,7 @@ func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.Chain
 }
 
 // Validate validates a refresh contract request against the existing contract.
-func (req *RPCRefreshContractRequest) Validate(pk types.PublicKey, tip types.ChainIndex, existing types.V2FileContract, maxCollateral types.Currency, partial bool) error {
+func (req *RPCRefreshContractRequest) Validate(pk types.PublicKey, tip types.ChainIndex, existing types.V2FileContract, partial bool) error {
 	if err := req.Prices.Validate(pk); err != nil {
 		return fmt.Errorf("prices are invalid: %w", err)
 	}
@@ -221,24 +222,22 @@ func (req *RPCRefreshContractRequest) Validate(pk types.PublicKey, tip types.Cha
 
 	// validate the contract fields
 	hp := req.Prices
+	duration := existing.ExpirationHeight - hp.TipHeight
 	// calculate the minimum allowance required for the contract based on the
 	// host's locked collateral
-	minRenterAllowance := MinRenterAllowance(hp, req.Refresh.Collateral)
+	minRenterAllowance := MinRenterAllowance(hp, req.Refresh.Collateral, duration)
 
-	var totalHostCollateral types.Currency
-	if partial {
-		totalHostCollateral = existing.RiskedCollateral().Add(req.Refresh.Collateral)
-	} else {
-		totalHostCollateral = existing.TotalCollateral.Add(req.Refresh.Collateral)
-	}
+	// only consider the new collateral for requested storage, as the
+	// existing collateral is for a different duration.
+	requestedStorage := existing.Filesize + requestedContractStorage(req.Refresh.Collateral, req.Prices.Collateral, duration)
 
 	switch {
 	case req.Refresh.Allowance.IsZero():
 		return rpcBadRequestError("allowance must be greater than zero")
 	case req.Refresh.Allowance.Cmp(minRenterAllowance) < 0:
 		return rpcBadRequestError("renter allowance %v is less than minimum allowance %v", req.Refresh.Allowance, minRenterAllowance)
-	case totalHostCollateral.Cmp(maxCollateral) > 0:
-		return rpcBadRequestError("required collateral %v exceeds max collateral %v", totalHostCollateral, maxCollateral)
+	case requestedStorage > maxContractStorage:
+		return rpcBadRequestError("requested storage %v exceeds max storage %v", requestedStorage, maxContractStorage)
 	default:
 		return nil
 	}
