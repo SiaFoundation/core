@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 	"time"
 
@@ -14,6 +15,13 @@ import (
 )
 
 const (
+	// maxContractStorage is a temporary limit on the maximum storage
+	// and collateral a single contract can have. Eventually this will
+	// be configurable by the host and replace max collateral. We
+	// can't add a setting for max storage yet to avoid a breaking change and
+	// preserve backwards compatibility.
+	maxContractStorage = 10 << 40 // 10 TiB
+
 	// ProofWindow is the number of blocks a host has to submit a proof after
 	// the contract expires.
 	ProofWindow = 144 // 24 hours
@@ -704,6 +712,22 @@ func (r *RPCReplenishAccountsResponse) TotalCost() (total types.Currency) {
 	return
 }
 
+// requestedContractStorage calculates the amount of storage requested.
+// This can be called with either the contract's collateral
+// and the host's collateral price or the contract's allowance and
+// the host's storage price.
+func requestedContractStorage(value, price types.Currency, duration uint64) uint64 {
+	if price.IsZero() {
+		return 0
+	}
+	// bytes = hastings / (hastings/byte/block) / blocks
+	requestedStorage := value.Div(price.Mul64(duration))
+	if requestedStorage.Cmp(types.NewCurrency64(math.MaxUint64)) >= 0 {
+		return math.MaxUint64
+	}
+	return requestedStorage.Big().Uint64()
+}
+
 // NewContract creates a new file contract with the given settings.
 func NewContract(p HostPrices, cp RPCFormContractParams, hostKey types.PublicKey, hostAddress types.Address) (types.V2FileContract, Usage) {
 	return types.V2FileContract{
@@ -824,22 +848,18 @@ func ReviseForReplenish(fc types.V2FileContract, amount types.Currency) (types.V
 
 // MinRenterAllowance returns the minimum allowance required to justify the given
 // host collateral.
-func MinRenterAllowance(hp HostPrices, collateral types.Currency) types.Currency {
-	if hp.Collateral.IsZero() {
-		return types.ZeroCurrency
-	}
-	maxCollateralBytes := collateral.Div(hp.Collateral)
-	return hp.StoragePrice.Mul(maxCollateralBytes)
+func MinRenterAllowance(hp HostPrices, collateral types.Currency, duration uint64) types.Currency {
+	requestedSize := min(requestedContractStorage(collateral, hp.Collateral, duration), maxContractStorage)
+	// allowance = storage price * bytes * duration
+	return hp.StoragePrice.Mul64(requestedSize).Mul64(duration)
 }
 
 // MaxHostCollateral returns the maximum amount of collateral a host can justify
 // to put into a contract for the given allowance.
-func MaxHostCollateral(hp HostPrices, allowance types.Currency) types.Currency {
-	if hp.StoragePrice.IsZero() {
-		return types.MaxCurrency
-	}
-	maxCollateralBytes := allowance.Div(hp.StoragePrice)
-	return hp.Collateral.Mul(maxCollateralBytes)
+func MaxHostCollateral(hp HostPrices, allowance types.Currency, duration uint64) types.Currency {
+	requestedSize := min(requestedContractStorage(allowance, hp.StoragePrice, duration), maxContractStorage)
+	// collateral = collateral price * bytes * duration
+	return hp.Collateral.Mul64(requestedSize).Mul64(duration)
 }
 
 // RenewContract creates a contract renewal for the renew RPC
