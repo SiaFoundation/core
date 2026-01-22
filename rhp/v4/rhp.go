@@ -718,9 +718,9 @@ func (r *RPCReplenishAccountsResponse) TotalCost() (total types.Currency) {
 // the host's storage price.
 func requestedContractStorage(value, price types.Currency, duration uint64) uint64 {
 	if price.IsZero() {
-		return math.MaxUint64
+		return 0
 	}
-	// bytes = hastings / ((hastings/byte/block) * blocks)
+	// bytes = hastings / (hastings/byte/block) / blocks
 	requestedStorage := value.Div(price.Mul64(duration))
 	if requestedStorage.Cmp(types.NewCurrency64(math.MaxUint64)) >= 0 {
 		return math.MaxUint64

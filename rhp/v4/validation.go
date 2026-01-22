@@ -204,7 +204,7 @@ func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.Chain
 }
 
 // Validate validates a refresh contract request against the existing contract.
-func (req *RPCRefreshContractRequest) Validate(pk types.PublicKey, tip types.ChainIndex, existing types.V2FileContract, partial bool) error {
+func (req *RPCRefreshContractRequest) Validate(pk types.PublicKey, tip types.ChainIndex, existing types.V2FileContract) error {
 	if err := req.Prices.Validate(pk); err != nil {
 		return fmt.Errorf("prices are invalid: %w", err)
 	}

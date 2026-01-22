@@ -15,21 +15,21 @@ func TestMinRenterAllowanceMaxHostCollateral(t *testing.T) {
 		Collateral:   types.NewCurrency64(2), // 2 H per byte per block
 	}
 
-	collateral := types.NewCurrency64(2)
-	minAllowance := MinRenterAllowance(hp, collateral, 1)
-	expected := types.NewCurrency64(1)
+	collateral := types.NewCurrency64(20)
+	minAllowance := MinRenterAllowance(hp, collateral, 10)
+	expected := types.NewCurrency64(10)
 	if !minAllowance.Equals(expected) {
 		t.Fatalf("expected %v, got %v", expected, minAllowance)
 	}
 
-	maxCollateral := MaxHostCollateral(hp, minAllowance, 1)
+	maxCollateral := MaxHostCollateral(hp, minAllowance, 10)
 	if !maxCollateral.Equals(collateral) {
 		t.Fatalf("expected %v, got %v", collateral, maxCollateral)
 	}
 
 	// ensure values are capped at maxContractStorage
 	collateral = hp.Collateral.Mul64(maxContractStorage + 1)
-	minAllowance = MinRenterAllowance(hp, collateral, 1)
+	minAllowance = MinRenterAllowance(hp, collateral, 10)
 	expected = hp.StoragePrice.Mul64(maxContractStorage)
 	if !minAllowance.Equals(expected) {
 		t.Fatalf("expected %v, got %v", expected, minAllowance)
@@ -37,7 +37,7 @@ func TestMinRenterAllowanceMaxHostCollateral(t *testing.T) {
 
 	// ensure values are capped at maxContractStorage
 	minAllowance = hp.StoragePrice.Mul64(maxContractStorage + 1)
-	maxCollateral = MaxHostCollateral(hp, minAllowance, 1)
+	maxCollateral = MaxHostCollateral(hp, minAllowance, 10)
 	expected = hp.Collateral.Mul64(maxContractStorage)
 	if !maxCollateral.Equals(expected) {
 		t.Fatalf("expected %v, got %v", expected, maxCollateral)
