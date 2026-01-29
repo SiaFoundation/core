@@ -1412,17 +1412,19 @@ func TestValidateV2Block(t *testing.T) {
 			},
 		}
 		for _, test := range tests {
-			corruptBlock := deepCopyBlock(validBlock)
-			test.corrupt(&corruptBlock)
-			signTxn(cs, &corruptBlock.V2.Transactions[0])
-			if len(corruptBlock.MinerPayouts) > 0 {
-				corruptBlock.V2.Commitment = cs.Commitment(corruptBlock.MinerPayouts[0].Address, corruptBlock.Transactions, corruptBlock.V2Transactions())
-			}
-			findBlockNonce(cs, &corruptBlock)
+			t.Run(test.errString, func(t *testing.T) {
+				corruptBlock := deepCopyBlock(validBlock)
+				test.corrupt(&corruptBlock)
+				signTxn(cs, &corruptBlock.V2.Transactions[0])
+				if len(corruptBlock.MinerPayouts) > 0 {
+					corruptBlock.V2.Commitment = cs.Commitment(corruptBlock.MinerPayouts[0].Address, corruptBlock.Transactions, corruptBlock.V2Transactions())
+				}
+				findBlockNonce(cs, &corruptBlock)
 
-			if err := ValidateBlock(cs, corruptBlock, db.supplementTipBlock(corruptBlock)); err == nil || !strings.Contains(err.Error(), test.errString) {
-				t.Fatalf("expected error containing %q, got %v", test.errString, err)
-			}
+				if err := ValidateBlock(cs, corruptBlock, db.supplementTipBlock(corruptBlock)); err == nil || !strings.Contains(err.Error(), test.errString) {
+					t.Fatalf("expected error containing %q, got %v", test.errString, err)
+				}
+			})
 		}
 	}
 
@@ -1518,32 +1520,36 @@ func TestValidateV2Block(t *testing.T) {
 
 	{
 		tests := []struct {
-			desc    string
-			corrupt func(*types.Block)
+			desc           string
+			corrupt        func(*types.Block)
+			postCommitment func(*types.Block)
+			errString      string
 		}{
 			{
-				"double spend of non-parent siacoin output",
-				func(b *types.Block) {
+				desc: "double spend of non-parent siacoin output",
+				corrupt: func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.SiacoinInputs = append(txn.SiacoinInputs, types.V2SiacoinInput{
 						Parent:          testSces[0].Copy(),
 						SatisfiedPolicy: types.SatisfiedPolicy{Policy: giftPolicy},
 					})
 				},
+				errString: "siacoin input 0 double-spends output",
 			},
 			{
-				"double spend of non-parent siafund output",
-				func(b *types.Block) {
+				desc: "double spend of non-parent siafund output",
+				corrupt: func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.SiafundInputs = append(txn.SiafundInputs, types.V2SiafundInput{
 						Parent:          testSfes[0].Copy(),
 						SatisfiedPolicy: types.SatisfiedPolicy{Policy: giftPolicy},
 					})
 				},
+				errString: "siafund input 0 double-spends output",
 			},
 			{
-				"revision after proof height",
-				func(b *types.Block) {
+				desc: "revision after proof height",
+				corrupt: func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					rev := testFces[0].V2FileContract
 					rev.RevisionNumber++
@@ -1552,10 +1558,11 @@ func TestValidateV2Block(t *testing.T) {
 						Revision: rev,
 					}}
 				},
+				errString: "file contract revision 0 cannot be applied to contract after proof height",
 			},
 			{
-				"storage proof expiration at wrong proof height",
-				func(b *types.Block) {
+				desc: "storage proof expiration at wrong proof height",
+				corrupt: func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.FileContractResolutions = []types.V2FileContractResolution{{
 						Parent: testFces[0].Copy(),
@@ -1564,20 +1571,22 @@ func TestValidateV2Block(t *testing.T) {
 						},
 					}}
 				},
+				errString: "file contract storage proof 0 has ProofIndex height (21) that does not match contract ProofHeight (20)",
 			},
 			{
-				"file contract expiration submitted before expiration height",
-				func(b *types.Block) {
+				desc: "file contract expiration submitted before expiration height",
+				corrupt: func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.FileContractResolutions = []types.V2FileContractResolution{{
 						Parent:     testFces[0].Copy(),
 						Resolution: &types.V2FileContractExpiration{},
 					}}
 				},
+				errString: "file contract expiration 0 cannot be submitted until after expiration height (30)",
 			},
 			{
-				"file contract renewal with invalid final revision",
-				func(b *types.Block) {
+				desc: "file contract renewal with invalid final revision",
+				corrupt: func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.SiacoinInputs = []types.V2SiacoinInput{{
 						Parent:          sces[1].Copy(),
@@ -1593,10 +1602,11 @@ func TestValidateV2Block(t *testing.T) {
 						Resolution: &resolution,
 					}}
 				},
+				errString: "file contract renewal 0 renewal payout (1 MS) does not match existing contract payout 2 SC",
 			},
 			{
-				"file contract renewal with invalid initial revision",
-				func(b *types.Block) {
+				desc: "file contract renewal with invalid initial revision",
+				corrupt: func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.SiacoinInputs = []types.V2SiacoinInput{{
 						Parent:          sces[1].Copy(),
@@ -1615,26 +1625,36 @@ func TestValidateV2Block(t *testing.T) {
 						Resolution: &resolution,
 					}}
 				},
+				errString: "file contract renewal 0 initial revision has proof height (20) that has already passed",
 			},
 			{
-				"invalid commitment",
-				func(b *types.Block) {
+				desc:    "invalid commitment",
+				corrupt: func(b *types.Block) {},
+				postCommitment: func(b *types.Block) {
 					b.V2.Commitment = types.Hash256{}
 				},
+				errString: "commitment hash mismatch",
 			},
 		}
 		for _, test := range tests {
-			corruptBlock := deepCopyBlock(validBlock)
-			signTxn(cs, &corruptBlock.V2.Transactions[0])
-			if len(corruptBlock.MinerPayouts) > 0 {
-				corruptBlock.V2.Commitment = cs.Commitment(corruptBlock.MinerPayouts[0].Address, corruptBlock.Transactions, corruptBlock.V2Transactions())
-			}
-			test.corrupt(&corruptBlock)
-			findBlockNonce(cs, &corruptBlock)
+			t.Run(test.desc, func(t *testing.T) {
+				corruptBlock := deepCopyBlock(validBlock)
+				test.corrupt(&corruptBlock)
+				signTxn(cs, &corruptBlock.V2.Transactions[0])
+				if len(corruptBlock.MinerPayouts) > 0 {
+					corruptBlock.V2.Commitment = cs.Commitment(corruptBlock.MinerPayouts[0].Address, corruptBlock.Transactions, corruptBlock.V2Transactions())
+				}
+				if test.postCommitment != nil {
+					test.postCommitment(&corruptBlock)
+				}
+				findBlockNonce(cs, &corruptBlock)
 
-			if err := ValidateBlock(cs, corruptBlock, db.supplementTipBlock(corruptBlock)); err == nil {
-				t.Fatalf("accepted block with %v", test.desc)
-			}
+				err := ValidateBlock(cs, corruptBlock, db.supplementTipBlock(corruptBlock))
+
+				if err == nil || !strings.Contains(err.Error(), test.errString) {
+					t.Fatalf("expected error containing %q, got %v", test.errString, err)
+				}
+			})
 		}
 	}
 }
