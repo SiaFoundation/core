@@ -1619,20 +1619,17 @@ func TestValidateV2Block(t *testing.T) {
 			{
 				"invalid commitment",
 				func(b *types.Block) {
-					// commitment is later set to 00..00 for this case
+					b.V2.Commitment = types.Hash256{}
 				},
 			},
 		}
 		for _, test := range tests {
 			corruptBlock := deepCopyBlock(validBlock)
-			test.corrupt(&corruptBlock)
 			signTxn(cs, &corruptBlock.V2.Transactions[0])
 			if len(corruptBlock.MinerPayouts) > 0 {
 				corruptBlock.V2.Commitment = cs.Commitment(corruptBlock.MinerPayouts[0].Address, corruptBlock.Transactions, corruptBlock.V2Transactions())
 			}
-			if test.desc == "invalid commitment" {
-				corruptBlock.V2.Commitment = types.Hash256{}
-			}
+			test.corrupt(&corruptBlock)
 			findBlockNonce(cs, &corruptBlock)
 
 			if err := ValidateBlock(cs, corruptBlock, db.supplementTipBlock(corruptBlock)); err == nil {
