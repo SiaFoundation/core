@@ -2191,14 +2191,14 @@ func TestV2RenewalResolution(t *testing.T) {
 		{
 			desc: "invalid renewal - invalid host signature",
 			renewFn: func(vt *types.V2Transaction) {
-				//  signatures are created after this function is called
+				// signatures are created after this function is called
 			},
 			errString: "file contract renewal 0 has invalid host signature",
 		},
 		{
 			desc: "invalid renewal - invalid renter signature",
 			renewFn: func(vt *types.V2Transaction) {
-				//  signatures are created after this function is called
+				// signatures are created after this function is called
 			},
 			errString: "file contract renewal 0 has invalid renter signature",
 		},
@@ -2907,9 +2907,7 @@ func TestValidateMinerPayouts(t *testing.T) {
 				},
 			},
 			// Initialize any V2BlockData to trigger `if v.V2 != nil` condition
-			V2: &types.V2BlockData{
-				// Transactions: []types.V2Transaction{},
-			},
+			V2: &types.V2BlockData{},
 		}
 		findBlockNonce(s, &b)
 		t.Run(test.desc, func(t *testing.T) {
