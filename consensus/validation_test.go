@@ -1987,9 +1987,10 @@ func TestV2RenewalResolution(t *testing.T) {
 	applyChanges(au)
 
 	tests := []struct {
-		desc      string
-		renewFn   func(*types.V2Transaction)
-		errString string
+		desc       string
+		renewFn    func(*types.V2Transaction)
+		postSignFn func(*types.V2FileContractRenewal)
+		errString  string
 	}{
 		{
 			desc:    "valid renewal",
@@ -2189,16 +2190,18 @@ func TestV2RenewalResolution(t *testing.T) {
 			errString: "exceeding new contract cost",
 		},
 		{
-			desc: "invalid renewal - invalid host signature",
-			renewFn: func(vt *types.V2Transaction) {
-				// signatures are created after this function is called
+			desc:    "invalid renewal - invalid host signature",
+			renewFn: func(txn *types.V2Transaction) {},
+			postSignFn: func(r *types.V2FileContractRenewal) {
+				r.HostSignature = types.Signature{}
 			},
 			errString: "file contract renewal 0 has invalid host signature",
 		},
 		{
-			desc: "invalid renewal - invalid renter signature",
-			renewFn: func(vt *types.V2Transaction) {
-				// signatures are created after this function is called
+			desc:    "invalid renewal - invalid renter signature",
+			renewFn: func(txn *types.V2Transaction) {},
+			postSignFn: func(r *types.V2FileContractRenewal) {
+				r.RenterSignature = types.Signature{}
 			},
 			errString: "file contract renewal 0 has invalid renter signature",
 		},
@@ -2256,10 +2259,9 @@ func TestV2RenewalResolution(t *testing.T) {
 			resolution.RenterSignature = pk.SignHash(sigHash)
 			resolution.HostSignature = pk.SignHash(sigHash)
 
-			if strings.HasSuffix(test.desc, "invalid host signature") {
-				resolution.HostSignature = types.Signature{}
-			} else if strings.HasSuffix(test.desc, "invalid renter signature") {
-				resolution.RenterSignature = types.Signature{}
+			// allow test to modify signatures after signing
+			if test.postSignFn != nil {
+				test.postSignFn(resolution)
 			}
 
 			// apply the renewal
