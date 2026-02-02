@@ -2290,8 +2290,6 @@ func TestV2RenewalResolution(t *testing.T) {
 			switch {
 			case test.errString != "" && err == nil:
 				t.Fatal("expected error")
-			case test.errString != "" && test.errString == "":
-				t.Fatalf("received error %q, missing error string to compare", err)
 			case test.errString != "" && !strings.Contains(err.Error(), test.errString):
 				t.Fatalf("expected error %q to contain %q", err, test.errString)
 			case test.errString == "" && err != nil:
