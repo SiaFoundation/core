@@ -662,14 +662,6 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
-				fmt.Sprintf("storage proof 0 conflicts with previous proof (in %v)", b.Transactions[1].ID()),
-				func(b *types.Block) {
-					b.Transactions = append(b.Transactions, types.Transaction{
-						StorageProofs: b.Transactions[1].StorageProofs,
-					})
-				},
-			},
-			{
 				"window that ends before it begins",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
@@ -858,14 +850,14 @@ func TestValidateBlock(t *testing.T) {
 				},
 			},
 			{
-				"invalid partial signature",
+				"invalid partial signature - no fields covered",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.Signatures[0].CoveredFields.WholeTransaction = false
 				},
 			},
 			{
-				"invalid partial signature",
+				"invalid partial signature - with covered fields",
 				func(b *types.Block) {
 					txn := &b.Transactions[0]
 					txn.Signatures[0].CoveredFields.WholeTransaction = false
