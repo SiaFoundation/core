@@ -15,16 +15,53 @@ func TestMinRenterAllowanceMaxHostCollateral(t *testing.T) {
 		Collateral:   types.NewCurrency64(2), // 2 H per byte per block
 	}
 
-	collateral := types.Siacoins(2)
-	minAllowance := MinRenterAllowance(hp, collateral)
-	expected := types.Siacoins(1)
+	collateral := types.NewCurrency64(20)
+	minAllowance := MinRenterAllowance(hp, collateral, 10)
+	expected := types.NewCurrency64(10)
 	if !minAllowance.Equals(expected) {
 		t.Fatalf("expected %v, got %v", expected, minAllowance)
 	}
 
-	maxCollateral := MaxHostCollateral(hp, minAllowance)
+	maxCollateral := MaxHostCollateral(hp, minAllowance, 10)
 	if !maxCollateral.Equals(collateral) {
 		t.Fatalf("expected %v, got %v", collateral, maxCollateral)
+	}
+
+	// ensure values are capped at maxContractStorage
+	collateral = hp.Collateral.Mul64(maxContractStorage + 1)
+	minAllowance = MinRenterAllowance(hp, collateral, 10)
+	expected = hp.StoragePrice.Mul64(maxContractStorage)
+	if !minAllowance.Equals(expected) {
+		t.Fatalf("expected %v, got %v", expected, minAllowance)
+	}
+
+	// ensure values are capped at maxContractStorage
+	minAllowance = hp.StoragePrice.Mul64(maxContractStorage + 1)
+	maxCollateral = MaxHostCollateral(hp, minAllowance, 10)
+	expected = hp.Collateral.Mul64(maxContractStorage)
+	if !maxCollateral.Equals(expected) {
+		t.Fatalf("expected %v, got %v", expected, maxCollateral)
+	}
+}
+
+func TestRequestedContractStorage(t *testing.T) {
+	tests := []struct {
+		value    types.Currency
+		price    types.Currency
+		expected uint64
+	}{
+		{value: types.NewCurrency64(1), price: types.NewCurrency64(1), expected: 1},
+		{value: types.NewCurrency64(1000), price: types.NewCurrency64(10), expected: 100},
+		{value: types.NewCurrency64(0), price: types.NewCurrency64(10), expected: 0},
+		{value: types.NewCurrency64(1000), price: types.NewCurrency64(0), expected: math.MaxUint64},
+		{value: types.Siacoins(1), price: types.NewCurrency64(1), expected: math.MaxUint64},
+	}
+
+	for _, test := range tests {
+		v := requestedContractStorage(test.value, test.price, 1)
+		if v != test.expected {
+			t.Fatalf("expected %d, got %d", test.expected, v)
+		}
 	}
 }
 
