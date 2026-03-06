@@ -599,7 +599,7 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 		if sp.Policy.Address() != sci.Parent.SiacoinOutput.Address {
 			return fmt.Errorf("siacoin input %v claims incorrect policy for parent address", i)
 		} else if err := sp.Policy.Verify(ms.base.Index.Height, ms.base.medianTimestamp(), sigHash, sp.Signatures, sp.Preimages); err != nil {
-			return fmt.Errorf("siacoin input %v failed to satisfy spend policy: %w", i, err)
+			return fmt.Errorf("siacoin input %v (scoid: %v) failed to satisfy spend policy (txid: %v, height: %v, signatures: %v, preimages: %v): %w", i, sci.Parent.ID, txn.ID(), ms.base.Index.Height, len(sp.Signatures), len(sp.Preimages), err)
 		}
 	}
 
