@@ -663,7 +663,7 @@ func validateV2Siafunds(ms *MidState, txn types.V2Transaction) error {
 		if sp.Policy.Address() != sfi.Parent.SiafundOutput.Address {
 			return fmt.Errorf("siafund input %v claims incorrect policy for parent address", i)
 		} else if err := sp.Policy.Verify(ms.base.Index.Height, ms.base.medianTimestamp(), sigHash, sp.Signatures, sp.Preimages); err != nil {
-			return fmt.Errorf("siafund input %v failed to satisfy spend policy: %w", i, err)
+			return fmt.Errorf("siafund input %v (scoid: %v) failed to satisfy spend policy (height: %v, signatures: %v, preimages: %v): %w", i, sfi.Parent.ID, ms.base.Index.Height, len(sp.Signatures), len(sp.Preimages), err)
 		}
 	}
 
