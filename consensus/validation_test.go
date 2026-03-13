@@ -1362,14 +1362,14 @@ func TestValidateV2Block(t *testing.T) {
 				},
 			},
 			{
-				"siacoin input 0 failed to satisfy spend policy: superfluous preimage(s)",
+				"superfluous preimage(s)",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.SiacoinInputs[0].SatisfiedPolicy.Preimages = [][32]byte{{1}}
 				},
 			},
 			{
-				"siafund input 0 failed to satisfy spend policy: superfluous preimage(s)",
+				"superfluous preimage(s)",
 				func(b *types.Block) {
 					txn := &b.V2.Transactions[0]
 					txn.SiafundInputs[0].SatisfiedPolicy.Preimages = [][32]byte{{1}}
@@ -5831,7 +5831,7 @@ func TestValidateV2Siacoins(t *testing.T) {
 					},
 				}
 			},
-			errString: "siacoin input 0 failed to satisfy spend policy: invalid signature",
+			errString: "invalid signature",
 		},
 		{
 			desc: "invalid V2Transaction - include 0 value output",
@@ -6313,7 +6313,7 @@ func TestValidateV2Siafunds(t *testing.T) {
 					},
 				}
 			},
-			errString: "siafund input 0 failed to satisfy spend policy: invalid signature",
+			errString: "invalid signature",
 		},
 		{
 			desc: "invalid V2Transaction - include 0 value output",

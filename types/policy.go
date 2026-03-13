@@ -181,7 +181,7 @@ func (p SpendPolicy) Verify(height uint64, medianTimestamp time.Time, sigHash Ha
 			if satisfied == p.N {
 				return nil
 			}
-			return errors.New("threshold not reached")
+			return fmt.Errorf("threshold not reached: satisfied %v, required %v", satisfied, p.N)
 		case PolicyTypeOpaque:
 			return errOpaque
 		case PolicyTypeUnlockConditions:
@@ -211,7 +211,7 @@ func (p SpendPolicy) Verify(height uint64, medianTimestamp time.Time, sigHash Ha
 			if p.SignaturesRequired == 0 {
 				return nil
 			}
-			return errors.New("threshold not reached")
+			return fmt.Errorf("threshold not reached: remaining signatures %v", p.SignaturesRequired)
 		default:
 			panic("invalid policy type") // developer error
 		}
