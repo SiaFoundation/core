@@ -38,6 +38,9 @@ var (
 	ErrHostFundError = NewRPCError(ErrorCodeHostError, "host funding error")
 	// ErrSectorNotFound is returned when the host is not storing a sector.
 	ErrSectorNotFound = NewRPCError(ErrorCodeHostError, "sector not found")
+	// ErrContractNotFound is returned when the host is not aware of a
+	// contract.
+	ErrContractNotFound = NewRPCError(ErrorCodeHostError, "contract not found")
 	// ErrNotAcceptingContracts is returned when the host is not accepting
 	// contracts.
 	ErrNotAcceptingContracts = NewRPCError(ErrorCodeHostError, "not accepting contracts")
