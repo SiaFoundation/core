@@ -13,6 +13,7 @@ func TestRPCErrorRoundTrip(t *testing.T) {
 		ErrNotAcceptingContracts,
 		ErrPricesExpired,
 		ErrSectorNotFound,
+		ErrContractNotFound,
 	}
 
 	buf := bytes.NewBuffer(nil)
