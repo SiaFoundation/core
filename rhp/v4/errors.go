@@ -48,6 +48,10 @@ var (
 	// storage to store a sector.
 	ErrNotEnoughStorage = NewRPCError(ErrorCodeHostError, "not enough storage")
 
+	// ErrHostShuttingDown is returned when the host is shutting down and not
+	// accepting new RPCs.
+	ErrHostShuttingDown = NewRPCError(ErrorCodeHostError, "host is shutting down")
+
 	// ErrHostInternalError is a catch-all for any error that occurs on the host
 	// side and is not the client's fault.
 	ErrHostInternalError = NewRPCError(ErrorCodeHostError, "internal error")
