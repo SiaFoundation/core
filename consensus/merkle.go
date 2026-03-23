@@ -11,7 +11,7 @@ import (
 	"go.sia.tech/core/types"
 )
 
-// from RFC 6961
+// from RFC 6962, Section 2.1
 const leafHashPrefix uint8 = 0x00
 
 // mergeHeight returns the height at which the proof paths of x and y merge.
