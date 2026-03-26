@@ -1,9 +1,9 @@
 module go.sia.tech/core // v0.19.0
 
-go 1.25.0
+go 1.26.0
 
 require (
-	go.sia.tech/mux v1.4.0
+	go.sia.tech/mux v1.5.0
 	golang.org/x/crypto v0.49.0
 	golang.org/x/sys v0.42.0
 	lukechampine.com/frand v1.5.1
