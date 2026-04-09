@@ -191,7 +191,7 @@ func (r *RPCFormContractResponse) decodeFrom(d *types.Decoder) {
 	types.DecodeSlice(d, &r.HostInputs)
 }
 func (r *RPCFormContractResponse) maxLen() int {
-	return reasonableObjectSize
+	return reasonableTransactionSetSize
 }
 
 func (r *RPCFormContractSecondResponse) encodeTo(e *types.Encoder) {
@@ -261,7 +261,7 @@ func (r *RPCRenewContractResponse) decodeFrom(d *types.Decoder) {
 	types.DecodeSlice(d, &r.HostInputs)
 }
 func (r *RPCRenewContractResponse) maxLen() int {
-	return reasonableObjectSize
+	return reasonableTransactionSetSize
 }
 
 func (r *RPCRenewContractSecondResponse) encodeTo(e *types.Encoder) {
@@ -331,7 +331,7 @@ func (r *RPCRefreshContractResponse) decodeFrom(d *types.Decoder) {
 	types.DecodeSlice(d, &r.HostInputs)
 }
 func (r *RPCRefreshContractResponse) maxLen() int {
-	return reasonableObjectSize
+	return reasonableTransactionSetSize
 }
 
 func (r *RPCRefreshContractSecondResponse) encodeTo(e *types.Encoder) {
