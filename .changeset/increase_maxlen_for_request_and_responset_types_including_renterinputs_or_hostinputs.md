@@ -2,4 +2,4 @@
 default: patch
 ---
 
-# Increase maxLen for request and responset types including RenterInputs or HostInputs.
+# Increase maxLen for request and response types including RenterInputs or HostInputs.
