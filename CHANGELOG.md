@@ -1,3 +1,16 @@
+## 0.19.1 (2026-04-10)
+
+### Features
+
+- Adds a new error type for "host is shutting down"
+
+### Fixes
+
+- Add contract not found error
+- Added additional context in error message when the signing threshold of a spend policy wasn't reached.
+- Increase maxLen for request and response types including RenterInputs or HostInputs.
+- Update mux dependency to v1.5.0.
+
 ## 0.19.0 (2025-12-01)
 
 ### Breaking Changes
