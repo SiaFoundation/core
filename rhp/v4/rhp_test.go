@@ -137,6 +137,8 @@ func TestRenewalCost(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.Description, func(t *testing.T) {
+			var hostAddressNew types.Address
+			frand.Read(hostAddressNew[:])
 			contract, _ := NewContract(prices, RPCFormContractParams{
 				RenterPublicKey: renterKey,
 				RenterAddress:   types.StandardAddress(renterKey),
@@ -151,13 +153,15 @@ func TestRenewalCost(t *testing.T) {
 			tc.Modify(&contract, &params)
 
 			prices.TipHeight = renewalHeight
-			renewal, _ := RenewContract(contract, prices, params)
+			renewal, _ := RenewContract(contract, prices, hostAddressNew, params)
 			tax := cs.V2FileContractTax(renewal.NewContract)
 			renter, host := RenewalCost(cs, renewal, minerFee)
 			if !renter.Equals(tc.RenterCost.Add(tax).Add(minerFee)) {
 				t.Errorf("expected renter cost %v, got %v", tc.RenterCost, renter.Sub(tax).Sub(minerFee))
 			} else if !host.Equals(tc.HostCost) {
 				t.Errorf("expected host cost %v, got %v", tc.HostCost, host)
+			} else if renewal.NewContract.HostOutput.Address != hostAddressNew {
+				t.Errorf("expected new host address %v, got %v", hostAddressNew, renewal.NewContract.HostOutput.Address)
 			}
 
 			contractTotal := renewal.NewContract.HostOutput.Value.Add(renewal.NewContract.RenterOutput.Value)
@@ -242,6 +246,8 @@ func TestRefreshFullRolloverCost(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.Description, func(t *testing.T) {
+			var hostAddressNew types.Address
+			frand.Read(hostAddressNew[:])
 			contract, _ := NewContract(prices, RPCFormContractParams{
 				RenterPublicKey: renterKey,
 				RenterAddress:   types.StandardAddress(renterKey),
@@ -256,13 +262,15 @@ func TestRefreshFullRolloverCost(t *testing.T) {
 			}
 			tc.Modify(&contract)
 
-			refresh, _ := RefreshContractFullRollover(contract, prices, params)
+			refresh, _ := RefreshContractFullRollover(contract, prices, hostAddressNew, params)
 			tax := cs.V2FileContractTax(refresh.NewContract)
 			renter, host := RefreshCost(cs, prices, refresh, minerFee)
 			if !renter.Equals(renterCost.Add(tax).Add(minerFee)) {
 				t.Errorf("expected renter cost %v, got %v", renterCost, renter.Sub(tax).Sub(minerFee))
 			} else if !host.Equals(hostCost) {
 				t.Errorf("expected host cost %v, got %v", hostCost, host)
+			} else if refresh.NewContract.HostOutput.Address != hostAddressNew {
+				t.Errorf("expected new host address %v, got %v", hostAddressNew, refresh.NewContract.HostOutput.Address)
 			}
 
 			contractTotal := refresh.NewContract.HostOutput.Value.Add(refresh.NewContract.RenterOutput.Value)
@@ -403,6 +411,8 @@ func TestRefreshPartialRolloverCost(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.Description, func(t *testing.T) {
+			var hostAddressNew types.Address
+			frand.Read(hostAddressNew[:])
 			contract, _ := NewContract(prices, RPCFormContractParams{
 				RenterPublicKey: renterKey,
 				RenterAddress:   types.StandardAddress(renterKey),
@@ -417,7 +427,7 @@ func TestRefreshPartialRolloverCost(t *testing.T) {
 			}
 			tc.Modify(&contract)
 
-			refresh, usage := RefreshContractPartialRollover(contract, prices, params)
+			refresh, usage := RefreshContractPartialRollover(contract, prices, hostAddressNew, params)
 			tax := cs.V2FileContractTax(refresh.NewContract)
 			renter, host := RefreshCost(cs, prices, refresh, minerFee)
 			if !renter.Equals(tc.RenterCost.Add(tax).Add(minerFee)) {
@@ -450,6 +460,8 @@ func TestRefreshPartialRolloverCost(t *testing.T) {
 			} else if !refresh.FinalHostOutput.Value.Add(refresh.HostRollover).Equals(contract.HostOutput.Value) {
 				t.Fatalf("expected final host output %v + rollover %v to equal original host output %v, got %v",
 					refresh.FinalHostOutput.Value, refresh.HostRollover, contract.HostOutput.Value, refresh.FinalHostOutput.Value.Add(refresh.HostRollover))
+			} else if refresh.NewContract.HostOutput.Address != hostAddressNew {
+				t.Fatalf("expected new host address %v, got %v", hostAddressNew, refresh.NewContract.HostOutput.Address)
 			}
 
 			contractTotal := refresh.NewContract.HostOutput.Value.Add(refresh.NewContract.RenterOutput.Value)

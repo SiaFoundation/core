@@ -843,7 +843,7 @@ func MaxHostCollateral(hp HostPrices, allowance types.Currency) types.Currency {
 }
 
 // RenewContract creates a contract renewal for the renew RPC
-func RenewContract(fc types.V2FileContract, prices HostPrices, rp RPCRenewContractParams) (types.V2FileContractRenewal, Usage) {
+func RenewContract(fc types.V2FileContract, prices HostPrices, hostAddress types.Address, rp RPCRenewContractParams) (types.V2FileContractRenewal, Usage) {
 	var renewal types.V2FileContractRenewal
 	renewal.FinalRenterOutput = fc.RenterOutput
 	renewal.FinalHostOutput = fc.HostOutput
@@ -856,6 +856,7 @@ func RenewContract(fc types.V2FileContract, prices HostPrices, rp RPCRenewContra
 	renewal.NewContract.HostSignature = types.Signature{}
 	renewal.NewContract.ExpirationHeight = rp.ProofHeight + ProofWindow
 	renewal.NewContract.ProofHeight = rp.ProofHeight
+	renewal.NewContract.HostOutput.Address = hostAddress
 	// the renter output value only needs to cover the new allowance
 	renewal.NewContract.RenterOutput.Value = rp.Allowance
 
@@ -908,7 +909,7 @@ func RenewContract(fc types.V2FileContract, prices HostPrices, rp RPCRenewContra
 }
 
 // RefreshContractPartialRollover creates a contract renewal for the refresh RPC v1.
-func RefreshContractPartialRollover(fc types.V2FileContract, prices HostPrices, rp RPCRefreshContractParams) (types.V2FileContractRenewal, Usage) {
+func RefreshContractPartialRollover(fc types.V2FileContract, prices HostPrices, hostAddress types.Address, rp RPCRefreshContractParams) (types.V2FileContractRenewal, Usage) {
 	var renewal types.V2FileContractRenewal
 	renewal.FinalRenterOutput = fc.RenterOutput
 	renewal.FinalHostOutput = fc.HostOutput
@@ -918,6 +919,7 @@ func RefreshContractPartialRollover(fc types.V2FileContract, prices HostPrices, 
 	renewal.NewContract.RevisionNumber = 0
 	renewal.NewContract.RenterSignature = types.Signature{}
 	renewal.NewContract.HostSignature = types.Signature{}
+	renewal.NewContract.HostOutput.Address = hostAddress
 
 	// the host output needs to cover the existing risked collateral,
 	// existing revenue, and the new collateral to ensure the existing data
@@ -963,7 +965,7 @@ func RefreshContractPartialRollover(fc types.V2FileContract, prices HostPrices, 
 }
 
 // RefreshContractFullRollover creates a contract renewal for the refresh RPC v0.
-func RefreshContractFullRollover(fc types.V2FileContract, prices HostPrices, rp RPCRefreshContractParams) (types.V2FileContractRenewal, Usage) {
+func RefreshContractFullRollover(fc types.V2FileContract, prices HostPrices, hostAddress types.Address, rp RPCRefreshContractParams) (types.V2FileContractRenewal, Usage) {
 	var renewal types.V2FileContractRenewal
 	// roll over everything from the existing contract
 	renewal.FinalRenterOutput = fc.RenterOutput
@@ -978,6 +980,7 @@ func RefreshContractFullRollover(fc types.V2FileContract, prices HostPrices, rp 
 	renewal.NewContract.RevisionNumber = 0
 	renewal.NewContract.RenterSignature = types.Signature{}
 	renewal.NewContract.HostSignature = types.Signature{}
+	renewal.NewContract.HostOutput.Address = hostAddress
 	// add the additional allowance and collateral
 	renewal.NewContract.RenterOutput.Value = fc.RenterOutput.Value.Add(rp.Allowance)
 	renewal.NewContract.HostOutput.Value = fc.HostOutput.Value.Add(rp.Collateral).Add(prices.ContractPrice)
