@@ -419,7 +419,7 @@ func TestRefreshPartialRolloverCost(t *testing.T) {
 				Allowance:       types.Siacoins(300),
 				Collateral:      types.Siacoins(400),
 				ProofHeight:     initialProofHeight,
-			}, hostKey, hostAddressNew)
+			}, hostKey, types.StandardAddress(hostKey))
 
 			params := RPCRefreshContractParams{
 				Allowance:  newAllowance,
