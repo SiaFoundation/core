@@ -1,3 +1,9 @@
+## 0.20.0 (2026-04-21)
+
+### Breaking Changes
+
+- Require passing host's wallet address when constructing a contract for renewal/refresh.
+
 ## 0.19.1 (2026-04-10)
 
 ### Features
