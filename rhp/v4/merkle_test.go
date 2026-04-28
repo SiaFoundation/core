@@ -108,6 +108,7 @@ func TestBuildSectorProof(t *testing.T) {
 		{0, 130},
 		{130, 194},
 		{0, 129},
+		{0, LeavesPerSector},
 		{0, LeavesPerSector / 2},
 		{LeavesPerSector - 1, LeavesPerSector},
 		{LeavesPerSector/2 - 1, LeavesPerSector},
@@ -125,10 +126,13 @@ func TestBuildSectorProof(t *testing.T) {
 		proof := BuildSectorProof(segment, start, end, subtrees)
 
 		rpv := NewRangeProofVerifier(start, end)
-		if _, err := rpv.ReadFrom(bytes.NewReader(sector[start*LeafSize : end*LeafSize])); err != nil {
+		buf := bytes.NewReader(sector[start*LeafSize : end*LeafSize])
+		if n, err := rpv.ReadFrom(buf); err != nil {
 			t.Fatal(err)
 		} else if !rpv.Verify(proof, root) {
 			t.Fatalf("invalid proof for range [%d, %d)", start, end)
+		} else if n != buf.Size() {
+			t.Fatalf("unexpected number of bytes read: got %d, want %d", n, buf.Size())
 		}
 	}
 }
