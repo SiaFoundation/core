@@ -653,6 +653,7 @@ type (
 	RPCAttachPoolsRequest struct {
 		Attachments []PoolAttachment `json:"attachments"`
 	}
+	// RPCAttachPoolsResponse an empty success response
 	RPCAttachPoolsResponse struct{}
 
 	// RPCDetachPoolsRequest batches one or more detachments. Applied
@@ -660,6 +661,7 @@ type (
 	RPCDetachPoolsRequest struct {
 		Detachments []PoolDetachment `json:"detachments"`
 	}
+	// RPCDetachPoolsResponse an empty success response
 	RPCDetachPoolsResponse struct{}
 )
 
