@@ -58,6 +58,11 @@ var (
 	RPCWriteSectorID  = types.NewSpecifier("WriteSector")
 	RPCVerifySectorID = types.NewSpecifier("VerifySector")
 	RPCSettingsID     = types.NewSpecifier("Settings")
+
+	RPCFundPoolsID      = types.NewSpecifier("FundPools")
+	RPCReplenishPoolsID = types.NewSpecifier("ReplPools")
+	RPCAttachPoolsID    = types.NewSpecifier("AttachPools")
+	RPCDetachPoolsID    = types.NewSpecifier("DetachPools")
 )
 
 func round4KiB(n uint64) uint64 {
@@ -622,6 +627,42 @@ type (
 		Balances      []types.Currency `json:"balances"`
 		HostSignature types.Signature  `json:"hostSignature"`
 	}
+
+	// PoolAttachment authorizes attaching a single account to a pool. The
+	// signature is by the pool's private key, since the pool holds funds at
+	// risk. Each entry is independently signed so a batch can mix pools owned
+	// by different parties.
+	PoolAttachment struct {
+		Account    Account         `json:"account"`
+		Pool       Account         `json:"pool"`
+		ValidUntil time.Time       `json:"validUntil"`
+		Signature  types.Signature `json:"signature"`
+	}
+
+	// PoolDetachment authorizes detaching a single account from a pool.
+	// Either the account's or the pool's private key may sign.
+	PoolDetachment struct {
+		Account    Account         `json:"account"`
+		Pool       Account         `json:"pool"`
+		ValidUntil time.Time       `json:"validUntil"`
+		Signature  types.Signature `json:"signature"`
+	}
+
+	// RPCAttachPoolsRequest batches one or more attachments. The host applies
+	// them atomically: any structural or signature failure rejects the batch.
+	RPCAttachPoolsRequest struct {
+		Attachments []PoolAttachment `json:"attachments"`
+	}
+	// RPCAttachPoolsResponse an empty success response
+	RPCAttachPoolsResponse struct{}
+
+	// RPCDetachPoolsRequest batches one or more detachments. Applied
+	// atomically.
+	RPCDetachPoolsRequest struct {
+		Detachments []PoolDetachment `json:"detachments"`
+	}
+	// RPCDetachPoolsResponse an empty success response
+	RPCDetachPoolsResponse struct{}
 )
 
 // ChallengeSigHash returns the hash of the challenge signature used for
@@ -702,6 +743,48 @@ func (r *RPCReplenishAccountsResponse) TotalCost() (total types.Currency) {
 		total = total.Add(deposit.Amount)
 	}
 	return
+}
+
+// SigHash returns the hash of the attachment fields the pool's private key
+// must sign. The host's public key is mixed in to prevent cross-host replay,
+// and RPCAttachPoolsID is mixed in as a domain separator so an attachment
+// signature cannot be replayed as a detachment authorization.
+func (a *PoolAttachment) SigHash(hostKey types.PublicKey) types.Hash256 {
+	h := types.NewHasher()
+	RPCAttachPoolsID.EncodeTo(h.E)
+	hostKey.EncodeTo(h.E)
+	a.Account.EncodeTo(h.E)
+	a.Pool.EncodeTo(h.E)
+	h.E.WriteTime(a.ValidUntil)
+	return h.Sum()
+}
+
+// ValidSignature checks that the signature was produced by the pool's
+// private key against this host's public key.
+func (a *PoolAttachment) ValidSignature(hostKey types.PublicKey) bool {
+	return types.PublicKey(a.Pool).VerifyHash(a.SigHash(hostKey), a.Signature)
+}
+
+// SigHash returns the hash of the detachment fields that either the
+// account's or the pool's private key may sign. The host's public key is
+// mixed in to prevent cross-host replay, and RPCDetachPoolsID is mixed in
+// as a domain separator distinct from the attach sighash.
+func (d *PoolDetachment) SigHash(hostKey types.PublicKey) types.Hash256 {
+	h := types.NewHasher()
+	RPCDetachPoolsID.EncodeTo(h.E)
+	hostKey.EncodeTo(h.E)
+	d.Account.EncodeTo(h.E)
+	d.Pool.EncodeTo(h.E)
+	h.E.WriteTime(d.ValidUntil)
+	return h.Sum()
+}
+
+// ValidSignature checks that the signature was produced by either the
+// account's or the pool's private key against this host's public key.
+func (d *PoolDetachment) ValidSignature(hostKey types.PublicKey) bool {
+	sigHash := d.SigHash(hostKey)
+	return types.PublicKey(d.Pool).VerifyHash(sigHash, d.Signature) ||
+		types.PublicKey(d.Account).VerifyHash(sigHash, d.Signature)
 }
 
 // NewContract creates a new file contract with the given settings.

@@ -124,6 +124,8 @@ var (
 	sizeofAccount        = sizeof(Account{})
 	sizeofAccountToken   = sizeof(types.EncoderFunc(AccountToken{}.encodeTo))
 	sizeofAccountDeposit = sizeof(AccountDeposit{})
+	sizeofPoolAttachment = sizeof(PoolAttachment{})
+	sizeofPoolDetachment = sizeof(PoolDetachment{})
 )
 
 // An Object can be sent or received via a Transport.
@@ -682,12 +684,72 @@ func (r *RPCFundAccountsResponse) encodeTo(e *types.Encoder) {
 	r.HostSignature.EncodeTo(e)
 }
 func (r *RPCFundAccountsResponse) decodeFrom(d *types.Decoder) {
-	types.DecodeSliceCast[types.V2Currency, types.Currency](d, &r.Balances)
+	types.DecodeSliceCast[types.V2Currency](d, &r.Balances)
 	r.HostSignature.DecodeFrom(d)
 }
 func (r *RPCFundAccountsResponse) maxLen() int {
 	return 8 + (sizeofCurrency * MaxAccountBatchSize) + sizeofSignature
 }
+
+// EncodeTo implements types.EncoderTo.
+func (a PoolAttachment) EncodeTo(e *types.Encoder) {
+	a.Account.EncodeTo(e)
+	a.Pool.EncodeTo(e)
+	e.WriteTime(a.ValidUntil)
+	a.Signature.EncodeTo(e)
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (a *PoolAttachment) DecodeFrom(d *types.Decoder) {
+	a.Account.DecodeFrom(d)
+	a.Pool.DecodeFrom(d)
+	a.ValidUntil = d.ReadTime()
+	a.Signature.DecodeFrom(d)
+}
+
+// EncodeTo implements types.EncoderTo.
+func (d PoolDetachment) EncodeTo(e *types.Encoder) {
+	d.Account.EncodeTo(e)
+	d.Pool.EncodeTo(e)
+	e.WriteTime(d.ValidUntil)
+	d.Signature.EncodeTo(e)
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (d *PoolDetachment) DecodeFrom(dec *types.Decoder) {
+	d.Account.DecodeFrom(dec)
+	d.Pool.DecodeFrom(dec)
+	d.ValidUntil = dec.ReadTime()
+	d.Signature.DecodeFrom(dec)
+}
+
+func (r *RPCAttachPoolsRequest) encodeTo(e *types.Encoder) {
+	types.EncodeSlice(e, r.Attachments)
+}
+func (r *RPCAttachPoolsRequest) decodeFrom(d *types.Decoder) {
+	types.DecodeSlice(d, &r.Attachments)
+}
+func (r *RPCAttachPoolsRequest) maxLen() int {
+	return 8 + sizeofPoolAttachment*MaxAccountBatchSize
+}
+
+func (r *RPCAttachPoolsResponse) encodeTo(*types.Encoder)   {}
+func (r *RPCAttachPoolsResponse) decodeFrom(*types.Decoder) {}
+func (r *RPCAttachPoolsResponse) maxLen() int               { return 0 }
+
+func (r *RPCDetachPoolsRequest) encodeTo(e *types.Encoder) {
+	types.EncodeSlice(e, r.Detachments)
+}
+func (r *RPCDetachPoolsRequest) decodeFrom(d *types.Decoder) {
+	types.DecodeSlice(d, &r.Detachments)
+}
+func (r *RPCDetachPoolsRequest) maxLen() int {
+	return 8 + sizeofPoolDetachment*MaxAccountBatchSize
+}
+
+func (r *RPCDetachPoolsResponse) encodeTo(*types.Encoder)   {}
+func (r *RPCDetachPoolsResponse) decodeFrom(*types.Decoder) {}
+func (r *RPCDetachPoolsResponse) maxLen() int               { return 0 }
 
 func (r *RPCVerifySectorRequest) encodeTo(e *types.Encoder) {
 	r.Prices.EncodeTo(e)
