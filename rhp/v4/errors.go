@@ -12,6 +12,7 @@ const (
 	ErrorCodeBadRequest
 	ErrorCodeDecoding
 	ErrorCodePayment
+	ErrorCodeClientError
 )
 
 // An RPCError pairs a human-readable error description with a status code.
