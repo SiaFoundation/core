@@ -746,9 +746,13 @@ func (r *RPCReplenishAccountsResponse) TotalCost() (total types.Currency) {
 }
 
 // SigHash returns the hash of the attachment fields the pool's private key
-// must sign.
-func (a *PoolAttachment) SigHash() types.Hash256 {
+// must sign. The host's public key is mixed in to prevent cross-host replay,
+// and RPCAttachPoolsID is mixed in as a domain separator so an attachment
+// signature cannot be replayed as a detachment authorization.
+func (a *PoolAttachment) SigHash(hostKey types.PublicKey) types.Hash256 {
 	h := types.NewHasher()
+	RPCAttachPoolsID.EncodeTo(h.E)
+	hostKey.EncodeTo(h.E)
 	a.Account.EncodeTo(h.E)
 	a.Pool.EncodeTo(h.E)
 	h.E.WriteTime(a.ValidUntil)
@@ -756,15 +760,19 @@ func (a *PoolAttachment) SigHash() types.Hash256 {
 }
 
 // ValidSignature checks that the signature was produced by the pool's
-// private key.
-func (a *PoolAttachment) ValidSignature() bool {
-	return types.PublicKey(a.Pool).VerifyHash(a.SigHash(), a.Signature)
+// private key against this host's public key.
+func (a *PoolAttachment) ValidSignature(hostKey types.PublicKey) bool {
+	return types.PublicKey(a.Pool).VerifyHash(a.SigHash(hostKey), a.Signature)
 }
 
 // SigHash returns the hash of the detachment fields that either the
-// account's or the pool's private key may sign.
-func (d *PoolDetachment) SigHash() types.Hash256 {
+// account's or the pool's private key may sign. The host's public key is
+// mixed in to prevent cross-host replay, and RPCDetachPoolsID is mixed in
+// as a domain separator distinct from the attach sighash.
+func (d *PoolDetachment) SigHash(hostKey types.PublicKey) types.Hash256 {
 	h := types.NewHasher()
+	RPCDetachPoolsID.EncodeTo(h.E)
+	hostKey.EncodeTo(h.E)
 	d.Account.EncodeTo(h.E)
 	d.Pool.EncodeTo(h.E)
 	h.E.WriteTime(d.ValidUntil)
@@ -772,9 +780,9 @@ func (d *PoolDetachment) SigHash() types.Hash256 {
 }
 
 // ValidSignature checks that the signature was produced by either the
-// account's or the pool's private key.
-func (d *PoolDetachment) ValidSignature() bool {
-	sigHash := d.SigHash()
+// account's or the pool's private key against this host's public key.
+func (d *PoolDetachment) ValidSignature(hostKey types.PublicKey) bool {
+	sigHash := d.SigHash(hostKey)
 	return types.PublicKey(d.Pool).VerifyHash(sigHash, d.Signature) ||
 		types.PublicKey(d.Account).VerifyHash(sigHash, d.Signature)
 }
