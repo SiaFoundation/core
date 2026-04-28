@@ -313,6 +313,58 @@ func (req *RPCReplenishAccountsRequest) Validate() error {
 	return nil
 }
 
+// Validate checks that the request is structurally valid. It does not verify
+// signatures; callers must check ValidSignature on each entry separately.
+func (req *RPCAttachPoolsRequest) Validate() error {
+	if len(req.Attachments) == 0 {
+		return rpcBadRequestError("no attachments")
+	} else if uint64(len(req.Attachments)) > MaxAccountBatchSize {
+		return rpcBadRequestError("too many attachments: %d > %d", len(req.Attachments), MaxAccountBatchSize)
+	}
+	now := time.Now()
+	for i, a := range req.Attachments {
+		switch {
+		case a.Account == (Account{}):
+			return rpcBadRequestError("attachment %d: account must be set", i)
+		case a.Pool == (Account{}):
+			return rpcBadRequestError("attachment %d: pool must be set", i)
+		case a.Account == a.Pool:
+			return rpcBadRequestError("attachment %d: account and pool must differ", i)
+		case now.After(a.ValidUntil):
+			return rpcBadRequestError("attachment %d: expired", i)
+		case a.Signature == (types.Signature{}):
+			return rpcBadRequestError("attachment %d: signature must be set", i)
+		}
+	}
+	return nil
+}
+
+// Validate checks that the request is structurally valid. It does not verify
+// signatures; callers must check ValidSignature on each entry separately.
+func (req *RPCDetachPoolsRequest) Validate() error {
+	if len(req.Detachments) == 0 {
+		return rpcBadRequestError("no detachments")
+	} else if uint64(len(req.Detachments)) > MaxAccountBatchSize {
+		return rpcBadRequestError("too many detachments: %d > %d", len(req.Detachments), MaxAccountBatchSize)
+	}
+	now := time.Now()
+	for i, d := range req.Detachments {
+		switch {
+		case d.Account == (Account{}):
+			return rpcBadRequestError("detachment %d: account must be set", i)
+		case d.Pool == (Account{}):
+			return rpcBadRequestError("detachment %d: pool must be set", i)
+		case d.Account == d.Pool:
+			return rpcBadRequestError("detachment %d: account and pool must differ", i)
+		case now.After(d.ValidUntil):
+			return rpcBadRequestError("detachment %d: expired", i)
+		case d.Signature == (types.Signature{}):
+			return rpcBadRequestError("detachment %d: signature must be set", i)
+		}
+	}
+	return nil
+}
+
 // minProofHeight returns the minimum proof height necessary for a
 // host to accept a contract. This is to ensure the contract
 // has enough time to be confirmed before the proof window begins.

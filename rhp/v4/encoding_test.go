@@ -46,4 +46,32 @@ func TestEncodingRoundtrip(t *testing.T) {
 		ValidUntil: time.Unix(int64(frand.Intn(math.MaxInt)), 0),
 		Signature:  types.Signature(frand.Bytes(64)),
 	}))
+	t.Run("RPCAttachPoolsRequest", testRoundtrip(&RPCAttachPoolsRequest{
+		Attachments: []PoolAttachment{
+			{
+				Account:    Account(frand.Entropy256()),
+				Pool:       Account(frand.Entropy256()),
+				ValidUntil: time.Unix(int64(frand.Intn(math.MaxInt)), 0),
+				Signature:  types.Signature(frand.Bytes(64)),
+			},
+			{
+				Account:    Account(frand.Entropy256()),
+				Pool:       Account(frand.Entropy256()),
+				ValidUntil: time.Unix(int64(frand.Intn(math.MaxInt)), 0),
+				Signature:  types.Signature(frand.Bytes(64)),
+			},
+		},
+	}))
+	t.Run("RPCAttachPoolsResponse", testRoundtrip(&RPCAttachPoolsResponse{}))
+	t.Run("RPCDetachPoolsRequest", testRoundtrip(&RPCDetachPoolsRequest{
+		Detachments: []PoolDetachment{
+			{
+				Account:    Account(frand.Entropy256()),
+				Pool:       Account(frand.Entropy256()),
+				ValidUntil: time.Unix(int64(frand.Intn(math.MaxInt)), 0),
+				Signature:  types.Signature(frand.Bytes(64)),
+			},
+		},
+	}))
+	t.Run("RPCDetachPoolsResponse", testRoundtrip(&RPCDetachPoolsResponse{}))
 }
