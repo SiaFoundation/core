@@ -226,6 +226,34 @@ func TestReadSector(t *testing.T) {
 	}
 }
 
+func TestRangeProofVerifierReadFrom(t *testing.T) {
+	tests := []struct {
+		name            string
+		start, end      uint64
+		availableLeaves uint64
+	}{
+		{"full data, single subtree", 0, 8, 8},
+		{"short reader, single subtree", 0, 8, 4},
+		{"full data, multiple subtrees", 0, 10, 10},
+		{"short reader, multiple subtrees", 0, 10, 9},
+		{"empty reader", 0, 8, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := frand.Bytes(int(tt.availableLeaves) * LeafSize)
+			rpv := NewRangeProofVerifier(tt.start, tt.end)
+			n, err := rpv.ReadFrom(bytes.NewReader(data))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if n != int64(len(data)) {
+				t.Fatalf("expected %d bytes read, got %d", len(data), n)
+			}
+		})
+	}
+}
+
 func BenchmarkReadSector(b *testing.B) {
 	buf := bytes.NewBuffer(nil)
 	buf.Grow(SectorSize)
