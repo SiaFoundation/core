@@ -394,10 +394,10 @@ func (rpv *RangeProofVerifier) ReadFrom(r io.Reader) (int64, error) {
 		maxSize := int64(subtreeSize * LeafSize)
 		lr := &io.LimitedReader{R: r, N: maxSize}
 		root, err := ReaderRoot(lr)
+		total += maxSize - lr.N
 		if err != nil {
 			return total, err
 		}
-		total += maxSize - lr.N
 		rpv.roots = append(rpv.roots, root)
 		i += subtreeSize
 	}
