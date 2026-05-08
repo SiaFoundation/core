@@ -53,6 +53,13 @@ var (
 	// accepting new RPCs.
 	ErrHostShuttingDown = NewRPCError(ErrorCodeHostError, "host is shutting down")
 
+	// ErrPoolNotFound is returned when the host has no record of a pool
+	// referenced by a pool RPC.
+	ErrPoolNotFound = NewRPCError(ErrorCodeHostError, "pool not found")
+	// ErrPoolExpired is returned when a PoolAttachment or PoolDetachment's
+	// ValidUntil is in the past.
+	ErrPoolExpired = NewRPCError(ErrorCodeBadRequest, "pool token expired")
+
 	// ErrHostInternalError is a catch-all for any error that occurs on the host
 	// side and is not the client's fault.
 	ErrHostInternalError = NewRPCError(ErrorCodeHostError, "internal error")
