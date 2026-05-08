@@ -331,7 +331,7 @@ func (req *RPCAttachPoolsRequest) Validate() error {
 		case a.Account == a.Pool:
 			return rpcBadRequestError("attachment %d: account and pool must differ", i)
 		case now.After(a.ValidUntil):
-			return rpcBadRequestError("attachment %d: expired", i)
+			return ErrPoolExpired
 		case a.Signature == (types.Signature{}):
 			return rpcBadRequestError("attachment %d: signature must be set", i)
 		}
@@ -357,7 +357,7 @@ func (req *RPCDetachPoolsRequest) Validate() error {
 		case d.Account == d.Pool:
 			return rpcBadRequestError("detachment %d: account and pool must differ", i)
 		case now.After(d.ValidUntil):
-			return rpcBadRequestError("detachment %d: expired", i)
+			return ErrPoolExpired
 		case d.Signature == (types.Signature{}):
 			return rpcBadRequestError("detachment %d: signature must be set", i)
 		}

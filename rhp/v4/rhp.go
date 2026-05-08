@@ -59,7 +59,6 @@ var (
 	RPCVerifySectorID = types.NewSpecifier("VerifySector")
 	RPCSettingsID     = types.NewSpecifier("Settings")
 
-	RPCFundPoolsID      = types.NewSpecifier("FundPools")
 	RPCReplenishPoolsID = types.NewSpecifier("ReplPools")
 	RPCAttachPoolsID    = types.NewSpecifier("AttachPools")
 	RPCDetachPoolsID    = types.NewSpecifier("DetachPools")

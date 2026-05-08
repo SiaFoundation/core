@@ -3,6 +3,7 @@ package rhp
 import (
 	"math"
 	"testing"
+	"time"
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
@@ -476,6 +477,104 @@ func TestRefreshPartialRolloverCost(t *testing.T) {
 				t.Fatalf("expected contract capacity %d, got %d", contract.Capacity, refresh.NewContract.Capacity)
 			}
 		})
+	}
+}
+
+func TestPoolAttachmentSignature(t *testing.T) {
+	hostKey := types.GeneratePrivateKey()
+	otherHostKey := types.GeneratePrivateKey()
+	poolKey := types.GeneratePrivateKey()
+	accountKey := types.GeneratePrivateKey()
+
+	attachment := PoolAttachment{
+		Account:    Account(accountKey.PublicKey()),
+		Pool:       Account(poolKey.PublicKey()),
+		ValidUntil: time.Now().Add(5 * time.Minute),
+	}
+	attachment.Signature = poolKey.SignHash(attachment.SigHash(hostKey.PublicKey()))
+
+	if !attachment.ValidSignature(hostKey.PublicKey()) {
+		t.Fatal("expected valid signature")
+	}
+
+	if attachment.ValidSignature(otherHostKey.PublicKey()) {
+		t.Fatal("expected signature to be invalid for a different host")
+	}
+
+	// only the pool may authorize an attachment; the account key must not.
+	wrongSigner := attachment
+	wrongSigner.Signature = accountKey.SignHash(wrongSigner.SigHash(hostKey.PublicKey()))
+	if wrongSigner.ValidSignature(hostKey.PublicKey()) {
+		t.Fatal("expected signature from non-pool key to be invalid")
+	}
+
+	tampered := attachment
+	tampered.ValidUntil = tampered.ValidUntil.Add(time.Second)
+	if tampered.ValidSignature(hostKey.PublicKey()) {
+		t.Fatal("expected tampered attachment to be invalid")
+	}
+
+	detachment := PoolDetachment{
+		Account:    attachment.Account,
+		Pool:       attachment.Pool,
+		ValidUntil: attachment.ValidUntil,
+		Signature:  attachment.Signature,
+	}
+	if detachment.ValidSignature(hostKey.PublicKey()) {
+		t.Fatal("expected attach signature to be invalid as a detach signature")
+	}
+}
+
+func TestPoolDetachmentSignature(t *testing.T) {
+	hostKey := types.GeneratePrivateKey()
+	otherHostKey := types.GeneratePrivateKey()
+	poolKey := types.GeneratePrivateKey()
+	accountKey := types.GeneratePrivateKey()
+	unrelatedKey := types.GeneratePrivateKey()
+
+	base := PoolDetachment{
+		Account:    Account(accountKey.PublicKey()),
+		Pool:       Account(poolKey.PublicKey()),
+		ValidUntil: time.Now().Add(5 * time.Minute),
+	}
+
+	// either the pool's or the account's private key may authorize a detachment.
+	signedByPool := base
+	signedByPool.Signature = poolKey.SignHash(signedByPool.SigHash(hostKey.PublicKey()))
+	if !signedByPool.ValidSignature(hostKey.PublicKey()) {
+		t.Fatal("expected pool-signed detachment to be valid")
+	}
+
+	signedByAccount := base
+	signedByAccount.Signature = accountKey.SignHash(signedByAccount.SigHash(hostKey.PublicKey()))
+	if !signedByAccount.ValidSignature(hostKey.PublicKey()) {
+		t.Fatal("expected account-signed detachment to be valid")
+	}
+
+	signedByOther := base
+	signedByOther.Signature = unrelatedKey.SignHash(signedByOther.SigHash(hostKey.PublicKey()))
+	if signedByOther.ValidSignature(hostKey.PublicKey()) {
+		t.Fatal("expected detachment signed by unrelated key to be invalid")
+	}
+
+	if signedByPool.ValidSignature(otherHostKey.PublicKey()) {
+		t.Fatal("expected signature to be invalid for a different host")
+	}
+
+	tampered := signedByPool
+	tampered.ValidUntil = tampered.ValidUntil.Add(time.Second)
+	if tampered.ValidSignature(hostKey.PublicKey()) {
+		t.Fatal("expected tampered detachment to be invalid")
+	}
+
+	attachment := PoolAttachment{
+		Account:    base.Account,
+		Pool:       base.Pool,
+		ValidUntil: base.ValidUntil,
+		Signature:  signedByPool.Signature,
+	}
+	if attachment.ValidSignature(hostKey.PublicKey()) {
+		t.Fatal("expected detach signature to be invalid as an attach signature")
 	}
 }
 
