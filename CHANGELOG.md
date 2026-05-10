@@ -1,3 +1,19 @@
+## 0.21.0 (2026-05-08)
+
+### Breaking Changes
+
+#### Add RHP4 pool RPCs and types for shared balance pools.
+
+Pools let a renter deposit once into a shared backing pool and have multiple accounts draw from it on demand, reducing the per-account allowance needed and the total capital tied up in idle balances. This is especially useful for multi-tenant setups where one party holds the funds and many account keypairs spend from them.
+
+### Features
+
+- Introduce ErrorCodeClientError for client-side RPC errors.
+
+### Fixes
+
+- Update RangeProofVerifier.ReadFrom to return actual bytes read from io.Reader rather than multiple of subtree size.
+
 ## 0.20.0 (2026-04-21)
 
 ### Breaking Changes
