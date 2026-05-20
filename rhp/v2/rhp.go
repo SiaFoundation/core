@@ -335,7 +335,7 @@ func (hs HostSettings) RPCReadCost(sections []RPCReadRequestSection, proof bool)
 	var bandwidth uint64
 	for _, sec := range sections {
 		switch {
-		case uint64(sec.Offset)+uint64(sec.Length) > SectorSize:
+		case sec.Offset > SectorSize || sec.Length > (SectorSize-sec.Offset):
 			return RPCCost{}, ErrOffsetOutOfBounds
 		case sec.Length == 0:
 			return RPCCost{}, errors.New("length cannot be zero")
@@ -392,7 +392,7 @@ func (hs HostSettings) RPCWriteCost(actions []RPCWriteAction, oldSectors, remain
 			idx, offset := action.A, action.B
 			if idx >= newSectors {
 				return RPCCost{}, ErrUpdateOutOfBounds
-			} else if offset+uint64(len(action.Data)) > SectorSize {
+			} else if offset > SectorSize || uint64(len(action.Data)) > (SectorSize-offset) {
 				return RPCCost{}, ErrOffsetOutOfBounds
 			} else if proof && (offset%LeafSize != 0) || len(action.Data)%LeafSize != 0 {
 				return RPCCost{}, ErrUpdateProofSize

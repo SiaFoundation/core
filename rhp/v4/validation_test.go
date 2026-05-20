@@ -2,6 +2,7 @@ package rhp
 
 import (
 	"errors"
+	"math"
 	"testing"
 	"time"
 
@@ -39,6 +40,35 @@ func TestValidateAccountToken(t *testing.T) {
 	ac.Signature = renterKey.SignHash(ac.SigHash())
 	if err := ac.Validate(hostKey); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestValidateOverflow(t *testing.T) {
+	hostKey := types.GeneratePrivateKey()
+	pk := hostKey.PublicKey()
+	renterKey := types.GeneratePrivateKey()
+	token := NewAccountToken(renterKey, pk)
+	prices := HostPrices{ValidUntil: time.Now().Add(5 * time.Minute)}
+	prices.Signature = hostKey.SignHash(prices.SigHash())
+
+	readReq := RPCReadSectorRequest{Token: token, Prices: prices, Offset: 129, Length: math.MaxUint64}
+	if err := readReq.Validate(pk); err == nil {
+		t.Fatal("expected error for overflowing read sector length")
+	}
+
+	readReq = RPCReadSectorRequest{Token: token, Prices: prices, Offset: math.MaxUint64, Length: 129}
+	if err := readReq.Validate(pk); err == nil {
+		t.Fatal("expected error for overflowing read sector offset")
+	}
+
+	rootsReq := RPCSectorRootsRequest{Prices: prices, Offset: math.MaxUint64, Length: 129}
+	if err := rootsReq.Validate(pk, types.V2FileContract{Filesize: SectorSize * 200}); err == nil {
+		t.Fatal("expected error for overflowing sector roots offset")
+	}
+
+	rootsReq = RPCSectorRootsRequest{Prices: prices, Offset: 1, Length: math.MaxUint64}
+	if err := rootsReq.Validate(pk, types.V2FileContract{Filesize: SectorSize * 200}); err == nil {
+		t.Fatal("expected error for overflowing sector roots length")
 	}
 }
 

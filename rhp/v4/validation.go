@@ -47,7 +47,7 @@ func (req *RPCReadSectorRequest) Validate(hostKey types.PublicKey) error {
 	switch {
 	case req.Length == 0:
 		return rpcBadRequestError("length must be greater than 0")
-	case req.Offset+req.Length > SectorSize:
+	case req.Offset > SectorSize || req.Length > (SectorSize-req.Offset):
 		return rpcBadRequestError("read request exceeds sector bounds")
 	case (req.Offset+req.Length)%LeafSize != 0:
 		return rpcBadRequestError("read request must be segment aligned")
@@ -103,8 +103,8 @@ func (req *RPCSectorRootsRequest) Validate(pk types.PublicKey, fc types.V2FileCo
 	switch {
 	case req.Length == 0:
 		return rpcBadRequestError("length must be greater than 0")
-	case req.Length+req.Offset > contractSectors:
-		return rpcBadRequestError("read request range exceeds contract sectors: %d > %d", req.Length+req.Offset, contractSectors)
+	case req.Offset > contractSectors || req.Length > (contractSectors-req.Offset):
+		return rpcBadRequestError("read request range exceeds contract sectors: %d+%d > %d", req.Offset, req.Length, contractSectors)
 	case req.Length > MaxSectorBatchSize:
 		return rpcBadRequestError("read request range exceeds maximum sectors: %d > %d", req.Length, MaxSectorBatchSize)
 	}
