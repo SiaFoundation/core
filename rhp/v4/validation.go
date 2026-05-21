@@ -2,6 +2,7 @@ package rhp
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"go.sia.tech/core/types"
@@ -118,8 +119,6 @@ func (req *RPCFormContractRequest) Validate(pk types.PublicKey, tip types.ChainI
 	}
 
 	minProofHeight := minProofHeight(tip, req.Prices)
-	maxExpirationHeight := req.Prices.TipHeight + maxDuration
-	expirationHeight := req.Contract.ProofHeight + ProofWindow
 	// validate the request fields
 	switch {
 	case req.MinerFee.IsZero():
@@ -130,13 +129,14 @@ func (req *RPCFormContractRequest) Validate(pk types.PublicKey, tip types.ChainI
 		return rpcBadRequestError("renter inputs must not be empty")
 	case req.Contract.ProofHeight < minProofHeight:
 		return rpcBadRequestError("proof height must be greater than %v", minProofHeight)
-	case expirationHeight > maxExpirationHeight:
-		return rpcBadRequestError("expiration height %v exceeds max expiration height %v", expirationHeight, maxExpirationHeight)
+	case req.Contract.ProofHeight > math.MaxUint64-ProofWindow:
+		return rpcBadRequestError("proof height %v exceeds maximum", req.Contract.ProofHeight)
+	case req.Contract.ProofHeight+ProofWindow-req.Prices.TipHeight > maxDuration:
+		return rpcBadRequestError("contract duration %v exceeds max duration %v", req.Contract.ProofHeight+ProofWindow-req.Prices.TipHeight, maxDuration)
 	}
 
 	// validate the contract fields
 	hp := req.Prices
-	duration := expirationHeight - hp.TipHeight
 	// calculate the minimum allowance required for the contract based on the
 	// host's locked collateral
 	minRenterAllowance := MinRenterAllowance(hp, req.Contract.Collateral)
@@ -146,8 +146,6 @@ func (req *RPCFormContractRequest) Validate(pk types.PublicKey, tip types.ChainI
 		return rpcBadRequestError("allowance must be greater than zero")
 	case req.Contract.Collateral.Cmp(maxCollateral) > 0:
 		return rpcBadRequestError("collateral %v exceeds max collateral %v", req.Contract.Collateral, maxCollateral)
-	case duration > maxDuration:
-		return rpcBadRequestError("contract duration %v exceeds max duration %v", duration, maxDuration)
 	case req.Contract.Allowance.Cmp(minRenterAllowance) < 0:
 		return rpcBadRequestError("allowance %v is less than minimum allowance %v", req.Contract.Allowance, minRenterAllowance)
 	default:
@@ -163,8 +161,6 @@ func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.Chain
 
 	// calculate the minimum proof height for the renewal.
 	minProofHeight := minProofHeight(tip, req.Prices)
-	maxExpirationHeight := req.Prices.TipHeight + maxDuration
-	expirationHeight := req.Renewal.ProofHeight + ProofWindow
 	// validate the request fields
 	switch {
 	case req.MinerFee.IsZero():
@@ -175,13 +171,15 @@ func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.Chain
 		return rpcBadRequestError("renewal proof height must be greater than existing proof height %v", existing.ProofHeight)
 	case req.Renewal.ProofHeight < minProofHeight:
 		return rpcBadRequestError("renewal proof height must be at least %v", minProofHeight)
-	case expirationHeight > maxExpirationHeight:
-		return rpcBadRequestError("renewal expiration height %v exceeds max expiration height %v", expirationHeight, maxExpirationHeight)
+	case req.Renewal.ProofHeight > math.MaxUint64-ProofWindow:
+		return rpcBadRequestError("proof height %v exceeds maximum", req.Renewal.ProofHeight)
+	case req.Renewal.ProofHeight+ProofWindow-req.Prices.TipHeight > maxDuration:
+		return rpcBadRequestError("renewal duration %v exceeds max duration %v", req.Renewal.ProofHeight+ProofWindow-req.Prices.TipHeight, maxDuration)
 	}
 
 	// validate the contract fields
 	hp := req.Prices
-	duration := expirationHeight - hp.TipHeight
+	duration := req.Renewal.ProofHeight + ProofWindow - hp.TipHeight
 	// calculate the minimum allowance required for the contract based on the
 	// host's locked collateral and the contract duration
 	minRenterAllowance := MinRenterAllowance(hp, req.Renewal.Collateral)
@@ -369,5 +367,9 @@ func (req *RPCDetachPoolsRequest) Validate() error {
 // host to accept a contract. This is to ensure the contract
 // has enough time to be confirmed before the proof window begins.
 func minProofHeight(tip types.ChainIndex, hp HostPrices) uint64 {
-	return max(tip.Height, hp.TipHeight) + MinContractDuration
+	height := max(tip.Height, hp.TipHeight)
+	if height > math.MaxUint64-MinContractDuration {
+		return math.MaxUint64
+	}
+	return height + MinContractDuration
 }
