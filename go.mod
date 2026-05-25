@@ -4,8 +4,8 @@ go 1.26.0
 
 require (
 	go.sia.tech/mux v1.5.1
-	golang.org/x/crypto v0.51.0
-	golang.org/x/sys v0.44.0
+	golang.org/x/crypto v0.52.0
+	golang.org/x/sys v0.45.0
 	lukechampine.com/frand v1.5.1
 )
 
