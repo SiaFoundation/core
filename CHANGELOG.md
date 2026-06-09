@@ -1,3 +1,9 @@
+## 0.21.1 (2026-06-09)
+
+### Fixes
+
+- Update go.sia.tech/mux from 1.5.0 to 1.5.1.
+
 ## 0.21.0 (2026-05-08)
 
 ### Breaking Changes
