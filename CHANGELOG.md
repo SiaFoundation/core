@@ -1,3 +1,9 @@
+## 0.21.2 (2026-07-03)
+
+### Features
+
+- Added ErrSectorCorrupt to detect disk corruption.
+
 ## 0.21.1 (2026-06-09)
 
 ### Fixes
