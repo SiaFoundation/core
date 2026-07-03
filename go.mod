@@ -1,4 +1,4 @@
-module go.sia.tech/core // v0.21.1
+module go.sia.tech/core // v0.21.2
 
 go 1.26.0
 
