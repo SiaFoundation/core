@@ -5733,6 +5733,48 @@ func TestValidateV2Siacoins(t *testing.T) {
 			errString: "siacoin input 0 spends nonexistent ephemeral output 0000000000000000000000000000000000000000000000000000000000000000",
 		},
 		{
+			desc: "invalid V2Transaction - spend ephemeral output claiming incorrect value",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// create an ephemeral output worth 1000 SC
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(1000),
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
+
+				// spend it, but claim a larger value than was actually created
+				parent := diff.SiacoinElement
+				parent.SiacoinOutput.Value = types.Siacoins(2000)
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: parent,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiacoinOutputs = []types.SiacoinOutput{
+					{
+						Value:   types.Siacoins(2000),
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siacoin input 0 claims incorrect value",
+		},
+		{
 			desc: "invalid V2Transaction - attempt to spend UTXO not in the Accumulator",
 			mutate: func(ms *MidState, txn *types.V2Transaction) {
 				key := types.GeneratePrivateKey()
@@ -6213,6 +6255,48 @@ func TestValidateV2Siafunds(t *testing.T) {
 				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
 			},
 			errString: "siafund input 0 spends nonexistent ephemeral output 0000000000000000000000000000000000000000000000000000000000000000",
+		},
+		{
+			desc: "invalid V2Transaction - spend ephemeral output claiming incorrect value",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// create an ephemeral output worth 1000 SF
+				spendTxn := types.V2Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value:   1000,
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+
+				// spend it, but claim a larger value than was actually created
+				parent := diff.SiafundElement
+				parent.SiafundOutput.Value = 2000
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						Parent: parent,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiafundOutputs = []types.SiafundOutput{
+					{
+						Value:   2000,
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siafund input 0 claims incorrect value",
 		},
 		{
 			desc: "invalid V2Transaction - attempt to spend UTXO not in the Accumulator",
