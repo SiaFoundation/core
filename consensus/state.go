@@ -91,9 +91,10 @@ type Network struct {
 		FailsafeAddress types.Address `json:"failsafeAddress"`
 	} `json:"hardforkFoundation"`
 	HardforkV2 struct {
-		AllowHeight    uint64 `json:"allowHeight"`
-		RequireHeight  uint64 `json:"requireHeight"`
-		FinalCutHeight uint64 `json:"finalCutHeight"`
+		AllowHeight           uint64 `json:"allowHeight"`
+		RequireHeight         uint64 `json:"requireHeight"`
+		FinalCutHeight        uint64 `json:"finalCutHeight"`
+		EphemeralOutputHeight uint64 `json:"ephemeralOutputHeight"`
 	} `json:"hardforkV2"`
 }
 

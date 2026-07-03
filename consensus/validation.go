@@ -586,7 +586,7 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 		if sci.Parent.StateElement.LeafIndex == types.UnassignedLeafIndex {
 			if j, ok := ms.elements[sci.Parent.ID]; !ok || !ms.sces[j].Created {
 				return fmt.Errorf("siacoin input %v spends nonexistent ephemeral output %v", i, sci.Parent.ID)
-			} else if sci.Parent.SiacoinOutput != ms.sces[j].SiacoinElement.SiacoinOutput {
+			} else if ms.base.childHeight() >= ms.base.Network.HardforkV2.EphemeralOutputHeight && sci.Parent.SiacoinOutput != ms.sces[j].SiacoinElement.SiacoinOutput {
 				return fmt.Errorf("siacoin input %v claims incorrect value (%v) for ephemeral output %v", i, sci.Parent.SiacoinOutput.Value, sci.Parent.ID)
 			}
 		} else if !ms.base.Elements.containsUnspentSiacoinElement(sci.Parent.Share()) {
@@ -652,7 +652,7 @@ func validateV2Siafunds(ms *MidState, txn types.V2Transaction) error {
 		if sfi.Parent.StateElement.LeafIndex == types.UnassignedLeafIndex {
 			if j, ok := ms.elements[sfi.Parent.ID]; !ok || !ms.sfes[j].Created {
 				return fmt.Errorf("siafund input %v spends nonexistent ephemeral output %v", i, sfi.Parent.ID)
-			} else if sfi.Parent.SiafundOutput != ms.sfes[j].SiafundElement.SiafundOutput {
+			} else if ms.base.childHeight() >= ms.base.Network.HardforkV2.EphemeralOutputHeight && sfi.Parent.SiafundOutput != ms.sfes[j].SiafundElement.SiafundOutput {
 				return fmt.Errorf("siafund input %v claims incorrect value (%v) for ephemeral output %v", i, sfi.Parent.SiafundOutput.Value, sfi.Parent.ID)
 			}
 		} else if !ms.base.Elements.containsUnspentSiafundElement(sfi.Parent.Share()) {

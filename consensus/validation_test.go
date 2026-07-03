@@ -40,6 +40,7 @@ func testnet() (*Network, types.Block) {
 	n.HardforkV2.AllowHeight = 1000
 	n.HardforkV2.RequireHeight = 2000
 	n.HardforkV2.FinalCutHeight = 3000
+	n.HardforkV2.EphemeralOutputHeight = 0
 	b := types.Block{Timestamp: n.HardforkOak.GenesisTimestamp}
 	return n, b
 }
@@ -5775,6 +5776,50 @@ func TestValidateV2Siacoins(t *testing.T) {
 			errString: "siacoin input 0 claims incorrect value",
 		},
 		{
+			desc: "valid V2Transaction - ephemeral output value not enforced before EphemeralOutputHeight",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				// gate the check to a height above the one being validated
+				ms.base.Network.HardforkV2.EphemeralOutputHeight = ms.base.childHeight() + 1
+
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// create an ephemeral output worth 1000 SC
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(1000),
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
+
+				// claim a larger value than was created; tolerated before the fork height
+				parent := diff.SiacoinElement
+				parent.SiacoinOutput.Value = types.Siacoins(2000)
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: parent,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiacoinOutputs = []types.SiacoinOutput{
+					{
+						Value:   types.Siacoins(2000),
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+		},
+		{
 			desc: "invalid V2Transaction - attempt to spend UTXO not in the Accumulator",
 			mutate: func(ms *MidState, txn *types.V2Transaction) {
 				key := types.GeneratePrivateKey()
@@ -6297,6 +6342,50 @@ func TestValidateV2Siafunds(t *testing.T) {
 				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
 			},
 			errString: "siafund input 0 claims incorrect value",
+		},
+		{
+			desc: "valid V2Transaction - ephemeral output value not enforced before EphemeralOutputHeight",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				// gate the check to a height above the one being validated
+				ms.base.Network.HardforkV2.EphemeralOutputHeight = ms.base.childHeight() + 1
+
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// create an ephemeral output worth 1000 SF
+				spendTxn := types.V2Transaction{
+					SiafundOutputs: []types.SiafundOutput{
+						{
+							Value:   1000,
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+
+				// claim a larger value than was created; tolerated before the fork height
+				parent := diff.SiafundElement
+				parent.SiafundOutput.Value = 2000
+				txn.SiafundInputs = []types.V2SiafundInput{
+					{
+						Parent: parent,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiafundOutputs = []types.SiafundOutput{
+					{
+						Value:   2000,
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
 		},
 		{
 			desc: "invalid V2Transaction - attempt to spend UTXO not in the Accumulator",
