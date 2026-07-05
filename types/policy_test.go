@@ -374,6 +374,33 @@ func TestPolicyOpaque(t *testing.T) {
 	}
 }
 
+func TestPolicyMaxDepth(t *testing.T) {
+	nested := func(depth int) SpendPolicy {
+		p := PolicyAbove(0)
+		for i := 0; i < depth; i++ {
+			p = PolicyThreshold(1, []SpendPolicy{p})
+		}
+		return p
+	}
+	decode := func(p SpendPolicy) error {
+		var buf bytes.Buffer
+		e := NewEncoder(&buf)
+		p.EncodeTo(e)
+		e.Flush()
+		d := NewBufDecoder(buf.Bytes())
+		var got SpendPolicy
+		got.DecodeFrom(d)
+		return d.Err()
+	}
+
+	if err := decode(nested(maxPolicyDepth)); err != nil {
+		t.Fatalf("policy at max depth should decode: %v", err)
+	}
+	if err := decode(nested(maxPolicyDepth + 1)); err == nil {
+		t.Fatal("policy exceeding max depth should be rejected, not decoded")
+	}
+}
+
 func TestPolicyRoundtrip(t *testing.T) {
 	for _, p := range []SpendPolicy{
 		PolicyAbove(100),

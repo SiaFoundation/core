@@ -3667,6 +3667,32 @@ func TestValidateCurrencyOverflow(t *testing.T) {
 	}
 }
 
+func TestValidateV2CurrencyOverflowRenewalFinalOutputs(t *testing.T) {
+	// Regression: a renewal whose final outputs overflow the currency sum must
+	// be caught by the overflow guard, not panic later in validateV2FileContracts
+	// (which adds the final outputs with the panicking Currency.Add).
+	n, genesisBlock := testnet()
+	_, cs := newConsensusDB(n, genesisBlock)
+	ms := NewMidState(cs)
+
+	txn := types.V2Transaction{
+		FileContractResolutions: []types.V2FileContractResolution{
+			{
+				Resolution: &types.V2FileContractRenewal{
+					FinalRenterOutput: types.SiacoinOutput{Value: types.MaxCurrency},
+					FinalHostOutput:   types.SiacoinOutput{Value: types.MaxCurrency},
+				},
+			},
+		},
+	}
+
+	if err := validateV2CurrencyOverflow(ms, txn); err == nil {
+		t.Fatal("expected overflow error for oversized renewal final outputs")
+	} else if !strings.Contains(err.Error(), "transaction outputs exceed inputs") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestValidateMinimumValues(t *testing.T) {
 	tests := []struct {
 		desc      string
@@ -5820,6 +5846,48 @@ func TestValidateV2Siacoins(t *testing.T) {
 			},
 		},
 		{
+			desc: "invalid V2Transaction - spend ephemeral output claiming incorrect maturity height",
+			mutate: func(ms *MidState, txn *types.V2Transaction) {
+				key := types.GeneratePrivateKey()
+				spendPolicy := types.PolicyPublicKey(key.PublicKey())
+				address := spendPolicy.Address()
+
+				// create an immature ephemeral output worth 1000 SC
+				spendTxn := types.V2Transaction{
+					SiacoinOutputs: []types.SiacoinOutput{
+						{
+							Value:   types.Siacoins(1000),
+							Address: address,
+						},
+					},
+				}
+				diff := ms.createImmatureSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
+
+				// spend it, but claim maturity height 0 to bypass the maturity delay
+				parent := diff.SiacoinElement
+				parent.MaturityHeight = 0
+				txn.SiacoinInputs = []types.V2SiacoinInput{
+					{
+						Parent: parent,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: spendPolicy,
+						},
+					},
+				}
+				txn.SiacoinOutputs = []types.SiacoinOutput{
+					{
+						Value:   types.Siacoins(1000),
+						Address: address,
+					},
+				}
+
+				sigHash := ms.base.InputSigHash(*txn)
+				sig := key.SignHash(sigHash)
+				txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
+			},
+			errString: "siacoin input 0 claims incorrect maturity height",
+		},
+		{
 			desc: "invalid V2Transaction - attempt to spend UTXO not in the Accumulator",
 			mutate: func(ms *MidState, txn *types.V2Transaction) {
 				key := types.GeneratePrivateKey()
@@ -6064,6 +6132,15 @@ func TestValidateV2Siacoins(t *testing.T) {
 	}
 }
 
+// addAccumulatorSiafundElement adds an unspent siafund element to the
+// accumulator and returns it with a valid proof, so it can be spent via the
+// non-ephemeral path.
+func addAccumulatorSiafundElement(ms *MidState, id types.SiafundOutputID, sfo types.SiafundOutput) types.SiafundElement {
+	sfe := types.SiafundElement{ID: id, SiafundOutput: sfo}
+	ms.base.Elements.addLeaves([]elementLeaf{siafundLeaf(&sfe, false)})
+	return sfe
+}
+
 func TestValidateV2Siafunds(t *testing.T) {
 	tests := []struct {
 		desc      string
@@ -6092,11 +6169,11 @@ func TestValidateV2Siafunds(t *testing.T) {
 						},
 					},
 				}
-				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+				sfe := addAccumulatorSiafundElement(ms, txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
 
 				txn.SiafundInputs = []types.V2SiafundInput{
 					{
-						Parent: diff.SiafundElement,
+						Parent: sfe,
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -6194,17 +6271,17 @@ func TestValidateV2Siafunds(t *testing.T) {
 						},
 					},
 				}
-				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+				sfe := addAccumulatorSiafundElement(ms, txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
 
 				txn.SiafundInputs = []types.V2SiafundInput{
 					{
-						Parent: diff.SiafundElement,
+						Parent: sfe,
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: types.PolicyPublicKey(key.PublicKey()),
 						},
 					},
 					{
-						Parent: diff.SiafundElement,
+						Parent: sfe,
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: types.PolicyPublicKey(key.PublicKey()),
 						},
@@ -6302,7 +6379,7 @@ func TestValidateV2Siafunds(t *testing.T) {
 			errString: "siafund input 0 spends nonexistent ephemeral output 0000000000000000000000000000000000000000000000000000000000000000",
 		},
 		{
-			desc: "invalid V2Transaction - spend ephemeral output claiming incorrect value",
+			desc: "invalid V2Transaction - ephemeral siafund spend rejected after SiafundHeight",
 			mutate: func(ms *MidState, txn *types.V2Transaction) {
 				key := types.GeneratePrivateKey()
 				spendPolicy := types.PolicyPublicKey(key.PublicKey())
@@ -6319,12 +6396,11 @@ func TestValidateV2Siafunds(t *testing.T) {
 				}
 				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
 
-				// spend it, but claim a larger value than was actually created
-				parent := diff.SiafundElement
-				parent.SiafundOutput.Value = 2000
+				// spending an ephemeral siafund output is not allowed at or after
+				// SiafundHeight (0 in testnet), regardless of the claimed value
 				txn.SiafundInputs = []types.V2SiafundInput{
 					{
-						Parent: parent,
+						Parent: diff.SiafundElement,
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -6332,7 +6408,7 @@ func TestValidateV2Siafunds(t *testing.T) {
 				}
 				txn.SiafundOutputs = []types.SiafundOutput{
 					{
-						Value:   2000,
+						Value:   1000,
 						Address: address,
 					},
 				}
@@ -6341,12 +6417,12 @@ func TestValidateV2Siafunds(t *testing.T) {
 				sig := key.SignHash(sigHash)
 				txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{sig}
 			},
-			errString: "siafund input 0 claims incorrect value",
+			errString: "siafund input 0 spends ephemeral output",
 		},
 		{
-			desc: "valid V2Transaction - ephemeral output value not enforced before EphemeralOutputHeight",
+			desc: "valid V2Transaction - ephemeral siafund spend permitted before SiafundHeight",
 			mutate: func(ms *MidState, txn *types.V2Transaction) {
-				// gate the check to a height above the one being validated
+				// gate the ban to a height above the one being validated
 				ms.base.Network.HardforkV2.EphemeralOutputHeight = ms.base.childHeight() + 1
 
 				key := types.GeneratePrivateKey()
@@ -6430,11 +6506,11 @@ func TestValidateV2Siafunds(t *testing.T) {
 						},
 					},
 				}
-				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+				sfe := addAccumulatorSiafundElement(ms, txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
 
 				txn.SiafundInputs = []types.V2SiafundInput{
 					{
-						Parent: diff.SiafundElement,
+						Parent: sfe,
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -6469,11 +6545,11 @@ func TestValidateV2Siafunds(t *testing.T) {
 						},
 					},
 				}
-				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+				sfe := addAccumulatorSiafundElement(ms, txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
 
 				txn.SiafundInputs = []types.V2SiafundInput{
 					{
-						Parent: diff.SiafundElement,
+						Parent: sfe,
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -6504,11 +6580,11 @@ func TestValidateV2Siafunds(t *testing.T) {
 						},
 					},
 				}
-				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+				sfe := addAccumulatorSiafundElement(ms, txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
 
 				txn.SiafundInputs = []types.V2SiafundInput{
 					{
-						Parent: diff.SiafundElement,
+						Parent: sfe,
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -6547,11 +6623,11 @@ func TestValidateV2Siafunds(t *testing.T) {
 						},
 					},
 				}
-				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+				sfe := addAccumulatorSiafundElement(ms, txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
 
 				txn.SiafundInputs = []types.V2SiafundInput{
 					{
-						Parent: diff.SiafundElement,
+						Parent: sfe,
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -6586,11 +6662,11 @@ func TestValidateV2Siafunds(t *testing.T) {
 						},
 					},
 				}
-				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
+				sfe := addAccumulatorSiafundElement(ms, txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
 
 				txn.SiafundInputs = []types.V2SiafundInput{
 					{
-						Parent: diff.SiafundElement,
+						Parent: sfe,
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},

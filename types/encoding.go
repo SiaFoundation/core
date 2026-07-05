@@ -1111,6 +1111,10 @@ func (txn *Transaction) DecodeFrom(d *Decoder) {
 	DecodeSlice(d, &txn.Signatures)
 }
 
+// maxPolicyDepth bounds the nesting depth of a decoded SpendPolicy, preventing
+// a maliciously nested policy from exhausting the stack during decoding.
+const maxPolicyDepth = 32
+
 // DecodeFrom implements types.DecoderFrom.
 func (p *SpendPolicy) DecodeFrom(d *Decoder) {
 	const version = 1
@@ -1125,8 +1129,11 @@ func (p *SpendPolicy) DecodeFrom(d *Decoder) {
 		opUnlockConditions
 	)
 
-	var readPolicy func() (SpendPolicy, error)
-	readPolicy = func() (SpendPolicy, error) {
+	var readPolicy func(depth int) (SpendPolicy, error)
+	readPolicy = func(depth int) (SpendPolicy, error) {
+		if depth > maxPolicyDepth {
+			return SpendPolicy{}, fmt.Errorf("policy exceeds maximum nesting depth of %d", maxPolicyDepth)
+		}
 		switch op := d.ReadUint8(); op {
 		case opAbove:
 			return PolicyAbove(d.ReadUint64()), nil
@@ -1145,7 +1152,7 @@ func (p *SpendPolicy) DecodeFrom(d *Decoder) {
 			of := make([]SpendPolicy, d.ReadUint8())
 			var err error
 			for i := range of {
-				if of[i], err = readPolicy(); err != nil {
+				if of[i], err = readPolicy(depth + 1); err != nil {
 					return SpendPolicy{}, err
 				}
 			}
@@ -1168,7 +1175,7 @@ func (p *SpendPolicy) DecodeFrom(d *Decoder) {
 		return
 	}
 	var err error
-	*p, err = readPolicy()
+	*p, err = readPolicy(0)
 	d.SetErr(err)
 }
 

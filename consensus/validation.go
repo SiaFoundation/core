@@ -558,6 +558,8 @@ func validateV2CurrencyOverflow(ms *MidState, txn types.V2Transaction) error {
 	for _, fcr := range txn.FileContractResolutions {
 		if r, ok := fcr.Resolution.(*types.V2FileContractRenewal); ok {
 			addContract(r.NewContract)
+			add(r.FinalRenterOutput.Value)
+			add(r.FinalHostOutput.Value)
 			add(r.RenterRollover)
 			add(r.HostRollover)
 		}
@@ -565,6 +567,32 @@ func validateV2CurrencyOverflow(ms *MidState, txn types.V2Transaction) error {
 	add(txn.MinerFee)
 	if overflow {
 		return errors.New("transaction outputs exceed inputs") // technically true
+	}
+	return nil
+}
+
+func validateEphemeralSiacoinElement(ms *MidState, sci types.V2SiacoinInput) error {
+	j, ok := ms.elements[sci.Parent.ID]
+	if !ok || !ms.sces[j].Created {
+		return fmt.Errorf("spends nonexistent ephemeral output %v", sci.Parent.ID)
+	} else if ms.base.childHeight() < ms.base.Network.HardforkV2.EphemeralOutputHeight {
+		return nil
+	}
+
+	esci := ms.sces[j].SiacoinElement
+	if sci.Parent.SiacoinOutput != esci.SiacoinOutput {
+		return fmt.Errorf("claims incorrect value (%v) for ephemeral output %v", sci.Parent.SiacoinOutput.Value, sci.Parent.ID)
+	} else if sci.Parent.MaturityHeight != esci.MaturityHeight {
+		return fmt.Errorf("claims incorrect maturity height (%v) for ephemeral output %v", sci.Parent.MaturityHeight, sci.Parent.ID)
+	}
+	return nil
+}
+
+func validateV2SpendPolicy(ms *MidState, sigHash types.Hash256, sp types.SatisfiedPolicy, parentAddress types.Address, parentID types.Hash256) error {
+	if sp.Policy.Address() != parentAddress {
+		return errors.New("claims incorrect policy for parent address")
+	} else if err := sp.Policy.Verify(ms.base.Index.Height, ms.base.medianTimestamp(), sigHash, sp.Signatures, sp.Preimages); err != nil {
+		return fmt.Errorf("(id: %v) failed to satisfy spend policy (height: %v, signatures: %v, preimages: %v): %w", parentID, ms.base.Index.Height, len(sp.Signatures), len(sp.Preimages), err)
 	}
 	return nil
 }
@@ -584,10 +612,8 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 
 		// check accumulator
 		if sci.Parent.StateElement.LeafIndex == types.UnassignedLeafIndex {
-			if j, ok := ms.elements[sci.Parent.ID]; !ok || !ms.sces[j].Created {
-				return fmt.Errorf("siacoin input %v spends nonexistent ephemeral output %v", i, sci.Parent.ID)
-			} else if ms.base.childHeight() >= ms.base.Network.HardforkV2.EphemeralOutputHeight && sci.Parent.SiacoinOutput != ms.sces[j].SiacoinElement.SiacoinOutput {
-				return fmt.Errorf("siacoin input %v claims incorrect value (%v) for ephemeral output %v", i, sci.Parent.SiacoinOutput.Value, sci.Parent.ID)
+			if err := validateEphemeralSiacoinElement(ms, sci); err != nil {
+				return fmt.Errorf("siacoin input %v %w", i, err)
 			}
 		} else if !ms.base.Elements.containsUnspentSiacoinElement(sci.Parent.Share()) {
 			if ms.base.Elements.containsSpentSiacoinElement(sci.Parent.Share()) {
@@ -597,11 +623,8 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 		}
 
 		// check spend policy
-		sp := sci.SatisfiedPolicy
-		if sp.Policy.Address() != sci.Parent.SiacoinOutput.Address {
-			return fmt.Errorf("siacoin input %v claims incorrect policy for parent address", i)
-		} else if err := sp.Policy.Verify(ms.base.Index.Height, ms.base.medianTimestamp(), sigHash, sp.Signatures, sp.Preimages); err != nil {
-			return fmt.Errorf("siacoin input %v (scoid: %v) failed to satisfy spend policy (height: %v, signatures: %v, preimages: %v): %w", i, sci.Parent.ID, ms.base.Index.Height, len(sp.Signatures), len(sp.Preimages), err)
+		if err := validateV2SpendPolicy(ms, sigHash, sci.SatisfiedPolicy, sci.Parent.SiacoinOutput.Address, types.Hash256(sci.Parent.ID)); err != nil {
+			return fmt.Errorf("siacoin input %v %w", i, err)
 		}
 	}
 
@@ -637,6 +660,15 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 	return nil
 }
 
+func validateEphemeralSiafundElement(ms *MidState, sfi types.V2SiafundInput) error {
+	if j, ok := ms.elements[sfi.Parent.ID]; !ok || !ms.sfes[j].Created {
+		return fmt.Errorf("spends nonexistent ephemeral output %v", sfi.Parent.ID)
+	} else if ms.base.childHeight() >= ms.base.Network.HardforkV2.EphemeralOutputHeight {
+		return fmt.Errorf("spends ephemeral output %v", sfi.Parent.ID)
+	}
+	return nil
+}
+
 func validateV2Siafunds(ms *MidState, txn types.V2Transaction) error {
 	sigHash := ms.base.InputSigHash(txn)
 	spent := make(map[types.SiafundOutputID]int)
@@ -650,10 +682,8 @@ func validateV2Siafunds(ms *MidState, txn types.V2Transaction) error {
 
 		// check accumulator
 		if sfi.Parent.StateElement.LeafIndex == types.UnassignedLeafIndex {
-			if j, ok := ms.elements[sfi.Parent.ID]; !ok || !ms.sfes[j].Created {
-				return fmt.Errorf("siafund input %v spends nonexistent ephemeral output %v", i, sfi.Parent.ID)
-			} else if ms.base.childHeight() >= ms.base.Network.HardforkV2.EphemeralOutputHeight && sfi.Parent.SiafundOutput != ms.sfes[j].SiafundElement.SiafundOutput {
-				return fmt.Errorf("siafund input %v claims incorrect value (%v) for ephemeral output %v", i, sfi.Parent.SiafundOutput.Value, sfi.Parent.ID)
+			if err := validateEphemeralSiafundElement(ms, sfi); err != nil {
+				return fmt.Errorf("siafund input %v %w", i, err)
 			}
 		} else if !ms.base.Elements.containsUnspentSiafundElement(sfi.Parent.Share()) {
 			if ms.base.Elements.containsSpentSiafundElement(sfi.Parent.Share()) {
@@ -663,11 +693,8 @@ func validateV2Siafunds(ms *MidState, txn types.V2Transaction) error {
 		}
 
 		// check spend policy
-		sp := sfi.SatisfiedPolicy
-		if sp.Policy.Address() != sfi.Parent.SiafundOutput.Address {
-			return fmt.Errorf("siafund input %v claims incorrect policy for parent address", i)
-		} else if err := sp.Policy.Verify(ms.base.Index.Height, ms.base.medianTimestamp(), sigHash, sp.Signatures, sp.Preimages); err != nil {
-			return fmt.Errorf("siafund input %v (scoid: %v) failed to satisfy spend policy (height: %v, signatures: %v, preimages: %v): %w", i, sfi.Parent.ID, ms.base.Index.Height, len(sp.Signatures), len(sp.Preimages), err)
+		if err := validateV2SpendPolicy(ms, sigHash, sfi.SatisfiedPolicy, sfi.Parent.SiafundOutput.Address, types.Hash256(sfi.Parent.ID)); err != nil {
+			return fmt.Errorf("siafund input %v %w", i, err)
 		}
 	}
 
