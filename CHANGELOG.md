@@ -1,3 +1,9 @@
+## 0.21.4 (2026-07-05)
+
+### Fixes
+
+- Added limit to recursive spend policies.
+
 ## 0.21.3 (2026-07-03)
 
 ### Fixes
