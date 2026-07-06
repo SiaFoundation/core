@@ -62,10 +62,6 @@ func validateMinerPayouts(s State, b types.Block) error {
 		if len(b.MinerPayouts) != 1 {
 			return errors.New("block must have exactly one miner payout")
 		}
-		// after the final cut, the miner payout value may be omitted
-		if s.childHeight() >= s.Network.HardforkV2.FinalCutHeight && b.MinerPayouts[0].Value.IsZero() {
-			return nil
-		}
 	}
 
 	var sum types.Currency
@@ -540,6 +536,10 @@ func validateV2CurrencyOverflow(ms *MidState, txn types.V2Transaction) error {
 		add(fc.HostOutput.Value)
 		add(fc.MissedHostValue)
 		add(fc.TotalCollateral)
+		if _, taxOverflow := fc.RenterOutput.Value.AddWithOverflow(fc.HostOutput.Value); taxOverflow {
+			overflow = true
+			return
+		}
 		add(ms.base.V2FileContractTax(fc))
 	}
 
@@ -573,14 +573,16 @@ func validateV2CurrencyOverflow(ms *MidState, txn types.V2Transaction) error {
 
 func validateEphemeralSiacoinElement(ms *MidState, sci types.V2SiacoinInput) error {
 	j, ok := ms.elements[sci.Parent.ID]
-	if !ok || !ms.sces[j].Created {
+	if !ok || j >= len(ms.sces) || !ms.sces[j].Created {
 		return fmt.Errorf("spends nonexistent ephemeral output %v", sci.Parent.ID)
 	} else if ms.base.childHeight() < ms.base.Network.HardforkV2.EphemeralOutputHeight {
 		return nil
 	}
 
 	esci := ms.sces[j].SiacoinElement
-	if sci.Parent.SiacoinOutput != esci.SiacoinOutput {
+	if sci.Parent.ID != esci.ID {
+		return fmt.Errorf("spends nonexistent ephemeral output %v", sci.Parent.ID)
+	} else if sci.Parent.SiacoinOutput != esci.SiacoinOutput {
 		return fmt.Errorf("claims incorrect value (%v) for ephemeral output %v", sci.Parent.SiacoinOutput.Value, sci.Parent.ID)
 	} else if sci.Parent.MaturityHeight != esci.MaturityHeight {
 		return fmt.Errorf("claims incorrect maturity height (%v) for ephemeral output %v", sci.Parent.MaturityHeight, sci.Parent.ID)
@@ -661,7 +663,7 @@ func validateV2Siacoins(ms *MidState, txn types.V2Transaction) error {
 }
 
 func validateEphemeralSiafundElement(ms *MidState, sfi types.V2SiafundInput) error {
-	if j, ok := ms.elements[sfi.Parent.ID]; !ok || !ms.sfes[j].Created {
+	if j, ok := ms.elements[sfi.Parent.ID]; !ok || j >= len(ms.sfes) || !ms.sfes[j].Created {
 		return fmt.Errorf("spends nonexistent ephemeral output %v", sfi.Parent.ID)
 	} else if ms.base.childHeight() >= ms.base.Network.HardforkV2.EphemeralOutputHeight {
 		return fmt.Errorf("spends ephemeral output %v", sfi.Parent.ID)
@@ -782,6 +784,8 @@ func validateV2FileContracts(ms *MidState, txn types.V2Transaction) error {
 			return fmt.Errorf("modifies output sum (%v -> %v)", curOutputSum, revOutputSum)
 		case rev.MissedHostValue.Cmp(cur.MissedHostValue) > 0:
 			return fmt.Errorf("has missed host value (%v) exceeding old value (%v)", rev.MissedHostValue, cur.MissedHostValue)
+		case ms.base.childHeight() >= ms.base.Network.HardforkV2.EphemeralOutputHeight && rev.MissedHostValue.Cmp(rev.HostOutput.Value) > 0:
+			return fmt.Errorf("has missed host value (%v) exceeding valid host value (%v)", rev.MissedHostValue, rev.HostOutput.Value)
 		case rev.TotalCollateral != cur.TotalCollateral:
 			return errors.New("modifies total collateral")
 		case rev.ProofHeight < ms.base.childHeight():

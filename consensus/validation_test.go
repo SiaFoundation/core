@@ -2513,15 +2513,15 @@ func TestValidateFinalCutMinerPayout(t *testing.T) {
 	if err := ValidateOrphan(cs, b); err != nil {
 		t.Fatal(err)
 	}
-	// omit payout value; should fail below final cut height
+	// a zero-value (omitted) payout is rejected below the final cut height
 	b.MinerPayouts[0].Value = types.ZeroCurrency
 	if err := ValidateOrphan(cs, b); err == nil || !strings.Contains(err.Error(), "miner payout has zero value") {
 		t.Fatal(err)
 	}
-	// after final cut height, should succeed
+	// ...and remains rejected at and after the final cut height
 	cs.Index.Height++
 	b.V2.Height++
-	if err := ValidateOrphan(cs, b); err != nil {
+	if err := ValidateOrphan(cs, b); err == nil || !strings.Contains(err.Error(), "miner payout has zero value") {
 		t.Fatal(err)
 	}
 }
@@ -2873,7 +2873,7 @@ func TestValidateMinerPayouts(t *testing.T) {
 			errString: "miner payout has zero value",
 		},
 		{
-			desc: "valid V2 block - V2 block with 0 value MinerPayout after FinalCutHeight",
+			desc: "invalid V2 block - V2 block with 0 value MinerPayout after FinalCutHeight",
 			mutate: func(b *types.Block, s *State) {
 				b.MinerPayouts = []types.SiacoinOutput{
 					{
@@ -2882,6 +2882,7 @@ func TestValidateMinerPayouts(t *testing.T) {
 				}
 				s.Network.HardforkV2.FinalCutHeight = 1
 			},
+			errString: "miner payout has zero value",
 		},
 		{
 			desc: "invalid V2 block - V2 block miner payouts too low before FinalCutHeight",

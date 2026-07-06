@@ -293,12 +293,13 @@ func DecodeSlice[T any, DF interface {
 		d.SetErr(fmt.Errorf("encoded object contains invalid length prefix (%v elems > %v bytes left in stream)", n, d.lr.N))
 		return
 	}
-	*s = make([]T, n)
-	for i := range *s {
-		DF(&(*s)[i]).DecodeFrom(d)
+	for range n {
+		var v T
+		DF(&v).DecodeFrom(d)
 		if d.Err() != nil {
-			break
+			return
 		}
+		*s = append(*s, v)
 	}
 }
 
@@ -320,12 +321,13 @@ func DecodeSliceFn[T any](d *Decoder, s *[]T, fn func(*Decoder) T) {
 		d.SetErr(fmt.Errorf("encoded object contains invalid length prefix (%v elems > %v bytes left in stream)", n, d.lr.N))
 		return
 	}
-	*s = make([]T, n)
-	for i := range *s {
-		(*s)[i] = fn(d)
+	*s = make([]T, 0, min(n, 1024))
+	for i := uint64(0); i < n; i++ {
+		v := fn(d)
 		if d.Err() != nil {
-			break
+			return
 		}
+		*s = append(*s, v)
 	}
 }
 
@@ -1302,6 +1304,7 @@ func (res *V2FileContractResolution) DecodeFrom(d *Decoder) {
 		res.Resolution = new(V2FileContractExpiration)
 	default:
 		d.SetErr(fmt.Errorf("unknown resolution type %d", t))
+		return
 	}
 	res.Resolution.(DecoderFrom).DecodeFrom(d)
 }
