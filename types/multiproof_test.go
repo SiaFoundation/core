@@ -99,7 +99,11 @@ func multiproofTxns(numTxns int, numElems int) []types.V2Transaction {
 
 func TestMultiproofEncoding(t *testing.T) {
 	for _, n := range []int{0, 1, 2, 10} {
-		b := types.V2BlockData{Transactions: multiproofTxns(n, n)}
+		txns := multiproofTxns(n, n)
+		if len(txns) == 0 {
+			txns = nil // DecodeSlice leaves empty slices nil
+		}
+		b := types.V2BlockData{Transactions: txns}
 		// placate reflect.DeepEqual
 		for i := range b.Transactions {
 			var buf bytes.Buffer

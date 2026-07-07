@@ -293,14 +293,16 @@ func DecodeSlice[T any, DF interface {
 		d.SetErr(fmt.Errorf("encoded object contains invalid length prefix (%v elems > %v bytes left in stream)", n, d.lr.N))
 		return
 	}
+	var items []T
 	for range n {
 		var v T
 		DF(&v).DecodeFrom(d)
 		if d.Err() != nil {
 			return
 		}
-		*s = append(*s, v)
+		items = append(items, v)
 	}
+	*s = items
 }
 
 // DecodeSliceCast decodes a length-prefixed slice of type T, casting through
@@ -321,14 +323,15 @@ func DecodeSliceFn[T any](d *Decoder, s *[]T, fn func(*Decoder) T) {
 		d.SetErr(fmt.Errorf("encoded object contains invalid length prefix (%v elems > %v bytes left in stream)", n, d.lr.N))
 		return
 	}
-	*s = make([]T, 0, min(n, 1024))
+	var items []T
 	for i := uint64(0); i < n; i++ {
 		v := fn(d)
 		if d.Err() != nil {
 			return
 		}
-		*s = append(*s, v)
+		items = append(items, v)
 	}
+	*s = items
 }
 
 // NewBufDecoder returns a Decoder for the provided byte slice.
