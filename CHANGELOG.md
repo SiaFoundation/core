@@ -1,3 +1,9 @@
+## 0.21.6 (2026-07-08)
+
+### Fixes
+
+- Fixed validation overflows crashing peers.
+
 ## 0.21.4 (2026-07-05)
 
 ### Fixes
