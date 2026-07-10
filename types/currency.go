@@ -132,8 +132,8 @@ func (c Currency) MulWithOverflow(v Currency) (Currency, bool) {
 	p0, p1 := bits.Mul64(c.Hi, v.Lo)
 	p2, p3 := bits.Mul64(c.Lo, v.Hi)
 	hi, c0 := bits.Add64(hi, p1, 0)
-	hi, c1 := bits.Add64(hi, p3, c0)
-	return Currency{lo, hi}, (c.Hi != 0 && v.Hi != 0) || p0 != 0 || p2 != 0 || c1 != 0
+	hi, c1 := bits.Add64(hi, p3, 0)
+	return Currency{lo, hi}, (c.Hi != 0 && v.Hi != 0) || p0 != 0 || p2 != 0 || c0 != 0 || c1 != 0
 }
 
 // Mul64 returns c*v. If the result would overflow, Mul64 panics.
