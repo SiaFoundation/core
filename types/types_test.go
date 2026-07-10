@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"math"
+	"math/big"
 	"strings"
 	"testing"
 
@@ -390,6 +391,14 @@ func TestCurrencyMulWithOverflow(t *testing.T) {
 			NewCurrency(1, 0),
 			true,
 		},
+		{
+			// carry out of the middle-word addition (product is 129 bits): the
+			// overflow must be reported and the low 128 bits must be correct
+			NewCurrency(0x38651f13a91604f7, 1),
+			NewCurrency(0xffffffffffffffff, 0),
+			NewCurrency(0xc79ae0ec56e9fb09, 0x38651f13a91604f5),
+			true,
+		},
 	}
 	for _, tt := range tests {
 		got, overflows := tt.a.MulWithOverflow(tt.b)
@@ -397,6 +406,21 @@ func TestCurrencyMulWithOverflow(t *testing.T) {
 			t.Errorf("Currency.MulWithOverflow(%d, %d) overflow %t, want %t", tt.a, tt.b, overflows, tt.overflows)
 		} else if !got.Equals(tt.want) {
 			t.Errorf("Currency.MulWithOverflow(%d, %d) expected = %v, got %v", tt.a, tt.b, tt.want, got)
+		}
+	}
+}
+
+func TestCurrencyMulWithOverflowFuzz(t *testing.T) {
+	max128 := new(big.Int).Lsh(big.NewInt(1), 128)
+	for i := 0; i < 1e6; i++ {
+		a := NewCurrency(frand.Uint64n(math.MaxUint64), uint64(frand.Intn(256)))
+		b := NewCurrency(frand.Uint64n(math.MaxUint64), uint64(frand.Intn(256)))
+		got, overflows := a.MulWithOverflow(b)
+		prod := new(big.Int).Mul(a.Big(), b.Big())
+		if want := prod.Cmp(max128) >= 0; overflows != want {
+			t.Fatalf("MulWithOverflow(%d, %d) overflow %t, want %t", a, b, overflows, want)
+		} else if !want && got.Big().Cmp(prod) != 0 {
+			t.Fatalf("MulWithOverflow(%d, %d) = %v, want %v", a, b, got, prod)
 		}
 	}
 }
