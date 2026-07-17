@@ -1,3 +1,9 @@
+## 0.21.7 (2026-07-17)
+
+### Fixes
+
+- Fix overflow bug in Currency.MulWithOverflow
+
 ## 0.21.6 (2026-07-08)
 
 ### Fixes
