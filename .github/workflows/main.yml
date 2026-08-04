@@ -10,3 +10,25 @@ jobs:
     uses: SiaFoundation/workflows/.github/workflows/go-test.yml@dddded471aae1c7b6f0fbc388d603b8b16336f6f # master
     with:
       try-build: false
+
+  # blake2b_simd_amd64.go only builds under GOEXPERIMENT=simd, and the shared
+  # go-test.yml above exposes no way to set it. Without this job the AVX2 paths
+  # would never be compiled, and the tests would pass by comparing the generic
+  # implementation against itself. Fold this back into the shared workflow once
+  # the experiment is the default.
+  test-simd:
+    name: Test (GOEXPERIMENT=simd)
+    runs-on: ubuntu-latest
+    env:
+      GOEXPERIMENT: simd
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v6.0.0
+        with:
+          go-version: "1.26"
+      # the AVX2 paths are chosen at runtime, so a runner without AVX2 would
+      # silently fall back to the generic implementation and test nothing
+      - name: Require AVX2
+        run: grep -q '\bavx2\b' /proc/cpuinfo || { echo "runner lacks AVX2"; exit 1; }
+      - name: Test
+        run: go test -race ./...
