@@ -789,26 +789,26 @@ func (d *PoolDetachment) ValidSignature(hostKey types.PublicKey) bool {
 // NewContract creates a new file contract with the given settings.
 func NewContract(p HostPrices, cp RPCFormContractParams, hostKey types.PublicKey, hostAddress types.Address) (types.V2FileContract, Usage) {
 	return types.V2FileContract{
-			Filesize:         0,
-			FileMerkleRoot:   types.Hash256{},
-			ProofHeight:      cp.ProofHeight,
-			ExpirationHeight: cp.ProofHeight + ProofWindow,
-			RenterOutput: types.SiacoinOutput{
-				Value:   cp.Allowance,
-				Address: cp.RenterAddress,
-			},
-			HostOutput: types.SiacoinOutput{
-				Value:   cp.Collateral.Add(p.ContractPrice),
-				Address: hostAddress,
-			},
-			MissedHostValue: cp.Collateral,
-			TotalCollateral: cp.Collateral,
-			RenterPublicKey: cp.RenterPublicKey,
-			HostPublicKey:   hostKey,
-			RevisionNumber:  0,
-		}, Usage{
-			RPC: p.ContractPrice,
-		}
+		Filesize:         0,
+		FileMerkleRoot:   types.Hash256{},
+		ProofHeight:      cp.ProofHeight,
+		ExpirationHeight: cp.ProofHeight + ProofWindow,
+		RenterOutput: types.SiacoinOutput{
+			Value:   cp.Allowance,
+			Address: cp.RenterAddress,
+		},
+		HostOutput: types.SiacoinOutput{
+			Value:   cp.Collateral.Add(p.ContractPrice),
+			Address: hostAddress,
+		},
+		MissedHostValue: cp.Collateral,
+		TotalCollateral: cp.Collateral,
+		RenterPublicKey: cp.RenterPublicKey,
+		HostPublicKey:   hostKey,
+		RevisionNumber:  0,
+	}, Usage{
+		RPC: p.ContractPrice,
+	}
 }
 
 // ContractCost calculates the cost to the host and renter for forming a contract.
