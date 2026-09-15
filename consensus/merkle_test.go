@@ -191,35 +191,113 @@ func TestUpdateProofPermutations(t *testing.T) {
 	}
 }
 
-func TestUpdateJSONLeafOrder(t *testing.T) {
-	leaves := testElementLeaves(8)
-	_, proofs := referenceElementAccumulator(leaves)
-	for i := range leaves {
-		leaves[i].MerkleProof = proofs[i]
-	}
-	slices.Reverse(leaves)
-	b, err := json.Marshal(applyUpdateJSON{UpdatedLeaves: map[int][]elementLeaf{3: leaves}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var au ApplyUpdate
-	var ru RevertUpdate
-	if err := au.UnmarshalJSON(b); err != nil {
-		t.Fatal(err)
-	} else if err := ru.UnmarshalJSON(b); err != nil {
-		t.Fatal(err)
-	}
-	for _, updated := range []*[64][]elementLeaf{&au.eau.updated, &ru.eru.updated} {
-		for i, leaf := range updated[3] {
-			if leaf.LeafIndex != uint64(i) {
-				t.Fatal("decoded updated leaves are not sorted")
-			}
-			e := types.StateElement{LeafIndex: uint64(i), MerkleProof: make([]types.Hash256, 3)}
-			updateProof(&e, updated)
-			if !slices.Equal(e.MerkleProof, proofs[i]) {
-				t.Fatalf("incorrect proof for decoded leaf %v", i)
-			}
+func TestUpdateJSONProofs(t *testing.T) {
+	const initial = 13
+	coins := make([]types.SiacoinElement, 19)
+	leaves := make([]elementLeaf, 20)
+	for i := range coins {
+		coins[i] = types.SiacoinElement{
+			ID:            types.SiacoinOutputID{byte(i)},
+			StateElement:  types.StateElement{LeafIndex: uint64(i)},
+			SiacoinOutput: types.SiacoinOutput{Value: types.NewCurrency64(uint64(i + 1))},
 		}
+		leaves[i] = siacoinLeaf(&coins[i], false)
+	}
+	au := ApplyUpdate{cie: types.ChainIndexElement{
+		StateElement: types.StateElement{LeafIndex: 19},
+		ID:           types.BlockID{0xCC},
+		ChainIndex:   types.ChainIndex{Height: 42, ID: types.BlockID{0xCC}},
+	}}
+	ru := RevertUpdate{cie: au.cie.Copy()}
+	leaves[19] = chainIndexLeaf(&au.cie)
+	before, oldProofs := referenceElementAccumulator(leaves[:initial])
+	for _, i := range []int{12, 10, 6, 1, 13, 14, 15, 16, 17, 18} {
+		if i < initial {
+			coins[i].StateElement.MerkleProof = slices.Clone(oldProofs[i])
+		}
+		au.sces = append(au.sces, SiacoinElementDiff{SiacoinElement: coins[i].Copy(), Created: i >= initial, Spent: i < initial})
+		ru.sces = append(ru.sces, SiacoinElementDiff{SiacoinElement: coins[i].Copy(), Created: i >= initial, Spent: i < initial})
+	}
+	var updated, reverted []elementLeaf
+	for i := range au.sces {
+		leaf := siacoinLeaf(&au.sces[i].SiacoinElement, au.sces[i].Spent)
+		leaves[leaf.LeafIndex] = leaf
+		if leaf.LeafIndex < initial {
+			updated = append(updated, leaf)
+			reverted = append(reverted, siacoinLeaf(&ru.sces[i].SiacoinElement, false))
+		}
+	}
+	_, proofs := referenceElementAccumulator(leaves)
+	acc := before
+	au.eau = acc.applyBlock(updated, leaves[initial:])
+	ru.eru = before.revertBlock(reverted, nil)
+	for _, test := range []struct {
+		name            string
+		update, decoded interface{ UpdateElementProof(*types.StateElement) }
+		from, to        [][]types.Hash256
+	}{
+		{"apply", au, &ApplyUpdate{}, oldProofs, proofs},
+		{"revert", ru, &RevertUpdate{}, proofs, oldProofs},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			b, err := json.Marshal(test.update)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Neither the public diffs nor the legacy leaf groups are required
+			// to arrive in sorted order.
+			var wire map[string]json.RawMessage
+			if err := json.Unmarshal(b, &wire); err != nil {
+				t.Fatal(err)
+			}
+			var diffs []json.RawMessage
+			var groups map[int][]json.RawMessage
+			if err := json.Unmarshal(wire["siacoinElements"], &diffs); err != nil {
+				t.Fatal(err)
+			} else if err := json.Unmarshal(wire["updatedLeaves"], &groups); err != nil {
+				t.Fatal(err)
+			}
+			slices.Reverse(diffs)
+			for _, group := range groups {
+				slices.Reverse(group)
+			}
+			wire["siacoinElements"], _ = json.Marshal(diffs)
+			wire["updatedLeaves"], _ = json.Marshal(groups)
+			b, err = json.Marshal(wire)
+			if err != nil {
+				t.Fatal(err)
+			} else if err := json.Unmarshal(b, test.decoded); err != nil {
+				t.Fatal(err)
+			}
+			var decodedGroups [64][]elementLeaf
+			switch decoded := test.decoded.(type) {
+			case *ApplyUpdate:
+				decodedGroups = decoded.eau.updated
+			case *RevertUpdate:
+				decodedGroups = decoded.eru.updated
+			}
+			for _, group := range decodedGroups {
+				for i := 1; i < len(group); i++ {
+					if group[i-1].LeafIndex >= group[i].LeafIndex {
+						t.Fatal("decoded updated leaves are not sorted")
+					}
+				}
+			}
+			// Include unchanged neighbors: repairing their proofs requires the
+			// updated leaf's hash, whereas updated leaves can just copy a proof.
+			for i := range initial {
+				e := types.StateElement{LeafIndex: uint64(i), MerkleProof: slices.Clone(test.from[i])}
+				original := e.Copy()
+				test.update.UpdateElementProof(&original)
+				if !slices.Equal(original.MerkleProof, test.to[i]) {
+					t.Fatalf("incorrect proof for leaf %v before JSON roundtrip", i)
+				}
+				test.decoded.UpdateElementProof(&e)
+				if !slices.Equal(e.MerkleProof, test.to[i]) {
+					t.Fatalf("incorrect proof for leaf %v after JSON roundtrip", i)
+				}
+			}
+		})
 	}
 }
 
