@@ -1,10 +1,12 @@
 package consensus
 
 import (
+	"cmp"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"math/bits"
+	"slices"
 	"sort"
 
 	"go.sia.tech/core/blake2b"
@@ -19,6 +21,12 @@ func mergeHeight(x, y uint64) int { return bits.Len64(x ^ y) }
 
 // clearBits clears the n least significant bits of x.
 func clearBits(x uint64, n int) uint64 { return x &^ (1<<n - 1) }
+
+func sortLeaves(leaves []elementLeaf) {
+	slices.SortFunc(leaves, func(a, b elementLeaf) int {
+		return cmp.Compare(a.LeafIndex, b.LeafIndex)
+	})
+}
 
 func proofRoot(leafHash types.Hash256, leafIndex uint64, proof []types.Hash256) types.Hash256 {
 	root := leafHash
@@ -251,14 +259,16 @@ func (acc *ElementAccumulator) ValidateTransactionElements(txn types.V2Transacti
 // Merkle proofs and returning the new node hashes that extend each existing
 // tree.
 func (acc *ElementAccumulator) addLeaves(leaves []elementLeaf) [64][]types.Hash256 {
-	initialLeaves := acc.NumLeaves
 	var treeGrowth [64][]types.Hash256
+	if len(leaves) == 0 {
+		return treeGrowth
+	}
+	initialLeaves := acc.NumLeaves
 	for i, el := range leaves {
 		el.LeafIndex = acc.NumLeaves
 
-		// Walk "up" the Forest, merging trees of the same height, but before
-		// merging two trees, append each of their roots to the proofs under the
-		// opposite tree.
+		// Merge trees of equal height, appending each root to the proofs in
+		// the opposite tree.
 		h := el.hash()
 		for height := range &acc.Trees {
 			if !acc.hasTreeAtHeight(height) {
@@ -267,41 +277,31 @@ func (acc *ElementAccumulator) addLeaves(leaves []elementLeaf) [64][]types.Hash2
 				acc.NumLeaves++
 				break
 			}
-			// Another tree exists at this height. We need to append the root of
-			// the "old" (left-hand) tree to the proofs under the "new"
-			// (right-hand) tree, and vice versa. To do this, we seek backwards
-			// through the proofs, starting from i, such that the first 2^height
-			// proofs we encounter will be under to the right-hand tree, and the
-			// next 2^height proofs will be under to the left-hand tree.
+			// The two trees cover adjacent ranges of 2^height leaves. Clip
+			// those ranges to the leaves added in this call.
 			oldRoot := acc.Trees[height]
-			startOfNewTree := i - 1<<height
-			startOfOldTree := i - 1<<(height+1)
-			j := i
-			for ; j > startOfNewTree && j >= 0; j-- {
-				leaves[j].MerkleProof = append(leaves[j].MerkleProof, oldRoot)
+			start := max(clearBits(el.LeafIndex, height+1), initialLeaves) - initialLeaves
+			mid := max(clearBits(el.LeafIndex, height), initialLeaves) - initialLeaves
+			for _, l := range leaves[start:mid] {
+				l.MerkleProof = append(l.MerkleProof, h)
 			}
-			for ; j > startOfOldTree && j >= 0; j-- {
-				leaves[j].MerkleProof = append(leaves[j].MerkleProof, h)
+			for _, l := range leaves[mid : i+1] {
+				l.MerkleProof = append(l.MerkleProof, oldRoot)
 			}
-			// Record the left- and right-hand roots in treeGrowth, where
-			// applicable.
-			curTreeIndex := (acc.NumLeaves + 1) - 1<<height
-			prevTreeIndex := (acc.NumLeaves + 1) - 1<<(height+1)
-			for bit := range treeGrowth {
-				if initialLeaves&(1<<bit) == 0 {
-					continue
-				}
-				treeStartIndex := clearBits(initialLeaves, bit+1)
-				if treeStartIndex >= curTreeIndex {
-					treeGrowth[bit] = append(treeGrowth[bit], oldRoot)
-				} else if treeStartIndex >= prevTreeIndex {
-					treeGrowth[bit] = append(treeGrowth[bit], h)
-				}
+			// If the left tree contains no added leaves, it is an original
+			// tree. Save its new sibling to begin its proof extension.
+			if mid == 0 {
+				treeGrowth[height] = []types.Hash256{h}
 			}
-			// Merge with the existing tree at this height. Since we're always
-			// adding leaves on the right-hand side of the tree, the existing
-			// root is always the left-hand sibling.
 			h = blake2b.SumPair(oldRoot, h)
+		}
+	}
+
+	// Every original tree that grew is a left sibling on the first added
+	// leaf's proof path. Above their merge point, they share the same proof.
+	for height, growth := range treeGrowth[:len(leaves[0].MerkleProof)] {
+		if len(growth) > 0 {
+			treeGrowth[height] = append(growth, leaves[0].MerkleProof[height+1:]...)
 		}
 	}
 	return treeGrowth
@@ -309,72 +309,51 @@ func (acc *ElementAccumulator) addLeaves(leaves []elementLeaf) [64][]types.Hash2
 
 // updateLeaves updates the Merkle proofs of each leaf to reflect the changes in
 // all other leaves, and returns the leaves (grouped by tree) for later use.
-func updateLeaves(leaves []elementLeaf) [64][]elementLeaf {
-	splitLeaves := func(ls []elementLeaf, mid uint64) (left, right []elementLeaf) {
-		split := sort.Search(len(ls), func(i int) bool { return ls[i].LeafIndex >= mid })
-		return ls[:split], ls[split:]
+func updateLeaves(leaves []elementLeaf) (trees [64][]elementLeaf) {
+	var recompute func(height int, leaves []elementLeaf) types.Hash256
+	recompute = func(height int, leaves []elementLeaf) types.Hash256 {
+		first := leaves[0]
+		if len(leaves) == 1 {
+			return proofRoot(first.hash(), first.LeafIndex, first.MerkleProof[:height])
+		}
+
+		// Split at the highest bit where the leaf indices differ. Above
+		// this point, all updated leaves share the same proof path.
+		mh := mergeHeight(first.LeafIndex, leaves[len(leaves)-1].LeafIndex)
+		if mh == 0 {
+			panic("consensus: multiple leaves with same accumulator index")
+		}
+		split := sort.Search(len(leaves), func(i int) bool { return leaves[i].LeafIndex&(1<<(mh-1)) != 0 })
+		left, right := leaves[:split], leaves[split:]
+		leftRoot, rightRoot := recompute(mh-1, left), recompute(mh-1, right)
+		for _, e := range left {
+			e.MerkleProof[mh-1] = rightRoot
+		}
+		for _, e := range right {
+			e.MerkleProof[mh-1] = leftRoot
+		}
+		root := blake2b.SumPair(leftRoot, rightRoot)
+		if mh == height {
+			return root
+		}
+		// Fold in the unchanged siblings above the branching subtree.
+		return proofRoot(root, first.LeafIndex>>mh, first.MerkleProof[mh:height])
 	}
 
-	var recompute func(i, j uint64, leaves []elementLeaf) types.Hash256
-	recompute = func(i, j uint64, leaves []elementLeaf) types.Hash256 {
-		height := bits.TrailingZeros64(j - i) // equivalent to log2(j-i), as j-i is always a power of two
-		if height == 0 {
-			if len(leaves) > 1 {
-				panic("consensus: multiple leaves with same accumulator index")
-			}
-			return leaves[0].hash()
-		}
-		mid := (i + j) / 2
-		left, right := splitLeaves(leaves, mid)
-		var leftRoot, rightRoot types.Hash256
-		if len(left) == 0 {
-			leftRoot = right[0].MerkleProof[height-1]
-		} else {
-			leftRoot = recompute(i, mid, left)
-			for _, e := range right {
-				e.MerkleProof[height-1] = leftRoot
-			}
-		}
-		if len(right) == 0 {
-			rightRoot = left[0].MerkleProof[height-1]
-		} else {
-			rightRoot = recompute(mid, j, right)
-			for _, e := range left {
-				e.MerkleProof[height-1] = rightRoot
-			}
-		}
-		return blake2b.SumPair(leftRoot, rightRoot)
-	}
-
-	// Group leaves by tree, and sort them by leaf index.
-	var trees [64][]elementLeaf
-	sort.Slice(leaves, func(i, j int) bool {
-		if len(leaves[i].MerkleProof) != len(leaves[j].MerkleProof) {
-			return len(leaves[i].MerkleProof) < len(leaves[j].MerkleProof)
-		}
-		return leaves[i].LeafIndex < leaves[j].LeafIndex
-	})
+	// Trees occupy disjoint ranges, so sorting by leaf index also groups the
+	// leaves by tree.
+	sortLeaves(leaves)
 	for len(leaves) > 0 {
-		i := 0
-		for i < len(leaves) && len(leaves[i].MerkleProof) == len(leaves[0].MerkleProof) {
+		height := len(leaves[0].MerkleProof)
+		i := 1
+		for i < len(leaves) && len(leaves[i].MerkleProof) == height {
 			i++
 		}
-		trees[len(leaves[0].MerkleProof)] = leaves[:i]
-		leaves = leaves[i:]
-	}
-
-	// Update the proofs within each tree by recursively recomputing the total
-	// root.
-	for height, leaves := range &trees {
-		if len(leaves) == 0 {
-			continue
+		trees[height] = leaves[:i]
+		if i > 1 {
+			recompute(mergeHeight(leaves[0].LeafIndex, leaves[i-1].LeafIndex), leaves[:i])
 		}
-		// Determine the range of leaf indices that comprise this tree. We can
-		// compute this efficiently by zeroing the least-significant bits of the
-		// leaf index.
-		start := clearBits(leaves[0].LeafIndex, height)
-		end := start + 1<<height
-		_ = recompute(start, end, leaves)
+		leaves = leaves[i:]
 	}
 	return trees
 }
@@ -424,17 +403,17 @@ func (acc *ElementAccumulator) revertBlock(updated, added []elementLeaf) (eru el
 }
 
 func updateProof(e *types.StateElement, updated *[64][]elementLeaf) {
-	// find the "closest" updated object (the one with the lowest mergeHeight)
 	updatedInTree := updated[len(e.MerkleProof)]
 	if len(updatedInTree) == 0 {
 		return
 	}
-	best := updatedInTree[0]
-	for _, ul := range updatedInTree[1:] {
-		if mergeHeight(e.LeafIndex, ul.LeafIndex) < mergeHeight(e.LeafIndex, best.LeafIndex) {
-			best = ul
-		}
+	// The closest updated leaf (lowest mergeHeight) is either the predecessor
+	// or successor of e in leaf-index order.
+	i := sort.Search(len(updatedInTree), func(i int) bool { return updatedInTree[i].LeafIndex >= e.LeafIndex })
+	if i == len(updatedInTree) || i > 0 && mergeHeight(e.LeafIndex, updatedInTree[i-1].LeafIndex) < mergeHeight(e.LeafIndex, updatedInTree[i].LeafIndex) {
+		i--
 	}
+	best := updatedInTree[i]
 
 	if best.LeafIndex == e.LeafIndex {
 		// copy over the updated proof in its entirety

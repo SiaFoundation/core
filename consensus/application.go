@@ -1017,6 +1017,7 @@ func (au *ApplyUpdate) UnmarshalJSON(b []byte) error {
 		numLeaves:    js.NumLeaves,
 	}
 	for i, els := range js.UpdatedLeaves {
+		sortLeaves(els)
 		au.eau.updated[i] = els
 	}
 	for i, els := range js.TreeGrowth {
@@ -1062,6 +1063,7 @@ func (ru *RevertUpdate) UnmarshalJSON(b []byte) error {
 		numLeaves: js.NumLeaves,
 	}
 	for i, els := range js.UpdatedLeaves {
+		sortLeaves(els)
 		ru.eru.updated[i] = els
 	}
 	return nil
