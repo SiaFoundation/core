@@ -2,7 +2,10 @@ package types_test
 
 import (
 	"bytes"
+	"fmt"
 	"reflect"
+	"slices"
+	"sort"
 	"testing"
 	"time"
 
@@ -15,9 +18,13 @@ import (
 // fake Merkle proofs randomly, because they won't share nodes with each other
 // the way they should. This is annoying.
 func multiproofTxns(numTxns int, numElems int) []types.V2Transaction {
+	return multiproofTxnsWithLeaves(numTxns, numElems, 19527)
+}
+
+func multiproofTxnsWithLeaves(numTxns int, numElems int, numLeaves uint64) []types.V2Transaction {
 	// fake accumulator state
 	cs := (&consensus.Network{InitialTarget: types.BlockID{0: 1}, BlockInterval: time.Second}).GenesisState()
-	cs.Elements.NumLeaves = 19527 // arbitrary
+	cs.Elements.NumLeaves = numLeaves
 	for i := range cs.Elements.Trees {
 		cs.Elements.Trees[i] = frand.Entropy256()
 	}
@@ -126,6 +133,124 @@ func TestMultiproofEncoding(t *testing.T) {
 		if !reflect.DeepEqual(b, b2) {
 			t.Fatalf("multiproof encoding of %v txns did not survive roundtrip: expected %v, got %v", n, b, b2)
 		}
+	}
+}
+
+func referenceMultiproofSize(txns []types.V2Transaction) int {
+	var trees [64][]uint64
+	add := func(se types.StateElement) {
+		if se.LeafIndex != types.UnassignedLeafIndex {
+			trees[len(se.MerkleProof)] = append(trees[len(se.MerkleProof)], se.LeafIndex)
+		}
+	}
+	for _, txn := range txns {
+		for _, in := range txn.SiacoinInputs {
+			add(in.Parent.StateElement)
+		}
+		for _, in := range txn.SiafundInputs {
+			add(in.Parent.StateElement)
+		}
+		for _, rev := range txn.FileContractRevisions {
+			add(rev.Parent.StateElement)
+		}
+		for _, res := range txn.FileContractResolutions {
+			add(res.Parent.StateElement)
+			if sp, ok := res.Resolution.(*types.V2StorageProof); ok {
+				add(sp.ProofIndex.StateElement)
+			}
+		}
+	}
+	// Count missing subtrees recursively, independently of the adjacent-index
+	// formula used to size the decoder's proof buffer.
+	var count func(i, j uint64, indices []uint64) int
+	count = func(i, j uint64, indices []uint64) int {
+		if len(indices) == 0 {
+			return 1
+		} else if j-i == 1 {
+			return 0
+		}
+		mid := i + (j-i)/2
+		split := sort.Search(len(indices), func(i int) bool { return indices[i] >= mid })
+		return count(i, mid, indices[:split]) + count(mid, j, indices[split:])
+	}
+	var size int
+	for height, indices := range trees {
+		if len(indices) != 0 {
+			slices.Sort(indices)
+			start := indices[0] &^ (uint64(1)<<height - 1)
+			size += count(start, start+1<<height, indices)
+		}
+	}
+	return size
+}
+
+func TestMultiproofSize(t *testing.T) {
+	rng := frand.NewCustom(make([]byte, 32), 1024, 12)
+	for iteration := range 32 {
+		numLeaves := rng.Uint64n(1 << 62)
+		if iteration%2 != 0 {
+			numLeaves |= 1 << 63
+		} else if iteration == 0 {
+			numLeaves = 1<<63 - 1 // carry into a tree of height 63
+		}
+		t.Run(fmt.Sprint(iteration), func(t *testing.T) {
+			numTxns, numElems := rng.Intn(8)+1, rng.Intn(8)+1
+			if iteration == 0 {
+				numTxns, numElems = 1, 1
+			}
+			txns := multiproofTxnsWithLeaves(numTxns, numElems, numLeaves)
+			if iteration == 0 && len(txns[0].SiacoinInputs[0].Parent.StateElement.MerkleProof) != 63 {
+				t.Fatal("expected a height 63 proof")
+			}
+			// Repeated inputs must not increase the multiproof size.
+			for _, txn := range txns {
+				for _, in := range txn.SiacoinInputs {
+					in.Parent = in.Parent.Copy()
+					txns[0].SiacoinInputs = append(txns[0].SiacoinInputs, in)
+				}
+			}
+			encode := func(v types.EncoderTo) []byte {
+				var buf bytes.Buffer
+				e := types.NewEncoder(&buf)
+				v.EncodeTo(e)
+				if err := e.Flush(); err != nil {
+					t.Fatal(err)
+				}
+				return buf.Bytes()
+			}
+			const marker = uint64(0x0123456789ABCDEF)
+			var buf bytes.Buffer
+			e := types.NewEncoder(&buf)
+			types.V2TransactionsMultiproof(txns).EncodeTo(e)
+			e.WriteUint64(marker)
+			if err := e.Flush(); err != nil {
+				t.Fatal(err)
+			}
+			// The recursive reference count must locate the end of the encoded
+			// proof, and decoding must consume exactly that many hashes.
+			d := types.NewBufDecoder(buf.Bytes())
+			var proofless []types.V2Transaction
+			types.DecodeSlice(d, &proofless)
+			_ = d.ReadUint64() // number of leaves
+			for range referenceMultiproofSize(txns) {
+				var h types.Hash256
+				h.DecodeFrom(d)
+			}
+			if d.ReadUint64() != marker || d.Err() != nil {
+				t.Fatal("reference size disagrees with encoded multiproof")
+			}
+			d = types.NewBufDecoder(buf.Bytes())
+			var decoded types.V2TransactionsMultiproof
+			decoded.DecodeFrom(d)
+			if d.ReadUint64() != marker || d.Err() != nil {
+				t.Fatal("decoder consumed the wrong number of proof hashes")
+			}
+			for i := range txns {
+				if !bytes.Equal(encode(txns[i]), encode(decoded[i])) {
+					t.Fatal("expanded transaction proofs differ from originals")
+				}
+			}
+		})
 	}
 }
 
