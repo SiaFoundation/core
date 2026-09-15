@@ -3,6 +3,7 @@ package rhp
 import (
 	"bytes"
 	"math/bits"
+	"slices"
 	"testing"
 
 	"go.sia.tech/core/types"
@@ -249,6 +250,66 @@ func TestRangeProofVerifierReadFrom(t *testing.T) {
 			}
 			if n != int64(len(data)) {
 				t.Fatalf("expected %d bytes read, got %d", len(data), n)
+			}
+		})
+	}
+}
+
+func TestDiffProof(t *testing.T) {
+	appendSector := RPCWriteAction{Type: RPCWriteActionAppend}
+	trim := func(n uint64) RPCWriteAction { return RPCWriteAction{Type: RPCWriteActionTrim, A: n} }
+	swap := func(i, j uint64) RPCWriteAction { return RPCWriteAction{Type: RPCWriteActionSwap, A: i, B: j} }
+	for _, test := range []struct {
+		name    string
+		initial int
+		actions []RPCWriteAction
+	}{
+		{"empty", 0, nil},
+		{"unchanged", 7, nil},
+		{"append", 7, []RPCWriteAction{appendSector, appendSector, appendSector}},
+		{"swap repeatedly", 8, []RPCWriteAction{swap(2, 6), swap(2, 3), swap(2, 6), swap(1, 1)}},
+		{"trim all", 8, []RPCWriteAction{trim(8)}},
+		{"reuse trimmed indices", 8, []RPCWriteAction{trim(3), appendSector, appendSector, swap(2, 6), appendSector, trim(5), appendSector, swap(1, 3)}},
+		{"swap appended sectors", 5, []RPCWriteAction{appendSector, appendSector, swap(0, 6), trim(3), appendSector, swap(1, 4)}},
+		{"empty and refill", 3, []RPCWriteAction{swap(0, 2), trim(3), appendSector, appendSector, swap(0, 1), trim(2), appendSector}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			roots := make([]types.Hash256, test.initial)
+			for i := range roots {
+				roots[i] = types.Hash256{byte(i), 0xA5}
+			}
+			// Apply actions directly to the complete sector list, independently
+			// of the compressed proof's index mapping.
+			expected := slices.Clone(roots)
+			var appendRoots []types.Hash256
+			for _, action := range test.actions {
+				switch action.Type {
+				case RPCWriteActionAppend:
+					root := types.Hash256{byte(len(appendRoots)), 0xFF}
+					appendRoots = append(appendRoots, root)
+					expected = append(expected, root)
+				case RPCWriteActionTrim:
+					expected = expected[:uint64(len(expected))-action.A]
+				case RPCWriteActionSwap:
+					expected[action.A], expected[action.B] = expected[action.B], expected[action.A]
+				}
+			}
+			treeHashes, leafHashes := BuildDiffProof(test.actions, roots)
+			originalLeaves := slices.Clone(leafHashes)
+			oldRoot, newRoot := recNodeRoot(roots), recNodeRoot(expected)
+			if !VerifyDiffProof(test.actions, uint64(len(roots)), treeHashes, leafHashes, oldRoot, newRoot, appendRoots) {
+				t.Fatal("valid diff proof rejected")
+			} else if !slices.Equal(leafHashes, originalLeaves) {
+				t.Fatal("verification modified the supplied leaf hashes")
+			}
+			for _, hashes := range [][]types.Hash256{treeHashes, leafHashes} {
+				if len(hashes) != 0 {
+					hashes[0][0] ^= 1
+					if VerifyDiffProof(test.actions, uint64(len(roots)), treeHashes, leafHashes, oldRoot, newRoot, appendRoots) {
+						t.Fatal("corrupt diff proof accepted")
+					}
+					hashes[0][0] ^= 1
+				}
 			}
 		})
 	}
