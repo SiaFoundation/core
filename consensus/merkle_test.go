@@ -2,11 +2,13 @@ package consensus
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math/bits"
 	"math/rand/v2"
 	"slices"
+	"sort"
 	"testing"
 
 	"go.sia.tech/core/blake2b"
@@ -502,5 +504,165 @@ func TestUpdateElementProof(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// benchmarkElementLeaves constructs consistent proofs in a height-h tree for
+// sorted, unique indices. Untouched subtrees have deterministic opaque roots,
+// avoiding the need to construct every leaf of a large tree during setup.
+func benchmarkElementLeaves(indices []uint64, height int) []elementLeaf {
+	leaves := make([]elementLeaf, len(indices))
+	for i, index := range indices {
+		leaves[i] = elementLeaf{
+			StateElement: &types.StateElement{LeafIndex: index, MerkleProof: make([]types.Hash256, height)},
+		}
+		binary.LittleEndian.PutUint64(leaves[i].elementHash[:], index)
+	}
+	var build func(uint64, int, []elementLeaf) types.Hash256
+	build = func(start uint64, height int, leaves []elementLeaf) types.Hash256 {
+		if len(leaves) == 0 {
+			var root types.Hash256
+			binary.LittleEndian.PutUint64(root[:], start)
+			root[8] = byte(height)
+			root[9] = 0xA5
+			return root
+		} else if height == 0 {
+			return leaves[0].hash()
+		}
+		mid := start + 1<<(height-1)
+		split := sort.Search(len(leaves), func(i int) bool { return leaves[i].LeafIndex >= mid })
+		left, right := leaves[:split], leaves[split:]
+		leftRoot, rightRoot := build(start, height-1, left), build(mid, height-1, right)
+		for _, leaf := range left {
+			leaf.MerkleProof[height-1] = rightRoot
+		}
+		for _, leaf := range right {
+			leaf.MerkleProof[height-1] = leftRoot
+		}
+		return blake2b.SumPair(leftRoot, rightRoot)
+	}
+	build(0, height, leaves)
+	return leaves
+}
+
+func BenchmarkElementAccumulatorAddLeaves(b *testing.B) {
+	for _, test := range []struct {
+		name    string
+		initial uint64
+		added   int
+	}{
+		{"empty/256", 0, 256},
+		{"fragmented/1", 1<<20 - 1, 1},
+		{"fragmented/256", 1<<20 - 1, 256},
+	} {
+		b.Run(test.name, func(b *testing.B) {
+			initial := ElementAccumulator{NumLeaves: test.initial}
+			for height := range initial.Trees {
+				initial.Trees[height] = types.Hash256{byte(height), 0xA5}
+			}
+			leaves := make([]elementLeaf, test.added)
+			for i := range leaves {
+				leaves[i].StateElement = new(types.StateElement)
+				binary.LittleEndian.PutUint64(leaves[i].elementHash[:], uint64(i))
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				// Include accumulator/reset costs, and start with nil proofs so
+				// each iteration measures fresh proof allocations.
+				acc := initial
+				for _, leaf := range leaves {
+					leaf.LeafIndex = types.UnassignedLeafIndex
+					leaf.MerkleProof = nil
+				}
+				acc.addLeaves(leaves)
+			}
+		})
+	}
+}
+
+func BenchmarkUpdateLeaves(b *testing.B) {
+	const height = 20
+	for _, test := range []struct {
+		name   string
+		count  int
+		stride uint64
+	}{
+		{"single", 1, 1},
+		{"clustered/256", 256, 1},
+		{"sparse/256", 256, 1 << 12},
+	} {
+		b.Run(test.name, func(b *testing.B) {
+			indices := make([]uint64, test.count)
+			for i := range indices {
+				indices[i] = uint64(i)*test.stride + 3
+			}
+			original := benchmarkElementLeaves(indices, height)
+			rand.New(rand.NewPCG(1, 2)).Shuffle(len(original), func(i, j int) {
+				original[i], original[j] = original[j], original[i]
+			})
+			proofs := make([]types.Hash256, len(original)*height)
+			for i, leaf := range original {
+				copy(proofs[i*height:], leaf.MerkleProof)
+				original[i].spent = true
+			}
+			leaves := make([]elementLeaf, len(original))
+			b.ReportAllocs()
+			for b.Loop() {
+				// Include restoring both unsorted input and original proofs;
+				// updateLeaves mutates the order and the proof backing arrays.
+				copy(leaves, original)
+				for i, leaf := range leaves {
+					copy(leaf.MerkleProof, proofs[i*height:(i+1)*height])
+				}
+				updateLeaves(leaves)
+			}
+		})
+	}
+}
+
+func BenchmarkUpdateProof(b *testing.B) {
+	const height = 20
+	for _, count := range []int{8, 1024} {
+		for _, mode := range []string{"exact", "near", "far"} {
+			b.Run(fmt.Sprintf("%v/%v", count, mode), func(b *testing.B) {
+				// Updates occupy even indices. Track an updated leaf, its
+				// adjacent unchanged sibling, or a leaf in the other tree half.
+				indices := make([]uint64, count)
+				for i := range indices {
+					indices[i] = 2 * uint64(i)
+				}
+				target := uint64(count)
+				if mode == "near" {
+					target++
+				} else if mode == "far" {
+					target = 1 << (height - 1)
+				}
+				if mode != "exact" {
+					indices = append(indices, target)
+					slices.Sort(indices)
+				}
+				leaves := benchmarkElementLeaves(indices, height)
+				var updated []elementLeaf
+				var original types.StateElement
+				for _, leaf := range leaves {
+					if leaf.LeafIndex == target {
+						original = types.StateElement{LeafIndex: target, MerkleProof: slices.Clone(leaf.MerkleProof)}
+					}
+					if leaf.LeafIndex < uint64(2*count) && leaf.LeafIndex%2 == 0 {
+						leaf.spent = true
+						updated = append(updated, leaf)
+					}
+				}
+				trees := updateLeaves(updated)
+				e := types.StateElement{LeafIndex: target, MerkleProof: make([]types.Hash256, height)}
+				b.ReportAllocs()
+				for b.Loop() {
+					// Include restoring the destination proof; preparing the
+					// sorted update set is separate from proof lookup.
+					copy(e.MerkleProof, original.MerkleProof)
+					updateProof(&e, &trees)
+				}
+			})
+		}
 	}
 }

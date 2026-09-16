@@ -2,6 +2,7 @@ package rhp
 
 import (
 	"bytes"
+	"encoding/binary"
 	"math/bits"
 	"slices"
 	"testing"
@@ -334,3 +335,82 @@ func BenchmarkReadSector(b *testing.B) {
 		}
 	}
 }
+
+func benchmarkDiffProof(b *testing.B, verify bool) {
+	const numSectors = 4096
+	var swaps, repeatedSwaps, appendTrim []RPCWriteAction
+	for i := range 128 {
+		index := uint64(i * 31 % (numSectors / 2))
+		swaps = append(swaps, RPCWriteAction{Type: RPCWriteActionSwap, A: index, B: index + numSectors/2})
+	}
+	for i := range 512 {
+		repeatedSwaps = append(repeatedSwaps, RPCWriteAction{Type: RPCWriteActionSwap, A: uint64(i % 32), B: uint64((i/32 + i*7 + 1) % 32)})
+	}
+	for range 64 {
+		appendTrim = append(appendTrim, RPCWriteAction{Type: RPCWriteActionAppend})
+	}
+	appendTrim = append(appendTrim, RPCWriteAction{Type: RPCWriteActionTrim, A: 96})
+
+	for _, test := range []struct {
+		name    string
+		actions []RPCWriteAction
+	}{
+		{"Swaps128", swaps},
+		{"RepeatedSwaps512", repeatedSwaps},
+		{"Append64Trim96", appendTrim},
+	} {
+		b.Run(test.name, func(b *testing.B) {
+			roots := make([]types.Hash256, numSectors)
+			for i := range roots {
+				binary.LittleEndian.PutUint64(roots[i][:], uint64(i))
+			}
+			// Replay the actions on the full sector list to check the compressed
+			// proof independently. Supply precomputed append roots so the timed
+			// work does not include hashing entire sectors.
+			expected := slices.Clone(roots)
+			var appendRoots []types.Hash256
+			for _, action := range test.actions {
+				switch action.Type {
+				case RPCWriteActionAppend:
+					var root types.Hash256
+					binary.LittleEndian.PutUint64(root[:], numSectors+uint64(len(appendRoots)))
+					appendRoots = append(appendRoots, root)
+					expected = append(expected, root)
+				case RPCWriteActionTrim:
+					expected = expected[:uint64(len(expected))-action.A]
+				case RPCWriteActionSwap:
+					expected[action.A], expected[action.B] = expected[action.B], expected[action.A]
+				}
+			}
+			treeHashes, leafHashes := BuildDiffProof(test.actions, roots)
+			proofIndices := sectorsChanged(test.actions, numSectors)
+			newIndices := modifyProofRanges(slices.Clone(proofIndices), test.actions, numSectors)
+			wantLeaves := make([]types.Hash256, len(newIndices))
+			for i, index := range newIndices {
+				wantLeaves[i] = expected[index]
+			}
+			if got := modifyLeaves(proofIndices, leafHashes, test.actions, numSectors, appendRoots); !slices.Equal(got, wantLeaves) {
+				b.Fatal("modified proof leaves do not match the full sector list")
+			}
+			oldRoot, newRoot := recNodeRoot(roots), recNodeRoot(expected)
+			if !VerifyDiffProof(test.actions, numSectors, treeHashes, leafHashes, oldRoot, newRoot, appendRoots) {
+				b.Fatal("valid diff proof rejected")
+			}
+
+			b.ReportAllocs()
+			if verify {
+				for b.Loop() {
+					VerifyDiffProof(test.actions, numSectors, treeHashes, leafHashes, oldRoot, newRoot, appendRoots)
+				}
+			} else {
+				for b.Loop() {
+					modifyLeaves(proofIndices, leafHashes, test.actions, numSectors, appendRoots)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkModifyLeaves(b *testing.B) { benchmarkDiffProof(b, false) }
+
+func BenchmarkVerifyDiffProof(b *testing.B) { benchmarkDiffProof(b, true) }
