@@ -266,6 +266,7 @@ func (acc *ElementAccumulator) addLeaves(leaves []elementLeaf) [64][]types.Hash2
 	initialLeaves := acc.NumLeaves
 	for i, el := range leaves {
 		el.LeafIndex = acc.NumLeaves
+		el.MerkleProof = nil
 
 		// Merge trees of equal height, appending each root to the proofs in
 		// the opposite tree.
