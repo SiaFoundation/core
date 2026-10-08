@@ -685,7 +685,7 @@ func (diff V2FileContractElementDiff) MarshalJSON() ([]byte, error) {
 		Revision              *types.V2FileContract       `json:"revision,omitempty"`
 		Resolution            json.RawMessage             `json:"resolution,omitempty"`
 	}{
-		V2FileContractElement: diff.V2FileContractElement,
+		V2FileContractElement: diff.V2FileContractElement.Share(),
 		Created:               diff.Created,
 		Revision:              diff.Revision,
 	}
@@ -731,10 +731,9 @@ func (diff *V2FileContractElementDiff) UnmarshalJSON(b []byte) error {
 		return err
 	}
 
-	diff.V2FileContractElement = tmp.V2FileContractElement
+	diff.V2FileContractElement = tmp.V2FileContractElement.Move()
 	diff.Created = tmp.Created
 	diff.Revision = tmp.Revision
-	diff.V2FileContractElement.Move()
 
 	if len(tmp.Resolution) == 0 {
 		return nil

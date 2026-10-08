@@ -5475,7 +5475,7 @@ func TestValidateV2Siacoins(t *testing.T) {
 
 				txn.SiacoinInputs = []types.V2SiacoinInput{
 					{
-						Parent: diff.SiacoinElement,
+						Parent: diff.SiacoinElement.Share(),
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -5513,7 +5513,7 @@ func TestValidateV2Siacoins(t *testing.T) {
 
 				txn.SiacoinInputs = []types.V2SiacoinInput{
 					{
-						Parent: diff.SiacoinElement,
+						Parent: diff.SiacoinElement.Share(),
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -5609,7 +5609,7 @@ func TestValidateV2Siacoins(t *testing.T) {
 				// Try to spend it
 				txn.SiacoinInputs = []types.V2SiacoinInput{
 					{
-						Parent: sce,
+						Parent: sce.Share(),
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -5647,7 +5647,7 @@ func TestValidateV2Siacoins(t *testing.T) {
 
 				txn.SiacoinInputs = []types.V2SiacoinInput{
 					{
-						Parent: diff.SiacoinElement,
+						Parent: diff.SiacoinElement.Share(),
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: types.PolicyPublicKey(key.PublicKey()),
 						},
@@ -5683,7 +5683,7 @@ func TestValidateV2Siacoins(t *testing.T) {
 
 				txn.SiacoinInputs = []types.V2SiacoinInput{
 					{
-						Parent: diff.SiacoinElement,
+						Parent: diff.SiacoinElement.Share(),
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: types.PolicyPublicKey(key.PublicKey()),
 						},
@@ -5779,11 +5779,11 @@ func TestValidateV2Siacoins(t *testing.T) {
 				diff := ms.createSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
 
 				// spend it, but claim a larger value than was actually created
-				parent := diff.SiacoinElement
+				parent := diff.SiacoinElement.Share()
 				parent.SiacoinOutput.Value = types.Siacoins(2000)
 				txn.SiacoinInputs = []types.V2SiacoinInput{
 					{
-						Parent: parent,
+						Parent: parent.Share(),
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -5824,11 +5824,11 @@ func TestValidateV2Siacoins(t *testing.T) {
 				diff := ms.createSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
 
 				// claim a larger value than was created; tolerated before the fork height
-				parent := diff.SiacoinElement
+				parent := diff.SiacoinElement.Share()
 				parent.SiacoinOutput.Value = types.Siacoins(2000)
 				txn.SiacoinInputs = []types.V2SiacoinInput{
 					{
-						Parent: parent,
+						Parent: parent.Share(),
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -5865,11 +5865,11 @@ func TestValidateV2Siacoins(t *testing.T) {
 				diff := ms.createImmatureSiacoinElement(txn.SiacoinOutputID(spendTxn.ID(), 0), spendTxn.SiacoinOutputs[0])
 
 				// spend it, but claim maturity height 0 to bypass the maturity delay
-				parent := diff.SiacoinElement
+				parent := diff.SiacoinElement.Share()
 				parent.MaturityHeight = 0
 				txn.SiacoinInputs = []types.V2SiacoinInput{
 					{
-						Parent: parent,
+						Parent: parent.Share(),
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -5935,7 +5935,7 @@ func TestValidateV2Siacoins(t *testing.T) {
 
 				txn.SiacoinInputs = []types.V2SiacoinInput{
 					{
-						Parent: diff.SiacoinElement,
+						Parent: diff.SiacoinElement.Share(),
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -5974,7 +5974,7 @@ func TestValidateV2Siacoins(t *testing.T) {
 
 				txn.SiacoinInputs = []types.V2SiacoinInput{
 					{
-						Parent: diff.SiacoinElement,
+						Parent: diff.SiacoinElement.Share(),
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -6009,7 +6009,7 @@ func TestValidateV2Siacoins(t *testing.T) {
 
 				txn.SiacoinInputs = []types.V2SiacoinInput{
 					{
-						Parent: diff.SiacoinElement,
+						Parent: diff.SiacoinElement.Share(),
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -6048,7 +6048,7 @@ func TestValidateV2Siacoins(t *testing.T) {
 
 				txn.SiacoinInputs = []types.V2SiacoinInput{
 					{
-						Parent: diff.SiacoinElement,
+						Parent: diff.SiacoinElement.Share(),
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -6087,7 +6087,7 @@ func TestValidateV2Siacoins(t *testing.T) {
 
 				txn.SiacoinInputs = []types.V2SiacoinInput{
 					{
-						Parent: diff.SiacoinElement,
+						Parent: diff.SiacoinElement.Share(),
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -6174,7 +6174,7 @@ func TestValidateV2Siafunds(t *testing.T) {
 
 				txn.SiafundInputs = []types.V2SiafundInput{
 					{
-						Parent: sfe,
+						Parent: sfe.Share(),
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -6238,7 +6238,7 @@ func TestValidateV2Siafunds(t *testing.T) {
 				// Try to spend it
 				txn.SiafundInputs = []types.V2SiafundInput{
 					{
-						Parent: sfe,
+						Parent: sfe.Share(),
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -6276,13 +6276,13 @@ func TestValidateV2Siafunds(t *testing.T) {
 
 				txn.SiafundInputs = []types.V2SiafundInput{
 					{
-						Parent: sfe,
+						Parent: sfe.Share(),
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: types.PolicyPublicKey(key.PublicKey()),
 						},
 					},
 					{
-						Parent: sfe,
+						Parent: sfe.Share(),
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: types.PolicyPublicKey(key.PublicKey()),
 						},
@@ -6401,7 +6401,7 @@ func TestValidateV2Siafunds(t *testing.T) {
 				// SiafundHeight (0 in testnet), regardless of the claimed value
 				txn.SiafundInputs = []types.V2SiafundInput{
 					{
-						Parent: diff.SiafundElement,
+						Parent: diff.SiafundElement.Share(),
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -6442,11 +6442,11 @@ func TestValidateV2Siafunds(t *testing.T) {
 				diff := ms.createSiafundElement(txn.SiafundOutputID(spendTxn.ID(), 0), spendTxn.SiafundOutputs[0])
 
 				// claim a larger value than was created; tolerated before the fork height
-				parent := diff.SiafundElement
+				parent := diff.SiafundElement.Share()
 				parent.SiafundOutput.Value = 2000
 				txn.SiafundInputs = []types.V2SiafundInput{
 					{
-						Parent: parent,
+						Parent: parent.Share(),
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -6511,7 +6511,7 @@ func TestValidateV2Siafunds(t *testing.T) {
 
 				txn.SiafundInputs = []types.V2SiafundInput{
 					{
-						Parent: sfe,
+						Parent: sfe.Share(),
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -6550,7 +6550,7 @@ func TestValidateV2Siafunds(t *testing.T) {
 
 				txn.SiafundInputs = []types.V2SiafundInput{
 					{
-						Parent: sfe,
+						Parent: sfe.Share(),
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -6585,7 +6585,7 @@ func TestValidateV2Siafunds(t *testing.T) {
 
 				txn.SiafundInputs = []types.V2SiafundInput{
 					{
-						Parent: sfe,
+						Parent: sfe.Share(),
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -6628,7 +6628,7 @@ func TestValidateV2Siafunds(t *testing.T) {
 
 				txn.SiafundInputs = []types.V2SiafundInput{
 					{
-						Parent: sfe,
+						Parent: sfe.Share(),
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -6667,7 +6667,7 @@ func TestValidateV2Siafunds(t *testing.T) {
 
 				txn.SiafundInputs = []types.V2SiafundInput{
 					{
-						Parent: sfe,
+						Parent: sfe.Share(),
 						SatisfiedPolicy: types.SatisfiedPolicy{
 							Policy: spendPolicy,
 						},
@@ -7386,7 +7386,7 @@ func TestValidateSupplement(t *testing.T) {
 					{
 						StorageProofs: []V1StorageProofSupplement{
 							{
-								FileContract: fce,
+								FileContract: fce.Share(),
 							},
 						},
 					},
@@ -7748,7 +7748,7 @@ func TestValidateV2FileContractsValidateParentClosure(t *testing.T) {
 				revision.RevisionNumber = 1
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
@@ -7778,7 +7778,7 @@ func TestValidateV2FileContractsValidateParentClosure(t *testing.T) {
 				}
 
 				resolution := types.V2FileContractResolution{
-					Parent:     fce,
+					Parent:     fce.Share(),
 					Resolution: &types.V2FileContractExpiration{},
 				}
 
@@ -7804,13 +7804,13 @@ func TestValidateV2FileContractsValidateParentClosure(t *testing.T) {
 				revision.RevisionNumber = 1
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
 				// Update the MidState as if the Parent is already resolved in a previous transaction
 				// within the same block
-				ms.resolveV2FileContractElement(fce, &types.V2FileContractExpiration{}, types.TransactionID{})
+				ms.resolveV2FileContractElement(fce.Share(), &types.V2FileContractExpiration{}, types.TransactionID{})
 
 				contractHash := ms.base.ContractSigHash(fcr.Revision)
 				fcr.Revision.HostSignature = hostKey.SignHash(contractHash)
@@ -7835,13 +7835,13 @@ func TestValidateV2FileContractsValidateParentClosure(t *testing.T) {
 				}
 
 				resolution := types.V2FileContractResolution{
-					Parent:     fce,
+					Parent:     fce.Share(),
 					Resolution: &types.V2FileContractExpiration{},
 				}
 
 				// Update the MidState as if the Parent is already resolved in a previous transaction
 				// within the same block
-				ms.resolveV2FileContractElement(fce, &types.V2FileContractExpiration{}, types.TransactionID{})
+				ms.resolveV2FileContractElement(fce.Share(), &types.V2FileContractExpiration{}, types.TransactionID{})
 
 				txn.FileContractResolutions = append(txn.FileContractResolutions, resolution)
 			},
@@ -7862,7 +7862,7 @@ func TestValidateV2FileContractsValidateParentClosure(t *testing.T) {
 				revision.RevisionNumber = 1
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
@@ -7893,7 +7893,7 @@ func TestValidateV2FileContractsValidateParentClosure(t *testing.T) {
 				}
 
 				resolution := types.V2FileContractResolution{
-					Parent:     fce,
+					Parent:     fce.Share(),
 					Resolution: &types.V2FileContractExpiration{},
 				}
 
@@ -7920,12 +7920,12 @@ func TestValidateV2FileContractsValidateParentClosure(t *testing.T) {
 				revision.RevisionNumber = 1
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
 				resolution := types.V2FileContractResolution{
-					Parent:     fce,
+					Parent:     fce.Share(),
 					Resolution: &types.V2FileContractExpiration{},
 				}
 
@@ -7957,7 +7957,7 @@ func TestValidateV2FileContractsValidateParentClosure(t *testing.T) {
 				revision.RevisionNumber = 1
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
@@ -7988,7 +7988,7 @@ func TestValidateV2FileContractsValidateParentClosure(t *testing.T) {
 				}
 
 				resolution := types.V2FileContractResolution{
-					Parent:     fce,
+					Parent:     fce.Share(),
 					Resolution: &types.V2FileContractExpiration{},
 				}
 
@@ -8015,7 +8015,7 @@ func TestValidateV2FileContractsValidateParentClosure(t *testing.T) {
 				revision.RevisionNumber = 1
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
@@ -8042,7 +8042,7 @@ func TestValidateV2FileContractsValidateParentClosure(t *testing.T) {
 				}
 
 				resolution := types.V2FileContractResolution{
-					Parent:     fce,
+					Parent:     fce.Share(),
 					Resolution: &types.V2FileContractExpiration{},
 				}
 
@@ -8115,7 +8115,7 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 				revision.RevisionNumber++
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
@@ -8137,12 +8137,12 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 				revision0.RevisionNumber++
 
 				// Add revision to MidState as if it was already included in this same block
-				ms.reviseV2FileContractElement(fce, revision0)
+				ms.reviseV2FileContractElement(fce.Share(), revision0)
 
 				revision1 := revision0
 				revision1.RevisionNumber = 2
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision1,
 				}
 
@@ -8164,11 +8164,11 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 				revision0.RevisionNumber++
 
 				// Add revision to MidState as if it was already included in this same block
-				ms.reviseV2FileContractElement(fce, revision0)
+				ms.reviseV2FileContractElement(fce.Share(), revision0)
 
 				revision1 := revision0
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision1,
 				}
 
@@ -8191,7 +8191,7 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 				revision.RevisionNumber++
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
@@ -8212,7 +8212,7 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 				revision.RevisionNumber++
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
@@ -8236,7 +8236,7 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 				revision.Capacity = 0
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
@@ -8263,14 +8263,14 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 				revision0.Capacity = 512
 
 				// Add revision to MidState as if it was already included in this same block
-				ms.reviseV2FileContractElement(fce, revision0)
+				ms.reviseV2FileContractElement(fce.Share(), revision0)
 
 				revision1 := revision0
 				revision1.RevisionNumber = 2
 				// set capacity higher than baseFileContract.Capacity but lower than revision0.Capacity
 				revision1.Capacity = 256
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision1,
 				}
 
@@ -8294,7 +8294,7 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 				revision.Filesize = revision.Capacity + 1
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
@@ -8318,7 +8318,7 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 				revision.Filesize = revision.Capacity
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
@@ -8341,12 +8341,12 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 				revision0.RevisionNumber++
 
 				// Add revision to MidState as if it was already included in this same block
-				ms.reviseV2FileContractElement(fce, revision0)
+				ms.reviseV2FileContractElement(fce.Share(), revision0)
 
 				revision1 := revision0
 				revision1.RevisionNumber = 2
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision1,
 				}
 
@@ -8371,7 +8371,7 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 				revision.RevisionNumber++
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
@@ -8392,7 +8392,7 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 				revision := fce.V2FileContract
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
@@ -8416,7 +8416,7 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 				revision.RenterOutput.Value = revision.RenterOutput.Value.Add(types.Siacoins(1))
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
@@ -8440,7 +8440,7 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 				revision.HostOutput.Value = revision.HostOutput.Value.Add(types.Siacoins(1))
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
@@ -8464,7 +8464,7 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 				revision.MissedHostValue = revision.MissedHostValue.Add(types.Siacoins(1))
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
@@ -8488,7 +8488,7 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 				revision.MissedHostValue = types.ZeroCurrency
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
@@ -8511,7 +8511,7 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 				revision.TotalCollateral = revision.TotalCollateral.Add(types.Siacoins(1))
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
@@ -8535,7 +8535,7 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 				revision.TotalCollateral = revision.TotalCollateral.Sub(types.Siacoins(1))
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
@@ -8559,7 +8559,7 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 				revision.ProofHeight = 0
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
@@ -8583,7 +8583,7 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 				revision.ProofHeight = ms.base.childHeight()
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
@@ -8606,7 +8606,7 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 				revision.ExpirationHeight = revision.ProofHeight
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
@@ -8632,7 +8632,7 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 				revision.ExpirationHeight = 0
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
@@ -8655,7 +8655,7 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 				revision.RevisionNumber++
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
@@ -8678,7 +8678,7 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 				revision.RevisionNumber++
 
 				fcr := types.V2FileContractRevision{
-					Parent:   fce,
+					Parent:   fce.Share(),
 					Revision: revision,
 				}
 
@@ -8737,7 +8737,7 @@ func TestValidateV2FileContractsValidateRevisionClosure(t *testing.T) {
 
 			txn := types.V2Transaction{}
 
-			test.mutate(ms, &txn, hostKey, renterKey, fce)
+			test.mutate(ms, &txn, hostKey, renterKey, fce.Share())
 
 			err := validateV2FileContracts(ms, txn)
 
@@ -8769,7 +8769,7 @@ func TestValidateV2FileContractsResolutions(t *testing.T) {
 				fce.V2FileContract.ExpirationHeight = 0
 
 				resolution := types.V2FileContractResolution{
-					Parent:     fce,
+					Parent:     fce.Share(),
 					Resolution: &types.V2FileContractExpiration{},
 				}
 
@@ -8786,7 +8786,7 @@ func TestValidateV2FileContractsResolutions(t *testing.T) {
 				fce.V2FileContract.ProofHeight = 0
 
 				resolution := types.V2FileContractResolution{
-					Parent:     fce,
+					Parent:     fce.Share(),
 					Resolution: &types.V2FileContractExpiration{},
 				}
 
@@ -8836,7 +8836,7 @@ func TestValidateV2FileContractsResolutions(t *testing.T) {
 
 				// Prove for leaf 0
 				storageProof := types.V2StorageProof{
-					ProofIndex: cie,
+					ProofIndex: cie.Share(),
 					Leaf:       leaf0Data,
 					Proof:      []types.Hash256{hash1},
 				}
@@ -8849,7 +8849,7 @@ func TestValidateV2FileContractsResolutions(t *testing.T) {
 				ms.base.Elements.addLeaves(leaves)
 
 				resolution := types.V2FileContractResolution{
-					Parent:     fce,
+					Parent:     fce.Share(),
 					Resolution: &storageProof,
 				}
 
@@ -8892,7 +8892,7 @@ func TestValidateV2FileContractsResolutions(t *testing.T) {
 
 				// Prove for leaf 0
 				storageProof := types.V2StorageProof{
-					ProofIndex: cie,
+					ProofIndex: cie.Share(),
 					Leaf:       leaf0Data,
 					Proof:      []types.Hash256{hash1},
 				}
@@ -8905,7 +8905,7 @@ func TestValidateV2FileContractsResolutions(t *testing.T) {
 				ms.base.Elements.addLeaves(leaves)
 
 				resolution := types.V2FileContractResolution{
-					Parent:     fce,
+					Parent:     fce.Share(),
 					Resolution: &storageProof,
 				}
 
@@ -8951,7 +8951,7 @@ func TestValidateV2FileContractsResolutions(t *testing.T) {
 
 				// Prove for leaf 0
 				storageProof := types.V2StorageProof{
-					ProofIndex: cie,
+					ProofIndex: cie.Share(),
 					Leaf:       leaf0Data,
 					Proof:      []types.Hash256{hash1},
 				}
@@ -8964,7 +8964,7 @@ func TestValidateV2FileContractsResolutions(t *testing.T) {
 				ms.base.Elements.addLeaves(leaves)
 
 				resolution := types.V2FileContractResolution{
-					Parent:     fce,
+					Parent:     fce.Share(),
 					Resolution: &storageProof,
 				}
 
@@ -8984,7 +8984,7 @@ func TestValidateV2FileContractsResolutions(t *testing.T) {
 				ms.base.Elements.addLeaves(leaves)
 
 				resolution := types.V2FileContractResolution{
-					Parent: fce,
+					Parent: fce.Share(),
 					Resolution: &types.V2StorageProof{
 						ProofIndex: types.ChainIndexElement{
 							ChainIndex: types.ChainIndex{
@@ -9036,7 +9036,7 @@ func TestValidateV2FileContractsResolutions(t *testing.T) {
 
 				// Prove for leaf 1, the wrong leaf
 				storageProof := types.V2StorageProof{
-					ProofIndex: cie,
+					ProofIndex: cie.Share(),
 					Leaf:       leaf1Data,
 					Proof:      []types.Hash256{hash0},
 				}
@@ -9049,7 +9049,7 @@ func TestValidateV2FileContractsResolutions(t *testing.T) {
 				ms.base.Elements.addLeaves(leaves)
 
 				resolution := types.V2FileContractResolution{
-					Parent:     fce,
+					Parent:     fce.Share(),
 					Resolution: &storageProof,
 				}
 
@@ -9098,7 +9098,7 @@ func TestValidateV2FileContractsResolutions(t *testing.T) {
 				V2FileContract: baseFileContract,
 			}
 
-			test.mutate(ms, &txn, hostKey, renterKey, fce)
+			test.mutate(ms, &txn, hostKey, renterKey, fce.Share())
 
 			err := validateV2FileContracts(ms, txn)
 

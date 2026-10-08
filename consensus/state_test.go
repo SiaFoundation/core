@@ -158,7 +158,7 @@ func TestV2FileContractElementDiffJSON(t *testing.T) {
 
 	for _, res := range tests {
 		d1 := V2FileContractElementDiff{
-			V2FileContractElement: fce,
+			V2FileContractElement: fce.Copy(),
 		}
 		assertRoundTrip(t, d1)
 
