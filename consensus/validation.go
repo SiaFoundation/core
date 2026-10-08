@@ -579,7 +579,7 @@ func validateEphemeralSiacoinElement(ms *MidState, sci types.V2SiacoinInput) err
 		return nil
 	}
 
-	esci := ms.sces[j].SiacoinElement
+	esci := ms.sces[j].SiacoinElement.Share()
 	if sci.Parent.ID != esci.ID {
 		return fmt.Errorf("spends nonexistent ephemeral output %v", sci.Parent.ID)
 	} else if sci.Parent.SiacoinOutput != esci.SiacoinOutput {
