@@ -1016,8 +1016,17 @@ func (au *ApplyUpdate) UnmarshalJSON(b []byte) error {
 		oldNumLeaves: js.OldNumLeaves,
 		numLeaves:    js.NumLeaves,
 	}
-	for i, els := range js.UpdatedLeaves {
-		au.eau.updated[i] = els
+	// The JSON leaf records omit the element hash and spent flag. Reconstruct
+	// complete leaves from the diffs instead.
+	forEachAppliedElement(au.sces, au.sfes, au.fces, au.v2fces, au.aes, &au.cie, func(el elementLeaf) {
+		if el.LeafIndex < au.eau.oldNumLeaves {
+			// Proofs already include tree growth; group by the original height.
+			height := mergeHeight(au.eau.oldNumLeaves, el.LeafIndex) - 1
+			au.eau.updated[height] = append(au.eau.updated[height], el)
+		}
+	})
+	for _, els := range &au.eau.updated {
+		sortLeaves(els)
 	}
 	for i, els := range js.TreeGrowth {
 		au.eau.treeGrowth[i] = els
@@ -1061,8 +1070,15 @@ func (ru *RevertUpdate) UnmarshalJSON(b []byte) error {
 	ru.eru = elementRevertUpdate{
 		numLeaves: js.NumLeaves,
 	}
-	for i, els := range js.UpdatedLeaves {
-		ru.eru.updated[i] = els
+	// Reconstruct the original hashes and spent flags from the reverted diffs.
+	forEachRevertedElement(ru.sces, ru.sfes, ru.fces, ru.v2fces, func(el elementLeaf) {
+		if el.LeafIndex < ru.eru.numLeaves {
+			height := mergeHeight(ru.eru.numLeaves, el.LeafIndex) - 1
+			ru.eru.updated[height] = append(ru.eru.updated[height], el)
+		}
+	})
+	for _, els := range &ru.eru.updated {
+		sortLeaves(els)
 	}
 	return nil
 }

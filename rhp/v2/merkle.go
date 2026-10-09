@@ -546,7 +546,7 @@ func VerifyDiffProof(actions []RPCWriteAction, numLeaves uint64, treeHashes, lea
 	}
 
 	// then modify the proof according to actions and construct the newRoot
-	newLeafHashes := modifyLeaves(leafHashes, actions, numLeaves, appendRoots)
+	newLeafHashes := modifyLeaves(proofIndices, leafHashes, actions, numLeaves, appendRoots)
 	newProofIndices := modifyProofRanges(proofIndices, actions, numLeaves)
 	numLeaves += uint64(len(newLeafHashes) - len(leafHashes))
 
@@ -637,35 +637,10 @@ func modifyProofRanges(proofIndices []uint64, actions []RPCWriteAction, numSecto
 
 // modifyLeaves modifies the leaf hashes of a Merkle diff proof to verify a
 // post-modification Merkle diff proof for the specified actions.
-func modifyLeaves(leafHashes []types.Hash256, actions []RPCWriteAction, numSectors uint64, appendRoots []types.Hash256) []types.Hash256 {
-	// determine which sector index corresponds to each leaf hash
-	var indices []uint64
-	for _, action := range actions {
-		switch action.Type {
-		case RPCWriteActionAppend:
-			indices = append(indices, numSectors)
-			numSectors++
-		case RPCWriteActionTrim:
-			for j := uint64(0); j < action.A; j++ {
-				numSectors--
-				indices = append(indices, numSectors)
-			}
-		case RPCWriteActionSwap:
-			indices = append(indices, action.A, action.B)
-
-		default:
-			panic("unknown or unsupported action type: " + action.Type.String())
-		}
-	}
-	sort.Slice(indices, func(i, j int) bool {
-		return indices[i] < indices[j]
-	})
-	indexMap := make(map[uint64]uint64, len(leafHashes))
-	for i, index := range indices {
-		if i > 0 && index == indices[i-1] {
-			continue // remove duplicates
-		}
-		indexMap[index] = uint64(len(indexMap))
+func modifyLeaves(proofIndices []uint64, leafHashes []types.Hash256, actions []RPCWriteAction, numSectors uint64, appendRoots []types.Hash256) []types.Hash256 {
+	indexMap := make(map[uint64]int, len(proofIndices))
+	for i, index := range proofIndices {
+		indexMap[index] = i
 	}
 	leafHashes = append([]types.Hash256(nil), leafHashes...)
 	for _, action := range actions {
@@ -677,10 +652,13 @@ func modifyLeaves(leafHashes []types.Hash256, actions []RPCWriteAction, numSecto
 			} else {
 				root = SectorRoot((*[SectorSize]byte)(action.Data))
 			}
+			indexMap[numSectors] = len(leafHashes)
 			leafHashes = append(leafHashes, root)
+			numSectors++
 
 		case RPCWriteActionTrim:
 			leafHashes = leafHashes[:uint64(len(leafHashes))-action.A]
+			numSectors -= action.A
 
 		case RPCWriteActionSwap:
 			i, j := indexMap[action.A], indexMap[action.B]

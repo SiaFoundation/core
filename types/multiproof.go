@@ -71,46 +71,50 @@ func forEachElementLeaf(txns []V2Transaction, fn func(l elementLeaf)) {
 	}
 }
 
-func forEachTree(txns []V2Transaction, fn func(i, j uint64, leaves []elementLeaf)) {
-	clearBits := func(x uint64, n int) uint64 { return x &^ (1<<n - 1) }
-
+func multiproofTrees(txns []V2Transaction) [64][]elementLeaf {
 	var trees [64][]elementLeaf
 	forEachElementLeaf(txns, func(l elementLeaf) {
 		trees[len(l.MerkleProof)] = append(trees[len(l.MerkleProof)], l)
 	})
-	for height, leaves := range &trees {
+	for _, leaves := range &trees {
+		if len(leaves) > 1 {
+			sort.Slice(leaves, func(i, j int) bool {
+				return leaves[i].LeafIndex < leaves[j].LeafIndex
+			})
+		}
+	}
+	return trees
+}
+
+func forEachTree(trees *[64][]elementLeaf, fn func(i, j uint64, leaves []elementLeaf)) {
+	clearBits := func(x uint64, n int) uint64 { return x &^ (1<<n - 1) }
+	for height, leaves := range trees {
 		if len(leaves) == 0 {
 			continue
 		}
-		sort.Slice(leaves, func(i, j int) bool {
-			return leaves[i].LeafIndex < leaves[j].LeafIndex
-		})
 		start := clearBits(leaves[0].LeafIndex, height+1)
 		end := start + 1<<height
 		fn(start, end, leaves)
 	}
 }
 
-// multiproofSize computes the size of a multiproof for the given transactions.
-func multiproofSize(txns []V2Transaction) int {
-	var proofSize func(i, j uint64, leaves []elementLeaf) int
-	proofSize = func(i, j uint64, leaves []elementLeaf) int {
-		height := bits.TrailingZeros64(j - i)
+// multiproofSize computes the size of a multiproof for the given trees.
+func multiproofSize(trees *[64][]elementLeaf) (size int) {
+	for height, leaves := range trees {
 		if len(leaves) == 0 {
-			return 1
-		} else if height == 0 {
-			return 0
+			continue
 		}
-		mid := (i + j) / 2
-		left, right := splitLeaves(leaves, mid)
-		return proofSize(i, mid, left) + proofSize(mid, j, right)
+		// The first leaf needs height siblings. Each subsequent distinct leaf
+		// replaces one proof hash with mh-1 siblings below its merge point
+		// with the preceding leaf, changing the size by mh-2.
+		size += height
+		for i := 1; i < len(leaves); i++ {
+			if a, b := leaves[i-1].LeafIndex, leaves[i].LeafIndex; a != b {
+				size += bits.Len64(a^b) - 2
+			}
+		}
 	}
-
-	size := 0
-	forEachTree(txns, func(i, j uint64, leaves []elementLeaf) {
-		size += proofSize(i, j, leaves)
-	})
-	return size
+	return
 }
 
 // computeMultiproof computes a single Merkle proof for all inputs in txns.
@@ -121,7 +125,7 @@ func computeMultiproof(txns []V2Transaction) (proof []Hash256) {
 		if height == 0 {
 			return // fully consumed
 		}
-		mid := (i + j) / 2
+		mid := i + (j-i)/2
 		left, right := splitLeaves(leaves, mid)
 		if len(left) == 0 {
 			proof = append(proof, right[0].MerkleProof[height-1])
@@ -135,13 +139,14 @@ func computeMultiproof(txns []V2Transaction) (proof []Hash256) {
 		}
 	}
 
-	forEachTree(txns, visit)
+	trees := multiproofTrees(txns)
+	forEachTree(&trees, visit)
 	return
 }
 
-// expandMultiproof restores all of the proofs with txns using the supplied
-// multiproof, the length of which must equal multiproofSize(txns).
-func expandMultiproof(txns []V2Transaction, proof []Hash256) {
+// expandMultiproof restores all of the proofs in trees using the supplied
+// multiproof, the length of which must equal multiproofSize(trees).
+func expandMultiproof(trees *[64][]elementLeaf, proof []Hash256) {
 	var visit func(i, j uint64, leaves []elementLeaf) Hash256
 	visit = func(i, j uint64, leaves []elementLeaf) Hash256 {
 		height := bits.TrailingZeros64(j - i)
@@ -153,7 +158,7 @@ func expandMultiproof(txns []V2Transaction, proof []Hash256) {
 		} else if height == 0 {
 			return leaves[0].hash()
 		}
-		mid := (i + j) / 2
+		mid := i + (j-i)/2
 		left, right := splitLeaves(leaves, mid)
 		leftRoot := visit(i, mid, left)
 		rightRoot := visit(mid, j, right)
@@ -166,7 +171,7 @@ func expandMultiproof(txns []V2Transaction, proof []Hash256) {
 		return blake2b.SumPair(leftRoot, rightRoot)
 	}
 
-	forEachTree(txns, func(i, j uint64, leaves []elementLeaf) {
+	forEachTree(trees, func(i, j uint64, leaves []elementLeaf) {
 		_ = visit(i, j, leaves)
 	})
 }
@@ -221,9 +226,10 @@ func (txns *V2TransactionsMultiproof) DecodeFrom(d *Decoder) {
 	if d.Err() != nil {
 		return
 	}
-	multiproof := make([]Hash256, multiproofSize(*txns))
+	trees := multiproofTrees(*txns)
+	multiproof := make([]Hash256, multiproofSize(&trees))
 	for i := range multiproof {
 		multiproof[i].DecodeFrom(d)
 	}
-	expandMultiproof(*txns, multiproof)
+	expandMultiproof(&trees, multiproof)
 }
