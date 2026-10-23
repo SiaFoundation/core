@@ -2,6 +2,7 @@ package consensus
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -388,6 +389,15 @@ func TestRevertedRevisionLeaf(t *testing.T) {
 	// looking at the contract element itself; instead, we have to look at the
 	// leaf *adjacent* to it in the accumulator (in this case, the chain index
 	// element).
+	roundtrip := func(update any) {
+		t.Helper()
+		b, err := json.Marshal(update)
+		if err != nil {
+			t.Fatal(err)
+		} else if err := json.Unmarshal(b, update); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	n, genesisBlock := testnet()
 	genesisBlock.Transactions = []types.Transaction{{
@@ -433,6 +443,7 @@ func TestRevertedRevisionLeaf(t *testing.T) {
 	}
 	prev := cs
 	cs, cau = ApplyBlock(cs, b, bs, time.Time{})
+	roundtrip(&cau)
 
 	cau.UpdateElementProof(&cie.StateElement)
 	if !cs.Elements.containsChainIndex(cie.Share()) {
@@ -450,6 +461,7 @@ func TestRevertedRevisionLeaf(t *testing.T) {
 
 	// revert the block
 	cru := RevertBlock(prev, b, bs)
+	roundtrip(&cru)
 	cs = prev
 
 	cru.UpdateElementProof(&cie.StateElement)
