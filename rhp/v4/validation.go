@@ -137,20 +137,20 @@ func (req *RPCFormContractRequest) Validate(pk types.PublicKey, tip types.ChainI
 
 	// validate the contract fields
 	hp := req.Prices
-	// calculate the minimum allowance required for the contract based on the
-	// host's locked collateral
-	minRenterAllowance := MinRenterAllowance(hp, req.Contract.Collateral)
-
 	switch {
 	case req.Contract.Allowance.IsZero():
 		return rpcBadRequestError("allowance must be greater than zero")
 	case req.Contract.Collateral.Cmp(maxCollateral) > 0:
 		return rpcBadRequestError("collateral %v exceeds max collateral %v", req.Contract.Collateral, maxCollateral)
-	case req.Contract.Allowance.Cmp(minRenterAllowance) < 0:
-		return rpcBadRequestError("allowance %v is less than minimum allowance %v", req.Contract.Allowance, minRenterAllowance)
-	default:
-		return nil
 	}
+
+	// calculate the minimum allowance required for the contract based on the
+	// host's locked collateral
+	minRenterAllowance := MinRenterAllowance(hp, req.Contract.Collateral)
+	if req.Contract.Allowance.Cmp(minRenterAllowance) < 0 {
+		return rpcBadRequestError("allowance %v is less than minimum allowance %v", req.Contract.Allowance, minRenterAllowance)
+	}
+	return nil
 }
 
 // Validate validates a renew contract request. Prices are not validated
@@ -180,24 +180,28 @@ func (req *RPCRenewContractRequest) Validate(pk types.PublicKey, tip types.Chain
 	// validate the contract fields
 	hp := req.Prices
 	duration := req.Renewal.ProofHeight + ProofWindow - hp.TipHeight
-	// calculate the minimum allowance required for the contract based on the
-	// host's locked collateral and the contract duration
-	minRenterAllowance := MinRenterAllowance(hp, req.Renewal.Collateral)
-	// collateral is risked for the entire contract duration
-	riskedCollateral := req.Prices.Collateral.Mul64(existing.Filesize).Mul64(duration)
-	// renewals add collateral on top of the required risked collateral
-	totalCollateral := req.Renewal.Collateral.Add(riskedCollateral)
-
 	switch {
 	case req.Renewal.Allowance.IsZero():
 		return rpcBadRequestError("allowance must be greater than zero")
-	case totalCollateral.Cmp(maxCollateral) > 0:
-		return rpcBadRequestError("required collateral %v exceeds max collateral %v", totalCollateral, maxCollateral)
-	case req.Renewal.Allowance.Cmp(minRenterAllowance) < 0:
-		return rpcBadRequestError("allowance %v is less than minimum allowance %v", req.Renewal.Allowance, minRenterAllowance)
-	default:
-		return nil
+	case req.Renewal.Collateral.Cmp(maxCollateral) > 0:
+		return rpcBadRequestError("collateral %v exceeds max collateral %v", req.Renewal.Collateral, maxCollateral)
 	}
+
+	// collateral is risked for the entire contract duration
+	riskedCollateral := req.Prices.Collateral.Mul64(existing.Filesize).Mul64(duration)
+	// renewals add collateral on top of the required risked collateral
+	totalCollateral, overflow := req.Renewal.Collateral.AddWithOverflow(riskedCollateral)
+	if overflow || totalCollateral.Cmp(maxCollateral) > 0 {
+		return rpcBadRequestError("required collateral %v exceeds max collateral %v", totalCollateral, maxCollateral)
+	}
+
+	// calculate the minimum allowance required for the contract based on the
+	// host's locked collateral and the contract duration
+	minRenterAllowance := MinRenterAllowance(hp, req.Renewal.Collateral)
+	if req.Renewal.Allowance.Cmp(minRenterAllowance) < 0 {
+		return rpcBadRequestError("allowance %v is less than minimum allowance %v", req.Renewal.Allowance, minRenterAllowance)
+	}
+	return nil
 }
 
 // Validate validates a refresh contract request against the existing contract.
@@ -219,27 +223,28 @@ func (req *RPCRefreshContractRequest) Validate(pk types.PublicKey, tip types.Cha
 
 	// validate the contract fields
 	hp := req.Prices
+	if req.Refresh.Allowance.IsZero() {
+		return rpcBadRequestError("allowance must be greater than zero")
+	}
+
+	var totalHostCollateral types.Currency
+	var overflow bool
+	if partial {
+		totalHostCollateral, overflow = existing.RiskedCollateral().AddWithOverflow(req.Refresh.Collateral)
+	} else {
+		totalHostCollateral, overflow = existing.TotalCollateral.AddWithOverflow(req.Refresh.Collateral)
+	}
+	if overflow || totalHostCollateral.Cmp(maxCollateral) > 0 {
+		return rpcBadRequestError("required collateral %v exceeds max collateral %v", totalHostCollateral, maxCollateral)
+	}
+
 	// calculate the minimum allowance required for the contract based on the
 	// host's locked collateral
 	minRenterAllowance := MinRenterAllowance(hp, req.Refresh.Collateral)
-
-	var totalHostCollateral types.Currency
-	if partial {
-		totalHostCollateral = existing.RiskedCollateral().Add(req.Refresh.Collateral)
-	} else {
-		totalHostCollateral = existing.TotalCollateral.Add(req.Refresh.Collateral)
-	}
-
-	switch {
-	case req.Refresh.Allowance.IsZero():
-		return rpcBadRequestError("allowance must be greater than zero")
-	case req.Refresh.Allowance.Cmp(minRenterAllowance) < 0:
+	if req.Refresh.Allowance.Cmp(minRenterAllowance) < 0 {
 		return rpcBadRequestError("renter allowance %v is less than minimum allowance %v", req.Refresh.Allowance, minRenterAllowance)
-	case totalHostCollateral.Cmp(maxCollateral) > 0:
-		return rpcBadRequestError("required collateral %v exceeds max collateral %v", totalHostCollateral, maxCollateral)
-	default:
-		return nil
 	}
+	return nil
 }
 
 // Validate checks that the request is valid
