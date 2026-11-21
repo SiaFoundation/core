@@ -115,6 +115,38 @@ func TestValidateOverflow(t *testing.T) {
 	if err := renewReq.Validate(pk, types.ChainIndex{}, types.V2FileContract{}, types.ZeroCurrency, 1000); err == nil {
 		t.Fatal("expected error for overflowing minimum renew proof height")
 	}
+
+	collateralPrices := prices(0)
+	collateralPrices.Collateral = types.NewCurrency64(1)
+	collateralPrices.Signature = hostKey.SignHash(collateralPrices.SigHash())
+
+	renewReq = RPCRenewContractRequest{
+		Prices:   collateralPrices,
+		MinerFee: types.Siacoins(1),
+		Basis:    types.ChainIndex{Height: 1},
+		Renewal: RPCRenewContractParams{
+			Allowance:   types.NewCurrency64(1),
+			Collateral:  types.MaxCurrency,
+			ProofHeight: 200,
+		},
+	}
+	if err := renewReq.Validate(pk, types.ChainIndex{}, types.V2FileContract{Filesize: SectorSize, ProofHeight: 100}, types.MaxCurrency, 1000); err == nil {
+		t.Fatal("expected error for overflowing renew collateral")
+	}
+
+	refreshReq := RPCRefreshContractRequest{
+		Prices:   collateralPrices,
+		MinerFee: types.Siacoins(1),
+		Basis:    types.ChainIndex{Height: 1},
+		Refresh: RPCRefreshContractParams{
+			Allowance:  types.NewCurrency64(1),
+			Collateral: types.MaxCurrency,
+		},
+	}
+	existing := types.V2FileContract{ProofHeight: 1000, TotalCollateral: types.NewCurrency64(1)}
+	if err := refreshReq.Validate(pk, types.ChainIndex{}, existing, types.MaxCurrency, false); err == nil {
+		t.Fatal("expected error for overflowing refresh collateral")
+	}
 }
 
 func TestValidatePrices(t *testing.T) {
