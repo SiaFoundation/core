@@ -1,3 +1,15 @@
+## 0.21.9 (2026-11-25)
+
+### Fixes
+
+#### Return an error instead of panicking on collateral overflow in contract validation.
+
+`RPCRenewContractRequest.Validate` and `RPCRefreshContractRequest.Validate` added the renter-supplied collateral with `Currency.Add`, which panics on overflow, before comparing it to the host's max collateral. They now check the collateral first and use `AddWithOverflow`, so an oversized value returns a bad-request error. `RPCFormContractRequest.Validate` also checks the max collateral before computing the minimum allowance.
+
+#### Saturate MinRenterAllowance and MaxHostCollateral on overflow
+
+`MinRenterAllowance` and `MaxHostCollateral` now return `types.MaxCurrency` instead of panicking when the result overflows.
+
 ## 0.21.8 (2026-10-23)
 
 ### Fixes
