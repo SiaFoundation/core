@@ -27,6 +27,15 @@ func TestMinRenterAllowanceMaxHostCollateral(t *testing.T) {
 	if !maxCollateral.Equals(collateral) {
 		t.Fatalf("expected %v, got %v", collateral, maxCollateral)
 	}
+
+	// overflow saturates instead of panicking
+	if v := MaxHostCollateral(hp, types.MaxCurrency); !v.Equals(types.MaxCurrency) {
+		t.Fatalf("expected max currency, got %v", v)
+	}
+	hp.StoragePrice, hp.Collateral = hp.Collateral, hp.StoragePrice
+	if v := MinRenterAllowance(hp, types.MaxCurrency); !v.Equals(types.MaxCurrency) {
+		t.Fatalf("expected max currency, got %v", v)
+	}
 }
 
 func TestRenewalCost(t *testing.T) {

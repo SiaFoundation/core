@@ -911,7 +911,11 @@ func MinRenterAllowance(hp HostPrices, collateral types.Currency) types.Currency
 		return types.ZeroCurrency
 	}
 	maxCollateralBytes := collateral.Div(hp.Collateral)
-	return hp.StoragePrice.Mul(maxCollateralBytes)
+	minAllowance, overflow := hp.StoragePrice.MulWithOverflow(maxCollateralBytes)
+	if overflow {
+		return types.MaxCurrency
+	}
+	return minAllowance
 }
 
 // MaxHostCollateral returns the maximum amount of collateral a host can justify
@@ -921,7 +925,11 @@ func MaxHostCollateral(hp HostPrices, allowance types.Currency) types.Currency {
 		return types.MaxCurrency
 	}
 	maxCollateralBytes := allowance.Div(hp.StoragePrice)
-	return hp.Collateral.Mul(maxCollateralBytes)
+	maxCollateral, overflow := hp.Collateral.MulWithOverflow(maxCollateralBytes)
+	if overflow {
+		return types.MaxCurrency
+	}
+	return maxCollateral
 }
 
 // RenewContract creates a contract renewal for the renew RPC
